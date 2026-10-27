@@ -1,0 +1,97 @@
+# Regression gate: every push and pull request is typechecked, unit-tested, built, checked for
+# schema drift (schema.prisma vs. migrations) and run through the full database-backed suite
+# against a disposable Postgres. No secrets are needed: attachments use local storage, ETA is
+# unconfigured (its endpoints answer 503 by design), and the test guard only accepts a local
+# database and server (tests/_guard.ts).
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: united
+          POSTGRES_PASSWORD: united
+          POSTGRES_DB: united_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U united"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://united:united@localhost:5432/united_test
+      DIRECT_URL: postgresql://united:united@localhost:5432/united_test
+      SHADOW_DATABASE_URL: postgresql://united:united@localhost:5432/united_shadow
+      JWT_SECRET: ci-disposable-test-secret-0123456789abcdef
+      N8N_API_KEY: ci-test-key
+      STORAGE_PROVIDER: local
+      UNITED_TEST_DB: "1"
+      BASE: http://localhost:3111
+      # The server keeps Cairo business dates; the suites compute "today" from the clock.
+      TZ: Africa/Cairo
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npx prisma generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Migrations apply to an empty database
+        run: npx prisma migrate deploy
+
+      - name: Schema drift (schema.prisma must equal the migrations)
+        run: |
+          PGPASSWORD=united psql -h localhost -U united -d united_test -c "CREATE DATABASE united_shadow"
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --exit-code
+
+      - name: Build
+        run: npm run build
+
+      - name: Integration tests
+        run: npm run test:integration
+
+      - name: Start the server
+        run: |
+          npm run test:reset
+          nohup npx next start -p 3111 > server.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3111/api/health > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat server.log
+          exit 1
+
+      - name: End-to-end suites
+        run: npm run test:e2e
+
+      - name: Server log
+        if: failure()
+        run: tail -n 200 server.log || true

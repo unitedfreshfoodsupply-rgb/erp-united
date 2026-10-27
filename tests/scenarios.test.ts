@@ -176,7 +176,10 @@ async function main() {
   check("duplicate product name (other case / spaces) -> 409", (await call("hossam", "POST", "/api/stock/products", { name: ` ${T} tomato `, unit: "KG" })).status === 409);
   check("product without a unit -> 400; unknown unit -> 400", (await call("hossam", "POST", "/api/stock/products", { name: `${T} NoUnit` })).status === 400 && (await call("hossam", "POST", "/api/stock/products", { name: `${T} BadUnit`, unit: "ZZZ" })).status === 400);
   check("a new product defaults to exempt tax, AVCO, FEFO", tomato.salesTaxCode === "EXEMPT" && tomato.costingMethod === "avco" && tomato.removalStrategy === "fefo", [tomato.salesTaxCode, tomato.costingMethod, tomato.removalStrategy]);
-  check("duplicate customer tax number -> 409", (await call("mona", "POST", "/api/sales/customers", { name: `${T} Other`, tax_registration_no: hotel.taxRegistrationNo, type: "hotel" })).status === 409);
+  // Branches of one legal entity share its tax number (31498cc), so a repeat is a new
+  // card, not an error; a number that is not a tax registration number is still refused.
+  check("repeated customer tax number -> 201 (another branch card)", (await call("mona", "POST", "/api/sales/customers", { name: `${T} Other`, tax_registration_no: hotel.taxRegistrationNo, type: "hotel" })).status === 201);
+  check("malformed customer tax number -> 400", (await call("mona", "POST", "/api/sales/customers", { name: `${T} BadTax`, tax_registration_no: "12AB", type: "hotel" })).status === 400);
   check("duplicate supplier name -> 409", (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${T} Farm` })).status === 409);
   check("receiving into an unknown location -> 400; into an unknown cash account -> 400", (await call("hossam", "POST", "/api/stock/intakes", { supplier_id: farm.id, product_id: tomato.id, received_kg: 1, unit_cost: "1", location_id: "nope" })).status === 400 && (await call("karim", "POST", "/api/accounting/receipts", { party_id: hotel.id, cash_account_id: "nope", amount: 1, method: "cash" })).status === 400);
   r = await call("karim", "POST", `/api/sales/invoices/${ip.id}/credit-notes`, { lines: [{ invoice_line_id: ip.lines[0].id, quantity: 1 }] });

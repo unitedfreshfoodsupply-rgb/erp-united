@@ -91,7 +91,8 @@ async function main() {
   section("4. CHANGE + OPTIMISTIC CONCURRENCY");
   r = await patch("admin", SHORTAGE, { value: 10, reason: `${TAG} موسم المانجا`, expected_version: 0 });
   check("admin raises tolerance to 10%", r.status === 200 && r.body.setting.value === 10 && r.body.setting.version === 1, r.body);
-  check("row now attributed and not default", r.body.setting.isDefault === false && r.body.setting.updatedBy === "مدير النظام");
+  const adminName = (await call("admin", "GET", "/api/auth/me")).body?.user?.name;
+  check("row now attributed and not default", r.body.setting.isDefault === false && !!adminName && r.body.setting.updatedBy === adminName, { updatedBy: r.body.setting.updatedBy, adminName });
   check("stale version -> 409", (await patch("admin", SHORTAGE, { value: 12, reason: "x", expected_version: 0 })).status === 409);
   const race = await Promise.all([
     patch("admin", SHORTAGE, { value: 11, reason: "أ", expected_version: 1 }),
