@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/Toast";
 import { EmptyState } from "@/components/States";
 import { invalidateStockData } from "@/lib/stockInvalidation";
 import { useLocale } from "@/lib/locale";
+import { localName, otherLocalName } from "@/lib/locale/names";
 import type { StockProductDTO } from "@/lib/stock-client-types";
 
 /** Product Master entries: canonical identity plus every name that resolves to it. */
@@ -140,7 +141,7 @@ function ProductForm({ onDone }: { onDone: () => void }) {
 function ProductCard({ product, canManage }: { product: StockProductDTO; canManage: boolean }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [open, setOpen] = useState(false);
   const [newAlias, setNewAlias] = useState("");
   const [busy, setBusy] = useState(false);
@@ -173,8 +174,8 @@ function ProductCard({ product, canManage }: { product: StockProductDTO; canMana
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span dir="ltr" className="font-extrabold text-united-dark">{product.name}</span>
-            {product.nameAr && <span className="font-bold text-united-dark/70">· {product.nameAr}</span>}
+            <span dir="auto" className="font-extrabold text-united-dark">{localName(product, locale)}</span>
+            {otherLocalName(product, locale) && <span dir="auto" className="font-bold text-united-dark/70">· {otherLocalName(product, locale)}</span>}
             {!product.active && (
               <span className="text-[11px] font-extrabold bg-united-danger/10 text-united-danger px-2 py-0.5 rounded-full">
                 {t("stock.badge-suspended")}

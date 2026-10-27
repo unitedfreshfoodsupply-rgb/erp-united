@@ -11,6 +11,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { Pagination } from "@/components/ui/Pagination";
 import { useLocale } from "@/lib/locale";
+import { localName, type LocalizedNameSource } from "@/lib/locale/names";
 
 /**
  * Finance: cash position, customer receipts, supplier payments, journals, trial
@@ -50,10 +51,10 @@ const METHOD_LABELS: Record<string, string> = {
   other: "accounting.method.other",
 };
 
-function getPartyName(party: { name: string } | null | undefined, locale: string) {
-  // Use stored name directly (API returns English or Arabic based on context);
-  // for truly locale-aware display you'd prefer a nameAr field on the API type.
-  return party?.name ?? "";
+function getPartyName(party: LocalizedNameSource | null | undefined, locale: string) {
+  // Arabic name in Arabic, English in English, with the shared fallback policy —
+  // works whether or not the endpoint sends nameAr.
+  return party ? localName(party, locale === "en" ? "en" : "ar") : "";
 }
 
 export function AccountingView() {
@@ -272,7 +273,7 @@ function Refunds({ kind }: { kind: "customer" | "supplier" }) {
   );
 }
 
-type Journal = { id: string; number: string; date: string; description: string; sourceType: string; total: string; reversedBy?: { number: string } | null; lines?: { id: string; debit: string; credit: string; description: string | null; account: { code: string; nameAr: string } }[] };
+type Journal = { id: string; number: string; date: string; description: string; sourceType: string; total: string; reversedBy?: { number: string } | null; lines?: { id: string; debit: string; credit: string; description: string | null; account: { code: string; name?: string; nameAr: string } }[] };
 
 function Journals() {
   const { can } = usePermissions();
@@ -284,7 +285,7 @@ function Journals() {
   const jPageSize = 50;
   const q = useQuery({ queryKey: ["acc", "journals", jPage], queryFn: () => apiFetch<{ journals: Journal[]; pagination: { total: number } }>(`/api/accounting/journals?limit=${jPageSize}&offset=${(jPage - 1) * jPageSize}`) });
   const detail = useQuery({ queryKey: ["acc", "journal", open], queryFn: () => apiFetch<{ journal: Journal }>(`/api/accounting/journals/${open}`), enabled: !!open });
-  const accounts = useQuery({ queryKey: ["acc", "accounts"], queryFn: () => apiFetch<{ accounts: { id: string; code: string; nameAr: string; postable: boolean }[] }>("/api/accounting/accounts"), enabled: can("accounting.manage") });
+  const accounts = useQuery({ queryKey: ["acc", "accounts"], queryFn: () => apiFetch<{ accounts: { id: string; code: string; name: string; nameAr: string; postable: boolean }[] }>("/api/accounting/accounts"), enabled: can("accounting.manage") });
   const [m, setM] = useState({ date: todayLocalISO(), description: "", lines: [{ account_id: "", debit: "", credit: "" }, { account_id: "", debit: "", credit: "" }] });
   const [mKey, setMKey] = useState(newClientKey);
   return (
@@ -301,7 +302,7 @@ function Journals() {
               <div key={i} className="grid grid-cols-[1fr_6rem_6rem] gap-2">
                 <select className="field" value={l.account_id} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, account_id: e.target.value } : x)) })}>
                   <option value="">{t("accounting.account-select")}</option>
-                  {accounts.data?.accounts.filter((a) => a.postable).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.nameAr}</option>)}
+                  {accounts.data?.accounts.filter((a) => a.postable).map((a) => <option key={a.id} value={a.id}>{a.code} · {localName(a, locale)}</option>)}
                 </select>
                 <input className="field" dir="ltr" placeholder={t("accounting.debit-placeholder")} value={l.debit} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, debit: e.target.value } : x)) })} />
                 <input className="field" dir="ltr" placeholder={t("accounting.credit-placeholder")} value={l.credit} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, credit: e.target.value } : x)) })} />
@@ -326,7 +327,7 @@ function Journals() {
           <div className="flex justify-between"><span className="font-extrabold"><span dir="ltr">{detail.data.journal.number}</span> · {detail.data.journal.description}</span><button type="button" className="underline" onClick={() => setOpen(null)}>{t("accounting.button.close")}</button></div>
           {detail.data.journal.lines?.map((l) => (
             <div key={l.id} className="grid grid-cols-[1fr_6rem_6rem] gap-2">
-              <span>{l.account.code} · {l.account.nameAr}{l.description ? ` — ${l.description}` : ""}</span>
+              <span>{l.account.code} · {localName(l.account, locale)}{l.description ? ` — ${l.description}` : ""}</span>
               <span dir="ltr" className="text-end">{Number(l.debit) ? l.debit : ""}</span>
               <span dir="ltr" className="text-end">{Number(l.credit) ? l.credit : ""}</span>
             </div>
@@ -355,10 +356,10 @@ function Trial() {
   const [to, setTo] = useState(todayLocalISO());
   const [activeAccount, setActiveAccount] = useState<string | null>(null);
   const { t, locale } = useLocale();
-  const q = useQuery({ queryKey: ["acc", "tb", from, to], queryFn: () => apiFetch<{ trialBalance: { lines: { account: { code: string; name: string; id: string }; opening: string; debit: string; credit: string; closing: string }[]; totals: { debit: string; credit: string }; balanced: boolean } }>(`/api/accounting/trial-balance?from=${from}&to=${to}`) });
+  const q = useQuery({ queryKey: ["acc", "tb", from, to], queryFn: () => apiFetch<{ trialBalance: { lines: { account: { code: string; name: string; nameAr?: string; nameEn?: string; id: string }; opening: string; debit: string; credit: string; closing: string }[]; totals: { debit: string; credit: string }; balanced: boolean } }>(`/api/accounting/trial-balance?from=${from}&to=${to}`) });
   const ledger = useQuery({
     queryKey: ["acc", "ledger", activeAccount, from, to],
-    queryFn: () => apiFetch<{ ledger: { lines: { date: string; number: string; description: string; debit: string; credit: string }[]; account: { code: string; nameAr: string }; opening: string; closing: string; pagination?: { total: number; limit: number; offset: number } } }>(`/api/accounting/accounts/${activeAccount}/ledger?from=${from}&to=${to}`),
+    queryFn: () => apiFetch<{ ledger: { lines: { date: string; number: string; description: string; debit: string; credit: string }[]; account: { code: string; name: string; nameAr?: string; nameEn?: string }; opening: string; closing: string; pagination?: { total: number; limit: number; offset: number } } }>(`/api/accounting/accounts/${activeAccount}/ledger?from=${from}&to=${to}`),
     enabled: !!activeAccount,
   });
   return (
@@ -376,7 +377,7 @@ function Trial() {
             <tbody>
               {q.data.trialBalance.lines.map((l) => (
                 <tr key={l.account.code} className="border-t border-united-dark/5 cursor-pointer hover:bg-united-dark/5" onClick={() => setActiveAccount(activeAccount === l.account.id ? null : l.account.id)}>
-                  <td className="p-1">{l.account.code} · {l.account.name}</td>
+                  <td className="p-1">{l.account.code} · {localName(l.account, locale)}</td>
                   {[l.opening, l.debit, l.credit, l.closing].map((v, i) => {
                     const n = Number(v);
                     const formatted = fmt(v);
@@ -396,7 +397,7 @@ function Trial() {
       {activeAccount && ledger.data && (
         <section className="card p-3 text-sm font-bold">
           <div className="flex justify-between mb-2">
-            <span>{t("accounting.parent-ledger")} {ledger.data.ledger.account.nameAr} ({ledger.data.ledger.account.code}) — {t("accounting.date-from")} {from} {t("accounting.date-to")} {to}</span>
+            <span>{t("accounting.parent-ledger")} {localName(ledger.data.ledger.account, locale)} ({ledger.data.ledger.account.code}) — {t("accounting.date-from")} {from} {t("accounting.date-to")} {to}</span>
             <span className="font-extrabold">{t("accounting.closing-balance")} <span dir="ltr">{fmtMoney(ledger.data.ledger.closing)}</span></span>
           </div>
           {ledger.data.ledger.lines.length === 0 && <p className="text-united-muted">{t("accounting.no-transactions")}</p>}

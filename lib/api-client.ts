@@ -1,5 +1,15 @@
 export class ApiClientError extends Error {}
 
+/** The locale the user picked (lib/locale/context.tsx); null when unset or storage is blocked. */
+function storedLocale(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem("united_locale");
+  } catch {
+    return null;
+  }
+}
+
 export async function apiFetch<T = any>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -14,7 +24,7 @@ export async function apiFetch<T = any>(path: string, init?: RequestInit): Promi
       if (token) headers.set("Authorization", `Bearer ${token}`);
       // Forward the selected locale so the server returns messages in the
       // right language.  Falls back to "ar" (existing default).
-      const locale = window.localStorage.getItem("united_locale");
+      const locale = storedLocale();
       if (locale) headers.set("Accept-Language", locale);
     }
     res = await fetch(path, {
@@ -23,20 +33,23 @@ export async function apiFetch<T = any>(path: string, init?: RequestInit): Promi
       credentials: "include",
     });
   } catch {
-    const loc = typeof window !== "undefined" ? window.localStorage.getItem("united_locale") : null;
+    const loc = storedLocale();
     throw new ApiClientError(loc === "en" ? "No internet connection, please try again" : "مفيش اتصال بالإنترنت، حاول تاني");
   }
 
   if (res.status === 401 && typeof window !== "undefined" && !path.includes("/auth/")) {
-    const loc = window.localStorage.getItem("united_locale");
+    const loc = storedLocale();
     window.location.href = "/login";
     throw new ApiClientError(loc === "en" ? "Please sign in again" : "لازم تسجل دخول تاني");
   }
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const loc = typeof window !== "undefined" ? window.localStorage.getItem("united_locale") : null;
-    throw new ApiClientError(data.error ?? (loc === "en" ? `Error (${res.status})` : `خطأ (${res.status})`));
+    const loc = storedLocale();
+    // A non-JSON body (proxy error page) or a non-string `error` must still read as
+    // text — never "[object Object]" or an empty message.
+    const serverMessage = typeof data?.error === "string" && data.error.trim() ? data.error : null;
+    throw new ApiClientError(serverMessage ?? (loc === "en" ? `Error (${res.status})` : `خطأ (${res.status})`));
   }
   return data as T;
 }

@@ -49,6 +49,7 @@ export function MoveForms({ initial }: { initial?: Kind }) {
 
 /** Shared submit plumbing: busy state, error line, toast, stock refresh, key rotation. */
 function useSubmit() {
+  const { t } = useLocale();
   const qc = useQueryClient();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -64,7 +65,7 @@ function useSubmit() {
       setKey(newKey());
       onDone(res);
     } catch (err) {
-      const msg = err instanceof ApiClientError ? err.message : "حصل خطأ";
+      const msg = err instanceof ApiClientError && err.message ? err.message : t("ui.error.generic");
       setError(msg);
       toast.show(msg, "error");
     } finally {

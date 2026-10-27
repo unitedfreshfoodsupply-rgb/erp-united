@@ -13,6 +13,7 @@ import { PriceListsView } from "@/components/sales/PriceListsView";
 import { QuotationsView } from "@/components/sales/QuotationsView";
 import { CustomerStatement, InvoicesView } from "@/components/sales/InvoicesView";
 import { useLocale } from "@/lib/locale";
+import { codedLocalName, localName, otherLocalName } from "@/lib/locale/names";
 
 /**
  * Customer accounts for sales and finance: find a customer, see and edit who they
@@ -111,7 +112,7 @@ function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
           <li key={c.id}>
             <button type="button" onClick={() => onOpen(c.id)} className={`card p-4 w-full text-start flex flex-col gap-1 ${c.active ? "" : "opacity-60"}`}>
               <div className="flex justify-between gap-2">
-                <span className="font-extrabold">{locale === "en" ? c.name : (c.nameAr ?? c.name)}</span>
+                <span className="font-extrabold">{localName(c, locale)}</span>
                 <span className="text-xs font-bold text-united-muted" dir="ltr">{c.code}</span>
               </div>
               <div className="flex flex-wrap gap-2 text-xs font-bold text-united-muted">
@@ -125,7 +126,7 @@ function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
               {(c.groups.length > 0 || c.legalEntity) && (
                 <div className="flex flex-wrap gap-1.5">
                   {c.groups.map((g) => <span key={g.id} className="rounded-lg bg-united-dark/5 px-2 py-0.5 text-[11px] font-extrabold text-united-dark" dir="ltr">{g.code}</span>)}
-                  {c.legalEntity && <span className="rounded-lg bg-united-green/10 px-2 py-0.5 text-[11px] font-extrabold text-united-green" title={t("sales.customer.legal-entity")} >🏛 {c.legalEntity.name}</span>}
+                  {c.legalEntity && <span className="rounded-lg bg-united-green/10 px-2 py-0.5 text-[11px] font-extrabold text-united-green" title={t("sales.customer.legal-entity")} >🏛 {localName(c.legalEntity, locale)}</span>}
                 </div>
               )}
             </button>
@@ -218,7 +219,7 @@ function CustomerPanel({ id, onClose }: { id: string; onClose: () => void }) {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h2 className="text-xl font-extrabold">{locale === "en" ? c.name : (c.nameAr ?? c.name)}</h2>
+          <h2 className="text-xl font-extrabold">{localName(c, locale)}</h2>
           <p className="text-xs font-bold text-united-muted" dir="ltr">{c.code}{c.taxRegistrationNo ? ` · TAX ${c.taxRegistrationNo}` : ""}</p>
         </div>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button>
@@ -326,7 +327,7 @@ const FIELD_LABEL: Record<string, string> = {
 };
 
 function GroupLegalSection({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit: boolean; onSaved: () => void }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const [editing, setEditing] = useState(false);
   const groups = useQuery({ queryKey: ["sales", "customer-groups"], queryFn: () => apiFetch<{ groups: (GroupRef & { hotels: number })[] }>("/api/sales/customer-groups") });
@@ -341,12 +342,12 @@ function GroupLegalSection({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit
           {canEdit && <button type="button" className="text-sm font-extrabold text-united-green underline" onClick={() => { setSelected(new Set(c.groups.map((g) => g.id))); setLegalId(c.legalEntity?.id ?? ""); setEditing(true); }}>{t("ui.edit")}</button>}
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {c.groups.map((g) => <span key={g.id} className="rounded-lg bg-united-dark/5 px-2 py-0.5 text-xs font-extrabold" dir="ltr">{g.code} · {g.name}</span>)}
+          {c.groups.map((g) => <span key={g.id} className="rounded-lg bg-united-dark/5 px-2 py-0.5 text-xs font-extrabold" dir="auto">{codedLocalName(g, locale)}</span>)}
           {c.groups.length === 0 && <span className="text-sm font-bold text-united-muted">—</span>}
         </div>
         {c.legalEntity ? (
           <div className="text-sm font-bold flex flex-col gap-0.5">
-            <span className="text-united-green">🏛 {c.legalEntity.name}{c.legalEntity.nameAr ? ` · ${c.legalEntity.nameAr}` : ""}</span>
+            <span className="text-united-green">🏛 {localName(c.legalEntity, locale)}{otherLocalName(c.legalEntity, locale) ? ` · ${otherLocalName(c.legalEntity, locale)}` : ""}</span>
             <span className="text-united-muted text-xs" dir="ltr">{c.legalEntity.code}{c.legalEntity.taxRegistrationNo ? ` · TAX ${c.legalEntity.taxRegistrationNo}` : ` · ${t("sales.legal-no-tax")}`}</span>
           </div>
         ) : (
@@ -368,7 +369,7 @@ function GroupLegalSection({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit
             {(groups.data?.groups ?? []).map((g) => (
               <label key={g.id} className="tap-target flex items-center gap-1.5 rounded-lg bg-united-dark/5 px-3 py-1.5 text-sm font-extrabold">
                 <input type="checkbox" className="w-5 h-5" checked={selected.has(g.id)} onChange={(e) => { const next = new Set(selected); if (e.target.checked) next.add(g.id); else next.delete(g.id); setSelected(next); }} />
-                <span dir="ltr">{g.code}</span>
+                <span dir="auto">{codedLocalName(g, locale)}</span>
               </label>
             ))}
           </div>
@@ -378,7 +379,7 @@ function GroupLegalSection({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit
         <span className="text-xs font-extrabold text-united-muted">{t("sales.legal-entity-label")}</span>
         <select className="field font-bold" value={legalId} onChange={(e) => setLegalId(e.target.value)}>
           <option value="">{t("sales.option.no-entity")}</option>
-          {(legalEntities.data?.legalEntities ?? []).map((l) => <option key={l.id} value={l.id}>{l.code} · {l.name}{l.taxRegistrationNo ? ` (TAX ${l.taxRegistrationNo})` : ` (${t("sales.option.no-tax")})`}</option>)}
+          {(legalEntities.data?.legalEntities ?? []).map((l) => <option key={l.id} value={l.id}>{codedLocalName(l, locale)}{l.taxRegistrationNo ? ` (TAX ${l.taxRegistrationNo})` : ` (${t("sales.option.no-tax")})`}</option>)}
         </select>
       </div>
       <button
@@ -552,13 +553,13 @@ function Unmapped({ names, loading }: { names: { customerName: string; orders: n
         <div key={n.customerName} className="card p-3 flex flex-col sm:flex-row gap-2 sm:items-center">
           <div className="flex-1">
             <div className="font-extrabold">{n.customerName}</div>
-            <div className="text-xs font-bold text-united-muted">{n.orders} {t("sales.label.orders")} · آخر تسليم {n.lastDeliveryDate ?? "—"}</div>
+            <div className="text-xs font-bold text-united-muted">{n.orders} {t("sales.label.orders")} · {t("sales.unmapped.last-delivery", { date: n.lastDeliveryDate ?? "—" })}</div>
           </div>
           {can("sales.customers.manage") && (
             <div className="flex gap-2">
               <select className="field font-bold" value={choice[n.customerName] ?? ""} onChange={(e) => setChoice({ ...choice, [n.customerName]: e.target.value })}>
                 <option value="">{t("sales.select.placeholder")}</option>
-                {(customers.data?.customers ?? []).map((c) => <option key={c.id} value={c.id}>{c.code} · {locale === "en" ? c.name : (c.nameAr ?? c.name)}</option>)}
+                {(customers.data?.customers ?? []).map((c) => <option key={c.id} value={c.id}>{c.code} · {localName(c, locale)}</option>)}
               </select>
               <button type="button" className="btn-primary shrink-0" disabled={!choice[n.customerName]} onClick={async () => {
                 try {

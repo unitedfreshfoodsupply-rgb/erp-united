@@ -170,7 +170,7 @@ export async function listExpenses(actor: ServiceActor, filters: { status?: stri
     include: { employee: { select: { code: true, name: true } } },
     take: 300,
   });
-  const accounts = new Map((await prisma.account.findMany({ where: { type: "expense" }, select: { id: true, code: true, nameAr: true } })).map((a) => [a.id, a]));
+  const accounts = new Map((await prisma.account.findMany({ where: { type: "expense" }, select: { id: true, code: true, name: true, nameAr: true } })).map((a) => [a.id, a]));
   return rows.map((e) => ({ ...e, amount: e.amount.toFixed(2), account: accounts.get(e.accountId) ?? null }));
 }
 

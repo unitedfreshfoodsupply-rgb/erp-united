@@ -30,6 +30,7 @@ import { applyOrderToCache, applyOrderItemToCache, cachedOrderFromLists } from "
 import { OrderDetailSkeleton } from "@/components/order/OrderDetailSkeleton";
 import { useOperationalSettings } from "@/lib/use-operational-settings";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 // Map order source → translation key
 const SOURCE_TKEY: Record<string, string> = {
@@ -41,7 +42,7 @@ const SOURCE_TKEY: Record<string, string> = {
 };
 
 export function OrderDetail({ orderId }: { orderId: string }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const ops = useOperationalSettings();
   const router = useRouter();
   const qc = useQueryClient();
@@ -559,7 +560,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
               >
                 <option value="">{t("orders.customer.choose")}</option>
                 {customerCards.data?.customers.map((c) => (
-                  <option key={c.id} value={c.id}>{c.code} · {c.nameAr ?? c.name}{!c.active ? ` ${t("orders.customer.inactive")}` : ""}</option>
+                  <option key={c.id} value={c.id}>{c.code} · {localName(c, locale)}{!c.active ? ` ${t("orders.customer.inactive")}` : ""}</option>
                 ))}
               </select>
               <div className="flex flex-wrap gap-2">

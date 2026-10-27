@@ -331,7 +331,7 @@ export async function etaOverview(actor: ServiceActor) {
   const company = await prisma.company.findFirst({ where: { active: true }, orderBy: { createdAt: "asc" }, include: { etaIssuerProfile: true } });
   const [units, taxes, invoices, docs] = await Promise.all([
     prisma.unitOfMeasure.findMany({ where: { active: true }, orderBy: { code: "asc" }, select: { code: true, name: true, nameAr: true, etaUnitType: { select: { etaUnitType: true } } } }),
-    prisma.taxRate.findMany({ orderBy: { code: "asc" }, select: { code: true, nameAr: true, rate: true, etaType: true, etaSubtype: true } }),
+    prisma.taxRate.findMany({ orderBy: { code: "asc" }, select: { code: true, name: true, nameAr: true, rate: true, etaType: true, etaSubtype: true } }),
     prisma.salesInvoice.findMany({ where: { status: "issued" }, orderBy: { issuedAt: "desc" }, take: 50, select: { id: true, number: true, issueDate: true, buyerName: true, total: true, customerId: true } }),
     prisma.etaDocument.groupBy({ by: ["status"], _count: { _all: true } }),
   ]);
@@ -348,9 +348,9 @@ export async function etaOverview(actor: ServiceActor) {
       registrationNumber: company?.taxRegistrationNumber ?? null,
       profile: ip ? { eta_branch_id: ip.etaBranchId, activity_code: ip.activityCode, country: ip.country, governate: ip.governate, regionCity: ip.regionCity, street: ip.street, buildingNumber: ip.buildingNumber, postalCode: ip.postalCode, floor: ip.floor, room: ip.room, landmark: ip.landmark, additionalInformation: ip.additionalInformation } : null,
     },
-    units: units.map((u) => ({ code: u.code, name: u.nameAr ?? u.name, etaUnitType: u.etaUnitType?.etaUnitType ?? null })),
+    units: units.map((u) => ({ code: u.code, name: u.nameAr ?? u.name, nameAr: u.nameAr, nameEn: u.name, etaUnitType: u.etaUnitType?.etaUnitType ?? null })),
     taxes: taxes.map((t) => ({ ...t, rate: t.rate.toString() })),
-    products: products.map((p) => ({ id: p.id, name: p.nameAr ?? p.name, sku: p.sku, unit: p.unit, itemType: p.etaItemCode?.itemType ?? null, itemCode: p.etaItemCode?.itemCode ?? null })),
+    products: products.map((p) => ({ id: p.id, name: p.nameAr ?? p.name, nameAr: p.nameAr, nameEn: p.name, sku: p.sku, unit: p.unit, itemType: p.etaItemCode?.itemType ?? null, itemCode: p.etaItemCode?.itemCode ?? null })),
     customers: customers.map((c) => ({ id: c.id, code: c.code, name: c.name, taxRegistrationNo: c.taxRegistrationNo, profile: c.etaReceiverProfile })),
     counts: Object.fromEntries(docs.map((d) => [d.status, d._count._all])),
     invoices: invoices.map((i) => {

@@ -1,3 +1,7 @@
+"use client";
+
+import { useLocale } from "@/lib/locale";
+
 /**
  * Skeletons, not spinners.
  *
@@ -30,8 +34,9 @@ export function OrderCardSkeleton() {
 }
 
 export function BoardSkeleton({ rows = 3 }: { rows?: number }) {
+  const { t } = useLocale();
   return (
-    <div className="flex flex-col gap-3" aria-busy="true" aria-label="بيحمّل الأوردرات">
+    <div className="flex flex-col gap-3" aria-busy="true" aria-label={t("ui.skeleton.orders")}>
       {Array.from({ length: rows }).map((_, i) => (
         <OrderCardSkeleton key={i} />
       ))}

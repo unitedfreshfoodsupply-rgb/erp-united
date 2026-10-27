@@ -2,16 +2,15 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocale } from "@/lib/locale";
+import { useLocale, type Locale } from "@/lib/locale";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { LoadingState, ErrorState, EmptyState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import {
   STORAGE_LOCATION_TYPES,
-  STORAGE_LOCATION_TYPE_LABEL,
+  storageLocationTypeLabel,
   UOM_CATEGORIES,
   UOM_CATEGORY_LABEL,
-  type StorageLocationType,
   type UomCategory,
 } from "@/lib/core/reference-data";
 import type {
@@ -23,6 +22,7 @@ import type {
   UomDTO,
   WarehouseDTO,
 } from "@/lib/master-client-types";
+import { localName } from "@/lib/locale/names";
 
 /**
  * Organisation master data: the company, its branches, warehouses and storage
@@ -44,11 +44,6 @@ type Field = {
   required?: boolean;
   hint?: string;
 };
-
-const LOCATION_TYPE_LABELS: Record<string, Record<"ar" | "en", string>> = {};
-STORAGE_LOCATION_TYPES.forEach((t) => {
-  LOCATION_TYPE_LABELS[t] = { ar: STORAGE_LOCATION_TYPE_LABEL[t], en: STORAGE_LOCATION_TYPE_LABEL[t] };
-});
 
 export function MasterDataPanel({ canManage }: { canManage: boolean }) {
   const q = useQuery({
@@ -76,17 +71,17 @@ export function MasterDataPanel({ canManage }: { canManage: boolean }) {
 // ---------------------------------------------------------------------------
 
 function CompanySection({ company, currencies, canManage }: { company: CompanyDTO; currencies: CurrencyDTO[]; canManage: boolean }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
-  const currencyOptions = currencies.filter((c) => c.active && c.code === "EGP").map((c) => ({ value: c.code, label: `${c.code} · ${c.nameAr ?? c.name}` }));
+  const currencyOptions = currencies.filter((c) => c.active && c.code === "EGP").map((c) => ({ value: c.code, label: `${c.code} · ${localName(c, locale)}` }));
 
   return (
     <section className="card p-4">
       <header className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-lg font-extrabold text-united-dark">
-            {company.nameAr ?? company.legalName} <Code>{company.code}</Code>
+            {localName(company, locale)} <Code>{company.code}</Code>
           </h2>
           <Facts
             items={[
@@ -169,13 +164,13 @@ function CompanySection({ company, currencies, canManage }: { company: CompanyDT
 }
 
 function BranchBlock({ branch, canManage }: { branch: BranchDTO; canManage: boolean }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   return (
     <div className="rounded-xl border border-united-border p-3">
       <RowHeader
-        title={branch.nameAr ?? branch.name}
+        title={localName(branch, locale)}
         code={branch.code}
         active={branch.active}
         canManage={canManage}
@@ -229,7 +224,7 @@ function BranchBlock({ branch, canManage }: { branch: BranchDTO; canManage: bool
 }
 
 function WarehouseBlock({ warehouse, canManage }: { warehouse: WarehouseDTO; canManage: boolean }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const roots = warehouse.locations.filter((l) => !l.parentId);
@@ -237,7 +232,7 @@ function WarehouseBlock({ warehouse, canManage }: { warehouse: WarehouseDTO; can
   return (
     <div className="rounded-xl bg-united-bg p-3">
       <RowHeader
-        title={warehouse.nameAr ?? warehouse.name}
+        title={localName(warehouse, locale)}
         code={warehouse.code}
         active={warehouse.active}
         canManage={canManage}
@@ -281,7 +276,7 @@ function WarehouseBlock({ warehouse, canManage }: { warehouse: WarehouseDTO; can
           {adding ? (
             <EntityForm
               entity="locations"
-              fields={locationFields(warehouse.locations, t, true)}
+              fields={locationFields(warehouse.locations, t, locale, true)}
               fixed={{ warehouse_id: warehouse.id }}
               onDone={() => setAdding(false)}
             />
@@ -296,7 +291,7 @@ function WarehouseBlock({ warehouse, canManage }: { warehouse: WarehouseDTO; can
   );
 }
 
-function locationFields(siblings: StorageLocationDTO[], t: ReturnType<typeof useLocale>["t"], creating: boolean, selfId?: string): Field[] {
+function locationFields(siblings: StorageLocationDTO[], t: ReturnType<typeof useLocale>["t"], locale: Locale, creating: boolean, selfId?: string): Field[] {
   return [
     ...((creating ? [{ key: "code", label: t("admin.location.form-code"), ltr: true, createOnly: true, required: true, hint: t("admin.location.form-code-hint") }] as Field[] : []) as Field[]),
     { key: "name", label: t("admin.location.form-name"), required: true },
@@ -306,7 +301,7 @@ function locationFields(siblings: StorageLocationDTO[], t: ReturnType<typeof use
       label: t("admin.location.form-type"),
       kind: "select",
       required: true,
-      options: STORAGE_LOCATION_TYPES.map((tType) => ({ value: tType, label: t(STORAGE_LOCATION_TYPE_LABEL[tType]) })),
+      options: STORAGE_LOCATION_TYPES.map((tType) => ({ value: tType, label: storageLocationTypeLabel(tType, locale) })),
     },
     {
       key: "parent_id",
@@ -314,7 +309,7 @@ function locationFields(siblings: StorageLocationDTO[], t: ReturnType<typeof use
       kind: "select",
       options: [
         { value: "", label: t("admin.location.parent-main") },
-        ...siblings.filter((l) => l.active && l.id !== selfId).map((l) => ({ value: l.id, label: `${l.code} · ${l.nameAr ?? l.name}` })),
+        ...siblings.filter((l) => l.active && l.id !== selfId).map((l) => ({ value: l.id, label: `${l.code} · ${localName(l, locale)}` })),
       ],
     },
     { key: "capacity_kg", label: t("admin.location.form-capacity"), kind: "number" },
@@ -324,7 +319,7 @@ function locationFields(siblings: StorageLocationDTO[], t: ReturnType<typeof use
 }
 
 function LocationNode({ location, all, canManage, depth }: { location: StorageLocationDTO; all: StorageLocationDTO[]; canManage: boolean; depth: number }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [editing, setEditing] = useState(false);
   const children = all.filter((l) => l.parentId === location.id);
   // Spelled out rather than "2 ↔ 6": an arrow between numbers has no reliable
@@ -341,7 +336,7 @@ function LocationNode({ location, all, canManage, depth }: { location: StorageLo
     <li style={{ marginInlineStart: depth * 16 }}>
       <div className="rounded-lg bg-white border border-united-border px-3 py-2">
         <RowHeader
-          title={location.nameAr ?? location.name}
+          title={localName(location, locale)}
           code={location.code}
           active={location.active}
           canManage={canManage}
@@ -351,7 +346,7 @@ function LocationNode({ location, all, canManage, depth }: { location: StorageLo
         />
         <Facts
           items={[
-            [t("admin.location-fact-type"), STORAGE_LOCATION_TYPE_LABEL[location.type as StorageLocationType] ?? location.type],
+            [t("admin.location-fact-type"), storageLocationTypeLabel(location.type, locale)],
             [t("admin.location-fact-capacity"), location.capacityKg && fmtKg(location.capacityKg)],
             [t("admin.location-fact-temp"), band],
           ]}
@@ -360,7 +355,7 @@ function LocationNode({ location, all, canManage, depth }: { location: StorageLo
           <EntityForm
             entity="locations"
             row={location}
-            fields={locationFields(all, t, false, location.id)}
+            fields={locationFields(all, t, locale, false, location.id)}
             initial={{
               name: location.name,
               name_ar: location.nameAr,
@@ -451,13 +446,13 @@ function UomSection({ uoms, canManage }: { uoms: UomDTO[]; canManage: boolean })
 }
 
 function UomRow({ uom, reference, canManage }: { uom: UomDTO; reference?: string; canManage: boolean }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [editing, setEditing] = useState(false);
   return (
     <>
       <tr className={`border-t border-united-border ${uom.active ? "" : "opacity-50"}`}>
         <td className="p-2">
-          <span className="font-bold text-united-dark">{uom.nameAr ?? uom.name}</span> <Code>{uom.code}</Code>
+          <span className="font-bold text-united-dark">{localName(uom, locale)}</span> <Code>{uom.code}</Code>
           {uom.isReference && <span className="ms-1 text-[10px] font-extrabold text-united-green">{t("admin.uom.reference-badge")}</span>}
         </td>
         <td className="p-2 font-bold text-united-muted">{UOM_CATEGORY_LABEL[uom.category as UomCategory] ?? uom.category}</td>
@@ -523,12 +518,12 @@ function CurrencySection({ currencies, canManage }: { currencies: CurrencyDTO[];
 }
 
 function CurrencyRow({ currency, canManage }: { currency: CurrencyDTO; canManage: boolean }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [editing, setEditing] = useState(false);
   return (
     <li className="py-2.5">
       <RowHeader
-        title={`${currency.nameAr ?? currency.name}${currency.symbol ? ` (${currency.symbol})` : ""}`}
+        title={`${localName(currency, locale)}${currency.symbol ? ` (${currency.symbol})` : ""}`}
         code={currency.code}
         active={currency.active}
         canManage={canManage}
@@ -621,7 +616,7 @@ function ToggleActive({ entity, id, active, version }: { entity: Entity; id: str
       disabled={busy}
       className={`!min-h-0 py-1.5 px-3 text-xs ${active ? "btn-danger" : "btn-secondary"}`}
     >
-      {active ? t("admin.badge-inactive") : t("admin.badge-active")}
+      {active ? t("admin.toggle-btn.deactivate") : t("admin.toggle-btn.activate")}
     </button>
   );
 }

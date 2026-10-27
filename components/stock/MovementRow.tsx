@@ -6,10 +6,13 @@ import {
   timeLabel,
 } from "@/lib/stockPresentation";
 import type { MovementDTO } from "@/lib/stock-client-types";
+import { localName } from "@/lib/locale/names";
+import { useLocale } from "@/lib/locale";
 
 /** One ledger line. Shows the signed quantity, because the sign is the whole point of
  * a ledger — a correction that removed 5kg has to look different from one that added it. */
 export function MovementRow({ movement }: { movement: MovementDTO }) {
+  const { locale, t } = useLocale();
   const positive = movement.quantityKg > 0;
   return (
     <li className="flex items-start gap-3 py-2.5">
@@ -24,12 +27,12 @@ export function MovementRow({ movement }: { movement: MovementDTO }) {
         <div className="flex flex-wrap items-center gap-x-2 text-xs font-bold text-united-muted">
           <span>{MOVEMENT_LABEL[movement.kind]}</span>
           {movement.intake && <span>· {movement.intake.receiptNumber}</span>}
-          {movement.intake?.supplier?.name && <span>· {movement.intake.supplier.name}</span>}
+          {movement.intake?.supplier?.name && <span>· {localName(movement.intake.supplier, locale)}</span>}
           <span dir="ltr">· {shortDate(movement.effectiveDate)} {timeLabel(movement.occurredAt)}</span>
           <span>· {movement.actorName}</span>
         </div>
         {movement.reason && (
-          <p className="text-xs font-bold text-united-dark/70 mt-0.5">السبب: {movement.reason}</p>
+          <p className="text-xs font-bold text-united-dark/70 mt-0.5">{t("audit.reason-prefix")} {movement.reason}</p>
         )}
       </div>
     </li>

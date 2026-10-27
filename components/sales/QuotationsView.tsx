@@ -9,6 +9,7 @@ import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 /**
  * Quotations: write an offer for a customer, send it, record the answer, and turn an
@@ -35,7 +36,7 @@ const STATUS_CLS: Record<string, string> = {
 
 export function QuotationsView() {
   const { can } = usePermissions();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [status, setStatus] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -56,7 +57,7 @@ export function QuotationsView() {
           <li key={x.id}>
             <button type="button" className="card p-3 w-full text-start flex justify-between gap-2" onClick={() => setOpen(x.id)}>
               <div>
-                <div className="font-extrabold"><span dir="ltr">{x.number}</span> · {x.customer.nameAr ?? x.customer.name}</div>
+                <div className="font-extrabold"><span dir="ltr">{x.number}</span> · {localName(x.customer, locale)}</div>
                 <div className="text-xs font-bold text-united-muted">{x.lineCount} {t("sales.quotation.line-count")} · {t("sales.quotation.valid-until-label")} {x.validUntil}{x.order ? ` · ${x.order.orderNumber}` : ""}</div>
               </div>
               <div className="flex flex-col items-end gap-1">
@@ -74,7 +75,7 @@ export function QuotationsView() {
 function NewQuotation({ onDone }: { onDone: (id?: string) => void }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const customers = useQuery({ queryKey: ["sales", "customers", "", false], queryFn: () => apiFetch<{ customers: { id: string; code: string; name: string; nameAr: string | null }[] }>("/api/sales/customers?q=") });
   const catalog = useQuery({ queryKey: ["sales", "catalog"], queryFn: () => apiFetch<Catalog>("/api/sales/catalog"), staleTime: 60_000 });
   const [customerId, setCustomerId] = useState("");
@@ -110,7 +111,7 @@ function NewQuotation({ onDone }: { onDone: (id?: string) => void }) {
       <Field label={t("sales.quotation.customer-label")}>
         <select className="field font-bold" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
           <option value="">{t("sales.quotation.customer-placeholder")}</option>
-          {(customers.data?.customers ?? []).map((c) => <option key={c.id} value={c.id}>{c.code} · {c.nameAr ?? c.name}</option>)}
+          {(customers.data?.customers ?? []).map((c) => <option key={c.id} value={c.id}>{c.code} · {localName(c, locale)}</option>)}
         </select>
       </Field>
       <div className="grid grid-cols-2 gap-3">
@@ -123,7 +124,7 @@ function NewQuotation({ onDone }: { onDone: (id?: string) => void }) {
           <div key={i} className="grid grid-cols-2 sm:grid-cols-5 gap-2 border-t border-united-dark/5 pt-2">
             <select className="field font-bold col-span-2" value={l.product_id} onChange={(e) => set(i, { product_id: e.target.value, uom: "" })}>
               <option value="">{t("sales.quotation.product-label")}</option>
-              {products.map((x) => <option key={x.id} value={x.id}>{x.nameAr ?? x.name}</option>)}
+              {products.map((x) => <option key={x.id} value={x.id}>{localName(x, locale)}</option>)}
             </select>
             <input className="field" inputMode="decimal" dir="ltr" placeholder={t("sales.quotation.qty-placeholder")} value={l.quantity} onChange={(e) => set(i, { quantity: e.target.value })} />
             <select className="field" value={l.uom} onChange={(e) => set(i, { uom: e.target.value })}>
@@ -145,7 +146,7 @@ function QuotationDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const { can } = usePermissions();
   const qc = useQueryClient();
   const toast = useToast();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [note, setNote] = useState("");
   const q = useQuery({ queryKey: ["sales", "quotation", id], queryFn: () => apiFetch<{ quotation: QDetail }>(`/api/sales/quotations/${id}`) });
   if (q.isLoading) return <LoadingState />;
@@ -162,7 +163,7 @@ function QuotationDetail({ id, onClose }: { id: string; onClose: () => void }) {
       <div className="flex justify-between items-center gap-2">
         <div>
           <h2 className="text-xl font-extrabold" dir="ltr">{x.number}</h2>
-          <p className="text-sm font-bold text-united-muted">{x.customer.nameAr ?? x.customer.name} · {t("sales.quotation.valid-until-label")} {x.validUntil}{x.deliveryDate ? ` · ${x.deliveryDate}` : ""}</p>
+          <p className="text-sm font-bold text-united-muted">{localName(x.customer, locale)} · {t("sales.quotation.valid-until-label")} {x.validUntil}{x.deliveryDate ? ` · ${x.deliveryDate}` : ""}</p>
         </div>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("sales.quotation.btn-back")}</button>
       </div>
@@ -171,16 +172,16 @@ function QuotationDetail({ id, onClose }: { id: string; onClose: () => void }) {
         {x.lines.map((l) => (
           <div key={l.id} className="py-2 flex justify-between gap-2 text-sm">
             <div>
-              <div className="font-extrabold">{l.product.nameAr ?? l.product.name}</div>
+              <div className="font-extrabold">{localName(l.product, locale)}</div>
               <div className="text-xs font-bold text-united-muted" dir="rtl"><span dir="ltr">{fmtQty(l.quantity, l.uomCode)} × {l.unitPrice}</span>{Number(l.discountPct) > 0 ? ` − ${l.discountPct}%` : ""}{Number(l.taxRate) > 0 ? ` ${t("sales.quotation.tax-prefix")} ${l.taxRate}%` : ""} · {l.priceSource === "list" ? t("sales.quotation.price-source.list") : t("sales.quotation.price-source.manual")}</div>
             </div>
             <span dir="ltr" className="font-extrabold">{fmtMoney(l.amounts.total)}</span>
           </div>
         ))}
-        <div className="pt-2 flex justify-between font-extrabold"><span>{`الإجمالي (ضريبة ${fmtMoney(x.totals.tax)})`}</span><span dir="ltr">{fmtMoney(x.totals.total)}</span></div>
+        <div className="pt-2 flex justify-between font-extrabold"><span>{t("sales.quotation.total-with-tax", { tax: fmtMoney(x.totals.tax) })}</span><span dir="ltr">{fmtMoney(x.totals.total)}</span></div>
       </section>
-      {x.decisionNote && <p className="text-sm font-bold text-united-muted">{`ملاحظة: ${x.decisionNote}`}</p>}
-      {x.order && <Link href={`/orders/${x.order.id}`} className="btn-secondary self-start">{`الأوردر ${x.order.orderNumber}`}</Link>}
+      {x.decisionNote && <p className="text-sm font-bold text-united-muted">{t("sales.quotation.note", { note: x.decisionNote })}</p>}
+      {x.order && <Link href={`/orders/${x.order.id}`} className="btn-secondary self-start">{t("sales.quotation.order-link", { number: x.order.orderNumber })}</Link>}
       {canManage && !["converted", "rejected", "cancelled"].includes(x.status) && (
         <section className="card p-4 flex flex-col gap-2">
           <input className="field" placeholder={t("sales.quotation.note-placeholder")} value={note} onChange={(e) => setNote(e.target.value)} />

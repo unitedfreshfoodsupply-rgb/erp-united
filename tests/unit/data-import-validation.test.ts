@@ -27,3 +27,24 @@ test("customer opening terms require finance reasons and a hold explanation", ()
 test("opening balance import preserves an original due date before the cut-off date", () => {
   assert.deepEqual(check("opening_balances", { party_type: "customer", party_code: "CUS-1", date: "2026-10-09", due_date: "2026-08-30", amount: "500.00" }), []);
 });
+
+test("bilingual imports refuse a non-Arabic name_ar and say when the columns look swapped", () => {
+  const v = (values: Record<string, string>, kind = "products") => validateImportRow(kind, { rowNumber: 2, values }, ["name"]);
+  assert.deepEqual(v({ name: "Mango", name_ar: "مانجو" }), []);
+  assert.deepEqual(v({ name: "Mango", name_ar: "" }), []);
+  assert.match(v({ name: "مانجو", name_ar: "Mango" }).join(" "), /متبدلين/);
+  assert.match(v({ name: "Mango", name_ar: "Mango" }, "suppliers").join(" "), /name_ar لازم يكون الاسم بالعربي/);
+  assert.match(v({ name: "Hilton", name_ar: "هيلتون", legal_name: "فندق", legal_name_ar: "Hotel" }, "customers").join(" "), /legal_name_ar و legal_name متبدلين/);
+  for (const kind of ["customers", "customer_groups", "customer_legal_entities", "suppliers", "products"]) {
+    assert.ok(v({ name: "X", name_ar: "X" }, kind).length > 0, kind);
+  }
+  // Kinds without names are unaffected.
+  assert.deepEqual(validateImportRow("product_packaging", { rowNumber: 2, values: { sku: "A", uom: "BOX", qty_in_base_unit: "5", name_ar: "x" } }, ["sku"]), []);
+});
+
+test("customer and supplier codes are system-assigned: a code in the file is refused, not silently dropped", () => {
+  assert.match(validateImportRow("customers", { rowNumber: 2, values: { name: "Hilton", code: "CUS-9" } }, ["name"]).join(" "), /الكود بيتولد تلقائيًا/);
+  assert.match(validateImportRow("suppliers", { rowNumber: 2, values: { name: "Farm", code: "SUP-9" } }, ["name"]).join(" "), /الكود بيتولد تلقائيًا/);
+  assert.deepEqual(validateImportRow("suppliers", { rowNumber: 2, values: { name: "Farm", code: "" } }, ["name"]), []);
+  assert.deepEqual(validateImportRow("customer_groups", { rowNumber: 2, values: { code: "JAZ", name: "Jaz Hotels", name_ar: "جاز" } }, ["code", "name"]), []);
+});

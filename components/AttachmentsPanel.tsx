@@ -61,7 +61,7 @@ export function AttachmentsPanel({ entityType, entityId, canManage }: { entityTy
           : undefined,
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new ApiClientError(t("ui.attachment-error-status", { status: res.status }));
+      if (!res.ok) throw new ApiClientError(typeof data?.error === "string" && data.error ? data.error : t("ui.attachment-error-status", { status: res.status }));
       toast.show(data.duplicate ? t("ui.attachment-duplicate") : t("ui.attachment-uploaded"), "success");
       await qc.invalidateQueries({ queryKey: key });
     } catch (err) {

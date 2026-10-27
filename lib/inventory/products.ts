@@ -196,7 +196,7 @@ export async function productStockDetail(productId: string, warehouseId: string 
   const totalValue = D(valuation?._sum.value);
   return {
     product,
-    warehouse: { id: wh.id, code: wh.code, name: wh.nameAr ?? wh.name },
+    warehouse: { id: wh.id, code: wh.code, name: wh.nameAr ?? wh.name, nameAr: wh.nameAr, nameEn: wh.name },
     onHand: avail.onHand,
     quarantined: avail.quarantined,
     expired: avail.expired,

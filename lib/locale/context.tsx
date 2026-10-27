@@ -19,7 +19,12 @@ const STORAGE_KEY = "united_locale";
 
 function getInitialLocale(): Locale {
   if (typeof window === "undefined") return "ar";
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  let stored: string | null = null;
+  try {
+    stored = window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    // Storage blocked — fall through to the browser preference.
+  }
   if (stored === "ar" || stored === "en") return stored;
   // Respect browser language preference
   const browserLang = navigator.language?.slice(0, 2);
@@ -50,16 +55,23 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
 
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l);
-    if (typeof window !== "undefined") {
+    try {
       window.localStorage.setItem(STORAGE_KEY, l);
+    } catch {
+      // Storage blocked (private mode / policy): the switch still applies to this page.
     }
-    // Update html attributes
-    document.documentElement.lang = l;
-    document.documentElement.dir = l === "ar" ? "rtl" : "ltr";
-    document.body.className = l === "ar"
-      ? "font-arabic bg-united-bg text-united-dark"
-      : "font-english bg-united-bg text-united-dark";
   }, []);
+
+  // <html lang/dir> and the font follow the active locale, whichever way it was set —
+  // including the locale restored from storage on load, which previously left the
+  // document RTL/Arabic under an English UI until the language was toggled by hand.
+  useEffect(() => {
+    if (!mounted) return;
+    document.documentElement.lang = locale;
+    document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
+    document.body.classList.toggle("font-arabic", locale === "ar");
+    document.body.classList.toggle("font-english", locale === "en");
+  }, [locale, mounted]);
 
   const toggleLocale = useCallback(() => {
     setLocale(locale === "ar" ? "en" : "ar");
@@ -71,8 +83,12 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
       if (!entry) return key;
       const arText = entry.ar;
       const enText = entry.en;
-      const text = locale === "en" ? enText : arText;
-      if (!params || !text) return text ?? key;
+      // A blank side falls back to the other language; an entry that is deliberately
+      // empty in both stays empty. Only an unknown key shows the key itself.
+      const picked = locale === "en" ? enText || arText : arText || enText;
+      const text = typeof picked === "string" ? picked : null;
+      if (text === null) return key;
+      if (!params || !text) return text;
       return text.replace(/\{(\w+)\}/g, (_: string, name: string) => String(params[name] ?? `{${name}}`));
     },
     [locale]
@@ -82,14 +98,13 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   const isRTL = locale === "ar";
   const isEN = locale === "en";
 
-  // Avoid hydration mismatch — render nothing until mounted
-  if (!mounted) {
-    return <div style={{ visibility: "hidden" }}>{children}</div>;
-  }
-
+  // Hidden until the stored locale is known, so Arabic never flashes before English.
+  // The element tree is the same before and after mount (only the style changes):
+  // swapping wrappers here used to remount the whole app once on load, discarding
+  // component state and firing every query twice.
   return (
     <LocaleContext.Provider value={{ locale, setLocale, toggleLocale, t, dir, isRTL, isEN }}>
-      {children}
+      <div style={mounted ? { display: "contents" } : { display: "contents", visibility: "hidden" }}>{children}</div>
     </LocaleContext.Provider>
   );
 }

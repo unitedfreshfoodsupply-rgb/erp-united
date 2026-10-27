@@ -10,6 +10,7 @@ import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 /** Expenses (record; above the threshold they wait for approval) and employees (advances, reimbursements, balances). */
 
@@ -76,12 +77,12 @@ export function HrView() {
 const useEmployees = () => useQuery({ queryKey: ["hr", "employees"], queryFn: () => apiFetch<{ employees: Emp[]; departments: { id: string; code: string; name: string }[] }>("/api/hr/employees") });
 
 function Expenses() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
   const emps = useEmployees();
-  const accounts = useQuery({ queryKey: ["hr", "expense-accounts"], queryFn: () => apiFetch<{ accounts: { id: string; code: string; nameAr: string; type: string; postable: boolean }[] }>("/api/hr/expense-accounts").then((r) => r.accounts) });
-  const list = useQuery({ queryKey: ["hr", "expenses"], queryFn: () => apiFetch<{ expenses: { id: string; number: string; date: string; amount: string; description: string; paymentMode: string; status: string; createdBy: string; employee: { name: string } | null; account: { code: string; nameAr: string } | null }[] }>("/api/hr/expenses") });
+  const accounts = useQuery({ queryKey: ["hr", "expense-accounts"], queryFn: () => apiFetch<{ accounts: { id: string; code: string; name: string; nameAr: string; type: string; postable: boolean }[] }>("/api/hr/expense-accounts").then((r) => r.accounts) });
+  const list = useQuery({ queryKey: ["hr", "expenses"], queryFn: () => apiFetch<{ expenses: { id: string; number: string; date: string; amount: string; description: string; paymentMode: string; status: string; createdBy: string; employee: { name: string } | null; account: { code: string; name: string; nameAr: string } | null }[] }>("/api/hr/expenses") });
   const [f, setF] = useState({ date: todayLocalISO(), account_id: "", amount: "", description: "", payment_mode: "cash", cash_account_id: "cash_main", employee_id: "" });
   const [fKey, setFKey] = useState(newClientKey);
 
@@ -100,7 +101,7 @@ function Expenses() {
   return (
     <div className="flex flex-col gap-3">
       <section className="card p-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
-        <Field label={t("hr.label.account")}><select className="field" value={f.account_id} onChange={(e) => setF({ ...f, account_id: e.target.value })}><option value="">— {t("hr.placeholder.choose")} —</option>{accounts.data?.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.nameAr}</option>)}</select></Field>
+        <Field label={t("hr.label.account")}><select className="field" value={f.account_id} onChange={(e) => setF({ ...f, account_id: e.target.value })}><option value="">— {t("hr.placeholder.choose")} —</option>{accounts.data?.map((a) => <option key={a.id} value={a.id}>{a.code} · {localName(a, locale)}</option>)}</select></Field>
         <Field label={t("hr.label.amount")}><input className="field" dir="ltr" inputMode="decimal" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
         <Field label={t("hr.label.date")}><input type="date" className="field" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
         <Field label={t("hr.label.description")}><input className="field" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field>
@@ -127,7 +128,7 @@ function Expenses() {
           <li key={e.id} className="card p-3 flex justify-between gap-2 text-sm font-bold">
             <div>
               <div className="font-extrabold"><span dir="ltr">{e.number}</span> · {e.description}</div>
-              <div className="text-xs text-united-muted">{e.date} · {e.account?.nameAr} · {MODE[e.paymentMode]}{e.employee ? ` · ${e.employee.name}` : ""} · {e.createdBy} · <span className={STATUS[e.status]?.cls}>{STATUS[e.status]?.label}</span></div>
+              <div className="text-xs text-united-muted">{e.date} · {e.account ? localName(e.account, locale) : "—"} · {MODE[e.paymentMode]}{e.employee ? ` · ${e.employee.name}` : ""} · {e.createdBy} · <span className={STATUS[e.status]?.cls}>{STATUS[e.status]?.label}</span></div>
             </div>
             <span dir="ltr" className="font-extrabold">{fmtMoney(e.amount)}</span>
           </li>

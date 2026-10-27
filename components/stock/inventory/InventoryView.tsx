@@ -7,11 +7,11 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { invalidateStockData } from "@/lib/stockInvalidation";
-import { Field, Tabs, fmtMoney, fmtQty, LOCATION_TYPE_LABEL, useLocations, type StockRow } from "./shared";
+import { Field, Tabs, fmtMoney, fmtQty, locationTypeLabel, useLocations, type StockRow } from "./shared";
 import { MoveForms } from "./MoveForms";
 import { Pagination } from "@/components/ui/Pagination";
-import { DICTIONARY } from "@/lib/locale";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 /**
  * The stock controller's screen: what is where, what is free to sell, what is about
@@ -22,17 +22,18 @@ import { useLocale } from "@/lib/locale";
 
 type Tab = "stock" | "move" | "expiring" | "exceptions" | "documents" | "valuation";
 
-// Module-level translation maps (app always runs Arabic — DICTIONARY resolves correctly)
+// Dictionary keys, translated at render with the active locale (resolving `.ar` here
+// left these labels Arabic in English mode).
 const KIND_LABEL: Record<string, string> = {
-  intake: DICTIONARY["stock.kind-intake"].ar, intake_correction: DICTIONARY["stock.kind-intake-correction"].ar, intake_void: DICTIONARY["stock.kind-intake-void"].ar, adjustment: DICTIONARY["stock.kind-adjustment"].ar,
-  transfer_out: DICTIONARY["stock.kind-transfer-out"].ar, transfer_in: DICTIONARY["stock.kind-transfer-in"].ar, issue: DICTIONARY["stock.kind-issue"].ar, customer_return: DICTIONARY["stock.kind-customer-return"].ar,
-  supplier_return: DICTIONARY["stock.kind-supplier-return"].ar, scrap: DICTIONARY["stock.kind-scrap"].ar,
+  intake: "stock.kind-intake", intake_correction: "stock.kind-intake-correction", intake_void: "stock.kind-intake-void", adjustment: "stock.kind-adjustment",
+  transfer_out: "stock.kind-transfer-out", transfer_in: "stock.kind-transfer-in", issue: "stock.kind-issue", customer_return: "stock.kind-customer-return",
+  supplier_return: "stock.kind-supplier-return", scrap: "stock.kind-scrap",
 };
 
 const EXCEPTION_REASON: Record<ExceptionDTO["reason"], string> = {
-  unmapped: DICTIONARY["stock.exception-unmapped"].ar,
-  unit_mismatch: DICTIONARY["stock.exception-unit-mismatch"].ar,
-  insufficient: DICTIONARY["stock.exception-insufficient"].ar,
+  unmapped: "stock.exception-unmapped",
+  unit_mismatch: "stock.exception-unit-mismatch",
+  insufficient: "stock.exception-insufficient",
 };
 
 export function InventoryView() {
@@ -89,12 +90,12 @@ export function InventoryView() {
 // ---------------------------------------------------------------------------
 
 function StockList({ onOpen }: { onOpen: (id: string) => void }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [filter, setFilter] = useState("");
   const [onlyLow, setOnlyLow] = useState(false);
   const q = useQuery({
     queryKey: ["stock", "inventory", "stock"],
-    queryFn: () => apiFetch<{ warehouse: { code: string; name: string }; rows: StockRow[] }>("/api/inventory/stock"),
+    queryFn: () => apiFetch<{ warehouse: { code: string; name: string; nameAr?: string | null; nameEn?: string | null }; rows: StockRow[] }>("/api/inventory/stock"),
     refetchInterval: 20_000,
   });
   const rows = useMemo(() => {
@@ -112,14 +113,14 @@ function StockList({ onOpen }: { onOpen: (id: string) => void }) {
           {t("stock.low-stock-btn")}
         </button>
       </div>
-      <p className="text-xs font-bold text-united-muted">{q.data?.warehouse.name} · {t("stock.warehouse-available-desc")}</p>
+      <p className="text-xs font-bold text-united-muted">{q.data ? localName(q.data.warehouse, locale) : ""} · {t("stock.warehouse-available-desc")}</p>
       {rows.length === 0 && <EmptyState icon="📦" title={t("stock.empty-products")} />}
       <ul className="grid gap-2 sm:grid-cols-2">
         {rows.map((r) => (
           <li key={r.productId}>
             <button type="button" onClick={() => onOpen(r.productId)} className="card p-4 w-full text-start flex flex-col gap-2 active:scale-[0.99] transition">
               <div className="flex items-center justify-between gap-2">
-                <span className="font-extrabold text-united-dark">{r.productNameAr ?? r.productName}</span>
+                <span className="font-extrabold text-united-dark">{localName({ name: r.productName, nameAr: r.productNameAr }, locale)}</span>
                 {r.belowMin ? (
                   <span className="rounded-full bg-united-danger/10 text-united-danger px-2 text-xs font-extrabold">{t("stock.badge-below-min")}</span>
                 ) : r.belowReorder ? (
@@ -171,7 +172,7 @@ type ProductDetail = {
 
 function ProductPanel({ productId, onClose }: { productId: string; onClose: () => void }) {
   const { can } = usePermissions();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const q = useQuery({
     queryKey: ["stock", "inventory", "product", productId],
     queryFn: () => apiFetch<ProductDetail>(`/api/inventory/products/${productId}`),
@@ -184,7 +185,7 @@ function ProductPanel({ productId, onClose }: { productId: string; onClose: () =
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-xl font-extrabold text-united-dark">{d.product.nameAr ?? d.product.name}</h2>
+        <h2 className="text-xl font-extrabold text-united-dark">{localName(d.product, locale)}</h2>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("stock.btn-back")}</button>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
@@ -228,7 +229,7 @@ function ProductPanel({ productId, onClose }: { productId: string; onClose: () =
           {d.movements.map((m) => (
             <li key={m.id} className="py-2 flex items-center justify-between gap-2">
               <div className="flex flex-col">
-                <span className="font-extrabold">{KIND_LABEL[m.kind] ?? m.kind} · {m.document?.number ?? m.intake?.receiptNumber ?? ""}</span>
+                <span className="font-extrabold">{KIND_LABEL[m.kind] ? t(KIND_LABEL[m.kind]) : m.kind} · {m.document?.number ?? m.intake?.receiptNumber ?? ""}</span>
                 <span className="text-xs font-bold text-united-muted">{m.location.code}{m.lot ? ` · ${m.lot.lotNumber}` : ""} · {m.actorName} · {new Date(m.occurredAt).toLocaleString("ar-EG", { dateStyle: "short", timeStyle: "short" })}</span>
               </div>
               <span dir="ltr" className={`font-extrabold ${Number(m.quantity) < 0 ? "text-united-danger" : "text-united-green"}`}>{Number(m.quantity) > 0 ? "+" : ""}{fmtQty(m.quantity)}</span>
@@ -243,7 +244,7 @@ function ProductPanel({ productId, onClose }: { productId: string; onClose: () =
 function BucketRow({ b, unit, today, canEditLot, productId }: { b: Bucket; unit: string; today: string; canEditLot: boolean; productId: string }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [editing, setEditing] = useState(false);
   const [expiry, setExpiry] = useState(b.expiryDate ?? "");
   const [reason, setReason] = useState("");
@@ -255,7 +256,7 @@ function BucketRow({ b, unit, today, canEditLot, productId }: { b: Bucket; unit:
           <span className="font-extrabold">
             {b.locationCode}{" "}
             <span className="text-xs text-united-muted">
-              ({LOCATION_TYPE_LABEL[b.locationType] ?? b.locationType}
+              ({locationTypeLabel(b.locationType, locale)}
               {b.locationCode === "GRADE-B" ? ` · ${t("stock.exception-grade-b")}` : ""})
             </span>
           </span>
@@ -336,7 +337,7 @@ function ReservationRow({ r, unit, canRelease }: { r: ProductDetail["reservation
 function ProductSettings({ d }: { d: ProductDetail }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { uoms } = useLocations();
   const p = d.product;
   const [form, setForm] = useState({
@@ -399,7 +400,7 @@ function ProductSettings({ d }: { d: ProductDetail }) {
         </label>
         <button className="btn-primary col-span-full">{t("stock.form-lot-expiry-save")}</button>
       </form>
-      <h4 className="font-extrabold text-united-dark text-sm">{t("stock.heading-packaging")} (كام {p.unit} {t("stock.packaging-each")})</h4>
+      <h4 className="font-extrabold text-united-dark text-sm">{t("stock.packaging-heading-units", { unit: p.unit })}</h4>
       <ul className="flex flex-wrap gap-2">
         {p.packagings.map((x) => (
           <li key={x.id} className="rounded-xl bg-united-dark/5 px-3 py-2 text-sm font-extrabold" dir="ltr">
@@ -411,10 +412,10 @@ function ProductSettings({ d }: { d: ProductDetail }) {
         <select className="field font-bold" value={pack.uom} onChange={(e) => setPack({ ...pack, uom: e.target.value })}>
           <option value="">{t("stock.unit-choice")}</option>
           {uoms.filter((x) => x.code !== p.unit).map((x) => (
-            <option key={x.code} value={x.code}>{x.nameAr ?? x.name} ({x.code})</option>
+            <option key={x.code} value={x.code}>{localName(x, locale)} ({x.code})</option>
           ))}
         </select>
-        <input className="field" inputMode="decimal" dir="ltr" placeholder={`كام ${p.unit} ${t("stock.packaging-each")}`} value={pack.qty} onChange={(e) => setPack({ ...pack, qty: e.target.value })} />
+        <input className="field" inputMode="decimal" dir="ltr" placeholder={t("stock.packaging-qty-placeholder", { unit: p.unit })} value={pack.qty} onChange={(e) => setPack({ ...pack, qty: e.target.value })} />
         <button className="btn-secondary shrink-0">{t("stock.add-button")}</button>
       </form>
     </section>
@@ -424,7 +425,7 @@ function ProductSettings({ d }: { d: ProductDetail }) {
 // ---------------------------------------------------------------------------
 
 function Expiring({ onOpen }: { onOpen: (id: string) => void }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [days, setDays] = useState<number | null>(null);
   const q = useQuery({
     queryKey: ["stock", "inventory", "expiring", days],
@@ -443,13 +444,13 @@ function Expiring({ onOpen }: { onOpen: (id: string) => void }) {
         onChange={(v) => setDays(v === "default" ? null : Number(v))}
         items={[{ key: "default", label: t("stock.tab.default") }, { key: "0", label: t("stock.tab.today") }, { key: "3", label: `3 ${t("stock.tab.days-days")}` }, { key: "7", label: t("stock.tab.week") }]}
       />
-      {q.data.rows.length === 0 && <EmptyState icon="🍃" title={`${t("stock.expiring-nothing")} لحد ${q.data.until}`} />}
+      {q.data.rows.length === 0 && <EmptyState icon="🍃" title={t("stock.expiring-nothing-until", { until: q.data.until })} />}
       <ul className="flex flex-col gap-2">
         {q.data.rows.map((r) => (
           <li key={`${r.lotId}:${r.locationCode}`}>
             <button type="button" onClick={() => onOpen(r.product.id)} className={`card p-3 w-full text-start flex items-center justify-between gap-2 ${r.expired ? "border-2 border-united-danger/40" : ""}`}>
               <div className="flex flex-col">
-                <span className="font-extrabold">{r.product.nameAr ?? r.product.name}</span>
+                <span className="font-extrabold">{localName(r.product, locale)}</span>
                 <span className="text-xs font-bold text-united-muted">{r.lotNumber} · {r.locationCode}{r.supplier ? ` · ${r.supplier}` : ""}</span>
               </div>
               <div className="flex flex-col items-end">
@@ -511,7 +512,7 @@ function ExceptionCard({ x, canResolve }: { x: ExceptionDTO; canResolve: boolean
         <span className="font-extrabold">{x.productName}</span>
         <span className="text-xs font-bold text-united-muted">{t("stock.exception-ordered")} {x.order.orderNumber} · {x.order.customerName}</span>
       </div>
-      <p className="text-sm font-bold text-united-warn">{EXCEPTION_REASON[x.reason]}</p>
+      <p className="text-sm font-bold text-united-warn">{EXCEPTION_REASON[x.reason] ? t(EXCEPTION_REASON[x.reason]) : x.reason}</p>
       <p className="text-sm font-bold" dir="rtl">
         exited <span dir="ltr">{fmtQty(x.requestedQty, x.unit)}</span> · {t("stock.exception-issued-from-books")} <span dir="ltr">{fmtQty(x.issuedQty, x.unit)}</span>
         {x.document ? ` · ${x.document.number}` : ""}
@@ -653,7 +654,7 @@ function DocumentCard({ d, highlight, canReverse }: { d: DocumentDTO; highlight:
 // ---------------------------------------------------------------------------
 
 function Valuation() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const q = useQuery({
     queryKey: ["stock", "inventory", "valuation"],
     queryFn: () =>
@@ -684,7 +685,7 @@ function Valuation() {
           <tbody>
             {q.data.rows.map((r) => (
               <tr key={r.productId} className="border-t border-united-dark/5 font-bold">
-                <td className="p-2">{r.productNameAr ?? r.productName}</td>
+                <td className="p-2">{localName({ name: r.productName, nameAr: r.productNameAr }, locale)}</td>
                 <td className="p-2 text-center uppercase">{r.costingMethod}</td>
                 <td className="p-2 text-center" dir="ltr">{fmtQty(r.quantity, r.unit)}</td>
                 <td className="p-2 text-center" dir="ltr">{r.averageCost ?? "—"}</td>

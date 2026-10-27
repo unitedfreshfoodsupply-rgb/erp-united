@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useLocale } from "@/lib/locale";
+import { localName, otherLocalName } from "@/lib/locale/names";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiPost, ApiClientError } from "@/lib/api-client";
 import { useToast } from "@/components/ui/Toast";
@@ -122,7 +123,7 @@ function CoverageRow({
 }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [linking, setLinking] = useState(false);
   const [productId, setProductId] = useState("");
   const [createAlias, setCreateAlias] = useState(true);
@@ -173,8 +174,8 @@ function CoverageRow({
           </div>
           {row.product && (
             <div className="text-sm font-bold text-united-green mt-1">
-              ← {row.product.name}
-              {row.product.nameAr ? ` · ${row.product.nameAr}` : ""}
+              ← {localName(row.product, locale)}
+              {otherLocalName(row.product, locale) ? ` · ${otherLocalName(row.product, locale)}` : ""}
             </div>
           )}
         </div>
@@ -238,10 +239,10 @@ function CoverageRow({
                 onChange={(e) => setProductId(e.target.value)}
                 className="field font-bold"
               >
-                <option value="">— اختار الصنف الرسمي —</option>
+                <option value="">{t("stock.select.placeholder")}</option>
                 {activeProducts.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name}{p.nameAr ? ` · ${p.nameAr}` : ""} ({p.unit})
+                    {localName(p, locale)}{otherLocalName(p, locale) ? ` · ${otherLocalName(p, locale)}` : ""} ({p.unit})
                   </option>
                 ))}
               </select>

@@ -53,11 +53,15 @@ export async function financeReport(opts: { from?: string; to?: string }) {
     FROM "StockValuationLayer" v JOIN "StockMovement" m ON m."id" = v."movementId"
     WHERE m."kind" IN ('issue', 'customer_return') AND m."effectiveDate" BETWEEN ${from} AND ${to}
     GROUP BY v."productId"`;
-  const products = new Map((await prisma.stockProduct.findMany({ select: { id: true, name: true, nameAr: true } })).map((p) => [p.id, p.nameAr ?? p.name]));
-  const byProduct = new Map<string, { name: string; revenue: Prisma.Decimal; cost: Prisma.Decimal; qty: Prisma.Decimal }>();
+  const cards = new Map((await prisma.stockProduct.findMany({ select: { id: true, name: true, nameAr: true } })).map((p) => [p.id, p]));
+  const products = new Map([...cards].map(([id, p]) => [id, p.nameAr ?? p.name]));
+  // `name` keeps its Arabic-first value for existing consumers (exports); nameAr/nameEn
+  // let the screen show the product in the selected language.
+  const byProduct = new Map<string, { name: string; nameAr: string | null; nameEn: string | null; revenue: Prisma.Decimal; cost: Prisma.Decimal; qty: Prisma.Decimal }>();
   const row = (id: string | null, name: string) => {
     const k = id ?? `—${name}`;
-    const r = byProduct.get(k) ?? { name: id ? products.get(id) ?? name : name, revenue: D(0), cost: D(0), qty: D(0) };
+    const card = id ? cards.get(id) : undefined;
+    const r = byProduct.get(k) ?? { name: id ? products.get(id) ?? name : name, nameAr: card?.nameAr ?? null, nameEn: card?.name ?? null, revenue: D(0), cost: D(0), qty: D(0) };
     byProduct.set(k, r);
     return r;
   };
@@ -74,23 +78,23 @@ export async function financeReport(opts: { from?: string; to?: string }) {
     WHERE m."kind" IN ('issue', 'customer_return') AND v."costSource" = 'unknown' AND m."effectiveDate" BETWEEN ${from} AND ${to}
     GROUP BY v."productId"`;
   const unknownQty = new Map(unknownCost.map((u) => [u.productId, D(u.qty)]));
-  const lines = [...byProduct.entries()].map(([k, r]) => ({ product: r.name, quantity: r.qty.toString(), revenue: f2(r.revenue), cost: f2(r.cost), margin: f2(r.revenue.minus(r.cost)), marginPct: r.revenue.gt(0) ? r.revenue.minus(r.cost).dividedBy(r.revenue).times(100).toFixed(1) : null, costUnknownQty: f2(k.startsWith("—") ? D(0) : unknownQty.get(k) ?? D(0)) })).sort((a, b) => Number(b.revenue) - Number(a.revenue));
+  const lines = [...byProduct.entries()].map(([k, r]) => ({ product: r.name, productNameAr: r.nameAr, productNameEn: r.nameEn, quantity: r.qty.toString(), revenue: f2(r.revenue), cost: f2(r.cost), margin: f2(r.revenue.minus(r.cost)), marginPct: r.revenue.gt(0) ? r.revenue.minus(r.cost).dividedBy(r.revenue).times(100).toFixed(1) : null, costUnknownQty: f2(k.startsWith("—") ? D(0) : unknownQty.get(k) ?? D(0)) })).sort((a, b) => Number(b.revenue) - Number(a.revenue));
   const totalRevenue = [...byProduct.values()].reduce((s, r) => s.plus(r.revenue), D(0));
   const totalCost = [...byProduct.values()].reduce((s, r) => s.plus(r.cost), D(0));
 
   // Sales by customer.
-  const byCustomer = await prisma.$queryRaw<{ customerId: string; name: string; net: Prisma.Decimal; invoices: bigint }[]>`
-    SELECT i."customerId", coalesce(c."nameAr", c."name") AS name, sum(i."net") AS net, count(*) AS invoices
+  const byCustomer = await prisma.$queryRaw<{ customerId: string; name: string; nameAr: string | null; nameEn: string; net: Prisma.Decimal; invoices: bigint }[]>`
+    SELECT i."customerId", coalesce(c."nameAr", c."name") AS name, c."nameAr" AS "nameAr", c."name" AS "nameEn", sum(i."net") AS net, count(*) AS invoices
     FROM "SalesInvoice" i JOIN "Customer" c ON c."id" = i."customerId"
     WHERE i."status" = 'issued' AND i."issueDate" BETWEEN ${from} AND ${to}
     GROUP BY i."customerId", c."nameAr", c."name" ORDER BY sum(i."net") DESC LIMIT 15`;
 
   // Profit and loss from the journal (what has been posted).
-  const pl = await prisma.$queryRaw<{ type: string; systemKey: string | null; code: string; name: string; amount: Prisma.Decimal }[]>`
-    SELECT a."type", a."systemKey", a."code", a."nameAr" AS name, sum(l."credit" - l."debit") AS amount
+  const pl = await prisma.$queryRaw<{ type: string; systemKey: string | null; code: string; name: string; nameAr: string; nameEn: string; amount: Prisma.Decimal }[]>`
+    SELECT a."type", a."systemKey", a."code", a."nameAr" AS name, a."nameAr" AS "nameAr", a."name" AS "nameEn", sum(l."credit" - l."debit") AS amount
     FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId" JOIN "Account" a ON a."id" = l."accountId"
     WHERE a."type" IN ('revenue', 'expense') AND e."date" BETWEEN ${from} AND ${to}
-    GROUP BY a."type", a."systemKey", a."code", a."nameAr" ORDER BY a."code"`;
+    GROUP BY a."type", a."systemKey", a."code", a."nameAr", a."name" ORDER BY a."code"`;
   const plRevenue = pl.filter((x) => x.type === "revenue").reduce((s, x) => s.plus(x.amount), D(0));
   const plExpense = pl.filter((x) => x.type === "expense").reduce((s, x) => s.minus(x.amount), D(0));
 
@@ -108,11 +112,11 @@ export async function financeReport(opts: { from?: string; to?: string }) {
 
   return {
     from, to,
-    sales: { revenue: f2(totalRevenue), cost: f2(totalCost), grossMargin: f2(totalRevenue.minus(totalCost)), grossMarginPct: totalRevenue.gt(0) ? totalRevenue.minus(totalCost).dividedBy(totalRevenue).times(100).toFixed(1) : null, byProduct: lines.slice(0, 30), byCustomer: byCustomer.map((c) => ({ customerId: c.customerId, name: c.name, net: f2(D(c.net)), invoices: Number(c.invoices) })) },
-    profitAndLoss: { lines: pl.map((x) => ({ code: x.code, name: x.name, type: x.type, amount: f2(D(x.amount)) })), revenue: f2(plRevenue), expenses: f2(plExpense), net: f2(plRevenue.minus(plExpense)) },
+    sales: { revenue: f2(totalRevenue), cost: f2(totalCost), grossMargin: f2(totalRevenue.minus(totalCost)), grossMarginPct: totalRevenue.gt(0) ? totalRevenue.minus(totalCost).dividedBy(totalRevenue).times(100).toFixed(1) : null, byProduct: lines.slice(0, 30), byCustomer: byCustomer.map((c) => ({ customerId: c.customerId, name: c.name, nameAr: c.nameAr, nameEn: c.nameEn, net: f2(D(c.net)), invoices: Number(c.invoices) })) },
+    profitAndLoss: { lines: pl.map((x) => ({ code: x.code, name: x.name, nameAr: x.nameAr, nameEn: x.nameEn, type: x.type, amount: f2(D(x.amount)) })), revenue: f2(plRevenue), expenses: f2(plExpense), net: f2(plRevenue.minus(plExpense)) },
     receivables: { totals: ar.totals, top: ar.rows.slice(0, 10) },
     payables: { totals: ap.totals, top: ap.rows.slice(0, 10) },
-    inventory: { value: valuation.totalValue.toFixed(2), top: valuation.rows.slice(0, 15).map((r) => ({ product: r.productNameAr ?? r.productName, unit: r.unit, quantity: r.quantity.toString(), value: r.value.toFixed(2) })) },
+    inventory: { value: valuation.totalValue.toFixed(2), top: valuation.rows.slice(0, 15).map((r) => ({ product: r.productNameAr ?? r.productName, productNameAr: r.productNameAr, productNameEn: r.productName, unit: r.unit, quantity: r.quantity.toString(), value: r.value.toFixed(2) })) },
     stockMovement: movement.map((m) => ({ kind: m.kind, quantity: D(m.qty).toString(), value: f2(D(m.value)) })),
     cash,
   };

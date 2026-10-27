@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale } from "@/lib/locale";
+
 export function QuantityInput({
   value,
   onChange,
@@ -11,11 +13,12 @@ export function QuantityInput({
   disabled?: boolean;
   step?: number;
 }) {
+  const { t } = useLocale();
   return (
     <div className="flex items-center gap-2">
       <button
         type="button"
-        aria-label="نقّص الكمية"
+        aria-label={t("ui.qty.decrease")}
         disabled={disabled}
         onClick={() => onChange(Math.max(0, value - step))}
         className="tap-target w-14 rounded-xl bg-united-dark/10 text-2xl font-extrabold disabled:opacity-40"
@@ -25,7 +28,7 @@ export function QuantityInput({
       <input
         type="number"
         inputMode="decimal"
-        aria-label="الكمية"
+        aria-label={t("ui.qty.value")}
         disabled={disabled}
         value={Number.isFinite(value) ? value : 0}
         onChange={(e) => {
@@ -36,7 +39,7 @@ export function QuantityInput({
       />
       <button
         type="button"
-        aria-label="زوّد الكمية"
+        aria-label={t("ui.qty.increase")}
         disabled={disabled}
         onClick={() => onChange(value + step)}
         className="tap-target w-14 rounded-xl bg-united-green/20 text-united-dark text-2xl font-extrabold disabled:opacity-40"

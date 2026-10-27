@@ -351,7 +351,7 @@ export async function refreshPoReceiptStatus(tx: Tx, poId: string, actor: { id: 
 // Reads
 // ---------------------------------------------------------------------------
 
-function present(po: Prisma.PurchaseOrderGetPayload<{ include: { supplier: { select: { id: true; code: true; name: true } }; lines: { include: { product: { select: { name: true; nameAr: true; unit: true } } } } } }>, got: Map<string, { good: Prisma.Decimal; rejected: Prisma.Decimal; received: Prisma.Decimal }>, withPrices: boolean) {
+function present(po: Prisma.PurchaseOrderGetPayload<{ include: { supplier: { select: { id: true; code: true; name: true; nameAr: true } }; lines: { include: { product: { select: { name: true; nameAr: true; unit: true } } } } } }>, got: Map<string, { good: Prisma.Decimal; rejected: Prisma.Decimal; received: Prisma.Decimal }>, withPrices: boolean) {
   const lines = po.lines
     .sort((a, b) => a.lineNo - b.lineNo)
     .map((l) => {
@@ -398,7 +398,7 @@ function present(po: Prisma.PurchaseOrderGetPayload<{ include: { supplier: { sel
   return withPrices ? { ...base, currencyCode: po.currencyCode, paymentTermsDays: po.paymentTermsDays, net: po.net.toFixed(2), taxTotal: po.taxTotal.toFixed(2), total: po.total.toFixed(2) } : base;
 }
 
-const PO_INCLUDE = { supplier: { select: { id: true, code: true, name: true } }, lines: { include: { product: { select: { name: true, nameAr: true, unit: true } } } } } as const;
+const PO_INCLUDE = { supplier: { select: { id: true, code: true, name: true, nameAr: true } }, lines: { include: { product: { select: { name: true, nameAr: true, unit: true } } } } } as const;
 
 export async function getPurchaseOrder(id: string, viewer: { permissions: readonly string[] } | { can: (p: never) => boolean }) {
   const po = await prisma.purchaseOrder.findUnique({ where: { id }, include: PO_INCLUDE });

@@ -24,7 +24,7 @@ const templates = {
   customers: { headers: "name,name_ar,legal_name,legal_name_ar,type,tax_registration_no,commercial_reg_no,phone,email,city,area,address,delivery_notes,external_ref,notes,payment_terms_days,credit_limit,credit_hold,credit_hold_reason,credit_reason,price_list_code,price_list_reason,group_code,legal_entity_code", required: ["name"] },
   customer_groups: { headers: "code,name,name_ar", required: ["code", "name"] },
   customer_legal_entities: { headers: "code,name,name_ar,tax_registration_no,commercial_reg_no,phone,email,address,area,city,country,governate,region_city,street,building_number,postal_code,floor,room,landmark,additional_information,receiver_type,receiver_id,notes", required: ["code", "name"] },
-  suppliers: { headers: "name,phone,notes,type,tax_registration_no,commercial_reg_no,email,city,address,payment_terms_days,lead_time_days,currency_code", required: ["name"] },
+  suppliers: { headers: "name,name_ar,phone,notes,type,tax_registration_no,commercial_reg_no,email,city,address,payment_terms_days,lead_time_days,currency_code", required: ["name"] },
   products: { headers: "name,name_ar,sku,category,unit,stock_tracked,sales_tax_code", required: ["name", "unit"] },
   product_settings: { headers: "sku,shelf_life_days,removal_strategy,min_stock_qty,reorder_point_qty,max_stock_qty,cold_chain,costing_method,standard_cost", required: ["sku"] },
   product_packaging: { headers: "sku,uom,qty_in_base_unit,barcode,active", required: ["sku", "uom", "qty_in_base_unit"] },
@@ -34,6 +34,24 @@ const templates = {
   supplier_prices: { headers: "supplier_code,sku,uom,unit_price,valid_from,valid_to,lead_time_days,notes", required: ["supplier_code", "sku", "unit_price", "valid_from"] },
 } as const;
 export type ImportKind = keyof typeof templates;
+
+/** Bilingual name columns: `name` is the English name (the schema's `name`) and may be
+ * titled `name_en`; `name_ar` is the Arabic name. A product's identifying code is its
+ * SKU, so `code` is accepted for it. Customer and supplier codes are system-assigned. */
+const NAME_ALIASES = { name_en: "name" } as const;
+const headerAliases: Record<ImportKind, Record<string, string>> = {
+  customers: { ...NAME_ALIASES, legal_name_en: "legal_name" },
+  customer_groups: NAME_ALIASES,
+  customer_legal_entities: NAME_ALIASES,
+  suppliers: NAME_ALIASES,
+  products: { ...NAME_ALIASES, code: "sku" },
+  product_settings: { code: "sku" },
+  product_packaging: { code: "sku" },
+  opening_stock: { code: "sku" },
+  opening_balances: {},
+  sales_prices: { code: "sku" },
+  supplier_prices: { code: "sku" },
+};
 const permissionByKind: Record<ImportKind, Permission> = {
   customers: "sales.customers.manage", customer_groups: "sales.customers.manage", customer_legal_entities: "sales.customers.manage", suppliers: "purchasing.suppliers.manage", products: "stock.manage_products", product_settings: "stock.manage_products", product_packaging: "stock.manage_products",
   opening_stock: "accounting.manage", opening_balances: "accounting.manage", sales_prices: "sales.pricing.manage", supplier_prices: "purchasing.prices.manage",
@@ -49,7 +67,7 @@ function inputFor(kind: ImportKind, row: CsvRecord) {
   if (kind === "customers") return { name: v.name, name_ar: v.name_ar || null, legal_name: v.legal_name || null, legal_name_ar: v.legal_name_ar || null, type: v.type || undefined, tax_registration_no: v.tax_registration_no || null, commercial_reg_no: v.commercial_reg_no || null, phone: v.phone || null, email: v.email || null, city: v.city || null, area: v.area || null, address: v.address || null, delivery_notes: v.delivery_notes || null, external_ref: v.external_ref || null, notes: v.notes || null, payment_terms_days: v.payment_terms_days ? Number(v.payment_terms_days) : undefined, credit_limit: v.credit_limit || undefined, credit_hold: v.credit_hold ? ["true", "1", "نعم"].includes(v.credit_hold.toLowerCase()) : undefined, credit_hold_reason: v.credit_hold_reason || undefined, credit_reason: v.credit_reason || undefined, price_list_reason: v.price_list_reason || undefined };
   if (kind === "customer_groups") return { code: v.code, name: v.name, name_ar: v.name_ar || null };
   if (kind === "customer_legal_entities") return { code: v.code, name: v.name, name_ar: v.name_ar || null, tax_registration_no: v.tax_registration_no || null, commercial_reg_no: v.commercial_reg_no || null, phone: v.phone || null, email: v.email || null, address: v.address || null, area: v.area || null, city: v.city || null, country: v.country || null, governate: v.governate || null, region_city: v.region_city || null, street: v.street || null, building_number: v.building_number || null, postal_code: v.postal_code || null, floor: v.floor || null, room: v.room || null, landmark: v.landmark || null, additional_information: v.additional_information || null, receiver_type: v.receiver_type || null, receiver_id: v.receiver_id || null, notes: v.notes || null };
-  if (kind === "suppliers") return { name: v.name, phone: v.phone || null, notes: v.notes || null, type: v.type || undefined, tax_registration_no: v.tax_registration_no || null, commercial_reg_no: v.commercial_reg_no || null, email: v.email || null, city: v.city || null, address: v.address || null, payment_terms_days: v.payment_terms_days ? Number(v.payment_terms_days) : undefined, lead_time_days: v.lead_time_days ? Number(v.lead_time_days) : null, currency_code: v.currency_code || "EGP" };
+  if (kind === "suppliers") return { name: v.name, name_ar: v.name_ar || null, phone: v.phone || null, notes: v.notes || null, type: v.type || undefined, tax_registration_no: v.tax_registration_no || null, commercial_reg_no: v.commercial_reg_no || null, email: v.email || null, city: v.city || null, address: v.address || null, payment_terms_days: v.payment_terms_days ? Number(v.payment_terms_days) : undefined, lead_time_days: v.lead_time_days ? Number(v.lead_time_days) : null, currency_code: v.currency_code || "EGP" };
   if (kind === "products") return { name: v.name, name_ar: v.name_ar || null, sku: v.sku || null, category: v.category || null, unit: v.unit, stock_tracked: v.stock_tracked ? ["true", "1", "نعم"].includes(v.stock_tracked.toLowerCase()) : true, sales_tax_code: v.sales_tax_code || undefined };
   if (kind === "opening_stock") return { ...v };
   return { ...v };
@@ -58,7 +76,7 @@ function inputFor(kind: ImportKind, row: CsvRecord) {
 async function previewRows(kind: ImportKind, rows: CsvRecord[], body: Record<string, unknown>) {
   if (kind === "opening_stock" && rows.length > 200) throw new ApiError(400, "رصيد الافتتاح يقبل 200 سطر كحد أقصى في المستند الواحد");
   if (kind === "opening_stock" && (typeof body.business_date !== "string" || !isValidISODate(body.business_date))) throw new ApiError(400, "حدد تاريخ الرصيد الافتتاحي بصيغة YYYY-MM-DD");
-  const results = rows.map((row) => ({ rowNumber: row.rowNumber, errors: validateImportRow(kind, row, templates[kind].required), label: row.values.name || row.values.sku || row.values.party_code || "—" }));
+  const results = rows.map((row) => ({ rowNumber: row.rowNumber, errors: validateImportRow(kind, row, templates[kind].required), label: row.values.name || row.values.sku || row.values.party_code || "—", ...(row.values.name_ar ? { labelAr: row.values.name_ar } : {}), ...(row.values.code || row.values.sku ? { code: row.values.code || row.values.sku } : {}) }));
   const seen = new Map<string, number>();
   rows.forEach((r, i) => {
     const v = r.values;
@@ -349,7 +367,7 @@ export async function POST(req: NextRequest) {
     }
     if (body.action !== "preview" && body.action !== "commit") throw new ApiError(400, "نوع العملية لازم معاينة أو حفظ");
     if (typeof body.csv !== "string") throw new ApiError(400, "محتوى ملف CSV مطلوب");
-    const rows = parseCsv(body.csv, templates[kind].required);
+    const rows = parseCsv(body.csv, templates[kind].required, headerAliases[kind]);
     if (kind === "products" && rows.some((r) => r.values.sales_tax_code)) assertPermission(actor, "sales.tax.manage");
     if (kind === "customers" && rows.some((r) => [r.values.payment_terms_days, r.values.credit_limit, r.values.credit_hold, r.values.credit_hold_reason].some(Boolean))) assertPermission(actor, "sales.credit.manage");
     if (kind === "customers" && rows.some((r) => r.values.price_list_code)) assertPermission(actor, "sales.pricing.manage");
@@ -457,9 +475,15 @@ export async function POST(req: NextRequest) {
           // Reconciliation: if external_ref already exists on a customer with the
           // same normalized name, skip creation — it is the same record.
           if (row.values.external_ref) {
-            const existing = await prisma.customer.findUnique({ where: { externalRef: row.values.external_ref.trim() }, select: { id: true, name: true, code: true } });
+            const existing = await prisma.customer.findUnique({ where: { externalRef: row.values.external_ref.trim() }, select: { id: true, code: true } });
             if (existing) {
-              if (normalizeProductName(row.values.name) === normalizeProductName(existing.name)) {
+              // Same rule as the preview: the row is the existing card when EITHER of
+              // its names is one of the card's names/aliases (the preview checks the
+              // alias table, so a match on name_ar alone must not 409 here). Nothing on
+              // the card is changed — a re-import never overwrites or blanks a name.
+              const rowNames = [row.values.name, row.values.name_ar].filter(Boolean).map(normalizeProductName);
+              const sameCard = await prisma.customerAlias.count({ where: { customerId: existing.id, normalized: { in: rowNames } } });
+              if (sameCard > 0) {
                 results.push({ rowNumber: row.rowNumber, status: "موجود — لم يتكرر", code: existing.code });
                 continue;
               }

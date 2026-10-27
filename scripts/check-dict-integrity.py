@@ -7,6 +7,7 @@ import re, os, sys
 PROJECT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DICT_PATH = os.path.join(PROJECT, 'lib', 'locale', 'dictionary.ts')
 COMPONENTS_DIR = os.path.join(PROJECT, 'components')
+SCAN_DIRS = [COMPONENTS_DIR, os.path.join(PROJECT, 'app')]
 
 def main():
     if not os.path.exists(DICT_PATH):
@@ -24,14 +25,16 @@ def main():
     print(f"Dictionary keys: {len(dict_keys)}")
 
     missing = {}
-    for root, _, files in os.walk(COMPONENTS_DIR):
+    for root, _, files in (w for d in SCAN_DIRS for w in os.walk(d)):
         for fn in files:
             if not fn.endswith(".tsx"):
                 continue
             fp = os.path.join(root, fn)
             with open(fp) as f:
                 text = f.read()
-            for m in re.finditer(r't\("([^"]+)"\)', text):
+            # t("key") and t("key", { params }) — keys called with parameters were
+            # previously skipped, so a missing one could render as its raw key.
+            for m in re.finditer(r'\bt\("([^"]+)"\s*[,)]', text):
                 key = m.group(1)
                 if "." not in key or key.startswith("/"):
                     continue  # skip URL paths and non-key strings

@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
@@ -18,6 +18,9 @@ module.exports = {
       },
       fontFamily: {
         arabic: ["Tajawal", "Cairo", "Arial", "system-ui", "sans-serif"],
+        // Applied by lib/locale/context.tsx in English; without it the body lost its
+        // font family entirely and fell back to the browser's serif default.
+        english: ["Inter", "Segoe UI", "Arial", "system-ui", "sans-serif"],
         english: ["Inter", "system-ui", "Segoe UI", "Roboto", "sans-serif"],
       },
       boxShadow: {

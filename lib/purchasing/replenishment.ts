@@ -23,5 +23,5 @@ export async function replenishmentSuggestions() {
       warehouseCode: warehouse.code,
     }];
   });
-  return { warehouse: { id: warehouse.id, code: warehouse.code, name: warehouse.nameAr ?? warehouse.name }, suggestions };
+  return { warehouse: { id: warehouse.id, code: warehouse.code, name: warehouse.nameAr ?? warehouse.name, nameAr: warehouse.nameAr, nameEn: warehouse.name }, suggestions };
 }

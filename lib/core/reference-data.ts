@@ -91,6 +91,25 @@ export const STORAGE_LOCATION_TYPE_LABEL: Record<StorageLocationType, string> = 
   waste: "هالك",
 };
 
+export const STORAGE_LOCATION_TYPE_LABEL_EN: Record<StorageLocationType, string> = {
+  cold_room: "Cold room",
+  chiller: "Chiller",
+  freezer: "Freezer",
+  dry: "Dry storage",
+  receiving: "Receiving",
+  staging: "Staging",
+  dispatch: "Dispatch",
+  quarantine: "Quarantine",
+  other: "Other",
+  waste: "Waste",
+};
+
+/** A location type's label in `locale`; an unknown type shows its raw code. */
+export function storageLocationTypeLabel(type: string, locale: "ar" | "en"): string {
+  const labels: Record<string, string> = locale === "en" ? STORAGE_LOCATION_TYPE_LABEL_EN : STORAGE_LOCATION_TYPE_LABEL;
+  return labels[type] ?? type;
+}
+
 export const DEFAULT_ORG = {
   company: {
     id: "cmp_united",

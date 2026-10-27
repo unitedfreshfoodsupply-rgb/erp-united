@@ -7,6 +7,7 @@ import { ErrorState, LoadingState } from "@/components/States";
 import { todayLocalISO } from "@/lib/localDate";
 import { fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 /** Management reports: finance (sales, margin, balances, stock value, cash, P&L) or operations (fulfilment, prep, loading, delivery, exceptions, stock age). */
 
@@ -72,6 +73,10 @@ export function ManagementView({ kind }: { kind: "finance" | "operations" | "cas
 }
 
 function Finance({ r, t, kinds }: { r: any; t: (k: string) => string; kinds: Record<string, string> }) {
+  const { locale } = useLocale();
+  // Report rows carry `product` (legacy Arabic-first label) plus productNameAr/En.
+  const productLabel = (p: { product: string; productNameAr?: string | null; productNameEn?: string | null }) =>
+    p.productNameEn || p.productNameAr ? localName({ name: p.productNameEn, nameAr: p.productNameAr }, locale) : p.product;
   return (
     <>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -85,18 +90,18 @@ function Finance({ r, t, kinds }: { r: any; t: (k: string) => string; kinds: Rec
         <Tile label={t("mgmt.finance.tile.net_profit")} value={fmtMoney(r.profitAndLoss.net)} tone={Number(r.profitAndLoss.net) >= 0 ? "good" : "bad"} />
       </div>
       <H>{t("mgmt.finance.heading.margin_by_product")}</H>
-      <Table head={[t("mgmt.finance.table.product.item"), t("mgmt.finance.table.product.quantity"), t("mgmt.finance.table.product.sales"), t("mgmt.finance.table.product.cost"), t("mgmt.finance.table.product.margin"), t("mgmt.finance.table.product.pct"), t("mgmt.finance.table.product.cost_unknown")]} rows={r.sales.byProduct.map((p: any) => [p.product, fmtQty(p.quantity), p.revenue, p.cost, p.margin, p.marginPct, Number(p.costUnknownQty ?? 0) > 0 ? fmtQty(p.costUnknownQty) : "—"])} />
+      <Table head={[t("mgmt.finance.table.product.item"), t("mgmt.finance.table.product.quantity"), t("mgmt.finance.table.product.sales"), t("mgmt.finance.table.product.cost"), t("mgmt.finance.table.product.margin"), t("mgmt.finance.table.product.pct"), t("mgmt.finance.table.product.cost_unknown")]} rows={r.sales.byProduct.map((p: any) => [productLabel(p), fmtQty(p.quantity), p.revenue, p.cost, p.margin, p.marginPct, Number(p.costUnknownQty ?? 0) > 0 ? fmtQty(p.costUnknownQty) : "—"])} />
       <p className="text-xs font-bold text-united-muted">{t("mgmt.finance.footnote.cost_unknown")}</p>
       <H>{t("mgmt.finance.heading.top_customers")}</H>
-      <Table head={[t("mgmt.finance.head.customer"), t("mgmt.finance.head.invoices"), t("mgmt.finance.tile.net_sales")]} rows={r.sales.byCustomer.map((c: any) => [c.name, c.invoices, c.net])} />
+      <Table head={[t("mgmt.finance.head.customer"), t("mgmt.finance.head.invoices"), t("mgmt.finance.tile.net_sales")]} rows={r.sales.byCustomer.map((c: any) => [localName(c, locale), c.invoices, c.net])} />
       <H>{t("mgmt.finance.heading.debts_aging")}</H>
       <Table head={["", t("mgmt.finance.table.debts.bucket_current"), "1–30", "31–60", "61–90", "+90", t("mgmt.finance.table.debts.total")]} rows={[[t("mgmt.finance.table.debts.labels.customers"), r.receivables.totals.current, r.receivables.totals.d1_30, r.receivables.totals.d31_60, r.receivables.totals.d61_90, r.receivables.totals.d90_plus, r.receivables.totals.total], [t("mgmt.finance.table.debts.labels.suppliers"), r.payables.totals.current, r.payables.totals.d1_30, r.payables.totals.d31_60, r.payables.totals.d61_90, r.payables.totals.d90_plus, r.payables.totals.total]]} />
       <H>{t("mgmt.finance.heading.income_statement")}</H>
-      <Table head={[t("mgmt.is.head.account"), t("mgmt.is.head.amount")]} rows={[...r.profitAndLoss.lines.map((l: any) => [`${l.code} · ${l.name}`, l.amount]), [t("mgmt.finance.tile.net_profit"), r.profitAndLoss.net]]} />
+      <Table head={[t("mgmt.is.head.account"), t("mgmt.is.head.amount")]} rows={[...r.profitAndLoss.lines.map((l: any) => [`${l.code} · ${localName(l, locale)}`, l.amount]), [t("mgmt.finance.tile.net_profit"), r.profitAndLoss.net]]} />
       <H>{t("mgmt.finance.heading.stock_movement")}</H>
       <Table head={[t("mgmt.stock_move.head.type"), t("mgmt.stock_move.head.quantity"), t("mgmt.stock_move.head.value")]} rows={r.stockMovement.map((m: any) => [kinds[m.kind] ?? m.kind, fmtQty(m.quantity), m.value])} />
       <H>{t("mgmt.finance.heading.top_inventory_items")}</H>
-      <Table head={[t("mgmt.inv_top.head.item"), t("mgmt.inv_top.head.quantity"), t("mgmt.inv_top.head.value")]} rows={r.inventory.top.map((p: any) => [p.product, fmtQty(p.quantity, p.unit), p.value])} />
+      <Table head={[t("mgmt.inv_top.head.item"), t("mgmt.inv_top.head.quantity"), t("mgmt.inv_top.head.value")]} rows={r.inventory.top.map((p: any) => [productLabel(p), fmtQty(p.quantity, p.unit), p.value])} />
     </>
   );
 }

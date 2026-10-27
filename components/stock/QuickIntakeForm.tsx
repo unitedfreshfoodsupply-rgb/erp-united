@@ -13,6 +13,7 @@ import { LocationSelect } from "@/components/stock/inventory/shared";
 import { newClientKey } from "@/lib/clientKey";
 import Link from "next/link";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 type OpenPoLine = { lineId: string; poNumber: string; expectedDate: string | null; supplier: { id: string; name: string }; product: { id: string; name: string; unit: string }; ordered: string; receivedGood: string; remaining: string };
 type Packaging = { uomCode: string; qtyInBaseUnit: string; active: boolean; uom: { nameAr: string | null; name: string } };
@@ -32,7 +33,7 @@ type Packaging = { uomCode: string; qtyInBaseUnit: string; active: boolean; uom:
 export function QuickIntakeForm({ date }: { date: string }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const receivedRef = useRef<HTMLInputElement>(null);
 
   const suppliersQ = useQuery({
@@ -253,7 +254,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
 
       {packagings.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {[{ code: "", label: t("stock.packaging-unit", { unit: baseUnit }) }, ...packagings.map((p) => ({ code: p.uomCode, label: `${t("stock.packaging-in")} ${p.uom.nameAr ?? p.uom.name} (${Number(p.qtyInBaseUnit)} ${baseUnit})` }))].map((o) => (
+          {[{ code: "", label: t("stock.packaging-unit", { unit: baseUnit }) }, ...packagings.map((p) => ({ code: p.uomCode, label: `${t("stock.packaging-in")} ${localName(p.uom, locale)} (${Number(p.qtyInBaseUnit)} ${baseUnit})` }))].map((o) => (
             <button
               key={o.code}
               type="button"
@@ -270,7 +271,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
       <div className="grid grid-cols-2 gap-3">
         <NumberField
           ref={receivedRef}
-          label={countUom ? `${t("stock.received")} (${packagings.find((p) => p.uomCode === countUom)?.uom.nameAr ?? countUom})` : t("stock.received-k")}
+          label={countUom ? `${t("stock.received")} (${localName({ ...packagings.find((p) => p.uomCode === countUom)?.uom, code: countUom }, locale)})` : t("stock.received-k")}
           value={receivedKg}
           onChange={setReceivedKg}
           autoFocusable
@@ -323,7 +324,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
               .filter((p) => p.stockTracked && p.unit === "KG" && p.id !== productId)
               .map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.nameAr ?? p.name}
+                  {localName(p, locale)}
                 </option>
               ))}
           </select>

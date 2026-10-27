@@ -19,7 +19,7 @@ export async function expiringStock(opts: { days?: number; warehouseId?: string 
   const until = addDays(today, days);
   const lots = await prisma.stockLot.findMany({
     where: { expiryDate: { not: null, lte: until } },
-    include: { product: { select: { id: true, name: true, nameAr: true, unit: true } }, supplier: { select: { name: true } } },
+    include: { product: { select: { id: true, name: true, nameAr: true, unit: true } }, supplier: { select: { name: true, nameAr: true } } },
   });
   if (lots.length === 0) return { today, until, rows: [] };
   const sums = await prisma.stockMovement.groupBy({

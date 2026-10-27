@@ -295,7 +295,7 @@ export async function reversePayment(id: string, input: unknown, actor: ServiceA
     const head = await tx.supplierPayment.findUnique({ where: { id }, select: { supplierId: true } });
     if (!head) throw new ApiError(404, "السداد مش موجود");
     await advisoryXactLock(tx, `accounting:supplier:${head.supplierId}`);
-    const p = await tx.supplierPayment.findUniqueOrThrow({ where: { id }, include: { reversal: true, supplier: { select: { name: true } }, cashAccount: { select: { accountId: true } } } });
+    const p = await tx.supplierPayment.findUniqueOrThrow({ where: { id }, include: { reversal: true, supplier: { select: { name: true, nameAr: true } }, cashAccount: { select: { accountId: true } } } });
     if (p.reversal) throw new ApiError(409, "السداد ده اتعكس قبل كده");
     const date = v.date ?? todayLocalISO();
     if (date < p.date) throw new ApiError(400, "تاريخ العكس قبل تاريخ السداد");
@@ -324,7 +324,7 @@ export async function listReceipts(filters: { customerId?: string; limit?: numbe
   const where = filters.customerId ? { customerId: filters.customerId } : {};
   const [total, rows] = await Promise.all([
     prisma.customerReceipt.count({ where }),
-    prisma.customerReceipt.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { allocations: true, reversal: true, customer: { select: { id: true, code: true, name: true } }, cashAccount: { select: { name: true } } }, skip, take }),
+    prisma.customerReceipt.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { allocations: true, reversal: true, customer: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true } } }, skip, take }),
   ]);
   return { receipts: rows.map((r) => ({ ...present(r), customer: r.customer, cashAccount: r.cashAccount.name })), pagination: { total, limit: take, offset: skip } };
 }
@@ -335,7 +335,7 @@ export async function listPayments(filters: { supplierId?: string; limit?: numbe
   const where = filters.supplierId ? { supplierId: filters.supplierId } : {};
   const [total, rows] = await Promise.all([
     prisma.supplierPayment.count({ where }),
-    prisma.supplierPayment.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { allocations: true, reversal: true, supplier: { select: { id: true, code: true, name: true } }, cashAccount: { select: { name: true } } }, skip, take }),
+    prisma.supplierPayment.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { allocations: true, reversal: true, supplier: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true } } }, skip, take }),
   ]);
   return { payments: rows.map((r) => ({ ...present(r), supplier: r.supplier, cashAccount: r.cashAccount.name })), pagination: { total, limit: take, offset: skip } };
 }
@@ -442,12 +442,12 @@ export async function createSupplierRefund(input: unknown, actor: ServiceActor) 
 }
 
 export async function listCustomerRefunds(filters: { customerId?: string }) {
-  const rows = await prisma.customerRefund.findMany({ where: filters.customerId ? { customerId: filters.customerId } : {}, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { customer: { select: { id: true, code: true, name: true } }, cashAccount: { select: { name: true } } }, take: 300 });
+  const rows = await prisma.customerRefund.findMany({ where: filters.customerId ? { customerId: filters.customerId } : {}, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { customer: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true } } }, take: 300 });
   return rows.map((r) => ({ id: r.id, number: r.number, date: r.date, amount: r.amount.toFixed(2), method: r.method, reference: r.reference, reason: r.reason, createdBy: r.createdBy, customer: r.customer, cashAccount: r.cashAccount.name }));
 }
 
 export async function listSupplierRefunds(filters: { supplierId?: string }) {
-  const rows = await prisma.supplierRefund.findMany({ where: filters.supplierId ? { supplierId: filters.supplierId } : {}, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { supplier: { select: { id: true, code: true, name: true } }, cashAccount: { select: { name: true } } }, take: 300 });
+  const rows = await prisma.supplierRefund.findMany({ where: filters.supplierId ? { supplierId: filters.supplierId } : {}, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { supplier: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true } } }, take: 300 });
   return rows.map((r) => ({ id: r.id, number: r.number, date: r.date, amount: r.amount.toFixed(2), method: r.method, reference: r.reference, reason: r.reason, createdBy: r.createdBy, supplier: r.supplier, cashAccount: r.cashAccount.name }));
 }
 

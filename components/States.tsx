@@ -17,7 +17,7 @@ export function EmptyState({ icon = "📦", title }: { icon?: string; title?: st
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
       <span className="text-3xl opacity-50">{icon}</span>
-      <p className="text-united-muted font-bold">{title ?? t("ui.empty")}</p>
+      <p className="text-united-muted font-bold">{title || t("ui.empty")}</p>
     </div>
   );
 }
@@ -36,7 +36,7 @@ export function ErrorState({
         <span>⚠️</span>
       </div>
       <div>
-        <p className="text-united-danger font-bold">{message ?? t("ui.error-try")}</p>
+        <p className="text-united-danger font-bold">{message || t("ui.error-try")}</p>
       </div>
       {onRetry && (
         <button onClick={onRetry} className="btn-secondary text-sm">

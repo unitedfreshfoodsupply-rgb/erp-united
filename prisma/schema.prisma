@@ -236,7 +236,10 @@ model Supplier {
   id        String   @id @default(cuid())
   /// SUP-00001 — immutable; existing suppliers were numbered in creation order.
   code      String   @unique
+  /// Canonical English (or as-entered legacy) name.
   name      String   @unique
+  /// Arabic name, when the business has one. Display picks name/nameAr by locale.
+  nameAr    String?
   phone     String?
   notes     String?
   active    Boolean  @default(true)

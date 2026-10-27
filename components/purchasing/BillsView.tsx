@@ -11,6 +11,7 @@ import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 /**
  * Supplier bills and payables (finance). A bill is booked from the supplier's invoice
@@ -36,7 +37,7 @@ const MATCH: Record<string, { label: string; cls: string }> = {
   unpriced: { label: "مفيش سعر متفق عليه", cls: "text-united-warn" },
 };
 
-type BillRow = { id: string; number: string; status: string; supplier: { id: string; code: string; name: string }; supplierInvoiceNo: string; billDate: string; dueDate: string; lineCount: number; total: string; variance: string; matchStatus: string; open: string | null };
+type BillRow = { id: string; number: string; status: string; supplier: { id: string; code: string; name: string; nameAr?: string | null }; supplierInvoiceNo: string; billDate: string; dueDate: string; lineCount: number; total: string; variance: string; matchStatus: string; open: string | null };
 type BillLine = { id: string; lineNo: number; intakeId: string; receiptNumber: string; receivedDate: string; poNumber: string | null; description: string; uomCode: string; receivedQty: string; quantity: string; unitPrice: string; expectedUnitPrice: string | null; expectedNet: string | null; lineVariance: string | null; taxCode: string; net: string; tax: string; total: string; debitedQty: string };
 type Bill = Omit<BillRow, "lineCount"> & { currencyCode: string; notes: string | null; cancelReason: string | null; expectedNet: string; net: string; taxTotal: string; debited: string; approvalId: string | null; createdBy: string; postedBy: string | null; approvedBy: string | null; version: number; lines: BillLine[]; debitNotes: { id: string; number: string; issueDate: string; reason: string; total: string; createdBy: string }[] };
 type Billable = { intakeId: string; receiptNumber: string; receivedDate: string; product: { id: string; name: string; unit: string }; poNumber: string | null; goodQty: string; expectedUnitPrice: string | null; priceSource: string | null; expectedNet: string | null; taxCode: string; taxRate: string };
@@ -58,7 +59,7 @@ export function BillsView({ initialBillId }: { initialBillId?: string | null }) 
 
 function Bills({ onOpen }: { onOpen: (id: string) => void }) {
   const { can } = usePermissions();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [status, setStatus] = useState("");
   const [creating, setCreating] = useState(false);
   const q = useQuery({ queryKey: ["purchasing", "bills", status], queryFn: () => apiFetch<{ bills: BillRow[] }>(`/api/purchasing/bills${status ? `?status=${status}` : ""}`) });
@@ -77,7 +78,7 @@ function Bills({ onOpen }: { onOpen: (id: string) => void }) {
           <li key={b.id}>
             <button type="button" className="card p-3 w-full text-start flex justify-between gap-2" onClick={() => onOpen(b.id)}>
               <div>
-                <div className="font-extrabold"><span dir="ltr">{b.number}</span> · {b.supplier.name}</div>
+                <div className="font-extrabold"><span dir="ltr">{b.number}</span> · {localName(b.supplier, locale)}</div>
                 <div className="text-xs font-bold text-united-muted">{t("purchasing.bill.supplier_invoice_label")} <span dir="ltr">{b.supplierInvoiceNo}</span> · {b.billDate} · {t("purchasing.bill.due_date")} {b.dueDate} · <span className={MATCH[b.matchStatus]?.cls}>{MATCH[b.matchStatus]?.label}</span></div>
               </div>
               <div className="flex flex-col items-end gap-1 shrink-0">
@@ -97,7 +98,7 @@ function Bills({ onOpen }: { onOpen: (id: string) => void }) {
 function NewBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill }) {
   const toast = useToast();
   const qc = useQueryClient();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const suppliers = useQuery({ queryKey: ["purchasing", "suppliers"], queryFn: () => apiFetch<{ suppliers: { id: string; code: string; name: string }[] }>("/api/purchasing/suppliers") });
   const [supplierId, setSupplierId] = useState(bill?.supplier.id ?? "");
   const [invoiceNo, setInvoiceNo] = useState(bill?.supplierInvoiceNo ?? "");
@@ -150,7 +151,7 @@ function NewBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill 
         <Field label={t("purchasing.bill.field.supplier")}>
           <select className="field font-bold" value={supplierId} disabled={!!bill} onChange={(e) => { setSupplierId(e.target.value); setPicked({}); }}>
             <option value="">{t("purchasing.bill.field.select_supplier")}</option>
-            {suppliers.data?.suppliers.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
+            {suppliers.data?.suppliers.map((s) => <option key={s.id} value={s.id}>{localName(s, locale)} ({s.code})</option>)}
           </select>
         </Field>
         <Field label={t("purchasing.bill.field.invoice_no")}><input className="field" dir="ltr" value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} /></Field>
@@ -194,7 +195,7 @@ function NewBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill 
 
 function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const { can } = usePermissions();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const qc = useQueryClient();
   const toast = useToast();
   const [reason, setReason] = useState("");
@@ -228,7 +229,7 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
       <div className="flex justify-between items-center gap-2">
         <div>
           <h2 className="text-xl font-extrabold" dir="ltr">{b.number}</h2>
-          <p className="text-sm font-bold text-united-muted">{b.supplier.code} · {b.supplier.name} · {t("purchasing.bill.supplier_invoice_label")} <span dir="ltr">{b.supplierInvoiceNo}</span> · {b.billDate} · {t("purchasing.bill.due_date")} {b.dueDate}</p>
+          <p className="text-sm font-bold text-united-muted">{b.supplier.code} · {localName(b.supplier, locale)} · {t("purchasing.bill.supplier_invoice_label")} <span dir="ltr">{b.supplierInvoiceNo}</span> · {b.billDate} · {t("purchasing.bill.due_date")} {b.dueDate}</p>
         </div>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button>
       </div>
@@ -289,11 +290,11 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
 // Payables: aging → supplier statement
 // ---------------------------------------------------------------------------
 
-type AgingRow = { supplier: { id: string; code: string; name: string }; total: string; current: string; d1_30: string; d31_60: string; d61_90: string; d90_plus: string };
+type AgingRow = { supplier: { id: string; code: string; name: string; nameAr?: string | null }; total: string; current: string; d1_30: string; d31_60: string; d61_90: string; d90_plus: string };
 const BUCKETS_DEFAULT = [["current", ""], ["d1_30", "1–30"], ["d31_60", "31–60"], ["d61_90", "61–90"], ["d90_plus", "+90"], ["total", ""]];
 
 function Payables() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const buckets = useMemo(() => BUCKETS_DEFAULT.map(([k, _]) => [k, k === "current" ? t("purchasing.bill.current_bucket") : k === "total" ? t("purchasing.bill.total_bucket") : _] as [keyof Omit<AgingRow, "supplier">, string]), [t]);
   const [supplier, setSupplier] = useState<{ id: string; name: string } | null>(null);
   const q = useQuery({ queryKey: ["purchasing", "ap-aging"], queryFn: () => apiFetch<{ aging: { asOf: string; rows: AgingRow[]; totals: Omit<AgingRow, "supplier"> } }>("/api/purchasing/reports/ap-aging") });
@@ -310,7 +311,7 @@ function Payables() {
         <tbody>
           {a.rows.map((r) => (
             <tr key={r.supplier.id} className="border-t border-united-dark/5">
-              <td className="p-1"><button type="button" className="font-extrabold text-united-green underline text-start" onClick={() => setSupplier(r.supplier)}>{r.supplier.name}</button></td>
+              <td className="p-1"><button type="button" className="font-extrabold text-united-green underline text-start" onClick={() => setSupplier(r.supplier)}>{localName(r.supplier, locale)}</button></td>
               {buckets.map(([k]) => <td key={k} dir="ltr" className={`p-1 text-end font-bold ${k === "total" ? "font-extrabold" : ""} ${k.startsWith("d") && Number(r[k]) > 0 ? "text-united-danger" : ""}`}>{Number(r[k]) ? Number(r[k]).toLocaleString("en-US", { minimumFractionDigits: 2 }) : "—"}</td>)}
             </tr>
           ))}
@@ -321,8 +322,8 @@ function Payables() {
   );
 }
 
-function Statement({ supplier, onClose }: { supplier: { id: string; name: string }; onClose: () => void }) {
-  const { t } = useLocale();
+function Statement({ supplier, onClose }: { supplier: { id: string; name: string; nameAr?: string | null }; onClose: () => void }) {
+  const { t, locale } = useLocale();
   const [from, setFrom] = useState(`${todayLocalISO().slice(0, 4)}-01-01`);
   const [to, setTo] = useState(todayLocalISO());
   const q = useQuery({
@@ -331,7 +332,7 @@ function Statement({ supplier, onClose }: { supplier: { id: string; name: string
   });
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex justify-between items-center"><h2 className="text-xl font-extrabold">{t("purchasing.bill.statement_title", { name: supplier.name })}</h2><button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button></div>
+      <div className="flex justify-between items-center"><h2 className="text-xl font-extrabold">{t("purchasing.bill.statement_title", { name: localName(supplier, locale) })}</h2><button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button></div>
       <div className="flex gap-2"><input type="date" className="field" value={from} onChange={(e) => setFrom(e.target.value)} /><input type="date" className="field" value={to} onChange={(e) => setTo(e.target.value)} /></div>
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}

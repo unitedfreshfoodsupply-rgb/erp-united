@@ -10,6 +10,7 @@ import { invalidateOrderData } from "@/lib/queryInvalidation";
 import { useToast } from "@/components/ui/Toast";
 import { todayLocalISO } from "@/lib/localDate";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 type Row = { stock_product_id: string; quantity: string; unit: string };
 type CatalogProduct = {
@@ -24,7 +25,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
   const qc = useQueryClient();
   const router = useRouter();
   const toast = useToast();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   // Manual orders use master-data IDs. Names are snapshots for this document, not
   // independent identities that can drift from the customer/product cards.
   const { can } = usePermissions();
@@ -107,7 +108,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
         >
           <option value="">{t("create.customer-placeholder")}</option>
           {accounts.data?.customers.map((c) => (
-            <option key={c.id} value={c.id}>{c.code} · {c.nameAr ?? c.name}{c.creditHold ? ` ${t("create.credit-hold")}` : ""}</option>
+            <option key={c.id} value={c.id}>{c.code} · {localName(c, locale)}{c.creditHold ? ` ${t("create.credit-hold")}` : ""}</option>
           ))}
         </select>
       )}
@@ -140,7 +141,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
             >
               <option value="">{t("create.product-placeholder")}</option>
               {catalog.data?.products.map((p) => (
-                <option key={p.id} value={p.id}>{p.nameAr ?? p.name}</option>
+                <option key={p.id} value={p.id}>{localName(p, locale)}</option>
               ))}
             </select>
             <input
@@ -151,7 +152,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
               className="field w-24"
             />
             <select
-              aria-label="وحدة الصنف"
+              aria-label={t("ui.qty.unit")}
               value={row.unit}
               onChange={(e) => updateRow(i, { unit: e.target.value })}
               className="field w-28"

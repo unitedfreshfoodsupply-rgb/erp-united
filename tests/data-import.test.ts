@@ -148,6 +148,49 @@ async function main() {
   check("imported customer balance is visible in its statement", (await call("karim", "GET", `/api/sales/customers/${customer.id}/statement?from=2000-01-01&to=2099-12-31`)).body.closing === "500.00");
   check("imported supplier balance is visible in its statement", (await call("karim", "GET", `/api/purchasing/suppliers/${supplier.id}/statement?from=2000-01-01&to=2099-12-31`)).body.payable === "300.00");
 
+  section("7. BILINGUAL NAMES: CODE, name_ar AND name_en SURVIVE PREVIEW, COMMIT AND RE-READ");
+  const BSKU = `${TAG}-GUAVA`;
+  const biProductCsv = csv(`code,name_en,name_ar,unit\n${BSKU},"${TAG} Guava","جوافة ${TAG}",KG\n`);
+  const biProductPreview = await upload("admin", "products", "products-bi.csv", biProductCsv, "preview");
+  check("product preview accepts code/name_en/name_ar and labels the row with both names and its code",
+    biProductPreview.status === 200 && biProductPreview.body.errorCount === 0 && biProductPreview.body.rows[0].label === `${TAG} Guava` && biProductPreview.body.rows[0].labelAr === `جوافة ${TAG}` && biProductPreview.body.rows[0].code === BSKU, biProductPreview.body);
+  const biProductCommit = await upload("admin", "products", "products-bi.csv", biProductCsv, "commit");
+  check("bilingual product commits", biProductCommit.status === 200 && biProductCommit.body.created === 1, biProductCommit.body);
+  const biProduct = (await call("hossam", "GET", "/api/stock/products?all=1")).body.products.find((p: any) => p.sku === BSKU);
+  check("product stores code as SKU, English as name and Arabic as nameAr — not swapped", biProduct?.name === `${TAG} Guava` && biProduct?.nameAr === `جوافة ${TAG}`, biProduct);
+
+  const biSupplierCsv = csv(`name_en,name_ar,type\n"${TAG} Delta Farm","مزرعة الدلتا ${TAG}",farm\n`);
+  const biSupplierPreview = await upload("admin", "suppliers", "suppliers-bi.csv", biSupplierCsv, "preview");
+  check("supplier preview accepts name_ar", biSupplierPreview.status === 200 && biSupplierPreview.body.errorCount === 0, biSupplierPreview.body);
+  const biSupplierCommit = await upload("admin", "suppliers", "suppliers-bi.csv", biSupplierCsv, "commit");
+  check("bilingual supplier commits and returns its system code", biSupplierCommit.status === 200 && biSupplierCommit.body.created === 1 && /^SUP-/.test(biSupplierCommit.body.results[0].code ?? ""), biSupplierCommit.body);
+  const biSupplier = (await call("omar", "GET", `/api/purchasing/suppliers?q=${encodeURIComponent(`مزرعة الدلتا ${TAG}`)}`)).body.suppliers[0];
+  check("supplier keeps both names and is searchable by its Arabic name", biSupplier?.name === `${TAG} Delta Farm` && biSupplier?.nameAr === `مزرعة الدلتا ${TAG}` && biSupplier?.code === biSupplierCommit.body.results[0].code, biSupplier);
+
+  // Arabic-only English column + Latin-only Arabic column: the classic swap.
+  const swappedCsv = csv(`name,name_ar\n"مزرعة ${TAG.replace(/\D/g, "")}","${TAG} Farm Two"\n`);
+  const swapped = await upload("admin", "suppliers", "suppliers-swapped.csv", swappedCsv, "preview");
+  check("swapped name columns are reported in preview, not imported", swapped.status === 200 && swapped.body.errorCount === 1 && swapped.body.rows[0].errors.join(" ").includes("متبدلين"), swapped.body);
+  const swappedCommit = await upload("admin", "suppliers", "suppliers-swapped.csv", swappedCsv, "commit");
+  check("commit refuses the same swapped file — preview and commit agree", swappedCommit.status === 400, swappedCommit.body);
+  const clash = await upload("admin", "products", "products-clash.csv", csv(`name,name_en,unit\nA,B,KG\n`), "preview");
+  check("a file with both name and name_en is refused instead of one overwriting the other", clash.status === 400, clash.body);
+  const codeForCustomer = await upload("admin", "customers", "customers-code.csv", csv(`code,name\nCUS-99999,"${TAG} Coded Hotel"\n`), "preview");
+  check("a customer code in the file is reported (codes are system-assigned), not silently dropped", codeForCustomer.status === 200 && codeForCustomer.body.errorCount === 1, codeForCustomer.body);
+
+  const biCustomerCsv = csv(`name_en,name_ar,external_ref\n"${TAG} Nile Hotel","فندق النيل ${TAG}",${TAG}-C2\n`);
+  const biCustomerCommit = await upload("admin", "customers", "customers-bi.csv", biCustomerCsv, "commit");
+  check("bilingual customer commits", biCustomerCommit.status === 200 && biCustomerCommit.body.created === 1, biCustomerCommit.body);
+  // Re-import keyed by external_ref with the English column blank: the preview calls it
+  // the existing card, the commit must agree (it used to compare the English name only)
+  // and must not touch the stored names.
+  const reimportCsv = csv(`name,name_ar,external_ref\n"${TAG} Nile Hotel (renamed)","فندق النيل ${TAG}",${TAG}-C2\n`);
+  const reimportPreview = await upload("admin", "customers", "customers-re.csv", reimportCsv, "preview");
+  const reimportCommit = await upload("admin", "customers", "customers-re.csv", reimportCsv, "commit");
+  check("re-import matched by Arabic name previews clean and commits as 'already exists'", reimportPreview.status === 200 && reimportPreview.body.errorCount === 0 && reimportCommit.status === 200 && reimportCommit.body.created === 0 && reimportCommit.body.failed === 0 && reimportCommit.body.results[0].status === "موجود — لم يتكرر", { reimportPreview: reimportPreview.body, reimportCommit: reimportCommit.body });
+  const biCustomer = (await call("mona", "GET", `/api/sales/customers?q=${encodeURIComponent(`${TAG} Nile`)}`)).body.customers.find((c: any) => c.externalRef === `${TAG}-C2`);
+  check("the existing customer's names are unchanged by the re-import", biCustomer?.name === `${TAG} Nile Hotel` && biCustomer?.nameAr === `فندق النيل ${TAG}`, biCustomer);
+
   finish("DATA IMPORT");
 }
 main().catch((err) => { console.error("SUITE CRASHED", err); process.exit(2); });

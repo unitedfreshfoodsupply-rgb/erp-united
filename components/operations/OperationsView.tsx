@@ -17,16 +17,11 @@ import { useLocale } from "@/lib/locale";
  */
 
 type Tab = "trips" | "exceptions" | "fleet";
-const { t } = useLocale();
-const fail = (toast: ReturnType<typeof useToast>, err: unknown) => toast.show(err instanceof ApiClientError ? err.message : t("ui.error"), "error");
-
-// We need a module-level t reference for the maps below.
-// Since useLocale is a hook, we read it once at runtime via the context default.
-import { DICTIONARY } from "@/lib/locale";
-function fallbackKey(key: string): string {
-  const entry = DICTIONARY[key as keyof typeof DICTIONARY];
-  return entry?.ar ?? key;
-}
+// Hooks cannot run at module scope (doing so crashed this page with a 500): callers
+// pass their own `t`, and the maps below hold dictionary keys translated at render.
+const fail = (toast: ReturnType<typeof useToast>, err: unknown, t: (key: string) => string) =>
+  toast.show(err instanceof ApiClientError && err.message ? err.message : t("ui.error"), "error");
+const fallbackKey = (key: string) => key;
 
 const TRIP_STATUS: Record<string, { label: string; cls: string }> = {
   planned: { label: fallbackKey("ops.trip.status.planned"), cls: "bg-united-dark/5" },
@@ -99,7 +94,7 @@ function Trips() {
                 <div className="font-extrabold"><span dir="ltr">{t2.number}</span> · {t2.vehicle.code}{t2.vehicle.refrigerated ? " ❄️" : ""} · {t2.driver.name}</div>
                 <div className="text-xs font-bold text-united-muted">{t2.tripDate} · {t2.stops} {t("ops.trips.orders-label")} · {t("ops.trips.delivered-count")} {t2.delivered}</div>
               </div>
-              <span className={`self-start rounded-full px-2 text-xs font-extrabold ${TRIP_STATUS[t2.status]?.cls}`}>{TRIP_STATUS[t2.status]?.label}</span>
+              <span className={`self-start rounded-full px-2 text-xs font-extrabold ${TRIP_STATUS[t2.status]?.cls}`}>{TRIP_STATUS[t2.status] ? t(TRIP_STATUS[t2.status].label) : t2.status}</span>
             </button>
           </li>
         ))}
@@ -155,7 +150,7 @@ function NewTrip({ onDone }: { onDone: (id?: string) => void }) {
             toast.show(t("ops.new.created-toast", { number: r.trip.number }), "success");
             void qc.invalidateQueries({ queryKey: ["ops"] });
             onDone(r.trip.id);
-          } catch (err) { fail(toast, err); }
+          } catch (err) { fail(toast, err, t); }
         }}>{t("ops.new.create-btn")}</button>
       </section>
     </div>
@@ -175,7 +170,7 @@ function TripView({ id, onClose }: { id: string; onClose: () => void }) {
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   const trip = q.data.trip;
   const act = async (path: string, body: Record<string, unknown> = {}) => {
-    try { await apiPost(`/api/operations/trips/${id}/${path}`, body); void qc.invalidateQueries({ queryKey: ["ops"] }); } catch (err) { fail(toast, err); }
+    try { await apiPost(`/api/operations/trips/${id}/${path}`, body); void qc.invalidateQueries({ queryKey: ["ops"] }); } catch (err) { fail(toast, err, t); }
   };
   const stop = trip.stops.find((s) => s.id === pod);
   if (stop) return <DeliveryForm stop={stop} onDone={() => { setPod(null); void qc.invalidateQueries({ queryKey: ["ops"] }); }} />;
@@ -188,13 +183,13 @@ function TripView({ id, onClose }: { id: string; onClose: () => void }) {
         </div>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("ops.detail.back")}</button>
       </div>
-      <span className={`self-start rounded-full px-3 py-1 text-sm font-extrabold ${TRIP_STATUS[trip.status]?.cls}`}>{TRIP_STATUS[trip.status]?.label}{trip.cancelReason ? ` · ${trip.cancelReason}` : ""}</span>
+      <span className={`self-start rounded-full px-3 py-1 text-sm font-extrabold ${TRIP_STATUS[trip.status]?.cls}`}>{TRIP_STATUS[trip.status] ? t(TRIP_STATUS[trip.status].label) : trip.status}{trip.cancelReason ? ` · ${trip.cancelReason}` : ""}</span>
       <ol className="flex flex-col gap-2">
         {trip.stops.map((s) => (
           <li key={s.id} className="card p-3 flex flex-col gap-2">
             <div className="flex justify-between gap-2">
               <div className="font-extrabold">{s.sequence}. <span dir="ltr">{s.order.orderNumber}</span> · {s.order.customerName}</div>
-              <span className="text-xs font-extrabold text-united-muted">{s.order.status} · {STOP_STATUS[s.status]}</span>
+              <span className="text-xs font-extrabold text-united-muted">{s.order.status} · {STOP_STATUS[s.status] ? t(STOP_STATUS[s.status]) : s.status}</span>
             </div>
             <ul className="text-sm font-bold text-united-muted">
               {s.order.items.map((i) => {
@@ -289,7 +284,7 @@ function DeliveryForm({ stop, onDone }: { stop: Stop; onDone: () => void }) {
           toast.show(t("ops.dlv.result-saved-toast"), "success");
           onDone();
           void qc.invalidateQueries({ queryKey: ["ops"] });
-        } catch (err) { fail(toast, err); } finally { setBusy(false); }
+        } catch (err) { fail(toast, err, t); } finally { setBusy(false); }
       }}>{t("ops.dlv.record-result-btn")}</button>
     </div>
   );
@@ -318,7 +313,7 @@ function Exceptions() {
         {q.data?.exceptions.map((e) => (
           <li key={e.id} className="card p-3 flex flex-col gap-1">
             <div className="flex justify-between gap-2">
-              <span className="font-extrabold">{EX_TYPE[e.type]}{e.productName ? ` · ${e.productName}` : ""}{e.quantity ? <> · <span dir="ltr">{fmtQty(e.quantity)}</span></> : null}</span>
+              <span className="font-extrabold">{EX_TYPE[e.type] ? t(EX_TYPE[e.type]) : e.type}{e.productName ? ` · ${e.productName}` : ""}{e.quantity ? <> · <span dir="ltr">{fmtQty(e.quantity)}</span></> : null}</span>
               <span className={`text-xs font-extrabold ${e.status === "open" ? "text-united-warn" : "text-united-green"}`}>{e.status === "open" ? t("ops.exc.open-status") : t("ops.exc.closed-status")}</span>
             </div>
             <p className="text-sm font-bold">{e.description}</p>
@@ -327,7 +322,7 @@ function Exceptions() {
               <div className="flex gap-2">
                 <input className="field flex-1" placeholder={t("ops.exc.resolution-label")} value={text[e.id] ?? ""} onChange={(ev) => setText({ ...text, [e.id]: ev.target.value })} />
                 <button type="button" className="btn-secondary shrink-0" onClick={async () => {
-                  try { await apiPost(`/api/operations/exceptions/${e.id}/resolve`, { resolution: text[e.id] ?? "", expected_version: e.version }); void qc.invalidateQueries({ queryKey: ["ops", "exceptions"] }); } catch (err) { fail(toast, err); }
+                  try { await apiPost(`/api/operations/exceptions/${e.id}/resolve`, { resolution: text[e.id] ?? "", expected_version: e.version }); void qc.invalidateQueries({ queryKey: ["ops", "exceptions"] }); } catch (err) { fail(toast, err, t); }
                 }}>{t("ops.exc.close-btn")}</button>
               </div>
             )}
@@ -357,7 +352,7 @@ function FleetView() {
         : { name: row.name, phone: row.phone, active: !row.active, expected_version: row.version };
       await apiPatch(`/api/operations/${kind}/${row.id}`, body);
       refresh();
-    } catch (err) { fail(toast, err); }
+    } catch (err) { fail(toast, err, t); }
   };
   return (
     <div className="grid gap-3 sm:grid-cols-2">
@@ -365,7 +360,7 @@ function FleetView() {
         <h3 className="font-extrabold">{t("ops.fleet.vehicles-title")}</h3>
         <form className="grid grid-cols-2 gap-2" onSubmit={async (e) => {
           e.preventDefault();
-          try { await apiPost("/api/operations/vehicles", { ...v, capacity_kg: v.capacity_kg ? Number(v.capacity_kg) : null }); setV({ code: "", plate: "", type: "truck", capacity_kg: "", refrigerated: false }); refresh(); } catch (err) { fail(toast, err); }
+          try { await apiPost("/api/operations/vehicles", { ...v, capacity_kg: v.capacity_kg ? Number(v.capacity_kg) : null }); setV({ code: "", plate: "", type: "truck", capacity_kg: "", refrigerated: false }); refresh(); } catch (err) { fail(toast, err, t); }
         }}>
           <input className="field" placeholder={t("ops.fleet.code-ph")} value={v.code} onChange={(e) => setV({ ...v, code: e.target.value })} />
           <input className="field" placeholder={t("ops.fleet.plate-ph")} value={v.plate} onChange={(e) => setV({ ...v, plate: e.target.value })} />
@@ -387,7 +382,7 @@ function FleetView() {
         <h3 className="font-extrabold">{t("ops.fleet.drivers-title")}</h3>
         <form className="grid grid-cols-2 gap-2" onSubmit={async (e) => {
           e.preventDefault();
-          try { await apiPost("/api/operations/drivers", { name: d.name, phone: d.phone || null }); setD({ name: "", phone: "" }); refresh(); } catch (err) { fail(toast, err); }
+          try { await apiPost("/api/operations/drivers", { name: d.name, phone: d.phone || null }); setD({ name: "", phone: "" }); refresh(); } catch (err) { fail(toast, err, t); }
         }}>
           <input className="field" placeholder={t("ops.fleet.name-ph")} value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} />
           <input className="field" dir="ltr" placeholder={t("ops.fleet.phone-ph")} value={d.phone} onChange={(e) => setD({ ...d, phone: e.target.value })} />

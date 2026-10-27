@@ -44,6 +44,7 @@ const taxId = z
 const days = (label: string) => z.number({ invalid_type_error: `${label} لازم يكون رقم` }).int(`${label} أيام صحيحة`).min(0).max(365);
 
 const termsInput = z.object({
+  name_ar: optText("اسم المورد بالعربي").optional(),
   type: z.enum(SUPPLIER_TYPES, { errorMap: () => ({ message: "نوع المورد غير معروف" }) }).optional(),
   tax_registration_no: taxId.optional(),
   commercial_reg_no: optText("السجل التجاري", 40).optional(),
@@ -57,6 +58,7 @@ const termsInput = z.object({
 });
 
 const FIELDS: [keyof z.infer<typeof termsInput>, keyof Supplier][] = [
+  ["name_ar", "nameAr"],
   ["type", "type"],
   ["tax_registration_no", "taxRegistrationNo"],
   ["commercial_reg_no", "commercialRegNo"],
@@ -82,7 +84,7 @@ export async function listSuppliersFull(opts: { q?: string; includeInactive?: bo
   return prisma.supplier.findMany({
     where: {
       ...(opts.includeInactive ? {} : { active: true }),
-      ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { code: { contains: q.toUpperCase() } }, { phone: { contains: q } }] } : {}),
+      ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { nameAr: { contains: q } }, { code: { contains: q.toUpperCase() } }, { phone: { contains: q } }] } : {}),
     },
     orderBy: [{ active: "desc" }, { name: "asc" }],
     take: 300,
@@ -100,6 +102,7 @@ export async function createSupplierFull(input: unknown, actor: ServiceActor) {
         data: {
           code: await nextDocumentNumber(tx, "purchasing.supplier", todayLocalISO()),
           name: v.name,
+          nameAr: v.name_ar ?? null,
           phone: v.phone ?? null,
           notes: v.notes ?? null,
           type: v.type ?? "other",
@@ -113,7 +116,7 @@ export async function createSupplierFull(input: unknown, actor: ServiceActor) {
           currencyCode: v.currency_code ?? "EGP",
         },
       });
-      await writeAudit(audit(actor, { action: "supplier_created", entityType: "supplier", entityId: s.id, newValue: `${s.code} · ${s.name}` }), tx);
+      await writeAudit(audit(actor, { action: "supplier_created", entityType: "supplier", entityId: s.id, newValue: `${s.code} · ${s.name}${s.nameAr ? ` / ${s.nameAr}` : ""}` }), tx);
       return s;
     });
   } catch (err) {
@@ -297,7 +300,7 @@ export async function productSupplierPrices(productId: string, date = todayLocal
   const rows = await prisma.supplierPrice.findMany({
     where: { productId, validFrom: { lte: date }, OR: [{ validTo: null }, { validTo: { gte: date } }], supplier: { active: true } },
     orderBy: [{ supplierId: "asc" }, { uomCode: "asc" }, { validFrom: "desc" }],
-    include: { supplier: { select: { id: true, code: true, name: true, leadTimeDays: true, paymentTermsDays: true } } },
+    include: { supplier: { select: { id: true, code: true, name: true, nameAr: true, leadTimeDays: true, paymentTermsDays: true } } },
   });
   const seen = new Set<string>();
   const current = rows.filter((r) => {

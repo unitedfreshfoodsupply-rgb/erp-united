@@ -6,6 +6,7 @@ import type { AuditLogDTO } from "@/lib/client-types";
 import { buildTimeline, SOURCE_LABEL } from "@/lib/auditLabels";
 import { agoLabel, clockLabel } from "@/lib/format";
 import { TimelineSkeleton } from "@/components/Skeleton";
+import { useLocale } from "@/lib/locale";
 
 /**
  * The order's story, oldest first: WHO did WHAT, to WHICH item, with WHAT result, WHEN.
@@ -16,6 +17,7 @@ import { TimelineSkeleton } from "@/components/Skeleton";
  * supervisor's audit screen under the technical view.
  */
 export function Timeline({ orderId }: { orderId: string }) {
+  const { t } = useLocale();
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["audit", orderId],
     queryFn: () => apiFetch<{ logs: AuditLogDTO[] }>(`/api/audit?orderId=${orderId}`),
@@ -29,15 +31,15 @@ export function Timeline({ orderId }: { orderId: string }) {
   if (isError)
     return (
       <p className="text-united-danger font-bold">
-        مش قادرين نجيب السجل دلوقتي —{" "}
-        <button onClick={() => refetch()} className="underline">
-          حاول تاني
+        {t("ui.timeline.error")}{" "}
+        <button type="button" onClick={() => refetch()} className="underline">
+          {t("ui.timeline.retry")}
         </button>
       </p>
     );
 
   const events = buildTimeline(data?.logs ?? []);
-  if (!events.length) return <p className="text-united-dark/50">لسه مفيش حركة على الأوردر ده</p>;
+  if (!events.length) return <p className="text-united-dark/50">{t("ui.timeline.empty")}</p>;
 
   return (
     <ul className="flex flex-col">
@@ -45,7 +47,7 @@ export function Timeline({ orderId }: { orderId: string }) {
         <li key={e.id} className="flex gap-3 items-start relative pb-4">
           {/* connector line between events */}
           {i < events.length - 1 && (
-            <span className="absolute top-7 right-[13px] bottom-0 w-px bg-united-border" aria-hidden />
+            <span className="absolute top-7 start-[13px] bottom-0 w-px bg-united-border" aria-hidden />
           )}
           <span
             className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm z-10 ${
@@ -59,7 +61,7 @@ export function Timeline({ orderId }: { orderId: string }) {
               <span className="text-united-green">{e.actor}</span> {e.headline}
             </div>
             {e.detail && <div className="text-sm font-bold text-united-dark/70">{e.detail}</div>}
-            {e.reason && <div className="text-sm text-united-muted">السبب: {e.reason}</div>}
+            {e.reason && <div className="text-sm text-united-muted">{t("audit.reason-prefix")} {e.reason}</div>}
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-united-muted mt-0.5">
               <span dir="ltr">{clockLabel(e.at)}</span>
               <span>·</span>

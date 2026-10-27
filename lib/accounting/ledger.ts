@@ -498,7 +498,7 @@ export async function balanceSheet(asOf: string, openingFrom?: string) {
     const a = accounts.get(r.accountId);
     if (!a) continue;
     const signed = D(r.closing);
-    const line: Record<string, any> = { code: a.code, name: a.nameAr, type: a.type, amount: signed.abs().toFixed(2) };
+    const line: Record<string, any> = { code: a.code, name: a.nameAr, nameAr: a.nameAr, nameEn: a.name, type: a.type, amount: signed.abs().toFixed(2) };
     if (groups[a.type]) {
       groups[a.type].push(line);
       signedSums[a.type as "asset" | "liability" | "equity" | "revenue" | "expense"] = signedSums[a.type as "asset" | "liability" | "equity" | "revenue" | "expense"].plus(signed);
@@ -560,7 +560,8 @@ export async function trialBalance(from: string, to: string) {
     .map((r) => {
       const a = accounts.get(r.accountId)!;
       const closing = D(r.opening).plus(r.debit).minus(r.credit);
-      return { account: { id: a.id, code: a.code, name: a.nameAr, type: a.type }, opening: D(r.opening).toFixed(2), debit: D(r.debit).toFixed(2), credit: D(r.credit).toFixed(2), closing: closing.toFixed(2) };
+      // `name` stays the Arabic name (existing contract); nameAr/nameEn let screens pick by locale.
+      return { account: { id: a.id, code: a.code, name: a.nameAr, nameAr: a.nameAr, nameEn: a.name, type: a.type }, opening: D(r.opening).toFixed(2), debit: D(r.debit).toFixed(2), credit: D(r.credit).toFixed(2), closing: closing.toFixed(2) };
     })
     .sort((a, b) => a.account.code.localeCompare(b.account.code));
   const sum = (k: "debit" | "credit") => lines.reduce((s, l) => s.plus(l[k]), D(0)).toFixed(2);
@@ -582,7 +583,7 @@ export async function accountLedger(accountId: string, from: string, to: string,
   let bal = D(before._sum.debit ?? 0).minus(before._sum.credit ?? 0);
   const opening = bal.toFixed(2);
   return {
-    account: { id: account.id, code: account.code, name: account.nameAr, type: account.type },
+    account: { id: account.id, code: account.code, name: account.nameAr, nameAr: account.nameAr, nameEn: account.name, type: account.type },
     opening,
     rows: lines.map((l) => {
       bal = bal.plus(l.debit).minus(l.credit);
@@ -600,7 +601,7 @@ export async function partyGlBalance(partyType: "customer" | "supplier", partyId
 }
 
 export async function getJournal(id: string) {
-  const e = await prisma.journalEntry.findUnique({ where: { id }, include: { lines: { include: { account: { select: { code: true, nameAr: true } } } }, reversedBy: { select: { id: true, number: true } } } });
+  const e = await prisma.journalEntry.findUnique({ where: { id }, include: { lines: { include: { account: { select: { code: true, name: true, nameAr: true } } } }, reversedBy: { select: { id: true, number: true } } } });
   if (!e) throw new ApiError(404, "القيد مش موجود");
   return { ...e, total: e.total.toFixed(2), lines: e.lines.map((l) => ({ ...l, debit: l.debit.toFixed(2), credit: l.credit.toFixed(2) })) };
 }

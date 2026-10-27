@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     const rows = await warehouseStock(wh.id);
     const withValue = ctx.can("stock.valuation.view");
     return jsonFor(ctx, {
-      warehouse: { id: wh.id, code: wh.code, name: wh.nameAr ?? wh.name },
+      warehouse: { id: wh.id, code: wh.code, name: wh.nameAr ?? wh.name, nameAr: wh.nameAr, nameEn: wh.name },
       rows: withValue ? rows : rows.map((r) => ({ ...r, averageCost: null, stockValue: null })),
     });
   } catch (err) {

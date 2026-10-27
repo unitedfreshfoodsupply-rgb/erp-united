@@ -11,6 +11,7 @@ import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 /**
  * Invoicing for the accountant: orders that left and are not invoiced yet, drafts to
@@ -44,7 +45,7 @@ function ToInvoice({ onOpen }: { onOpen: (id: string) => void }) {
   const { can } = usePermissions();
   const qc = useQueryClient();
   const toast = useToast();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const q = useQuery({ queryKey: ["sales", "to-invoice"], queryFn: () => apiFetch<{ orders: { id: string; orderNumber: string; deliveryDate: string; customerName: string; customer: { code: string; name: string; nameAr: string | null } | null; unpricedLines: number }[] }>("\/api\/sales\/invoices\/to-invoice") });
   if (q.isLoading) return <LoadingState />;
   if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
@@ -57,7 +58,7 @@ function ToInvoice({ onOpen }: { onOpen: (id: string) => void }) {
           <li key={o.id} className="card p-3 flex items-center justify-between gap-2">
             <div>
               <Link href={`/orders/${o.id}`} className="font-extrabold" dir="ltr">{o.orderNumber}</Link>
-              <div className="text-xs font-bold text-united-muted">{o.customer ? `${o.customer.code} · ${o.customer.nameAr ?? o.customer.name}` : o.customerName} · {o.deliveryDate}</div>
+              <div className="text-xs font-bold text-united-muted">{o.customer ? `${o.customer.code} · ${localName(o.customer, locale)}` : o.customerName} · {o.deliveryDate}</div>
               {blocked && <div className="text-xs font-extrabold text-united-warn">{blocked}</div>}
             </div>
             {can("sales.invoices.manage") && (
@@ -77,7 +78,7 @@ function ToInvoice({ onOpen }: { onOpen: (id: string) => void }) {
 }
 
 function InvoiceList({ status, onOpen }: { status: string; onOpen: (id: string) => void }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const q = useQuery({ queryKey: ["sales", "invoices", status], queryFn: () => apiFetch<{ invoices: InvRow[] }>(`/api/sales/invoices?status=${status}`) });
   if (q.isLoading) return <LoadingState />;
   if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
@@ -88,7 +89,7 @@ function InvoiceList({ status, onOpen }: { status: string; onOpen: (id: string) 
         <li key={i.id}>
           <button type="button" className="card p-3 w-full text-start flex justify-between gap-2" onClick={() => onOpen(i.id)}>
             <div>
-              <div className="font-extrabold"><span dir="ltr">{i.number ?? t("sales.invoice.invoice_number_placeholder")}</span> · {i.customer.nameAr ?? i.customer.name}</div>
+              <div className="font-extrabold"><span dir="ltr">{i.number ?? t("sales.invoice.invoice_number_placeholder")}</span> · {localName(i.customer, locale)}</div>
               <div className="text-xs font-bold text-united-muted">{i.order?.orderNumber ?? ""}{i.issueDate ? ` · ${i.issueDate} ${t("sales.invoice.due_date_text")}${i.dueDate}` : ""}</div>
             </div>
             <div className="text-end">
@@ -106,7 +107,7 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const { can } = usePermissions();
   const qc = useQueryClient();
   const toast = useToast();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [issueDate, setIssueDate] = useState(todayLocalISO());
   const [reason, setReason] = useState("");
   const [restock, setRestock] = useState(false);
@@ -130,10 +131,10 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
       <div className="flex justify-between items-center gap-2">
         <div>
           <h2 className="text-xl font-extrabold" dir="ltr">{inv.number ?? t("sales.invoice.draft_number")}</h2>
-          <p className="text-sm font-bold text-united-muted">{inv.buyerName ?? inv.customer.nameAr ?? inv.customer.name}{inv.buyerTaxId ? ` · ${t("sales.invoice.tax_id_prefix")}${inv.buyerTaxId}` : ""}{inv.order ? ` · ${inv.order.orderNumber}` : ""}</p>
+          <p className="text-sm font-bold text-united-muted">{inv.buyerName ?? localName(inv.customer, locale)}{inv.buyerTaxId ? ` · ${t("sales.invoice.tax_id_prefix")}${inv.buyerTaxId}` : ""}{inv.order ? ` · ${inv.order.orderNumber}` : ""}</p>
         </div>
         <div className="flex gap-2">
-          {inv.status === "issued" && <Link href={`/sales/invoices/${inv.id}/print`} target="_blank" className="btn-secondary">{t("sales.invoice.print")}</Link>}
+          {inv.status === "issued" && <Link href={`/sales/invoices/${inv.id}/print${locale === "en" ? "?lang=en" : ""}`} target="_blank" className="btn-secondary">{t("sales.invoice.print")}</Link>}
           <button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button>
         </div>
       </div>
@@ -200,7 +201,7 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
 }
 
 function Aging() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [asOf, setAsOf] = useState(todayLocalISO());
   const q = useQuery({ queryKey: ["sales", "aging", asOf], queryFn: () => apiFetch<{ rows: { customer: { id: string; code: string; name: string }; total: string; current: string; d1_30: string; d31_60: string; d61_90: string; d90_plus: string }[]; totals: Record<string, string> }>(`/api/sales/reports/aging?as_of=${asOf}`) });
   const cols: [string, string][] = [["current", t("sales.invoice.age.current")], ["d1_30", "1–30"], ["d31_60", "31–60"], ["d61_90", "61–90"], ["d90_plus", "+90"], ["total", t("sales.invoice.age.total")]];
@@ -216,7 +217,7 @@ function Aging() {
             <tbody>
               {q.data.rows.map((r) => (
                 <tr key={r.customer.id} className="border-t border-united-dark/5 font-bold">
-                  <td className="p-2"><Link href={`/sales?customer=${r.customer.id}`}>{r.customer.code} · {r.customer.name}</Link></td>
+                  <td className="p-2"><Link href={`/sales?customer=${r.customer.id}`}>{r.customer.code} · {localName(r.customer, locale)}</Link></td>
                   {cols.map(([k]) => <td key={k} dir="ltr" className={`p-2 text-center ${k === "d90_plus" && Number(r[k as keyof typeof r]) > 0 ? "text-united-danger" : ""}`}>{Number(r[k as keyof typeof r]) ? Number(r[k as keyof typeof r]).toLocaleString("en-US", { minimumFractionDigits: 2 }) : "—"}</td>)}
                 </tr>
               ))}

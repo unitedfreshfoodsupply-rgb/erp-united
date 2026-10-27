@@ -11,6 +11,7 @@ import { newClientKey } from "@/lib/clientKey";
 import { usePermissions } from "@/lib/use-session";
 import { useLocale } from "@/lib/locale";
 import type { IntakeDTO, StockProductDTO } from "@/lib/stock-client-types";
+import { localName } from "@/lib/locale/names";
 
 /**
  * F-08 — the grading / فرز screen.
@@ -91,7 +92,7 @@ export function GradingForm({
   const toast = useToast();
   const { can } = usePermissions();
   const canSeeCosts = can("stock.valuation.view");
-  const { t, dir } = useLocale();
+  const { t, dir, locale } = useLocale();
 
   const [inputKg, setInputKg] = useState("");
   const [goodKg, setGoodKg] = useState("");
@@ -214,7 +215,7 @@ export function GradingForm({
                   .filter((p) => p.id !== intake.productId)
                   .map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.nameAr ?? p.name}
+                      {localName(p, locale)}
                     </option>
                   ))}
               </select>

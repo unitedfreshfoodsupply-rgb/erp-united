@@ -616,7 +616,7 @@ export async function customerStatement(customerId: string, from: string, to: st
     bal = bal.plus(e.debit).minus(e.credit);
     return { date: e.date, kind: e.kind, id: e.id, number: e.number, ref: e.ref, debit: e.debit.toFixed(2), credit: e.credit.toFixed(2), balance: bal.toFixed(2) };
   });
-  return { customer: { id: c.id, code: c.code, name: c.nameAr ?? c.name }, from, to, opening: opening.toFixed(2), closing: bal.toFixed(2), rows };
+  return { customer: { id: c.id, code: c.code, name: c.nameAr ?? c.name, nameAr: c.nameAr, nameEn: c.name }, from, to, opening: opening.toFixed(2), closing: bal.toFixed(2), rows };
 }
 
 /** Open receivables by how overdue they are, per customer, as of a date. */
@@ -627,7 +627,7 @@ export async function agingReport(asOf = todayLocalISO()) {
   });
   const credits = await openAmounts(prisma, invs.map((i) => i.id));
   const buckets = ["current", "d1_30", "d31_60", "d61_90", "d90_plus"] as const;
-  const byCustomer = new Map<string, { customer: { id: string; code: string; name: string }; total: Prisma.Decimal } & Record<(typeof buckets)[number], Prisma.Decimal>>();
+  const byCustomer = new Map<string, { customer: { id: string; code: string; name: string; nameAr?: string | null; nameEn?: string | null }; total: Prisma.Decimal } & Record<(typeof buckets)[number], Prisma.Decimal>>();
   const day = (iso: string) => Date.parse(`${iso}T00:00:00Z`) / 86_400_000;
   // A credit note on an invoice that was already paid leaves it below zero: that is credit
   // the customer holds, on account like unapplied money — never dropped from the aging.
@@ -636,12 +636,12 @@ export async function agingReport(asOf = todayLocalISO()) {
     const open = i.total.minus(credits.get(i.id) ?? 0);
     if (open.lt(0)) {
       unapplied.set(i.customerId, (unapplied.get(i.customerId) ?? D(0)).plus(open.negated()));
-      if (!byCustomer.has(i.customerId)) byCustomer.set(i.customerId, { customer: { id: i.customerId, code: i.customer.code, name: i.customer.nameAr ?? i.customer.name }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) });
+      if (!byCustomer.has(i.customerId)) byCustomer.set(i.customerId, { customer: { id: i.customerId, code: i.customer.code, name: i.customer.nameAr ?? i.customer.name, nameAr: i.customer.nameAr, nameEn: i.customer.name }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) });
     }
     if (!open.gt(0)) continue;
     const overdue = day(asOf) - day(i.dueDate!);
     const b = overdue <= 0 ? "current" : overdue <= 30 ? "d1_30" : overdue <= 60 ? "d31_60" : overdue <= 90 ? "d61_90" : "d90_plus";
-    const row = byCustomer.get(i.customerId) ?? { customer: { id: i.customerId, code: i.customer.code, name: i.customer.nameAr ?? i.customer.name }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
+    const row = byCustomer.get(i.customerId) ?? { customer: { id: i.customerId, code: i.customer.code, name: i.customer.nameAr ?? i.customer.name, nameAr: i.customer.nameAr, nameEn: i.customer.name }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
     row[b] = row[b].plus(open);
     row.total = row.total.plus(open);
     byCustomer.set(i.customerId, row);
@@ -662,11 +662,11 @@ export async function agingReport(asOf = todayLocalISO()) {
     if (!open.isZero()) {
       if (open.lt(0)) {
         unapplied.set(o.partyId, (unapplied.get(o.partyId) ?? D(0)).plus(open.negated()));
-        if (!byCustomer.has(o.partyId)) byCustomer.set(o.partyId, { customer: { id: o.partyId, code: c?.code ?? "", name: c?.nameAr ?? c?.name ?? "" }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) });
+        if (!byCustomer.has(o.partyId)) byCustomer.set(o.partyId, { customer: { id: o.partyId, code: c?.code ?? "", name: c?.nameAr ?? c?.name ?? "", nameAr: c?.nameAr ?? null, nameEn: c?.name ?? null }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) });
       } else {
         const overdue = day(asOf) - day(o.dueDate);
         const b = overdue <= 0 ? "current" : overdue <= 30 ? "d1_30" : overdue <= 60 ? "d31_60" : overdue <= 90 ? "d61_90" : "d90_plus";
-        const row = byCustomer.get(o.partyId) ?? { customer: { id: o.partyId, code: c?.code ?? "", name: c?.nameAr ?? c?.name ?? "" }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
+        const row = byCustomer.get(o.partyId) ?? { customer: { id: o.partyId, code: c?.code ?? "", name: c?.nameAr ?? c?.name ?? "", nameAr: c?.nameAr ?? null, nameEn: c?.name ?? null }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
         row[b] = row[b].plus(open);
         row.total = row.total.plus(open);
         byCustomer.set(o.partyId, row);
@@ -679,7 +679,7 @@ export async function agingReport(asOf = todayLocalISO()) {
     const left = r.amount.minus(r.allocations.reduce((s, a) => s.plus(a.amount), D(0)));
     if (!left.gt(0)) continue;
     unapplied.set(r.customerId, (unapplied.get(r.customerId) ?? D(0)).plus(left));
-    if (!byCustomer.has(r.customerId)) byCustomer.set(r.customerId, { customer: { id: r.customerId, code: r.customer.code, name: r.customer.nameAr ?? r.customer.name }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) });
+    if (!byCustomer.has(r.customerId)) byCustomer.set(r.customerId, { customer: { id: r.customerId, code: r.customer.code, name: r.customer.nameAr ?? r.customer.name, nameAr: r.customer.nameAr, nameEn: r.customer.name }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) });
   }
   // Money refunded uses up the customer's credit first; anything beyond it (credit that
   // came from an opening balance in their favour) is owed again from today.
@@ -691,7 +691,7 @@ export async function agingReport(asOf = todayLocalISO()) {
     const rest = amt.minus(used);
     if (rest.gt(0)) {
       const c = await prisma.customer.findUnique({ where: { id: f.customerId }, select: { code: true, name: true, nameAr: true } });
-      const row = byCustomer.get(f.customerId) ?? { customer: { id: f.customerId, code: c?.code ?? "", name: c?.nameAr ?? c?.name ?? "" }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
+      const row = byCustomer.get(f.customerId) ?? { customer: { id: f.customerId, code: c?.code ?? "", name: c?.nameAr ?? c?.name ?? "", nameAr: c?.nameAr ?? null, nameEn: c?.name ?? null }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
       row.current = row.current.plus(rest);
       row.total = row.total.plus(rest);
       byCustomer.set(f.customerId, row);

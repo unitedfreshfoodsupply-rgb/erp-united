@@ -98,7 +98,7 @@ export async function billableReceipts(supplierId: string) {
         intakeId: r.id,
         receiptNumber: r.receiptNumber,
         receivedDate: r.receivedDate,
-        product: { id: r.product.id, name: r.product.nameAr ?? r.product.name, unit: r.product.unit },
+        product: { id: r.product.id, name: r.product.nameAr ?? r.product.name, nameAr: r.product.nameAr, nameEn: r.product.name, unit: r.product.unit },
         poNumber: r.purchaseOrderLine?.po.number ?? null,
         goodQty: r.goodQty.toString(),
         expectedUnitPrice: agreed.price?.toString() ?? null,
@@ -514,7 +514,7 @@ export async function listBills(filters: { status?: string; supplierId?: string 
   const rows = await prisma.supplierBill.findMany({
     where: { ...(filters.status ? { status: filters.status } : {}), ...(filters.supplierId ? { supplierId: filters.supplierId } : {}) },
     orderBy: [{ createdAt: "desc" }],
-    include: { supplier: { select: { id: true, code: true, name: true } }, _count: { select: { lines: true } } },
+    include: { supplier: { select: { id: true, code: true, name: true, nameAr: true } }, _count: { select: { lines: true } } },
     take: 300,
   });
   const debited = await debitedByBill(prisma, rows.filter((b) => b.status === "posted").map((b) => b.id));
@@ -540,7 +540,7 @@ export async function getBill(id: string) {
   const b = await prisma.supplierBill.findUnique({
     where: { id },
     include: {
-      supplier: { select: { id: true, code: true, name: true, paymentTermsDays: true } },
+      supplier: { select: { id: true, code: true, name: true, nameAr: true, paymentTermsDays: true } },
       lines: { orderBy: { lineNo: "asc" }, include: { intake: { select: { receiptNumber: true, receivedDate: true } }, poLine: { select: { po: { select: { id: true, number: true } } } } } },
       debitNotes: { orderBy: { createdAt: "asc" }, include: { lines: true } },
       paymentAllocations: { where: { payment: { reversal: { is: null } } }, include: { payment: { select: { id: true, number: true, date: true } } } },
@@ -662,7 +662,7 @@ export async function apAgingReport(asOf = todayLocalISO()) {
   if (!isValidISODate(asOf)) throw new ApiError(400, "التاريخ غير صالح");
   const bills = await prisma.supplierBill.findMany({
     where: { status: "posted", billDate: { lte: asOf } },
-    select: { id: true, supplierId: true, dueDate: true, total: true, supplier: { select: { code: true, name: true } } },
+    select: { id: true, supplierId: true, dueDate: true, total: true, supplier: { select: { code: true, name: true, nameAr: true } } },
   });
   const debited = await debitedByBill(prisma, bills.map((b) => b.id));
   const buckets = ["current", "d1_30", "d31_60", "d61_90", "d90_plus"] as const;
@@ -714,7 +714,7 @@ export async function apAgingReport(asOf = todayLocalISO()) {
     }
   }
   // Paid but not yet applied to a bill reduces what we owe.
-  const pays = await prisma.supplierPayment.findMany({ where: { date: { lte: asOf }, reversal: { is: null } }, select: { supplierId: true, amount: true, allocations: { select: { amount: true } }, supplier: { select: { code: true, name: true } } } });
+  const pays = await prisma.supplierPayment.findMany({ where: { date: { lte: asOf }, reversal: { is: null } }, select: { supplierId: true, amount: true, allocations: { select: { amount: true } }, supplier: { select: { code: true, name: true, nameAr: true } } } });
   for (const p of pays) {
     const left = p.amount.minus(p.allocations.reduce((s, a) => s.plus(a.amount), D(0)));
     if (!left.gt(0)) continue;

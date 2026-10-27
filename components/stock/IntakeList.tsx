@@ -12,6 +12,8 @@ import { invalidateStockData } from "@/lib/stockInvalidation";
 import { usePermissions } from "@/lib/use-session";
 import { GradingForm } from "@/components/stock/GradingForm";
 import type { IntakeDTO } from "@/lib/stock-client-types";
+import { localName } from "@/lib/locale/names";
+import { useLocale } from "@/lib/locale";
 
 export function IntakeList() {
   const [date, setDate] = useState(todayLocalISO());
@@ -79,6 +81,7 @@ export function IntakeList() {
 }
 
 function IntakeCard({ intake }: { intake: IntakeDTO }) {
+  const { locale } = useLocale();
   const qc = useQueryClient();
   const toast = useToast();
   const { can } = usePermissions();
@@ -145,7 +148,7 @@ function IntakeCard({ intake }: { intake: IntakeDTO }) {
             )}
           </div>
           <div className="text-xs font-bold text-united-muted">
-            {intake.supplier.name} · {intake.receiptNumber}{intake.purchaseOrderLine ? ` · ${intake.purchaseOrderLine.po.number}` : ""} · {intake.recordedBy}
+            {localName(intake.supplier, locale)} · {intake.receiptNumber}{intake.purchaseOrderLine ? ` · ${intake.purchaseOrderLine.po.number}` : ""} · {intake.recordedBy}
           </div>
         </div>
         <span dir="ltr" className={`text-xl font-extrabold shrink-0 ${YIELD_TONE_CLASS[yieldTone(pct)]}`}>

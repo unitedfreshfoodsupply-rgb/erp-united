@@ -8,13 +8,14 @@ import { LoadingState, EmptyState, ErrorState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { invalidateStockData } from "@/lib/stockInvalidation";
 import type { SupplierDTO } from "@/lib/stock-client-types";
+import { localName } from "@/lib/locale/names";
 
 /** Suppliers. Unchanged behaviour, moved here so the Product Master screen owns all
  * three reference lists in one place. */
 export function SuppliersPanel({ canManage }: { canManage: boolean }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -74,12 +75,12 @@ export function SuppliersPanel({ canManage }: { canManage: boolean }) {
       <section className="card p-4">
         {isLoading && <LoadingState />}
         {isError && <ErrorState message={errorMessage(queryError)} onRetry={() => refetch()} />}
-        {!isLoading && (data?.suppliers.length ?? 0) === 0 && <EmptyState icon="🚚" title={t("suppliers.empty")} />}
+        {!isLoading && !isError && (data?.suppliers.length ?? 0) === 0 && <EmptyState icon="🚚" title={t("suppliers.empty")} />}
         <ul className="flex flex-col divide-y divide-united-border">
           {data?.suppliers.map((s) => (
             <li key={s.id} className="flex items-center justify-between py-3 gap-2">
               <div className="min-w-0">
-                <div className="font-bold text-united-dark truncate">{s.name}</div>
+                <div className="font-bold text-united-dark truncate">{localName(s, locale)}</div>
                 {s.phone && <div dir="ltr" className="text-xs font-bold text-united-muted">{s.phone}</div>}
               </div>
               {canManage && <button

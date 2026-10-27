@@ -249,7 +249,7 @@ async function nextReceiptNumber(tx: Prisma.TransactionClient, prefix: string) {
 // ---------------------------------------------------------------------------
 
 const INTAKE_INCLUDE = {
-  supplier: { select: { id: true, name: true } },
+  supplier: { select: { id: true, name: true, nameAr: true } },
   product: { select: { id: true, name: true, unit: true } },
   gradeBProduct: { select: { id: true, name: true, unit: true } },
   location: { select: { id: true, code: true, name: true, nameAr: true } },
@@ -272,7 +272,7 @@ export function serializeIntake(row: IntakeRow) {
 
 const MOVEMENT_INCLUDE = {
   product: { select: { id: true, name: true, unit: true } },
-  intake: { select: { id: true, receiptNumber: true, supplier: { select: { name: true } } } },
+  intake: { select: { id: true, receiptNumber: true, supplier: { select: { name: true, nameAr: true } } } },
   location: { select: { id: true, code: true } },
   lot: { select: { id: true, lotNumber: true, expiryDate: true } },
   document: { select: { id: true, number: true, type: true } },

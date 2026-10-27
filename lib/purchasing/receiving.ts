@@ -82,7 +82,7 @@ export async function openLinesForReceiving(filters: { supplierId?: string }) {
   const pos = await prisma.purchaseOrder.findMany({
     where: { status: { in: ["approved", "sent", "partially_received"] }, ...(filters.supplierId ? { supplierId: filters.supplierId } : {}) },
     orderBy: [{ expectedDate: "asc" }, { createdAt: "asc" }],
-    include: { supplier: { select: { id: true, code: true, name: true } }, lines: { include: { product: { select: { id: true, name: true, nameAr: true, unit: true } } }, orderBy: { lineNo: "asc" } } },
+    include: { supplier: { select: { id: true, code: true, name: true, nameAr: true } }, lines: { include: { product: { select: { id: true, name: true, nameAr: true, unit: true } } }, orderBy: { lineNo: "asc" } } },
     take: 100,
   });
   const lineIds = pos.flatMap((p) => p.lines.map((l) => l.id));

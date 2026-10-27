@@ -49,14 +49,28 @@ function parseCells(source: string, delimiter: string): string[][] {
   return rows;
 }
 
-export function parseCsv(source: string, requiredHeaders: readonly string[]): CsvRecord[] {
+/**
+ * Alternative column titles a template accepts, mapped to the canonical one. Lets a
+ * file say `name_en` for the English name (the schema's `name`) or `code` for a
+ * product's SKU, without two spellings ever both reaching the import.
+ */
+export type HeaderAliases = Readonly<Record<string, string>>;
+
+export function parseCsv(source: string, requiredHeaders: readonly string[], aliases: HeaderAliases = {}): CsvRecord[] {
   if (typeof source !== "string" || !source.trim()) throw new ApiError(400, "الملف فاضي");
   if (source.length > 2_000_000) throw new ApiError(413, "حجم ملف الاستيراد أكبر من 2 ميجابايت");
   if (source.includes("\u0000")) throw new ApiError(400, "الملف فيه حرف غير مسموح");
   const cells = parseCells(source.replace(/^\uFEFF/, ""), delimiterOf(source));
-  const headerRow = cells.shift()?.map((x) => x.trim().toLowerCase()) ?? [];
-  if (!headerRow.length || headerRow.length > MAX_COLUMNS || headerRow.some((x) => !x)) throw new ApiError(400, "صف العناوين فاضي أو فيه عنوان عمود غير صالح");
-  if (new Set(headerRow).size !== headerRow.length) throw new ApiError(400, "فيه عنوان عمود مكرر في الملف");
+  const rawHeaders = cells.shift()?.map((x) => x.trim().toLowerCase()) ?? [];
+  if (!rawHeaders.length || rawHeaders.length > MAX_COLUMNS || rawHeaders.some((x) => !x)) throw new ApiError(400, "صف العناوين فاضي أو فيه عنوان عمود غير صالح");
+  if (new Set(rawHeaders).size !== rawHeaders.length) throw new ApiError(400, "فيه عنوان عمود مكرر في الملف");
+  const headerRow = rawHeaders.map((h) => aliases[h] ?? h);
+  // "name" and "name_en" in one file would be two English names for one row — refuse
+  // rather than silently letting one overwrite the other.
+  if (new Set(headerRow).size !== headerRow.length) {
+    const clash = rawHeaders.filter((h, i) => headerRow.indexOf(headerRow[i]) !== i || headerRow.lastIndexOf(headerRow[i]) !== i);
+    throw new ApiError(400, `الأعمدة ${clash.join(" و ")} بتعني نفس الحقل — سيب واحد بس`);
+  }
   const missing = requiredHeaders.filter((h) => !headerRow.includes(h));
   if (missing.length) throw new ApiError(400, `أعمدة مطلوبة ناقصة: ${missing.join("، ")}`);
   const dataRows = cells.map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => row.some((v) => v.trim()));

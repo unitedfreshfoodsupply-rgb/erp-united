@@ -8,6 +8,8 @@ import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field } from "@/components/stock/inventory/shared";
+import { localName } from "@/lib/locale/names";
+import { useLocale } from "@/lib/locale";
 
 /**
  * Price lists and the daily price update. Prices are dated: entering today's prices
@@ -71,6 +73,7 @@ export function PriceListsView() {
 }
 
 function ListDetail({ id }: { id: string }) {
+  const { locale } = useLocale();
   const { can } = usePermissions();
   const qc = useQueryClient();
   const toast = useToast();
@@ -79,7 +82,7 @@ function ListDetail({ id }: { id: string }) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const q = useQuery({ queryKey: ["sales", "price-list", id, date], queryFn: () => apiFetch<Detail>(`/api/sales/price-lists/${id}?date=${date}`) });
-  const taxes = useQuery({ queryKey: ["sales", "tax-rates"], queryFn: () => apiFetch<{ taxRates: { code: string; nameAr: string }[] }>("/api/sales/tax-rates"), staleTime: 300_000 });
+  const taxes = useQuery({ queryKey: ["sales", "tax-rates"], queryFn: () => apiFetch<{ taxRates: { code: string; name: string; nameAr: string }[] }>("/api/sales/tax-rates"), staleTime: 300_000 });
   const priceOf = useMemo(() => {
     const m = new Map<string, string>();
     for (const c of q.data?.current ?? []) m.set(`${c.productId}|${c.uomCode}`, c.unitPrice);
@@ -122,7 +125,7 @@ function ListDetail({ id }: { id: string }) {
                 const key = `${p.id}|${uom}`;
                 return (
                   <tr key={key} className="border-t border-united-dark/5 font-bold">
-                    <td className="p-2">{idx === 0 ? p.nameAr ?? p.name : ""}</td>
+                    <td className="p-2">{idx === 0 ? localName(p, locale) : ""}</td>
                     <td className="p-2 text-center" dir="ltr">{uom}{idx > 0 ? ` (${Number(p.packagings[idx - 1].qtyInBaseUnit)} ${p.unit})` : ""}</td>
                     <td className="p-2 text-center" dir="ltr">{priceOf.get(key) ?? (idx > 0 && priceOf.get(`${p.id}|${p.unit}`) ? `≈ ${(Number(priceOf.get(`${p.id}|${p.unit}`)) * Number(p.packagings[idx - 1].qtyInBaseUnit)).toFixed(2)}` : "—")}</td>
                     {canManage && (
@@ -135,7 +138,7 @@ function ListDetail({ id }: { id: string }) {
                           if (!reason) return;
                           try { await apiPatch(`/api/sales/products/${p.id}/tax`, { tax_code: e.target.value, reason }); refresh(); } catch (err) { fail(toast, err); }
                         }}>
-                          {(taxes.data?.taxRates ?? []).map((t) => <option key={t.code} value={t.code}>{t.nameAr}</option>)}
+                          {(taxes.data?.taxRates ?? []).map((t) => <option key={t.code} value={t.code}>{localName(t, locale)}</option>)}
                         </select>
                       ) : p.salesTaxCode)}
                     </td>
@@ -172,7 +175,7 @@ function ListDetail({ id }: { id: string }) {
         <ul className="text-sm mt-2 flex flex-col gap-1">
           {d.history.map((h) => (
             <li key={h.id} className="flex justify-between border-b border-united-dark/5 py-1 font-bold">
-              <span>{h.product.nameAr ?? h.product.name} · {h.uomCode}</span>
+              <span>{localName(h.product, locale)} · {h.uomCode}</span>
               <span dir="ltr">{h.unitPrice} · {h.validFrom} · {h.createdBy}</span>
             </li>
           ))}

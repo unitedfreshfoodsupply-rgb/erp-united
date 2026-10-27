@@ -9,7 +9,8 @@ import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { BillsView } from "@/components/purchasing/BillsView";
-import { useLocale } from "@/lib/locale/useLocale";
+import { useLocale, type Locale } from "@/lib/locale/useLocale";
+import { localName, otherLocalName } from "@/lib/locale/names";
 
 /**
  * Purchasing: suppliers and what they charge, requests for quotation, purchase orders
@@ -19,11 +20,13 @@ import { useLocale } from "@/lib/locale/useLocale";
 
 type Tab = "orders" | "replenishment" | "rfqs" | "suppliers" | "bills";
 type Catalog = { products: { id: string; name: string; nameAr: string | null; unit: string; packagings: { uomCode: string }[] }[] };
-type SupplierRow = { id: string; code: string; name: string; type: string; phone: string | null; city: string | null; paymentTermsDays: number; leadTimeDays: number | null; active: boolean; version: number; taxRegistrationNo: string | null; email: string | null; address: string | null };
+type SupplierRow = { id: string; code: string; name: string; nameAr?: string | null; type: string; phone: string | null; city: string | null; paymentTermsDays: number; leadTimeDays: number | null; active: boolean; version: number; taxRegistrationNo: string | null; email: string | null; address: string | null };
 
 function errorMsg(err: unknown): string {
-  if (err instanceof ApiClientError) return err.message;
-  return ""; // localized in caller via t("purchasing.bill.error-generic") fallback
+  if (err instanceof ApiClientError && err.message) return err.message;
+  // Never an empty toast: an unexpected failure still says something, in the UI language.
+  const en = typeof document !== "undefined" && document.documentElement.lang === "en";
+  return en ? "Something went wrong — please try again" : "حصل خطأ — حاول تاني";
 }
 
 export function PurchasingView() {
@@ -97,9 +100,9 @@ export function PurchasingView() {
 // ---------------------------------------------------------------------------
 
 type PoLine = { id: string; lineNo: number; productId: string; product: { name: string; nameAr: string | null; unit: string }; uomCode: string; quantity: string; baseQuantity: string; receivedGood: string; rejected: string; remaining: string; unitPrice?: string; discountPct?: string; taxRate?: string; priceSource?: string; amounts?: { total: string } };
-type Po = { id: string; number: string; status: string; supplier: { id: string; code: string; name: string }; orderDate: string; expectedDate: string | null; notes: string | null; cancelReason: string | null; approvedBy: string | null; version: number; createdBy: string; lines: PoLine[]; total?: string; net?: string; taxTotal?: string; currencyCode?: string };
+type Po = { id: string; number: string; status: string; supplier: { id: string; code: string; name: string; nameAr?: string | null }; orderDate: string; expectedDate: string | null; notes: string | null; cancelReason: string | null; approvedBy: string | null; version: number; createdBy: string; lines: PoLine[]; total?: string; net?: string; taxTotal?: string; currencyCode?: string };
 
-function Orders({ onOpen, locale, t, poStatus }: { onOpen: (id: string) => void; locale: string; t: (key: string) => string; poStatus: Record<string, { label: string; cls: string }> }) {
+function Orders({ onOpen, locale, t, poStatus }: { onOpen: (id: string) => void; locale: Locale; t: (key: string) => string; poStatus: Record<string, { label: string; cls: string }> }) {
   const { can } = usePermissions();
   const [status, setStatus] = useState("open");
   const [creating, setCreating] = useState(false);
@@ -124,7 +127,7 @@ function Orders({ onOpen, locale, t, poStatus }: { onOpen: (id: string) => void;
           <li key={po.id}>
             <button type="button" className="card p-3 w-full text-start flex justify-between gap-2" onClick={() => onOpen(po.id)}>
               <div>
-                <div className="font-extrabold"><span dir="ltr">{po.number}</span> · {po.supplier.name}</div>
+                <div className="font-extrabold"><span dir="ltr">{po.number}</span> · {localName(po.supplier, locale)}</div>
                 <div className="text-xs font-bold text-united-muted">{po.lines.length} {t("purchasing.orders.lines_label")} · {po.orderDate}{po.expectedDate ? ` · ${t("purchasing.orders.expected_date")} ${po.expectedDate}` : ""}</div>
               </div>
               <div className="flex flex-col items-end gap-1">
@@ -147,6 +150,7 @@ function useSuppliers() {
 }
 
 function LineEditor({ lines, setLines, withPrice, t }: { lines: { product_id: string; quantity: string; uom: string; unit_price: string }[]; setLines: (l: { product_id: string; quantity: string; uom: string; unit_price: string }[]) => void; withPrice: boolean; t: (key: string) => string }) {
+  const { locale } = useLocale();
   const catalog = useCatalog();
   const products = catalog.data?.products ?? [];
   const set = (i: number, patch: Partial<(typeof lines)[number]>) => setLines(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -158,7 +162,7 @@ function LineEditor({ lines, setLines, withPrice, t }: { lines: { product_id: st
           <div key={i} className="grid grid-cols-2 sm:grid-cols-5 gap-2 border-t border-united-dark/5 pt-2">
             <select className="field font-bold col-span-2" value={l.product_id} onChange={(e) => set(i, { product_id: e.target.value, uom: "" })}>
               <option value="">{t("purchasing.line.product.placeholder")}</option>
-              {products.map((x) => <option key={x.id} value={x.id}>{x.nameAr ?? x.name}</option>)}
+              {products.map((x) => <option key={x.id} value={x.id}>{localName(x, locale)}</option>)}
             </select>
             <input className="field" inputMode="decimal" dir="ltr" placeholder={t("purchasing.line.quantity.placeholder")} value={l.quantity} onChange={(e) => set(i, { quantity: e.target.value })} />
             <select className="field" value={l.uom} onChange={(e) => set(i, { uom: e.target.value })}>
@@ -177,7 +181,7 @@ function LineEditor({ lines, setLines, withPrice, t }: { lines: { product_id: st
 const cleanLines = (lines: { product_id: string; quantity: string; uom: string; unit_price: string }[]) =>
   lines.filter((l) => l.product_id && l.quantity).map((l) => ({ product_id: l.product_id, quantity: l.quantity, uom: l.uom || undefined, unit_price: l.unit_price || undefined }));
 
-function NewPo({ onDone, locale, t }: { onDone: (id?: string) => void; locale: string; t: (key: string) => string }) {
+function NewPo({ onDone, locale, t }: { onDone: (id?: string) => void; locale: Locale; t: (key: string) => string }) {
   const qc = useQueryClient();
   const toast = useToast();
   const suppliers = useSuppliers();
@@ -201,7 +205,7 @@ function NewPo({ onDone, locale, t }: { onDone: (id?: string) => void; locale: s
       <Field label={t("purchasing.new_po.supplier.label")}>
         <select className="field font-bold" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
           <option value="">{t("purchasing.new_po.supplier.placeholder")}</option>
-          {(suppliers.data?.suppliers ?? []).map((s) => <option key={s.id} value={s.id}>{s.code} · {s.name}</option>)}
+          {(suppliers.data?.suppliers ?? []).map((s) => <option key={s.id} value={s.id}>{s.code} · {localName(s, locale)}</option>)}
         </select>
       </Field>
       <Field label={t("purchasing.new_po.expected_date.label")}><input type="date" className="field" value={expected} onChange={(e) => setExpected(e.target.value)} /></Field>
@@ -212,7 +216,7 @@ function NewPo({ onDone, locale, t }: { onDone: (id?: string) => void; locale: s
   );
 }
 
-function PoDetail({ id, onClose, locale, t, poStatus }: { id: string; onClose: () => void; locale: string; t: (key: string) => string; poStatus: Record<string, { label: string; cls: string }> }) {
+function PoDetail({ id, onClose, locale, t, poStatus }: { id: string; onClose: () => void; locale: Locale; t: (key: string) => string; poStatus: Record<string, { label: string; cls: string }> }) {
   const { can } = usePermissions();
   const qc = useQueryClient();
   const toast = useToast();
@@ -230,7 +234,7 @@ function PoDetail({ id, onClose, locale, t, poStatus }: { id: string; onClose: (
       <div className="flex justify-between items-center gap-2">
         <div>
           <h2 className="text-xl font-extrabold" dir="ltr">{po.number}</h2>
-          <p className="text-sm font-bold text-united-muted">{po.supplier.code} · {po.supplier.name} · {po.orderDate}{po.expectedDate ? ` · ${t("purchasing.po_detail.expected")} ${po.expectedDate}` : ""}</p>
+          <p className="text-sm font-bold text-united-muted">{po.supplier.code} · {localName(po.supplier, locale)} · {po.orderDate}{po.expectedDate ? ` · ${t("purchasing.po_detail.expected")} ${po.expectedDate}` : ""}</p>
         </div>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("purchasing.common.back")}</button>
       </div>
@@ -242,7 +246,7 @@ function PoDetail({ id, onClose, locale, t, poStatus }: { id: string; onClose: (
         {po.lines.map((l) => (
           <div key={l.id} className="py-2 flex flex-col gap-1">
             <div className="flex justify-between text-sm font-extrabold">
-              <span>{l.product.nameAr ?? l.product.name}</span>
+              <span>{localName(l.product, locale)}</span>
               {l.amounts && <span dir="ltr">{fmtMoney(l.amounts.total)}</span>}
             </div>
             <div className="flex flex-wrap justify-between gap-2 text-xs font-bold text-united-muted">
@@ -267,15 +271,15 @@ function PoDetail({ id, onClose, locale, t, poStatus }: { id: string; onClose: (
   );
 }
 
-function Replenishment({ onCreateRfq, locale, t }: { onCreateRfq: (lines: { product_id: string; quantity: string; uom: string; unit_price: string }[]) => void; locale: string; t: (key: string) => string }) {
-  const q = useQuery({ queryKey: ["purchasing", "replenishment"], queryFn: () => apiFetch<{ replenishment: { warehouse: { code: string; name: string }; suggestions: { productId: string; productName: string; unit: string; available: string; reorderPointQty: string; maxStockQty: string | null; suggestedQty: string }[] } }>("/api/purchasing/orders?replenishment=1") });
+function Replenishment({ onCreateRfq, locale, t }: { onCreateRfq: (lines: { product_id: string; quantity: string; uom: string; unit_price: string }[]) => void; locale: Locale; t: (key: string) => string }) {
+  const q = useQuery({ queryKey: ["purchasing", "replenishment"], queryFn: () => apiFetch<{ replenishment: { warehouse: { code: string; name: string; nameAr?: string | null; nameEn?: string | null }; suggestions: { productId: string; productName: string; unit: string; available: string; reorderPointQty: string; maxStockQty: string | null; suggestedQty: string }[] } }>("/api/purchasing/orders?replenishment=1") });
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   if (q.isLoading) return <LoadingState />;
-  if (q.isError) return <ErrorState message={t("sales.invoice.error-generic")} />;
+  if (q.isError) return <ErrorState message={errorMsg(q.error)} onRetry={() => q.refetch()} />;
   const suggestions = q.data?.replenishment.suggestions ?? [];
   return (
     <div className="flex flex-col gap-3">
-      <div className="text-sm text-united-muted">{t("purchasing.replenishment.desc")} · {q.data?.replenishment.warehouse.name}</div>
+      <div className="text-sm text-united-muted">{t("purchasing.replenishment.desc")} · {q.data ? localName(q.data.replenishment.warehouse, locale) : ""}</div>
       {suggestions.length === 0 ? <div><EmptyState icon="📦" title={t("purchasing.replenishment.empty")} /><p className="text-center text-sm text-united-muted -mt-10">{t("purchasing.replenishment.adjust_hint")}</p></div> : (
         <>
           <div className="flex justify-end"><button type="button" className="btn-primary" disabled={!Object.values(selected).some(Boolean)} onClick={() => onCreateRfq(suggestions.filter((s) => selected[s.productId]).map((s) => ({ product_id: s.productId, quantity: s.suggestedQty, uom: s.unit, unit_price: "" })))}>{t("purchasing.replenishment.prepare_btn")}</button></div>
@@ -300,12 +304,12 @@ function Replenishment({ onCreateRfq, locale, t }: { onCreateRfq: (lines: { prod
 
 type RfqDetail = {
   id: string; number: string; status: string; neededBy: string | null;
-  invited: { supplier: { id: string; code: string; name: string }; status: string; validUntil: string | null }[];
-  comparison: { line: { id: string; product: { name: string; nameAr: string | null; unit: string }; uomCode: string; quantity: string }; quotes: { supplier: { id: string; name: string }; unitPrice: string; leadTimeDays: number | null; awarded: boolean }[]; cheapestSupplierId: string | null }[];
+  invited: { supplier: { id: string; code: string; name: string; nameAr?: string | null }; status: string; validUntil: string | null }[];
+  comparison: { line: { id: string; product: { name: string; nameAr: string | null; unit: string }; uomCode: string; quantity: string }; quotes: { supplier: { id: string; name: string; nameAr?: string | null }; unitPrice: string; leadTimeDays: number | null; awarded: boolean }[]; cheapestSupplierId: string | null }[];
   orders: { id: string; number: string; status: string }[];
 };
 
-function Rfqs({ onOpenPo, seedLines, onSeedUsed, locale, t }: { onOpenPo: (id: string) => void; seedLines?: { product_id: string; quantity: string; uom: string; unit_price: string }[]; onSeedUsed: () => void; locale: string; t: (key: string) => string }) {
+function Rfqs({ onOpenPo, seedLines, onSeedUsed, locale, t }: { onOpenPo: (id: string) => void; seedLines?: { product_id: string; quantity: string; uom: string; unit_price: string }[]; onSeedUsed: () => void; locale: Locale; t: (key: string) => string }) {
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   useEffect(() => { if (seedLines?.length) { setCreating(true); onSeedUsed(); } }, [seedLines, onSeedUsed]);
@@ -330,7 +334,7 @@ function Rfqs({ onOpenPo, seedLines, onSeedUsed, locale, t }: { onOpenPo: (id: s
   );
 }
 
-function NewRfq({ onDone, initialLines, locale, t }: { onDone: (id?: string) => void; initialLines?: { product_id: string; quantity: string; uom: string; unit_price: string }[]; locale: string; t: (key: string) => string }) {
+function NewRfq({ onDone, initialLines, locale, t }: { onDone: (id?: string) => void; initialLines?: { product_id: string; quantity: string; uom: string; unit_price: string }[]; locale: Locale; t: (key: string) => string }) {
   const toast = useToast();
   const suppliers = useSuppliers();
   const [picked, setPicked] = useState<string[]>([]);
@@ -349,7 +353,7 @@ function NewRfq({ onDone, initialLines, locale, t }: { onDone: (id?: string) => 
       <LineEditor lines={lines} setLines={setLines} withPrice={false} t={t} />
       <div className="flex flex-wrap gap-2">
         {(suppliers.data?.suppliers ?? []).map((s) => (
-          <button type="button" key={s.id} onClick={() => setPicked(picked.includes(s.id) ? picked.filter((x) => x !== s.id) : [...picked, s.id])} className={`tap-target px-3 rounded-xl text-sm font-extrabold ${picked.includes(s.id) ? "bg-united-green text-white" : "bg-united-dark/5"}`}>{s.name}</button>
+          <button type="button" key={s.id} onClick={() => setPicked(picked.includes(s.id) ? picked.filter((x) => x !== s.id) : [...picked, s.id])} className={`tap-target px-3 rounded-xl text-sm font-extrabold ${picked.includes(s.id) ? "bg-united-green text-white" : "bg-united-dark/5"}`}>{localName(s, locale)}</button>
         ))}
       </div>
       <button className="btn-primary" disabled={!picked.length}>{t("purchasing.supplier.edit_terms_save")}</button>
@@ -357,7 +361,7 @@ function NewRfq({ onDone, initialLines, locale, t }: { onDone: (id?: string) => 
   );
 }
 
-function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: () => void; onOpenPo: (id: string) => void; locale: string; t: (key: string) => string }) {
+function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: () => void; onOpenPo: (id: string) => void; locale: Locale; t: (key: string) => string }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [award, setAward] = useState<Record<string, string>>({});
@@ -372,20 +376,20 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
       <p className="text-sm font-bold text-united-muted">
         {r.status}
         {r.neededBy ? ` · ${t("purchasing.rfqs.neededby")} ${r.neededBy}` : ""} ·
-        {r.invited.map((i) => `${i.supplier.name} (${i.status === "quoted" ? t("purchasing.rfq_status.quoted") : i.status === "declined" ? t("purchasing.rfq_status.declined") : t("purchasing.rfq_status.pending")})`).join("، ")}
+        {r.invited.map((i) => `${localName(i.supplier, locale)} (${i.status === "quoted" ? t("purchasing.rfq_status.quoted") : i.status === "declined" ? t("purchasing.rfq_status.declined") : t("purchasing.rfq_status.pending")})`).join("، ")}
       </p>
       {r.status === "draft" && <button type="button" className="btn-primary self-start" onClick={async () => { try { await apiPost(`/api/purchasing/rfqs/${id}/send`, {}); refresh(); } catch (err) { toast.show(errorMsg(err), "error"); } }}>{t("purchasing.rfq.send_to_suppliers")}</button>}
       <section className="card p-4 flex flex-col gap-3">
         <h3 className="font-extrabold">{t("purchasing.rfq.comparison_title")}</h3>
         {r.comparison.map((c) => (
           <div key={c.line.id} className="border-b border-united-dark/5 pb-2">
-            <div className="font-extrabold text-sm">{c.line.product.nameAr ?? c.line.product.name} · <span dir="ltr">{fmtQty(c.line.quantity, c.line.uomCode)}</span></div>
+            <div className="font-extrabold text-sm">{localName(c.line.product, locale)} · <span dir="ltr">{fmtQty(c.line.quantity, c.line.uomCode)}</span></div>
             {c.quotes.length === 0 && <p className="text-xs font-bold text-united-muted">{t("purchasing.rfq.no_quotes")}</p>}
             {c.quotes.map((x) => (
               <label key={x.supplier.id} className="flex items-center justify-between text-sm font-bold py-1">
                 <span className="flex items-center gap-2">
                   {r.status === "sent" && <input type="radio" name={c.line.id} checked={award[c.line.id] === x.supplier.id} onChange={() => setAward({ ...award, [c.line.id]: x.supplier.id })} />}
-                  {x.supplier.name}
+                  {localName(x.supplier, locale)}
                   {x.supplier.id === c.cheapestSupplierId ? ` ⭐ ${t("purchasing.rfq.cheapest")}` : ""}
                   {x.awarded ? ` ✓ ${t("purchasing.rfq.awarded_text")}` : ""}
                   {x.leadTimeDays != null ? ` · ${x.leadTimeDays} ${t("purchasing.rfq.days_label")}` : ""}
@@ -411,11 +415,11 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
           <h3 className="font-extrabold">{t("purchasing.rfq.quote_section_title")}</h3>
           <select className="field font-bold" value={quote.supplier} onChange={(e) => setQuote({ supplier: e.target.value, prices: {} })}>
             <option value="">{t("purchasing.rfq.quote_supplier")}</option>
-            {r.invited.map((i) => <option key={i.supplier.id} value={i.supplier.id}>{i.supplier.name}</option>)}
+            {r.invited.map((i) => <option key={i.supplier.id} value={i.supplier.id}>{localName(i.supplier, locale)}</option>)}
           </select>
           {quote.supplier && r.comparison.map((c) => (
             <div key={c.line.id} className="flex items-center gap-2 text-sm font-bold">
-              <span className="flex-1">{c.line.product.nameAr ?? c.line.product.name} ({c.line.uomCode})</span>
+              <span className="flex-1">{localName(c.line.product, locale)} ({c.line.uomCode})</span>
               <input className="field w-32" inputMode="decimal" dir="ltr" placeholder={t("purchasing.rfq.quote_price")} value={quote.prices[c.line.id] ?? ""} onChange={(e) => setQuote({ ...quote, prices: { ...quote.prices, [c.line.id]: e.target.value } })} />
             </div>
           ))}
@@ -441,13 +445,13 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
 // Suppliers
 // ---------------------------------------------------------------------------
 
-function Suppliers({ locale, t, sup_type }: { locale: string; t: (key: string) => string; sup_type: Record<string, string> }) {
+function Suppliers({ locale, t, sup_type }: { locale: Locale; t: (key: string) => string; sup_type: Record<string, string> }) {
   const { can } = usePermissions();
   const toast = useToast();
   const qc = useQueryClient();
   const q = useSuppliers();
   const [open, setOpen] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", type: "farm", payment_terms_days: "0", tax_registration_no: "" });
+  const [form, setForm] = useState({ name: "", name_ar: "", type: "farm", payment_terms_days: "0", tax_registration_no: "" });
   if (open) return <SupplierDetail id={open} onClose={() => setOpen(null)} locale={locale} t={t} sup_type={sup_type} />;
   return (
     <div className="flex flex-col gap-3">
@@ -455,12 +459,13 @@ function Suppliers({ locale, t, sup_type }: { locale: string; t: (key: string) =
         <form className="card p-3 grid grid-cols-2 sm:grid-cols-5 gap-2" onSubmit={async (e) => {
           e.preventDefault();
           try {
-            await apiPost("/api/purchasing/suppliers", { name: form.name, type: form.type, payment_terms_days: Number(form.payment_terms_days || 0), tax_registration_no: form.tax_registration_no || undefined });
-            setForm({ name: "", type: "farm", payment_terms_days: "0", tax_registration_no: "" });
+            await apiPost("/api/purchasing/suppliers", { name: form.name, name_ar: form.name_ar || null, type: form.type, payment_terms_days: Number(form.payment_terms_days || 0), tax_registration_no: form.tax_registration_no || undefined });
+            setForm({ name: "", name_ar: "", type: "farm", payment_terms_days: "0", tax_registration_no: "" });
             void qc.invalidateQueries({ queryKey: ["purchasing", "suppliers"] });
           } catch (err) { toast.show(errorMsg(err), "error"); }
         }}>
           <input className="field col-span-2" placeholder={t("purchasing.supplier.form.name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <input className="field col-span-2" dir="rtl" lang="ar" placeholder={t("purchasing.supplier.form.name_ar")} value={form.name_ar} onChange={(e) => setForm({ ...form, name_ar: e.target.value })} />
           <select className="field" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
             {Object.entries(sup_type).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
@@ -472,7 +477,7 @@ function Suppliers({ locale, t, sup_type }: { locale: string; t: (key: string) =
         {q.data?.suppliers.map((s) => (
           <li key={s.id}>
             <button type="button" className="card p-3 w-full text-start" onClick={() => setOpen(s.id)}>
-              <div className="flex justify-between"><span className="font-extrabold">{s.name}</span><span className="text-xs font-bold text-united-muted" dir="ltr">{s.code}</span></div>
+              <div className="flex justify-between"><span className="font-extrabold">{localName(s, locale)}</span><span className="text-xs font-bold text-united-muted" dir="ltr">{s.code}</span></div>
               <div className="text-xs font-bold text-united-muted">
                 {sup_type[s.type]} ·
                 {s.paymentTermsDays ? ` ${t("purchasing.supplier.term_due").replace("%s", String(s.paymentTermsDays))}` : t("purchasing.supplier.cash")}
@@ -486,28 +491,47 @@ function Suppliers({ locale, t, sup_type }: { locale: string; t: (key: string) =
   );
 }
 
-function SupplierDetail({ id, onClose, locale, t, sup_type }: { id: string; onClose: () => void; locale: string; t: (key: string) => string; sup_type: Record<string, string> }) {
+function SupplierDetail({ id, onClose, locale, t, sup_type }: { id: string; onClose: () => void; locale: Locale; t: (key: string) => string; sup_type: Record<string, string> }) {
   const { can } = usePermissions();
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["purchasing", "supplier", id], queryFn: () => apiFetch<{ supplier: SupplierRow & { contacts: { id: string; name: string; phone: string | null; isPrimary: boolean }[] } }>(`/api/purchasing/suppliers/${id}`) });
   const prices = useQuery({ queryKey: ["purchasing", "supplier", id, "prices"], queryFn: () => apiFetch<{ prices: { id: string; uomCode: string; unitPrice: string; validFrom: string; createdBy: string; product: { name: string; nameAr: string | null } }[] }>(`/api/purchasing/suppliers/${id}/prices`), enabled: can("purchasing.prices.view") });
   const catalog = useCatalog();
-  const [terms, setTerms] = useState<{ days: string; lead: string } | null>(null);
+  const [nameAr, setNameAr] = useState<string | null>(null);
+  const [savingNameAr, setSavingNameAr] = useState(false);
   const [price, setPrice] = useState({ product_id: "", unit_price: "", valid_from: todayLocalISO() });
   if (!q.data) return <LoadingState />;
   const s = q.data.supplier;
   const refresh = () => void qc.invalidateQueries({ queryKey: ["purchasing"] });
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex justify-between items-center"><div><h2 className="text-xl font-extrabold">{s.name}</h2><p className="text-xs font-bold text-united-muted" dir="ltr">{s.code}{s.taxRegistrationNo ? ` · ${t("purchasing.supplier.detail.tax").replace("%s", s.taxRegistrationNo!)}` : ""}</p></div><button type="button" className="btn-secondary" onClick={onClose}>{t("purchasing.common.back")}</button></div>
+      <div className="flex justify-between items-center"><div><h2 className="text-xl font-extrabold">{localName(s, locale)}</h2><p className="text-xs font-bold text-united-muted" dir="ltr">{s.code}{s.taxRegistrationNo ? ` · ${t("purchasing.supplier.detail.tax").replace("%s", s.taxRegistrationNo!)}` : ""}</p></div><button type="button" className="btn-secondary" onClick={onClose}>{t("purchasing.common.back")}</button></div>
       <section className="card p-4 flex flex-col gap-2 text-sm font-bold">
+        {otherLocalName(s, locale) && <div dir="auto" className="text-united-muted">{otherLocalName(s, locale)}</div>}
         <div>
           <span className="text-united-muted">{t("purchasing.supplier.type." + s.type as any) ?? s.type}</span>
-          {s.phone && <span className="ml-2 text-united-green">· {s.phone}</span>}
-          {s.city && <span className="ml-2">· {s.city}</span>}
-          {s.address && <span className="ml-2">· {s.address}</span>}
+          {s.phone && <span className="ms-2 text-united-green">· {s.phone}</span>}
+          {s.city && <span className="ms-2">· {s.city}</span>}
+          {s.address && <span className="ms-2">· {s.address}</span>}
         </div>
+        {can("purchasing.suppliers.manage") && (
+          <form className="flex gap-2 items-center" onSubmit={async (e) => {
+            e.preventDefault();
+            if (nameAr === null || savingNameAr) return;
+            setSavingNameAr(true);
+            try {
+              await apiPatch(`/api/purchasing/suppliers/${id}`, { name_ar: nameAr, expected_version: s.version });
+              setNameAr(null);
+              toast.show(t("purchasing.supplier.name_ar.saved"), "success");
+              refresh();
+            } catch (err) { toast.show(errorMsg(err), "error"); }
+            finally { setSavingNameAr(false); }
+          }}>
+            <input className="field flex-1" dir="rtl" lang="ar" placeholder={t("purchasing.supplier.form.name_ar")} value={nameAr ?? s.nameAr ?? ""} onChange={(e) => setNameAr(e.target.value)} />
+            <button type="submit" className="btn-secondary text-sm" disabled={nameAr === null || savingNameAr}>{t("purchasing.supplier.name_ar.save")}</button>
+          </form>
+        )}
         {s.leadTimeDays != null && <div>{t("purchasing.supplier.detail.delivery_in").replace("%s", String(s.leadTimeDays))}</div>}
         {!s.leadTimeDays && <div className="text-united-muted">{t("purchasing.supplier.detail.not_logged")}</div>}
       </section>
@@ -516,7 +540,7 @@ function SupplierDetail({ id, onClose, locale, t, sup_type }: { id: string; onCl
           <h3 className="font-extrabold">{t("purchasing.supplier.prices_title")}</h3>
           {prices.data.prices.map((p) => (
             <div key={p.id} className="flex justify-between text-xs font-bold">
-              <span>{p.product.nameAr ?? p.product.name} · {p.uomCode}</span>
+              <span>{localName(p.product, locale)} · {p.uomCode}</span>
               <span dir="ltr">{p.unitPrice} · {p.validFrom} · {p.createdBy}</span>
             </div>
           ))}

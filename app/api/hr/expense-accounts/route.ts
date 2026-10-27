@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 export async function GET(req: NextRequest) {
   try {
     await requirePermission(req, "hr.expenses.submit");
-    const accounts = await prisma.account.findMany({ where: { type: "expense", postable: true, active: true, NOT: { systemKey: { in: ["cogs", "inventory_adjustment", "ppv"] } } }, select: { id: true, code: true, nameAr: true }, orderBy: { code: "asc" } });
+    const accounts = await prisma.account.findMany({ where: { type: "expense", postable: true, active: true, NOT: { systemKey: { in: ["cogs", "inventory_adjustment", "ppv"] } } }, select: { id: true, code: true, name: true, nameAr: true }, orderBy: { code: "asc" } });
     return NextResponse.json({ accounts });
   } catch (err) {
     return handleApiError(err, req);

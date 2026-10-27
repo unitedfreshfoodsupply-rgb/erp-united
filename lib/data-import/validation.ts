@@ -2,11 +2,37 @@ import { isValidISODate } from "@/lib/dates";
 
 export type ImportRow = { rowNumber: number; values: Record<string, string> };
 
+const ARABIC_LETTER = /[\u0621-\u064A\u0671-\u06D3\u06FA-\u06FF]/;
+const LATIN_LETTER = /[A-Za-z]/;
+const BILINGUAL_KINDS = new Set(["customers", "customer_groups", "customer_legal_entities", "suppliers", "products"]);
+
+/**
+ * Arabic/English name columns must not be swapped: `name_ar` (and `legal_name_ar`) has
+ * to contain Arabic script. Nothing is guessed or auto-corrected — the row is refused
+ * so the person importing fixes the file, and the error says which way it looks swapped.
+ */
+function bilingualNameErrors(v: Record<string, string>): string[] {
+  const errors: string[] = [];
+  for (const [ar, en] of [["name_ar", "name"], ["legal_name_ar", "legal_name"]] as const) {
+    const arValue = v[ar]?.trim();
+    if (!arValue || ARABIC_LETTER.test(arValue)) continue;
+    const enValue = v[en]?.trim() ?? "";
+    errors.push(ARABIC_LETTER.test(enValue) && !LATIN_LETTER.test(enValue)
+      ? `يبدو إن ${ar} و ${en} متبدلين (${ar} مفيهوش حروف عربية و${en} عربي) — صحح الأعمدة`
+      : `${ar} لازم يكون الاسم بالعربي — سيبه فاضي لو مفيش اسم عربي`);
+  }
+  return errors;
+}
+
 /** Pure row-level validation so templates can be checked without loading a DB or API runtime. */
 export function validateImportRow(kind: string, row: ImportRow, required: readonly string[]): string[] {
   const v = row.values;
   const errors: string[] = [];
   for (const name of required) if (!v[name]?.trim()) errors.push(`حقل ${name} مطلوب`);
+  if (BILINGUAL_KINDS.has(kind)) errors.push(...bilingualNameErrors(v));
+  // Customer/supplier codes come from the numbering service and are immutable; a code
+  // in the file would otherwise be dropped silently while the card gets another one.
+  if ((kind === "customers" || kind === "suppliers") && v.code?.trim()) errors.push("الكود بيتولد تلقائيًا من النظام — سيب عمود code فاضي (الكود الجديد بيظهر في نتيجة الاستيراد)");
   if (kind === "customers" && v.type && !["hotel", "restaurant", "cafe", "retail", "wholesale", "institution", "other"].includes(v.type)) errors.push("type غير معروف");
   if (kind === "customers") {
     if (v.payment_terms_days && (!/^\d+$/.test(v.payment_terms_days) || Number(v.payment_terms_days) > 365)) errors.push("payment_terms_days لازم يكون من 0 إلى 365");

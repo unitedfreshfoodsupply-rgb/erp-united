@@ -143,7 +143,7 @@ export async function getRfq(id: string) {
     where: { id },
     include: {
       lines: { orderBy: { lineNo: "asc" }, include: { product: { select: { name: true, nameAr: true, unit: true } } } },
-      suppliers: { include: { supplier: { select: { id: true, code: true, name: true, leadTimeDays: true, paymentTermsDays: true } }, lines: true } },
+      suppliers: { include: { supplier: { select: { id: true, code: true, name: true, nameAr: true, leadTimeDays: true, paymentTermsDays: true } }, lines: true } },
       orders: { select: { id: true, number: true, status: true, supplierId: true } },
     },
   });

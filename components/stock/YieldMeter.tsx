@@ -1,8 +1,10 @@
 import { fmtYield, yieldTone } from "@/lib/stockPresentation";
+import { useLocale } from "@/lib/locale";
 
 /** Yield as a bar plus its number. Renders an explicit "no deliveries yet" state
  * rather than an empty 0% bar, which would read as a catastrophically bad day. */
 export function YieldMeter({ pct, label }: { pct: number | null; label?: string }) {
+  const { t } = useLocale();
   const tone = yieldTone(pct);
   const barClass = {
     good: "bg-united-green",
@@ -20,7 +22,7 @@ export function YieldMeter({ pct, label }: { pct: number | null; label?: string 
   return (
     <div>
       <div className="flex items-center justify-between text-sm font-bold mb-1">
-        <span className="text-united-dark">{label ?? "نسبة التصافي"}</span>
+        <span className="text-united-dark">{label ?? t("stock.yield-percentage")}</span>
         <span dir="ltr" className={textClass}>
           {fmtYield(pct)}
         </span>

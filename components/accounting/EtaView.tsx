@@ -9,6 +9,7 @@ import { usePermissions } from "@/lib/use-session";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
 import type { TranslationKey } from "@/lib/locale/dictionary";
+import { localName } from "@/lib/locale/names";
 
 /**
  * E-invoicing (ETA): which invoices went to the Tax Authority and what came back, what
@@ -22,7 +23,7 @@ type Overview = {
   config: { configured: boolean; missing: string[]; environment: string | null };
   issuer: { name: string | null; registrationNumber: string | null; profile: (Address & { eta_branch_id: string | null; activity_code: string | null }) | null };
   units: { code: string; name: string; etaUnitType: string | null }[];
-  taxes: { code: string; nameAr: string; rate: string; etaType: string | null; etaSubtype: string | null }[];
+  taxes: { code: string; name: string; nameAr: string; rate: string; etaType: string | null; etaSubtype: string | null }[];
   products: { id: string; name: string; sku: string | null; unit: string; itemType: string | null; itemCode: string | null }[];
   customers: { id: string; code: string; name: string; taxRegistrationNo: string | null; profile: (Address & { receiverType: string | null; receiverId: string | null }) | null }[];
   invoices: { id: string; number: string; issueDate: string; buyerName: string; total: string; etaStatus: string | null; etaStatusLabel: string; uuid: string | null }[];
@@ -142,7 +143,7 @@ function InvoiceEta({ id }: { id: string }) {
 }
 
 function Setup({ data }: { data: Overview }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { can } = usePermissions();
   const manage = can("accounting.eta.manage");
   const toast = useToast();
@@ -172,7 +173,7 @@ function Setup({ data }: { data: Overview }) {
       <section className="card p-4 flex flex-col gap-2">
         <h3 className="font-extrabold">{t("eta.tax-classification")}</h3>
         <p className="text-xs text-united-muted">{t("eta.tax-info")}</p>
-        <ul className="text-sm font-bold">{data.taxes.map((t) => <li key={t.code} className="flex justify-between"><span>{t.nameAr} ({t.rate}%)</span><span dir="ltr">{t.etaType ?? "—"} / {t.etaSubtype ?? "—"}</span></li>)}</ul>
+        <ul className="text-sm font-bold">{data.taxes.map((t) => <li key={t.code} className="flex justify-between"><span>{localName(t, locale)} ({t.rate}%)</span><span dir="ltr">{t.etaType ?? "—"} / {t.etaSubtype ?? "—"}</span></li>)}</ul>
       </section>
 
       <section className="card p-4 flex flex-col gap-2">
