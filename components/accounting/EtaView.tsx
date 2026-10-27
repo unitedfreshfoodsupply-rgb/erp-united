@@ -28,6 +28,7 @@ type Overview = {
   products: { id: string; name: string; sku: string | null; unit: string; itemType: string | null; itemCode: string | null }[];
   customers: { id: string; code: string; name: string; taxRegistrationNo: string | null; profile: (Address & { receiverType: string | null; receiverId: string | null }) | null }[];
   invoices: { id: string; number: string; issueDate: string; buyerName: string; total: string; etaStatus: string | null; etaStatusLabel: string; uuid: string | null }[];
+  creditNotes?: { id: string; number: string; issueDate: string; total: string; invoiceNumber: string | null; buyerName: string | null; etaStatus: string | null; etaStatusLabel: string; uuid: string | null }[];
 };
 
 // Shared address field labels used in Setup and ReceiverRow
@@ -44,7 +45,7 @@ const TONE: Record<string, string> = { valid: "bg-united-green/15 text-united-gr
 
 export function EtaView() {
   const { t } = useLocale();
-  const [tab, setTab] = useState<"invoices" | "setup">("invoices");
+  const [tab, setTab] = useState<"invoices" | "credit-notes" | "setup">("invoices");
   const q = useQuery({ queryKey: ["eta"], queryFn: () => apiFetch<{ eta: Overview }>("/api/eta").then((r) => r.eta) });
   return (
     <div className="p-4 max-w-5xl mx-auto pb-10 flex flex-col gap-4">
@@ -56,8 +57,8 @@ export function EtaView() {
               ? `${t("eta.config.connected")}${q.data.config.environment ? ` (${q.data.config.environment})` : ""}`
               : <>⚠ {t("eta.config.disconnected")} <span dir="ltr">{q.data.config.missing.join(", ")}</span></>}
           </section>
-          <Tabs value={tab} onChange={setTab} items={[{ key: "invoices", label: t("eta.tab.invoices") }, { key: "setup", label: t("eta.tab.setup") }]} />
-          {tab === "invoices" ? <Invoices data={q.data} /> : <Setup data={q.data} />}
+          <Tabs value={tab} onChange={setTab} items={[{ key: "invoices", label: t("eta.tab.invoices") }, { key: "credit-notes", label: t("eta.tab.credit-notes") }, { key: "setup", label: t("eta.tab.setup") }]} />
+          {tab === "invoices" ? <Invoices data={q.data} /> : tab === "credit-notes" ? <CreditNotes data={q.data} /> : <Setup data={q.data} />}
         </>
       )}
     </div>
@@ -83,16 +84,37 @@ function Invoices({ data }: { data: Overview }) {
   );
 }
 
-function InvoiceEta({ id }: { id: string }) {
+/** Credit notes go to ETA after the invoice they credit is accepted; same flow as invoices. */
+function CreditNotes({ data }: { data: Overview }) {
+  const { t } = useLocale();
+  const [open, setOpen] = useState<string | null>(null);
+  const rows = data.creditNotes ?? [];
+  return (
+    <ul className="flex flex-col gap-2">
+      {rows.length === 0 && <li className="card p-4 text-sm font-bold text-united-muted">{t("eta.empty-credit-notes")}</li>}
+      {rows.map((c) => (
+        <li key={c.id} className="card p-3 flex flex-col gap-2">
+          <button type="button" className="flex justify-between gap-2 text-sm font-bold text-start" onClick={() => setOpen(open === c.id ? null : c.id)}>
+            <span><span dir="ltr">{c.number}</span> · {t("eta.credit-note-on")} <span dir="ltr">{c.invoiceNumber}</span> · {c.buyerName} · {c.issueDate}</span>
+            <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(c.total)}</span><span className={`rounded-full px-2 py-0.5 text-xs ${TONE[c.etaStatus ?? ""] ?? "bg-united-dark/5 text-united-muted"}`}>{c.etaStatusLabel}</span></span>
+          </button>
+          {open === c.id && <InvoiceEta id={c.id} base="credit-notes" />}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function InvoiceEta({ id, base = "invoices" }: { id: string; base?: "invoices" | "credit-notes" }) {
   const { t, locale } = useLocale();
   const { can } = usePermissions();
   const toast = useToast();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
-  const q = useQuery({ queryKey: ["eta", "invoice", id], queryFn: () => apiFetch<{ ready: boolean; issues: Issue[]; eta: { status: string; statusLabel: string; uuid: string | null; longId: string | null; submissionId: string | null; attempts: number; lastError: unknown; events: { action: string; toStatus: string; actorName: string; createdAt: string }[] } | null; document: unknown }>(`/api/eta/invoices/${id}`) });
+  const q = useQuery({ queryKey: ["eta", base, id], queryFn: () => apiFetch<{ ready: boolean; issues: Issue[]; eta: { status: string; statusLabel: string; uuid: string | null; longId: string | null; submissionId: string | null; attempts: number; lastError: unknown; events: { action: string; toStatus: string; actorName: string; createdAt: string }[] } | null; document: unknown }>(`/api/eta/${base}/${id}`) });
   const act = async (path: string, body?: unknown) => {
     setBusy(true);
-    try { await apiPost(`/api/eta/invoices/${id}/${path}`, body); toast.show("orders.item.done", "success"); } catch (err) { fail(toast, err); } finally { setBusy(false); void qc.invalidateQueries({ queryKey: ["eta"] }); }
+    try { await apiPost(`/api/eta/${base}/${id}/${path}`, body); toast.show("orders.item.done", "success"); } catch (err) { fail(toast, err); } finally { setBusy(false); void qc.invalidateQueries({ queryKey: ["eta"] }); }
   };
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;

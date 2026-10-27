@@ -17,8 +17,10 @@ import { hasBlockingIssues, validateEtaSource } from "./validate";
 import type { AddressSource, EtaSource, EtaStatus } from "./types";
 
 /**
- * ETA submission of UNITED invoices. The invoice itself is only read; everything ETA
- * returns is kept on EtaDocument (one per invoice) with an append-only event history.
+ * ETA submission of UNITED invoices and of the credit notes against them. The document
+ * itself is only read; everything ETA returns is kept on EtaDocument (one per invoice or
+ * credit note) with an append-only event history. A credit note references its invoice's
+ * ETA UUID, so it can only go once ETA has accepted that invoice.
  *
  * Never twice: the claim (status → submitting) happens under a lock in its own
  * transaction BEFORE any network call, and only a state that proves nothing is
@@ -48,6 +50,8 @@ const STATUS_LABEL: Record<EtaStatus, string> = {
 };
 
 const SOURCE = "sales_invoice";
+type EtaKind = "sales_invoice" | "credit_note";
+const loadSource = (db: Tx | typeof prisma, kind: EtaKind, id: string) => (kind === "credit_note" ? loadEtaCreditNoteSource(db, id) : loadEtaSource(db, id));
 const addr = (a: Partial<Record<keyof AddressSource, string | null>> | null): AddressSource => ({
   country: a?.country ?? null, governate: a?.governate ?? null, regionCity: a?.regionCity ?? null, street: a?.street ?? null,
   buildingNumber: a?.buildingNumber ?? null, postalCode: a?.postalCode ?? null, floor: a?.floor ?? null, room: a?.room ?? null,
@@ -113,6 +117,39 @@ export async function loadEtaSource(db: Tx | typeof prisma, invoiceId: string): 
   };
 }
 
+/**
+ * A credit note as ETA sees it: the invoice's issuer and receiver, the credited quantities
+ * and amounts per line (each line keeps its invoice line's product, unit, price and tax),
+ * and a reference to the invoice's ETA UUID once ETA accepted it.
+ */
+export async function loadEtaCreditNoteSource(db: Tx | typeof prisma, creditNoteId: string): Promise<EtaSource> {
+  const cn = await db.creditNote.findUnique({ where: { id: creditNoteId }, include: { lines: true } });
+  if (!cn) throw new ApiError(404, "الإشعار الدائن مش موجود");
+  const inv = await loadEtaSource(db, cn.invoiceId);
+  const original = await db.etaDocument.findUnique({ where: { sourceType_sourceId: { sourceType: SOURCE, sourceId: cn.invoiceId } }, select: { status: true, uuid: true } });
+  const invoiceLines = await db.salesInvoiceLine.findMany({ where: { id: { in: cn.lines.map((l) => l.invoiceLineId) } }, select: { id: true, lineNo: true } });
+  const lineNoOf = new Map(invoiceLines.map((l) => [l.id, l.lineNo]));
+  const lines = cn.lines
+    .map((l) => {
+      const src = inv.lines.find((x) => x.lineNo === lineNoOf.get(l.invoiceLineId));
+      if (!src) throw new ApiError(409, "سطر الإشعار مش لاقي سطر الفاتورة بتاعه");
+      return { ...src, quantity: l.quantity.toString(), gross: l.gross.toString(), discount: l.discount.toString(), net: l.net.toString(), tax: l.tax.toString(), total: l.total.toString() };
+    })
+    .sort((a, b) => a.lineNo - b.lineNo);
+  return {
+    ...inv,
+    kind: "credit_note",
+    references: original?.status === "valid" && original.uuid ? [original.uuid] : [],
+    invoice: {
+      ...inv.invoice,
+      id: cn.id, number: cn.number, status: "issued", issuedAt: cn.createdAt.toISOString(), currencyCode: cn.currencyCode,
+      gross: cn.gross.toString(), discountTotal: cn.discountTotal.toString(), net: cn.net.toString(), taxTotal: cn.taxTotal.toString(), total: cn.total.toString(),
+      orderNumber: null,
+    },
+    lines,
+  };
+}
+
 const present = (d: Prisma.EtaDocumentGetPayload<{ include: { events: true } }> | null) =>
   d && {
     id: d.id, internalId: d.internalId, documentType: d.documentType, documentTypeVersion: d.documentTypeVersion,
@@ -123,13 +160,22 @@ const present = (d: Prisma.EtaDocumentGetPayload<{ include: { events: true } }> 
     events: d.events.map((e) => ({ action: e.action, fromStatus: e.fromStatus, toStatus: e.toStatus, actorName: e.actorName, createdAt: e.createdAt, detail: e.detail })),
   };
 
+async function etaState(kind: EtaKind, id: string, actor: ServiceActor) {
+  assertPermission(actor, "accounting.eta.view");
+  const src = await loadSource(prisma, kind, id);
+  const { issues, document } = validateEtaSource(src);
+  const doc = await prisma.etaDocument.findUnique({ where: { sourceType_sourceId: { sourceType: kind, sourceId: id } }, include: { events: { orderBy: { createdAt: "asc" } } } });
+  return { number: src.invoice.number, ready: !hasBlockingIssues(issues), issues, document, eta: present(doc) };
+}
+
 /** Readiness + current ETA state of one invoice (finance view). */
 export async function etaInvoiceState(invoiceId: string, actor: ServiceActor) {
-  assertPermission(actor, "accounting.eta.view");
-  const src = await loadEtaSource(prisma, invoiceId);
-  const { issues, document } = validateEtaSource(src);
-  const doc = await prisma.etaDocument.findUnique({ where: { sourceType_sourceId: { sourceType: SOURCE, sourceId: invoiceId } }, include: { events: { orderBy: { createdAt: "asc" } } } });
-  return { invoiceId, number: src.invoice.number, ready: !hasBlockingIssues(issues), issues, document, eta: present(doc) };
+  return { invoiceId, ...(await etaState("sales_invoice", invoiceId, actor)) };
+}
+
+/** Readiness + current ETA state of one credit note. */
+export async function etaCreditNoteState(creditNoteId: string, actor: ServiceActor) {
+  return { creditNoteId, ...(await etaState("credit_note", creditNoteId, actor)) };
 }
 
 /** What the customer-facing invoice may show: identifiers and status, never errors. */
@@ -151,30 +197,42 @@ async function transition(tx: Tx, doc: Doc, to: EtaStatus, data: Prisma.EtaDocum
   return updated;
 }
 
-const lockKey = (invoiceId: string) => `eta:${SOURCE}:${invoiceId}`;
-const getDoc = (tx: Tx, invoiceId: string) => tx.etaDocument.findUnique({ where: { sourceType_sourceId: { sourceType: SOURCE, sourceId: invoiceId } } });
+const lockKey = (kind: EtaKind, id: string) => `eta:${kind}:${id}`;
+const getDoc = (tx: Tx, kind: EtaKind, id: string) => tx.etaDocument.findUnique({ where: { sourceType_sourceId: { sourceType: kind, sourceId: id } } });
 
 export async function submitInvoiceToEta(invoiceId: string, actor: ServiceActor, deps: () => EtaDeps = defaultEtaDeps) {
+  return submitToEta("sales_invoice", invoiceId, actor, deps);
+}
+
+/** Sends a credit note once; refused (422) until ETA has accepted the invoice it credits. */
+export async function submitCreditNoteToEta(creditNoteId: string, actor: ServiceActor, deps: () => EtaDeps = defaultEtaDeps) {
+  return submitToEta("credit_note", creditNoteId, actor, deps);
+}
+
+async function submitToEta(kind: EtaKind, id: string, actor: ServiceActor, deps: () => EtaDeps) {
   assertPermission(actor, "accounting.eta.manage");
 
   // Already registered (or possibly registered): report, never resend.
-  const existing = await prisma.etaDocument.findUnique({ where: { sourceType_sourceId: { sourceType: SOURCE, sourceId: invoiceId } } });
+  const existing = await prisma.etaDocument.findUnique({ where: { sourceType_sourceId: { sourceType: kind, sourceId: id } } });
   if (existing && !RESENDABLE.includes(existing.status as EtaStatus)) return { submitted: false, eta: existing };
 
-  const src = await loadEtaSource(prisma, invoiceId);
+  const src = await loadSource(prisma, kind, id);
   const { issues, document } = validateEtaSource(src);
   const errors = issues.filter((i) => i.level === "error");
-  if (errors.length) throw new ApiError(422, `الفاتورة مش جاهزة للإرسال (${errors.length} نقص): ${errors.slice(0, 3).map((e) => e.message).join(" · ")}`);
+  if (errors.length) {
+    const first = errors.slice(0, 3).map((e) => e.message).join(" · ");
+    throw new ApiError(422, kind === "credit_note" ? `الإشعار الدائن مش جاهز للإرسال (${errors.length} نقص): ${first}` : `الفاتورة مش جاهزة للإرسال (${errors.length} نقص): ${first}`);
+  }
 
   const { gateway, signer } = deps(); // 503 before anything is recorded when not configured
   const payloadHash = createHash("sha256").update(JSON.stringify(document)).digest("hex");
 
   // Claim, in its own committed transaction, before the network.
   const claim = await inTx(async (tx) => {
-    await advisoryXactLock(tx, lockKey(invoiceId));
-    let doc = await getDoc(tx, invoiceId);
+    await advisoryXactLock(tx, lockKey(kind, id));
+    let doc = await getDoc(tx, kind, id);
     if (doc && !RESENDABLE.includes(doc.status as EtaStatus)) return { proceed: false as const, doc };
-    if (!doc) doc = await tx.etaDocument.create({ data: { sourceType: SOURCE, sourceId: invoiceId, internalId: document.internalID, documentType: "i", documentTypeVersion: ETA_DOCUMENT_VERSION } });
+    if (!doc) doc = await tx.etaDocument.create({ data: { sourceType: kind, sourceId: id, internalId: document.internalID, documentType: document.documentType, documentTypeVersion: ETA_DOCUMENT_VERSION } });
     const claimed = await transition(tx, doc, "submitting", { attempts: { increment: 1 }, payloadHash, lastError: Prisma.DbNull }, "claim", { attempt: doc.attempts + 1, payloadHash }, actor);
     return { proceed: true as const, doc: claimed };
   });
@@ -188,7 +246,7 @@ export async function submitInvoiceToEta(invoiceId: string, actor: ServiceActor,
     const ok = result.accepted.find((a) => a.internalId === document.internalID);
     const no = result.rejected.find((r) => r.internalId === document.internalID);
     const eta = await inTx(async (tx) => {
-      const doc = (await getDoc(tx, invoiceId))!;
+      const doc = (await getDoc(tx, kind, id))!;
       if (ok) return transition(tx, doc, "submitted", { submissionId: result.submissionId, uuid: ok.uuid, longId: ok.longId, hashKey: ok.hashKey, submittedAt: new Date(), lastResponse: result.raw as Prisma.InputJsonValue }, "submit_ok", { submissionId: result.submissionId, uuid: ok.uuid }, actor);
       if (no) return transition(tx, doc, "rejected", { submissionId: result.submissionId, rejectedAt: new Date(), lastError: no.error as Prisma.InputJsonValue, lastResponse: result.raw as Prisma.InputJsonValue }, "submit_rejected", no.error, actor);
       return transition(tx, doc, "unknown", { submissionId: result.submissionId, lastResponse: result.raw as Prisma.InputJsonValue, lastError: { message: "الرد مافيهوش المستند" } }, "submit_unknown", result.raw, actor);
@@ -200,7 +258,7 @@ export async function submitInvoiceToEta(invoiceId: string, actor: ServiceActor,
     const reached = e instanceof EtaTransportError ? e.reachedEta : stage === "send";
     const message = (e as Error).message;
     await inTx(async (tx) => {
-      const doc = (await getDoc(tx, invoiceId))!;
+      const doc = (await getDoc(tx, kind, id))!;
       await transition(tx, doc, reached ? "unknown" : "failed", { lastError: { message, stage, detail: (e as EtaTransportError).detail ?? null } as Prisma.InputJsonValue }, reached ? "submit_unknown" : "submit_failed", { message, stage }, actor);
     });
     throw new ApiError(502, reached ? `مش مؤكد إن الفاتورة وصلت للمنظومة (${message}) — اعمل "تحديث الحالة" قبل أي إرسال تاني` : `الإرسال فشل قبل ما يوصل للمنظومة: ${message}`);
@@ -211,8 +269,16 @@ const REMOTE_STATUS: Record<string, EtaStatus> = { valid: "valid", invalid: "inv
 
 /** Reads the document's state at ETA (needs its UUID). */
 export async function refreshInvoiceEta(invoiceId: string, actor: ServiceActor, deps: () => EtaDeps = defaultEtaDeps) {
+  return refreshEta("sales_invoice", invoiceId, actor, deps);
+}
+
+export async function refreshCreditNoteEta(creditNoteId: string, actor: ServiceActor, deps: () => EtaDeps = defaultEtaDeps) {
+  return refreshEta("credit_note", creditNoteId, actor, deps);
+}
+
+async function refreshEta(kind: EtaKind, id: string, actor: ServiceActor, deps: () => EtaDeps) {
   assertPermission(actor, "accounting.eta.manage");
-  const doc = await prisma.etaDocument.findUnique({ where: { sourceType_sourceId: { sourceType: SOURCE, sourceId: invoiceId } } });
+  const doc = await prisma.etaDocument.findUnique({ where: { sourceType_sourceId: { sourceType: kind, sourceId: id } } });
   if (!doc) throw new ApiError(404, "الفاتورة ما اتبعتتش للمنظومة");
   if (!doc.uuid) throw new ApiError(409, "مفيش رقم مستند من المنظومة — راجع بوابة الضرائب واستخدم \"مطابقة يدوية\"");
   const remote = await deps().gateway.getDocument(doc.uuid).catch((e) => {
@@ -221,8 +287,8 @@ export async function refreshInvoiceEta(invoiceId: string, actor: ServiceActor, 
   const to = REMOTE_STATUS[remote.status.toLowerCase()];
   if (!to) throw new ApiError(502, `حالة غير معروفة من المنظومة: ${remote.status}`);
   return inTx(async (tx) => {
-    await advisoryXactLock(tx, lockKey(invoiceId));
-    const cur = (await getDoc(tx, invoiceId))!;
+    await advisoryXactLock(tx, lockKey(kind, id));
+    const cur = (await getDoc(tx, kind, id))!;
     const now = new Date();
     return transition(tx, cur, to, {
       longId: remote.longId ?? cur.longId,
@@ -240,14 +306,22 @@ export async function refreshInvoiceEta(invoiceId: string, actor: ServiceActor, 
  * has no such document (which makes sending again safe).
  */
 export async function reconcileInvoiceEta(invoiceId: string, input: unknown, actor: ServiceActor) {
+  return reconcileEta("sales_invoice", invoiceId, input, actor);
+}
+
+export async function reconcileCreditNoteEta(creditNoteId: string, input: unknown, actor: ServiceActor) {
+  return reconcileEta("credit_note", creditNoteId, input, actor);
+}
+
+async function reconcileEta(kind: EtaKind, id: string, input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.eta.manage");
   const v = parse(z.union([
     z.object({ uuid: z.string().trim().min(10).max(100) }),
     z.object({ not_received: z.literal(true), reason: z.string().trim().min(3).max(500) }),
   ]), input);
   return inTx(async (tx) => {
-    await advisoryXactLock(tx, lockKey(invoiceId));
-    const doc = await getDoc(tx, invoiceId);
+    await advisoryXactLock(tx, lockKey(kind, id));
+    const doc = await getDoc(tx, kind, id);
     if (!doc) throw new ApiError(404, "الفاتورة ما اتبعتتش للمنظومة");
     const stuck = doc.status === "unknown" || (doc.status === "submitting" && Date.now() - doc.updatedAt.getTime() > 5 * 60_000);
     if (!stuck) throw new ApiError(409, `المطابقة اليدوية لحالة "مش معروف" بس (الحالة دلوقتي: ${STATUS_LABEL[doc.status as EtaStatus] ?? doc.status})`);
@@ -336,6 +410,8 @@ export async function etaOverview(actor: ServiceActor) {
     prisma.etaDocument.groupBy({ by: ["status"], _count: { _all: true } }),
   ]);
   const states = await prisma.etaDocument.findMany({ where: { sourceType: SOURCE, sourceId: { in: invoices.map((i) => i.id) } }, select: { sourceId: true, status: true, uuid: true } });
+  const creditNotes = await prisma.creditNote.findMany({ orderBy: { createdAt: "desc" }, take: 50, select: { id: true, number: true, issueDate: true, total: true, invoiceId: true, invoice: { select: { number: true, buyerName: true } } } });
+  const cnStates = await prisma.etaDocument.findMany({ where: { sourceType: "credit_note", sourceId: { in: creditNotes.map((c) => c.id) } }, select: { sourceId: true, status: true, uuid: true } });
   // Products and customers actually invoiced that still lack ETA data.
   const lines = await prisma.salesInvoiceLine.findMany({ where: { invoice: { status: "issued" }, productId: { not: null } }, distinct: ["productId"], select: { productId: true } });
   const products = await prisma.stockProduct.findMany({ where: { id: { in: lines.map((l) => l.productId!) } }, select: { id: true, name: true, nameAr: true, sku: true, unit: true, etaItemCode: { select: { itemType: true, itemCode: true } } }, orderBy: { name: "asc" } });
@@ -356,6 +432,10 @@ export async function etaOverview(actor: ServiceActor) {
     invoices: invoices.map((i) => {
       const s = states.find((x) => x.sourceId === i.id);
       return { ...i, total: i.total.toString(), etaStatus: s?.status ?? null, etaStatusLabel: s ? STATUS_LABEL[s.status as EtaStatus] : "لسه ما اتبعتتش", uuid: s?.uuid ?? null };
+    }),
+    creditNotes: creditNotes.map((c) => {
+      const s = cnStates.find((x) => x.sourceId === c.id);
+      return { id: c.id, number: c.number, issueDate: c.issueDate, total: c.total.toString(), invoiceId: c.invoiceId, invoiceNumber: c.invoice.number, buyerName: c.invoice.buyerName, etaStatus: s?.status ?? null, etaStatusLabel: s ? STATUS_LABEL[s.status as EtaStatus] : "لسه ما اتبعتتش", uuid: s?.uuid ?? null };
     }),
   };
 }

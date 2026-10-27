@@ -941,5 +941,10 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["الحساب {} مش حساب مصروفات أو أصول", "Account {0} is not an expense or asset account"],
   ["الحساب {} ({}) مينفعش يتحمل على فاتورة خدمة", "Account {0} ({1}) cannot be charged on a service bill"],
   ["حدد السطور اللي هتتخصم", "Choose the lines to deduct"],
+  // ETA credit notes
+  ["الإشعار الدائن مش موجود", "The credit note does not exist"],
+  ["سطر الإشعار مش لاقي سطر الفاتورة بتاعه", "A credit note line has no matching invoice line"],
+  ["الإشعار الدائن مش جاهز للإرسال ({} نقص): {}", "The credit note is not ready to send ({0} missing): {1}"],
+  ["الفاتورة الأصلية لسه ما اتقبلتش من منظومة الضرائب — الإشعار الدائن بيتبعت بعد قبولها", "The original invoice has not been accepted by the ETA yet — the credit note is sent after it is accepted"],
   ["\"{}\": المتبقي من السطر {} بس", "\"{0}\": only {1} is left on the line"],
 ];

@@ -61,6 +61,8 @@ export type EtaDocumentV1 = {
   extraDiscountAmount: number;
   totalItemsDiscountAmount: number;
   signatures?: { signatureType: "I" | "S"; value: string }[];
+  /** Credit / debit notes: the ETA UUIDs of the invoices they adjust. */
+  references?: string[];
 };
 
 /**
@@ -69,7 +71,10 @@ export type EtaDocumentV1 = {
  * means "UNITED does not have this yet" — the validator reports it, nothing is invented.
  */
 export type EtaSource = {
-  kind: "sales_invoice";
+  /** A sales invoice, or a credit note against one (its lines are the credited part). */
+  kind: "sales_invoice" | "credit_note";
+  /** Credit note: the ETA UUID of the invoice it credits, once ETA accepted that invoice. */
+  references?: string[];
   invoice: {
     id: string;
     number: string | null;

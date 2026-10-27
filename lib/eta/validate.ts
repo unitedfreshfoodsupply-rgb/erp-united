@@ -28,6 +28,7 @@ export function validateEtaSource(src: EtaSource): { issues: EtaIssue[]; documen
   if (inv.status !== "issued") err("invoice.status", "الفاتورة لازم تكون صادرة قبل الإرسال");
   if (!inv.number) err("internalID", "الفاتورة من غير رقم");
   if (!inv.issuedAt) err("dateTimeIssued", "تاريخ ووقت الإصدار ناقص");
+  if (src.kind === "credit_note" && !src.references?.length) err("references", "الفاتورة الأصلية لسه ما اتقبلتش من منظومة الضرائب — الإشعار الدائن بيتبعت بعد قبولها");
   if (inv.currencyCode !== "EGP") err("unitValue.currencySold", `عملة ${inv.currencyCode}: الإرسال بعملة أجنبية محتاج سعر صرف — مش مدعوم لسه`);
 
   // Issuer
@@ -68,9 +69,14 @@ export function validateEtaSource(src: EtaSource): { issues: EtaIssue[]; documen
     if (!l.etaUnitType) err(`${at}.unitType`, `سطر ${l.lineNo}: الوحدة ${l.uomCode} مش مربوطة بكود وحدة الضرائب`);
     if (!l.etaTaxType || !l.etaTaxSubtype) err(`${at}.taxableItems`, `سطر ${l.lineNo}: التصنيف الضريبي لـ ${l.taxCode} ناقص (نوع/نوع فرعي)`);
 
-    const expect = lineAmounts({ quantity: l.quantity, unitPrice: l.unitPrice, discountPct: l.discountPct, taxRate: l.taxRate });
-    for (const k of ["gross", "discount", "net", "tax", "total"] as const) {
-      if (!expect[k].equals(D(l[k]))) err(`${at}.${k}`, `سطر ${l.lineNo}: ${k} المسجل ${D(l[k]).toFixed(2)} والمحسوب ${expect[k].toFixed(2)} — الفاتورة مش متسقة`);
+    // An invoice line is recomputed with the function that priced it. A credit note's
+    // last credit on a line is the exact remainder (to the piastre), not a re-pricing,
+    // so only ETA's own line arithmetic below applies to it.
+    if (src.kind === "sales_invoice") {
+      const expect = lineAmounts({ quantity: l.quantity, unitPrice: l.unitPrice, discountPct: l.discountPct, taxRate: l.taxRate });
+      for (const k of ["gross", "discount", "net", "tax", "total"] as const) {
+        if (!expect[k].equals(D(l[k]))) err(`${at}.${k}`, `سطر ${l.lineNo}: ${k} المسجل ${D(l[k]).toFixed(2)} والمحسوب ${expect[k].toFixed(2)} — الفاتورة مش متسقة`);
+      }
     }
     const exact = q.times(p);
     if (!exact.equals(D(l.gross))) warn(`${at}.salesTotal`, `سطر ${l.lineNo}: الكمية × السعر = ${exact.toFixed(5)} والفاتورة مقرّبة ${D(l.gross).toFixed(2)} — راجع قاعدة التقريب في بيئة التجربة`);

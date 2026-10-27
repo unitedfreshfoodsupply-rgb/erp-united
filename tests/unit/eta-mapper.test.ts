@@ -118,3 +118,16 @@ test("document-level refusals: draft, no number, foreign currency, no lines, unl
   z.lines[0] = { ...z.lines[0], quantity: "0" };
   assert.ok(has(z, "invoiceLines[1].quantity"));
 });
+
+test("a credit note maps as type c, carries the invoice reference, and is refused without it", () => {
+  const credit: EtaSource = { ...source(), kind: "credit_note", references: ["INV-UUID-1"] };
+  const { issues, document } = validateEtaSource(credit);
+  assert.equal(document.documentType, "c");
+  assert.deepEqual(document.references, ["INV-UUID-1"]);
+  assert.ok(!issues.some((i) => i.field === "references"));
+  const orphan = validateEtaSource({ ...credit, references: [] });
+  assert.ok(orphan.issues.some((i) => i.level === "error" && i.field === "references"));
+  // An invoice never carries references.
+  assert.equal(validateEtaSource(source()).document.references, undefined);
+});
+

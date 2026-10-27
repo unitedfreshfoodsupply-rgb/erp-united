@@ -875,6 +875,46 @@
     },
     {
       "method": "POST",
+      "path": "/api/eta/credit-notes/[id]/reconcile",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.eta.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/eta/credit-notes/[id]/refresh",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.eta.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/eta/credit-notes/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.eta.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/eta/credit-notes/[id]/submit",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.eta.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
       "path": "/api/eta/invoices/[id]/reconcile",
       "gate": {
         "kind": "all",

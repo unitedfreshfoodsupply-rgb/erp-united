@@ -1491,6 +1491,9 @@ const accounting = {
   "accounting.open": { ar: "مفتوح", en: "Open" },
   // Unallocated amount indicator
   "accounting.unallocated": { ar: "تحت الحساب", en: "Unallocated" },
+  "eta.tab.credit-notes": { ar: "الإشعارات الدائنة", en: "Credit notes" },
+  "eta.empty-credit-notes": { ar: "مفيش إشعارات دائنة", en: "No credit notes" },
+  "eta.credit-note-on": { ar: "على", en: "on" },
   "purchasing.bill.new_service": { ar: "فاتورة خدمة جديدة", en: "New service bill" },
   "purchasing.bill.kind_service": { ar: "خدمة", en: "Service" },
   "purchasing.bill.title.new_service": { ar: "فاتورة خدمة جديدة (إيجار، كهرباء، نقل، صيانة، معدات…)", en: "New service bill (rent, utilities, transport, maintenance, equipment…)" },

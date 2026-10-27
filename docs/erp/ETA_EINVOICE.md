@@ -108,9 +108,19 @@ The invoice is never edited by this flow. ETA state is keyed to it
 
 ## 6. Prepared, not implemented
 
-* **Credit and debit notes** (`documentType` c / d with references to the original UUID):
-  `EtaDocument.sourceType` accepts `credit_note` / `debit_note`; the mapper refuses them
-  explicitly for now.
+* **Credit notes — built (2026-10-28).** A UNITED credit note maps to `documentType` "c"
+  with `references: [<the invoice's ETA UUID>]`; its lines are the credited quantities and
+  amounts, each keeping its invoice line's product, unit, price and tax classification. It
+  is refused (422, nothing signed or sent) until ETA has accepted the invoice it credits
+  (`valid`, with a UUID). Submit / refresh / manual reconcile and the never-twice rules are
+  the invoice's own (`EtaDocument.sourceType = credit_note`). API:
+  `/api/eta/credit-notes/[id]` (+ `/submit`, `/refresh`, `/reconcile`); screen: the "Credit
+  notes" tab on `/eta`. A credit note's last credit on a line is the exact remainder, so
+  UNITED's re-pricing check is skipped for credit notes; ETA's own line arithmetic still
+  applies. **Not yet exercised against the pre-production SDK** — confirm the `references`
+  field and credit-note rules there (WP-3C).
+* **Sales debit notes** (type "d"): UNITED issues none today (its debit notes are supplier
+  documents), so none are mapped.
 * **Cancellation / rejection** by ETA state API: `cancelled` status and `cancelledAt` exist;
   no action yet.
 * **Retrieve document / status**: implemented for a known UUID (`refresh`).

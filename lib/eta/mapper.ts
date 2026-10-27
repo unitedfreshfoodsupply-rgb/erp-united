@@ -82,7 +82,7 @@ export function mapInvoiceToEta(src: EtaSource): EtaDocumentV1 {
   return {
     issuer,
     receiver,
-    documentType: "i",
+    documentType: src.kind === "credit_note" ? "c" : "i",
     documentTypeVersion: ETA_DOCUMENT_VERSION,
     dateTimeIssued: src.invoice.issuedAt ? etaDateTime(src.invoice.issuedAt) : "",
     taxpayerActivityCode: src.issuer.activityCode ?? "",
@@ -96,5 +96,6 @@ export function mapInvoiceToEta(src: EtaSource): EtaDocumentV1 {
     totalAmount: n5(src.invoice.total),
     extraDiscountAmount: 0,
     totalItemsDiscountAmount: 0,
+    ...(src.kind === "credit_note" ? { references: src.references ?? [] } : {}),
   };
 }

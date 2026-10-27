@@ -7,9 +7,9 @@ import assert from "node:assert/strict";
 import { Prisma } from "@prisma/client";
 import { prisma, actor } from "./_db";
 import { createCustomer } from "@/lib/sales/customers";
-import { issueInvoice } from "@/lib/sales/invoicing";
+import { createCreditNote, issueInvoice } from "@/lib/sales/invoicing";
 import { EtaTransportError, type EtaGateway, type EtaSigner, type EtaSubmitResult } from "@/lib/eta/gateway";
-import { etaInvoiceState, reconcileInvoiceEta, refreshInvoiceEta, saveIssuerProfile, saveReceiverProfile, setItemCode, setUnitType, submitInvoiceToEta, type EtaDeps } from "@/lib/eta/service";
+import { etaCreditNoteState, etaInvoiceState, reconcileCreditNoteEta, reconcileInvoiceEta, refreshCreditNoteEta, refreshInvoiceEta, saveIssuerProfile, saveReceiverProfile, setItemCode, setUnitType, submitCreditNoteToEta, submitInvoiceToEta, type EtaDeps } from "@/lib/eta/service";
 
 const TAG = `ZZETA${Date.now()}`;
 const acct = actor("محاسب", ["sales.invoices.manage", "sales.invoices.view", "sales.customers.manage", "accounting.eta.view", "accounting.eta.manage"]);
@@ -163,4 +163,66 @@ test("ETA state is permanent and the invoice and its accounting are untouched", 
   await assert.rejects(prisma.etaDocument.deleteMany({ where: { sourceId: inv.id } }), /permanent/);
   await assert.rejects(prisma.etaDocumentEvent.deleteMany({ where: { etaDocument: { sourceId: inv.id } } }));
   await assert.rejects(prisma.etaDocument.create({ data: { sourceType: "sales_invoice", sourceId: inv.id, internalId: inv.number!, documentType: "i", documentTypeVersion: "1.0" } }), /Unique constraint/);
+});
+
+// ---------------------------------------------------------------------------
+// Credit notes: type "c", referencing the invoice's ETA UUID, only after ETA accepted it.
+// ---------------------------------------------------------------------------
+
+/** An invoice ETA has accepted (submitted, then refreshed to valid) with its UUID. */
+async function acceptedInvoice(uuid: string, qty = 10) {
+  const inv = await issuedInvoice(qty);
+  await submitInvoiceToEta(inv.id, acct, fakeEta(() => accepted(inv.number!, uuid)).deps);
+  await refreshInvoiceEta(inv.id, acct, fakeEta(() => accepted(inv.number!), "Valid").deps);
+  return inv;
+}
+const creditOf = async (invoiceId: string, quantity: number) => {
+  const line = await prisma.salesInvoiceLine.findFirstOrThrow({ where: { invoiceId } });
+  return createCreditNote(invoiceId, { reason: `${TAG} مرتجع`, lines: [{ invoice_line_id: line.id, quantity }] }, acct);
+};
+
+test("a credit note waits until ETA accepted its invoice; then maps as type c with the reference", async () => {
+  const inv = await issuedInvoice();
+  const cn = await creditOf(inv.id, 2);
+  const early = await etaCreditNoteState(cn.id, viewer);
+  assert.equal(early.ready, false);
+  assert.ok(early.issues.some((i) => i.field === "references"), JSON.stringify(early.issues));
+  const eta = fakeEta(() => accepted(cn.number, `${TAG}-C0`));
+  await assert.rejects(submitCreditNoteToEta(cn.id, acct, eta.deps), (e: any) => e.status === 422);
+  assert.equal(eta.state.submits + eta.state.signs, 0, "nothing signed or sent before the invoice is accepted");
+  assert.equal(await prisma.etaDocument.count({ where: { sourceType: "credit_note", sourceId: cn.id } }), 0);
+
+  const ok = await acceptedInvoice(`${TAG}-INV-OK`);
+  const cn2 = await creditOf(ok.id, 3);
+  const s = await etaCreditNoteState(cn2.id, viewer);
+  assert.equal(s.ready, true, JSON.stringify(s.issues));
+  assert.equal(s.document.documentType, "c");
+  assert.deepEqual(s.document.references, [`${TAG}-INV-OK`]);
+  assert.equal(s.document.internalID, cn2.number);
+  assert.equal(s.document.invoiceLines.length, 1);
+  assert.equal(s.document.invoiceLines[0].quantity, 3);
+  assert.equal(s.document.totalAmount, 150);
+  await assert.rejects(submitCreditNoteToEta(cn2.id, viewer, eta.deps), (e: any) => e.status === 403);
+});
+
+test("a credit note reaches ETA once, refreshes and reconciles like an invoice", async () => {
+  const inv = await acceptedInvoice(`${TAG}-INV-2`);
+  const cn = await creditOf(inv.id, 10);
+  const eta = fakeEta(() => accepted(cn.number, `${TAG}-C1`));
+  const results = await Promise.all([1, 2, 3].map(() => submitCreditNoteToEta(cn.id, acct, eta.deps)));
+  assert.equal(eta.state.submits, 1);
+  assert.equal(results.filter((r) => r.submitted).length, 1);
+  const doc = await prisma.etaDocument.findFirstOrThrow({ where: { sourceType: "credit_note", sourceId: cn.id } });
+  assert.deepEqual([doc.documentType, doc.status, doc.uuid], ["c", "submitted", `${TAG}-C1`]);
+  const r = await refreshCreditNoteEta(cn.id, acct, fakeEta(() => accepted(cn.number), "Valid").deps);
+  assert.equal(r.status, "valid");
+  // The invoice's own ETA document is untouched by its credit note's.
+  assert.equal((await prisma.etaDocument.findFirstOrThrow({ where: { sourceType: "sales_invoice", sourceId: inv.id } })).uuid, `${TAG}-INV-2`);
+
+  const inv3 = await acceptedInvoice(`${TAG}-INV-3`);
+  const lostCn = await creditOf(inv3.id, 1);
+  await assert.rejects(submitCreditNoteToEta(lostCn.id, acct, fakeEta(() => { throw new EtaTransportError("timeout", true); }).deps), (e: any) => e.status === 502);
+  assert.equal((await prisma.etaDocument.findFirstOrThrow({ where: { sourceType: "credit_note", sourceId: lostCn.id } })).status, "unknown");
+  const rec = await reconcileCreditNoteEta(lostCn.id, { uuid: `${TAG}-C-PORTAL` }, acct);
+  assert.deepEqual([rec.status, rec.uuid], ["submitted", `${TAG}-C-PORTAL`]);
 });
