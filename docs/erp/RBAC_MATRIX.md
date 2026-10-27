@@ -143,6 +143,8 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/accounting/trial-balance` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |
 | GET | `/api/accounting/vat-summary/export` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |
 | GET | `/api/accounting/vat-summary` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/accounting/withholding/export` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/accounting/withholding` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |
 | GET | `/api/admin/data-import` | `users.view` + per import type: `accounting.manage`, `purchasing.prices.manage`, `purchasing.suppliers.manage`, `sales.credit.manage`, `sales.customers.manage`, `sales.pricing.manage`, `sales.tax.manage`, `stock.manage_products` | · | · | · | · | · | · | · | · |
 | POST | `/api/admin/data-import` | `users.view` + per import type: `accounting.manage`, `purchasing.prices.manage`, `purchasing.suppliers.manage`, `sales.credit.manage`, `sales.customers.manage`, `sales.pricing.manage`, `sales.tax.manage`, `stock.manage_products` | · | · | · | · | · | · | · | · |
 | POST | `/api/admin/integrations/[id]/revoke` | `integrations.manage` | ✓ |  |  |  |  |  |  |  |

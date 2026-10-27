@@ -1956,6 +1956,9 @@ model Account {
   children     Account[]     @relation("AccountTree")
   lines        JournalLine[]
   cashAccounts CashAccount[]
+
+  receiptDeductions ReceiptDeduction[]
+  paymentDeductions PaymentDeduction[]
 }
 
 model AccountingPeriod {
@@ -2061,9 +2064,29 @@ model CustomerReceipt {
   customer    Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
   cashAccount CashAccount              @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
   allocations ReceiptAllocation[]
+  deductions  ReceiptDeduction[]
   reversal    CustomerReceiptReversal?
 
   @@index([customerId])
+}
+
+/// Part of a receipt settled without cash: tax the customer withheld, a bank charge, or
+/// an approved small difference. `CustomerReceipt.amount` stays what the customer is
+/// credited with; the cash leg is that amount minus these.
+model ReceiptDeduction {
+  id        String  @id @default(cuid())
+  receiptId String
+  /// withholding | bank_charge | write_off
+  kind      String
+  accountId String
+  amount    Decimal @db.Decimal(18, 2)
+  /// The withholding certificate number, when known.
+  reference String?
+
+  receipt CustomerReceipt @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  account Account         @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([receiptId, kind])
 }
 
 model ReceiptAllocation {
@@ -2101,9 +2124,27 @@ model SupplierPayment {
   supplier    Supplier                 @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   cashAccount CashAccount              @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
   allocations PaymentAllocation[]
+  deductions  PaymentDeduction[]
   reversal    SupplierPaymentReversal?
 
   @@index([supplierId])
+}
+
+/// Tax UNITED withheld from a supplier payment: the supplier is debited the full
+/// `SupplierPayment.amount`, the cash leg is that amount minus this.
+model PaymentDeduction {
+  id        String  @id @default(cuid())
+  paymentId String
+  /// withholding
+  kind      String
+  accountId String
+  amount    Decimal @db.Decimal(18, 2)
+  reference String?
+
+  payment SupplierPayment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  account Account         @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([paymentId, kind])
 }
 
 model PaymentAllocation {

@@ -113,6 +113,23 @@ The four items below were implemented and verified in the remediation batches (F
 
 **4. Sorting/release valuation — net-zero in the GL by design.** In `lib/accounting/ledger.ts`, the `VALUATION_COUNTER` maps `sorting_out`, `sorting_in`, `release_out`, and `release_in` movements to the `inventory_adjustment` counter (5200) via its fallback. Because a sort or release moves value between inventory buckets without creating or destroying value, the two legs' values are netted inside that counter and produce **no** journal line (the group sums to zero and is skipped); any rounding crumb would land in 5200, never silently vanish. This is the same net-zero mechanism verified for transfers. Evidence: `grading-cost-policy.test.ts` D16 (lot/layer invariant) and `quarantine-release.test.ts` N16 (release is value-neutral).
 
+### 3.2 Settling a receipt or payment partly without cash (2026-10-28)
+
+A customer receipt can carry up to three deductions, and a supplier payment one:
+
+| Deduction | Where | Journal | Setting that switches it on |
+|---|---|---|---|
+| Tax the customer withheld | Receipt | Dr withholding receivable | `accounting.withholding_receivable_account` (an asset account code) |
+| Bank charge taken from the transfer | Receipt | Dr bank charges | `accounting.bank_charges_account` (an expense account code) |
+| Small difference allowed | Receipt | Dr settlement differences | `accounting.write_off_account` (an expense account code) **and** `accounting.write_off_limit` (> 0); only users with `accounting.manage` |
+| Tax UNITED withheld from the supplier | Payment | Cr withholding payable | `accounting.withholding_payable_account` (a liability account code) |
+
+- The receipt (or payment) amount is what the party's balance is settled by; the cash leg is that amount minus the deductions. Statements, aging and Accounts Health are unchanged.
+- Each kind stays **off** until the accountant creates the account (Accounting → accounts) and enters its code in the settings. A code that is not an active, postable account of the right type, a control account or a cash/bank account is refused.
+- The certificate number is optional at receipt time (certificates often arrive later). The withholding report (`GET /api/accounting/withholding?side=receivable|payable`, CSV at `/export`) lists each document and flags missing certificate numbers.
+- Reversing the receipt or payment reverses every leg, including the deductions.
+- Rates, which customers withhold, and whether UNITED is a withholding agent are the accountant's decisions (DEC-01/02); the system records amounts, it does not compute rates.
+
 ---
 
 ## 4. Known Gap — Unknown-Cost PPV/GRNI Accounting (requires decision)

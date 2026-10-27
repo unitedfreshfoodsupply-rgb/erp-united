@@ -119,6 +119,9 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
   const [party, setParty] = useState("");
   const [form, setForm] = useState({ amount: "", method: "cash", cash_account_id: "cash_main", reference: "", date: todayLocalISO() });
   const [alloc, setAlloc] = useState<Record<string, string>>({});
+  // Settled without cash: tax the customer withheld, a bank charge, a small difference
+  // (receipts); tax we withheld (payments). Each kind needs its account configured.
+  const [ded, setDed] = useState({ withholding: "", withholding_ref: "", bank_charge: "", write_off: "" });
   const [key, setKey] = useState(newClientKey);
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(1);
@@ -138,6 +141,12 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
     },
   });
   const explicit = Object.entries(alloc).filter(([, v]) => Number(v) > 0).map(([document_id, amount]) => ({ document_id, amount }));
+  const deductions = [
+    ...(Number(ded.withholding) > 0 ? [{ kind: "withholding", amount: ded.withholding, reference: ded.withholding_ref.trim() || null }] : []),
+    ...(isReceipt && Number(ded.bank_charge) > 0 ? [{ kind: "bank_charge", amount: ded.bank_charge }] : []),
+    ...(isReceipt && Number(ded.write_off) > 0 ? [{ kind: "write_off", amount: ded.write_off }] : []),
+  ];
+  const cashPart = Number(form.amount || 0) - deductions.reduce((s, d) => s + Number(d.amount), 0);
   return (
     <div className="flex flex-col gap-3">
       {manage && (
@@ -156,6 +165,17 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
             <Field label={t("accounting.form.account.label")}><select className="field" value={form.cash_account_id} onChange={(e) => setForm({ ...form, cash_account_id: e.target.value })}><option value="cash_main">{t("accounting.form.account.treasury")}</option><option value="bank_main">{t("accounting.form.account.bank")}</option></select></Field>
             <Field label={t("accounting.form.reference-hint")}><input className="field" dir="ltr" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></Field>
           </div>
+          <details className="rounded-xl border border-united-border p-2" open={deductions.length > 0}>
+            <summary className="text-sm font-extrabold cursor-pointer">{isReceipt ? t("accounting.deductions.receipt-title") : t("accounting.deductions.payment-title")}</summary>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
+              <Field label={isReceipt ? t("accounting.deductions.withholding-in") : t("accounting.deductions.withholding-out")}><input className="field" dir="ltr" inputMode="decimal" value={ded.withholding} onChange={(e) => setDed({ ...ded, withholding: e.target.value })} /></Field>
+              <Field label={t("accounting.deductions.certificate")}><input className="field" dir="ltr" value={ded.withholding_ref} onChange={(e) => setDed({ ...ded, withholding_ref: e.target.value })} /></Field>
+              {isReceipt && <Field label={t("accounting.deductions.bank-charge")}><input className="field" dir="ltr" inputMode="decimal" value={ded.bank_charge} onChange={(e) => setDed({ ...ded, bank_charge: e.target.value })} /></Field>}
+              {isReceipt && can("accounting.manage") && <Field label={t("accounting.deductions.write-off")}><input className="field" dir="ltr" inputMode="decimal" value={ded.write_off} onChange={(e) => setDed({ ...ded, write_off: e.target.value })} /></Field>}
+            </div>
+            <p className="text-xs font-bold text-united-muted mt-1">{t("accounting.deductions.notice")}</p>
+          </details>
+          {deductions.length > 0 && <p className="text-sm font-extrabold">{isReceipt ? t("accounting.deductions.cash-in") : t("accounting.deductions.cash-out")} <span dir="ltr">{fmtMoney(cashPart.toFixed(2))}</span></p>}
           {party && (open.data?.length ? (
             <ul className="text-sm font-bold divide-y divide-united-dark/5">
               {open.data.map((d) => (
@@ -170,10 +190,11 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
           <button type="button" className="btn-primary" disabled={!party || !form.amount || busy} onClick={async () => {
             setBusy(true);
             try {
-              const r = await apiPost<Record<string, { number: string }>>(`/api/accounting/${kind}`, { party_id: party, amount: form.amount, method: form.method, cash_account_id: form.cash_account_id, reference: form.reference || null, date: form.date, idempotency_key: key, ...(explicit.length ? { allocations: explicit } : { auto: true }) });
+              const r = await apiPost<Record<string, { number: string }>>(`/api/accounting/${kind}`, { party_id: party, amount: form.amount, method: form.method, cash_account_id: form.cash_account_id, reference: form.reference || null, date: form.date, idempotency_key: key, ...(deductions.length ? { deductions } : {}), ...(explicit.length ? { allocations: explicit } : { auto: true }) });
               toast.show(t("accounting.toast-recorded", { ref: (r.receipt ?? r.payment).number }), "success");
               setForm({ ...form, amount: "", reference: "" });
               setAlloc({});
+              setDed({ withholding: "", withholding_ref: "", bank_charge: "", write_off: "" });
               setKey(newClientKey());
               void qc.invalidateQueries({ queryKey: ["acc"] });
             } catch (err) { /* handled inline below */ } finally { setBusy(false); }
@@ -188,6 +209,11 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
             <div>
               <div className="font-extrabold"><span dir="ltr">{r.number}</span> · {getPartyName(r.customer, locale) || getPartyName(r.supplier, locale)}</div>
               <div className="text-xs text-united-muted">{r.date} · {t(SOURCE_TYPES[r.sourceType] as any)} · {r.cashAccount}{r.reference ? <> · <span dir="ltr">{r.reference}</span></> : null}{Number(r.unallocated) > 0 ? ` · ${t("accounting.unallocated")} ${r.unallocated}` : ""}</div>
+              {r.deductions?.length > 0 && (
+                <div className="text-xs text-united-muted">
+                  {r.deductions.map((d: { kind: string; amount: string; reference: string | null }) => `${t(`accounting.deductions.kind.${d.kind}` as any)} ${fmtMoney(d.amount)}${d.reference ? ` (${d.reference})` : ""}`).join(" · ")} · {isReceipt ? t("accounting.deductions.cash-in") : t("accounting.deductions.cash-out")} <span dir="ltr">{fmtMoney(r.cashAmount)}</span>
+                </div>
+              )}
               {r.reversal && <div className="text-xs text-united-danger">{t("accounting.reversal-display", { n: r.reversal.date, reason: r.reversal.reason, by: r.reversal.by })}</div>}
             </div>
             <div className="flex flex-col items-end gap-1">
@@ -204,7 +230,41 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
         ))}
       </ul>
       {list.data && <Pagination page={page} pageSize={pageSize} total={list.data.total} onChange={setPage} />}
+      <Withholding side={isReceipt ? "receivable" : "payable"} />
     </div>
+  );
+}
+
+/** Tax withheld this year, per document — reconciled against certificates, or remitted. */
+function Withholding({ side }: { side: "receivable" | "payable" }) {
+  const { t, locale } = useLocale();
+  const [from, setFrom] = useState(yearStart());
+  const [to, setTo] = useState(todayLocalISO());
+  const q = useQuery({
+    queryKey: ["acc", "withholding", side, from, to],
+    queryFn: () => apiFetch<{ report: { rows: { date: string; document: string; party: LocalizedNameSource & { code: string }; amount: string; reference: string | null }[]; total: string; missingReference: number } }>(`/api/accounting/withholding?side=${side}&from=${from}&to=${to}`).then((r) => r.report),
+  });
+  if (!q.data?.rows.length) return null;
+  return (
+    <section className="card p-3 flex flex-col gap-2 text-sm font-bold">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-extrabold">{side === "receivable" ? t("accounting.withholding.title-in") : t("accounting.withholding.title-out")}</h3>
+        <div className="flex flex-wrap gap-2 items-center">
+          <label className="text-xs">{t("accounting.date-from")} <input type="date" className="field ms-1" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+          <label className="text-xs">{t("accounting.date-to")} <input type="date" className="field ms-1" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+          <a className="btn-secondary text-xs" href={`/api/accounting/withholding/export?side=${side}&from=${from}&to=${to}`} download>{t("accounting.withholding.export")}</a>
+        </div>
+      </div>
+      <ul className="divide-y divide-united-dark/5">
+        {q.data.rows.map((r) => (
+          <li key={r.document} className="py-1 flex justify-between gap-2">
+            <span><span dir="ltr">{r.document}</span> · {r.date} · {getPartyName(r.party, locale)}{r.reference ? <> · <span dir="ltr">{r.reference}</span></> : <> · <span className="text-united-warn">{t("accounting.withholding.no-certificate")}</span></>}</span>
+            <span dir="ltr">{fmtMoney(r.amount)}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="flex justify-between font-extrabold"><span>{t("accounting.tb-total")}</span><span dir="ltr">{fmtMoney(q.data.total)}</span></div>
+    </section>
   );
 }
 

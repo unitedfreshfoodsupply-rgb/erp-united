@@ -371,6 +371,11 @@ const CONTROL_ACCOUNTS: Record<string, string> = {
   employee_payable: "مصروف موظف أو حركة موظف",
 };
 
+/** The document that moves a control account, or undefined for an ordinary account. */
+export function controlAccountMovedBy(systemKey: string | null | undefined): string | undefined {
+  return systemKey ? CONTROL_ACCOUNTS[systemKey] : undefined;
+}
+
 export async function createManualJournal(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.manage");
   const v = parse(manualInput, input);
@@ -400,7 +405,7 @@ export async function createManualJournal(input: unknown, actor: ServiceActor) {
       const a = accounts.find((x) => x.id === l.account_id);
       if (!a) throw new ApiError(404, "حساب مش موجود");
       if (!a.postable || !a.active) throw new ApiError(400, `الحساب ${a.code} حساب رئيسي أو موقوف — مينفعش الترحيل عليه`);
-      const via = a.systemKey ? CONTROL_ACCOUNTS[a.systemKey] : undefined;
+      const via = controlAccountMovedBy(a.systemKey);
       if (via) throw new ApiError(400, `الحساب ${a.code} (${a.nameAr}) حساب مراقبة — بيتحرك بس من ${via}، عشان كشف الحساب والأستاذ يفضلوا متطابقين`);
     }
     const lines: PostLine[] = v.lines.map((l) => ({ accountId: l.account_id, amount: l.debit.gt(0) ? l.debit : l.credit.negated(), party: l.party_type ? { type: l.party_type, id: l.party_id! } : undefined, description: l.description }));

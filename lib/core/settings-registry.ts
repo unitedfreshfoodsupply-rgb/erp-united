@@ -14,7 +14,7 @@ import { z } from "zod";
  * validate the admin form) as well as the server.
  */
 
-export const SETTING_GROUPS = ["orders", "approvals", "documents", "inventory", "sales", "purchasing", "hr"] as const;
+export const SETTING_GROUPS = ["orders", "approvals", "documents", "inventory", "sales", "purchasing", "accounting", "hr"] as const;
 export type SettingGroup = (typeof SETTING_GROUPS)[number];
 
 export const SETTING_GROUP_LABEL: Record<SettingGroup, string> = {
@@ -24,6 +24,7 @@ export const SETTING_GROUP_LABEL: Record<SettingGroup, string> = {
   inventory: "المخزون",
   sales: "المبيعات والائتمان",
   purchasing: "المشتريات",
+  accounting: "الحسابات",
   hr: "المصروفات والموظفين",
 };
 
@@ -40,6 +41,9 @@ type Def<T> = {
 function def<T>(d: Def<T>): Def<T> {
   return d;
 }
+
+/** An account code, or empty for "not set up" — the feature that needs it stays off. */
+const accountCode = z.string().trim().max(20, "كود الحساب طويل").regex(/^[0-9A-Za-z._-]*$/, "كود حساب غير صالح");
 
 const minutes = (max: number) => z.number().int("لازم يكون رقم صحيح").min(1, "أقل قيمة 1").max(max, `أكبر قيمة ${max}`);
 
@@ -237,6 +241,46 @@ export const SETTING_DEFS = {
     unit: "%",
     schema: z.number().min(0).max(100),
     default: 1,
+  }),
+  "accounting.withholding_receivable_account": def({
+    group: "accounting",
+    label: "حساب الضريبة المخصومة من العملاء",
+    description: "كود الحساب (أصول) اللي بيتسجل فيه مبلغ الخصم من المنبع اللي العميل خصمه من التحصيل. فاضي = الخصم ده مش متاح في التحصيل.",
+    unit: "",
+    schema: accountCode,
+    default: "",
+  }),
+  "accounting.withholding_payable_account": def({
+    group: "accounting",
+    label: "حساب الضريبة المخصومة من الموردين",
+    description: "كود الحساب (خصوم) اللي بيتسجل فيه مبلغ الخصم من المنبع اللي احنا خصمناه من سداد المورد. فاضي = الخصم ده مش متاح في السداد.",
+    unit: "",
+    schema: accountCode,
+    default: "",
+  }),
+  "accounting.bank_charges_account": def({
+    group: "accounting",
+    label: "حساب مصاريف البنك",
+    description: "كود حساب المصروفات اللي بتتسجل فيه عمولة البنك المخصومة من تحويل العميل. فاضي = مش متاح.",
+    unit: "",
+    schema: accountCode,
+    default: "",
+  }),
+  "accounting.write_off_account": def({
+    group: "accounting",
+    label: "حساب فروق التحصيل",
+    description: "كود حساب المصروفات اللي بيتسجل فيه الفرق الصغير اللي اتسامح فيه عند التحصيل. فاضي = مش متاح.",
+    unit: "",
+    schema: accountCode,
+    default: "",
+  }),
+  "accounting.write_off_limit": def({
+    group: "accounting",
+    label: "حد فرق التحصيل المسموح",
+    description: "أقصى فرق يتسامح فيه في التحصيل الواحد، وبصلاحية إدارة الحسابات بس. صفر = ممنوع.",
+    unit: "ج.م",
+    schema: z.number().min(0).max(1_000_000),
+    default: 0,
   }),
   "hr.expense_approval_threshold": def({
     group: "hr",

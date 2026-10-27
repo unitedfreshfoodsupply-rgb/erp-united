@@ -577,6 +577,26 @@
     },
     {
       "method": "GET",
+      "path": "/api/accounting/withholding/export",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/withholding",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/admin/data-import",
       "gate": {
         "kind": "per-import-kind",

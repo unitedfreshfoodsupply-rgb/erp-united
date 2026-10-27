@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
-import { assertPermission } from "@/lib/authz-core";
+import { actorCan, assertPermission } from "@/lib/authz-core";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { inTx, type Tx } from "@/lib/tx";
 import { todayLocalISO } from "@/lib/localDate";
@@ -11,7 +11,9 @@ import { isValidISODate } from "@/lib/dates";
 import { nextDocumentNumber } from "@/lib/core/sequences";
 import { optText, parse, text } from "@/lib/core/validation";
 import type { ServiceActor } from "@/lib/core/actor";
-import { postJournal } from "@/lib/accounting/ledger";
+import { controlAccountMovedBy, postJournal } from "@/lib/accounting/ledger";
+import { getSetting } from "@/lib/core/settings-service";
+import type { SettingKey } from "@/lib/core/settings-registry";
 import { customerReceivable } from "@/lib/sales/invoicing";
 import { supplierPayable } from "@/lib/purchasing/bills";
 
@@ -23,6 +25,13 @@ import { supplierPayable } from "@/lib/purchasing/bills";
  * transaction. Allocation never exceeds what the document has open nor what the
  * receipt/payment has left (the latter also DB-enforced); one party's money moves one
  * at a time (advisory lock), so two receipts cannot both settle the same invoice.
+ *
+ * Part of a receipt may be settled without cash — tax the customer withheld, a bank
+ * charge, a small difference within the configured limit — and a payment may withhold
+ * tax from the supplier. The document's amount is still what the party is credited or
+ * debited with, so statements, aging and the AR/AP checks read it unchanged; only the
+ * cash leg is the amount minus those deductions, each posted to the account the
+ * accountant configured for it (a kind with no account configured is refused).
  */
 
 const D = (v: Prisma.Decimal.Value) => new Prisma.Decimal(v);
@@ -47,13 +56,78 @@ const moneyIn = z.object({
   /** Explicit allocations; or `auto` — oldest due first; or neither — all on account. */
   allocations: z.array(z.object({ document_id: text("المستند"), amount: amount("مبلغ التخصيص") })).max(200).optional(),
   auto: z.boolean().optional(),
+  /** Settled without cash; at most one line per kind. */
+  deductions: z
+    .array(z.object({ kind: z.enum(["withholding", "bank_charge", "write_off"], { errorMap: () => ({ message: "نوع الخصم غير معروف" }) }), amount: amount("مبلغ الخصم"), reference: optText("رقم الشهادة", 100).optional() }))
+    .max(3)
+    .optional(),
   idempotency_key: z.string().min(8, "مفتاح التكرار قصير").max(120, "مفتاح التكرار طويل").optional(),
 });
 
+type DeductionKind = "withholding" | "bank_charge" | "write_off";
+type Deduction = { kind: DeductionKind; accountId: string; amount: Prisma.Decimal; reference: string | null };
+
 /** A repeat of the same submit returns the first document; the same key on a different submit is refused. */
-function sameMoney(prev: { partyId: string; amount: Prisma.Decimal; cashAccountId: string }, v: { party_id: string; amount: Prisma.Decimal; cash_account_id: string }) {
-  if (prev.partyId !== v.party_id || !prev.amount.eq(v.amount) || prev.cashAccountId !== v.cash_account_id) throw new ApiError(409, "مفتاح التكرار ده اتستخدم في عملية تانية");
+function sameMoney(
+  prev: { partyId: string; amount: Prisma.Decimal; cashAccountId: string; deductions?: { kind: string; amount: Prisma.Decimal; reference: string | null }[] },
+  v: { party_id: string; amount: Prisma.Decimal; cash_account_id: string; deductions?: { kind: string; amount: Prisma.Decimal; reference?: string | null }[] }
+) {
+  const key = (d: { kind: string; amount: Prisma.Decimal; reference?: string | null }) => `${d.kind}:${d.amount.toFixed(2)}:${d.reference ?? ""}`;
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+  if (prev.partyId !== v.party_id || !prev.amount.eq(v.amount) || prev.cashAccountId !== v.cash_account_id || !same((prev.deductions ?? []).map(key).sort(), (v.deductions ?? []).map(key).sort())) {
+    throw new ApiError(409, "مفتاح التكرار ده اتستخدم في عملية تانية");
+  }
 }
+
+const DEDUCTION_LABEL: Record<DeductionKind, string> = { withholding: "الخصم من المنبع", bank_charge: "مصاريف البنك", write_off: "فرق التحصيل" };
+const DEDUCTION_ACCOUNT = {
+  receipt: { withholding: "accounting.withholding_receivable_account", bank_charge: "accounting.bank_charges_account", write_off: "accounting.write_off_account" },
+  payment: { withholding: "accounting.withholding_payable_account" },
+} as const;
+/** The account type each deduction must post to — a mistyped code is refused, not posted. */
+const DEDUCTION_TYPE = { receipt: { withholding: "asset", bank_charge: "expense", write_off: "expense" }, payment: { withholding: "liability" } } as const;
+
+/**
+ * Checks the deductions of a receipt or payment against the configured accounts and
+ * limits, and returns them with their accounts. Together they stay below the amount:
+ * some money must actually move (also DB-enforced).
+ */
+async function resolveDeductions(
+  tx: Tx,
+  side: "receipt" | "payment",
+  raw: { kind: DeductionKind; amount: Prisma.Decimal; reference?: string | null }[] | undefined,
+  total: Prisma.Decimal,
+  actor: ServiceActor
+): Promise<Deduction[]> {
+  if (!raw?.length) return [];
+  const out: Deduction[] = [];
+  for (const d of raw) {
+    if (out.some((x) => x.kind === d.kind)) throw new ApiError(400, `${DEDUCTION_LABEL[d.kind]} متكرر — سطر واحد لكل نوع`);
+    const settingKey = (DEDUCTION_ACCOUNT[side] as Partial<Record<DeductionKind, SettingKey>>)[d.kind];
+    if (!settingKey) throw new ApiError(400, `${DEDUCTION_LABEL[d.kind]} مش متاح في سداد الموردين`);
+    const code = String(await getSetting(settingKey)).trim();
+    if (!code) throw new ApiError(400, `${DEDUCTION_LABEL[d.kind]} مش متفعّل — حدد حسابه في إعدادات الحسابات الأول`);
+    const account = await tx.account.findUnique({ where: { code } });
+    const wanted = (DEDUCTION_TYPE[side] as Record<string, string>)[d.kind];
+    if (!account || !account.active || !account.postable) throw new ApiError(400, `حساب ${DEDUCTION_LABEL[d.kind]} (${code}) مش موجود أو موقوف أو حساب رئيسي — راجع الإعدادات`);
+    if (account.type !== wanted || controlAccountMovedBy(account.systemKey) || (await tx.cashAccount.findFirst({ where: { accountId: account.id } }))) {
+      throw new ApiError(400, `حساب ${DEDUCTION_LABEL[d.kind]} (${code}) مش مناسب — راجع الإعدادات`);
+    }
+    if (d.kind === "write_off") {
+      if (!actorCan(actor, "accounting.manage")) throw new ApiError(403, "فرق التحصيل محتاج صلاحية إدارة الحسابات");
+      const limit = D(await getSetting("accounting.write_off_limit"));
+      if (d.amount.greaterThan(limit)) throw new ApiError(400, `فرق التحصيل ${d.amount.toFixed(2)} أكبر من الحد المسموح ${limit.toFixed(2)}`);
+    }
+    out.push({ kind: d.kind, accountId: account.id, amount: d.amount, reference: d.reference ?? null });
+  }
+  const deducted = out.reduce((s, d) => s.plus(d.amount), D(0));
+  if (!deducted.lessThan(total)) throw new ApiError(400, `الخصومات ${deducted.toFixed(2)} لازم تكون أقل من المبلغ ${total.toFixed(2)}`);
+  return out;
+}
+
+const deductedOf = (list: { amount: Prisma.Decimal }[]) => list.reduce((s, d) => s.plus(d.amount), D(0));
+const deductionNote = (list: { kind: string; amount: Prisma.Decimal }[]) =>
+  list.length ? ` · خصومات ${list.map((d) => `${DEDUCTION_LABEL[d.kind as DeductionKind]} ${d.amount.toFixed(2)}`).join(" + ")}` : "";
 
 const audit = (tx: Tx, actor: ServiceActor, entityType: "customer_receipt" | "supplier_payment" | "bank_reconciliation", id: string, action: string, detail: string) =>
   writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action, entityType, entityId: id, newValue: detail, source: "user", deviceId: actor.deviceId }, tx);
@@ -145,15 +219,16 @@ export async function createReceipt(input: unknown, actor: ServiceActor) {
     if (v.idempotency_key) await advisoryXactLock(tx, `accounting:money-key:${v.idempotency_key}`);
     await advisoryXactLock(tx, `accounting:customer:${v.party_id}`);
     if (v.idempotency_key) {
-      const prev = await tx.customerReceipt.findUnique({ where: { idempotencyKey: v.idempotency_key } });
+      const prev = await tx.customerReceipt.findUnique({ where: { idempotencyKey: v.idempotency_key }, include: { deductions: true } });
       if (prev) {
-        sameMoney({ partyId: prev.customerId, amount: prev.amount, cashAccountId: prev.cashAccountId }, v);
+        sameMoney({ partyId: prev.customerId, amount: prev.amount, cashAccountId: prev.cashAccountId, deductions: prev.deductions }, v);
         return prev;
       }
     }
     const customer = await tx.customer.findUnique({ where: { id: v.party_id } });
     if (!customer) throw new ApiError(404, "العميل مش موجود");
     const cash = await accountOf(tx, v.cash_account_id);
+    const deductions = await resolveDeductions(tx, "receipt", v.deductions, v.amount, actor);
     const allocations = allocate(await openInvoices(tx, customer.id), v.amount, v.allocations, v.auto);
     const receipt = await tx.customerReceipt.create({
       data: {
@@ -161,14 +236,19 @@ export async function createReceipt(input: unknown, actor: ServiceActor) {
         customerId: customer.id, cashAccountId: cash.id, date, amount: v.amount, method: v.method, reference: v.reference ?? null, notes: v.notes ?? null, idempotencyKey: v.idempotency_key ?? null,
         createdById: actor.id, createdBy: actor.name,
         allocations: { createMany: { data: allocations.map((a) => ({ invoiceId: a.target === "invoice" ? a.id : null, openingBalanceId: a.target === "opening_balance" ? a.id : null, amount: a.amount })) } },
+        ...(deductions.length ? { deductions: { createMany: { data: deductions } } } : {}),
       },
     });
     await postJournal(tx, {
       date, description: `تحصيل ${receipt.number} من ${customer.name}${v.reference ? ` (${v.reference})` : ""}`, sourceType: "customer_receipt", sourceId: receipt.id,
-      lines: [{ accountId: cash.accountId, amount: v.amount }, { key: "ar", amount: v.amount.negated(), party: { type: "customer", id: customer.id } }],
+      lines: [
+        { accountId: cash.accountId, amount: v.amount.minus(deductedOf(deductions)) },
+        ...deductions.map((d) => ({ accountId: d.accountId, amount: d.amount, description: DEDUCTION_LABEL[d.kind] + (d.reference ? ` (${d.reference})` : "") })),
+        { key: "ar", amount: v.amount.negated(), party: { type: "customer", id: customer.id } },
+      ],
     }, actor);
     const applied = allocations.reduce((s, a) => s.plus(a.amount), D(0));
-    await audit(tx, actor, "customer_receipt", receipt.id, "receipt_created", `${receipt.number} · ${customer.code} · ${v.amount.toFixed(2)} · مخصص ${applied.toFixed(2)}`);
+    await audit(tx, actor, "customer_receipt", receipt.id, "receipt_created", `${receipt.number} · ${customer.code} · ${v.amount.toFixed(2)} · مخصص ${applied.toFixed(2)}${deductionNote(deductions)}`);
     return receipt;
   });
 }
@@ -205,15 +285,16 @@ export async function createPayment(input: unknown, actor: ServiceActor) {
     if (v.idempotency_key) await advisoryXactLock(tx, `accounting:money-key:${v.idempotency_key}`);
     await advisoryXactLock(tx, `accounting:supplier:${v.party_id}`);
     if (v.idempotency_key) {
-      const prev = await tx.supplierPayment.findUnique({ where: { idempotencyKey: v.idempotency_key } });
+      const prev = await tx.supplierPayment.findUnique({ where: { idempotencyKey: v.idempotency_key }, include: { deductions: true } });
       if (prev) {
-        sameMoney({ partyId: prev.supplierId, amount: prev.amount, cashAccountId: prev.cashAccountId }, v);
+        sameMoney({ partyId: prev.supplierId, amount: prev.amount, cashAccountId: prev.cashAccountId, deductions: prev.deductions }, v);
         return prev;
       }
     }
     const supplier = await tx.supplier.findUnique({ where: { id: v.party_id } });
     if (!supplier) throw new ApiError(404, "المورد مش موجود");
     const cash = await accountOf(tx, v.cash_account_id);
+    const deductions = await resolveDeductions(tx, "payment", v.deductions, v.amount, actor);
     const allocations = allocate(await openBills(tx, supplier.id), v.amount, v.allocations, v.auto);
     const payment = await tx.supplierPayment.create({
       data: {
@@ -221,14 +302,19 @@ export async function createPayment(input: unknown, actor: ServiceActor) {
         supplierId: supplier.id, cashAccountId: cash.id, date, amount: v.amount, method: v.method, reference: v.reference ?? null, notes: v.notes ?? null, idempotencyKey: v.idempotency_key ?? null,
         createdById: actor.id, createdBy: actor.name,
         allocations: { createMany: { data: allocations.map((a) => ({ billId: a.target === "bill" ? a.id : null, openingBalanceId: a.target === "opening_balance" ? a.id : null, amount: a.amount })) } },
+        ...(deductions.length ? { deductions: { createMany: { data: deductions } } } : {}),
       },
     });
     await postJournal(tx, {
       date, description: `سداد ${payment.number} لـ ${supplier.name}${v.reference ? ` (${v.reference})` : ""}`, sourceType: "supplier_payment", sourceId: payment.id,
-      lines: [{ key: "ap", amount: v.amount, party: { type: "supplier", id: supplier.id } }, { accountId: cash.accountId, amount: v.amount.negated() }],
+      lines: [
+        { key: "ap", amount: v.amount, party: { type: "supplier", id: supplier.id } },
+        { accountId: cash.accountId, amount: v.amount.minus(deductedOf(deductions)).negated() },
+        ...deductions.map((d) => ({ accountId: d.accountId, amount: d.amount.negated(), description: DEDUCTION_LABEL[d.kind] + (d.reference ? ` (${d.reference})` : "") })),
+      ],
     }, actor);
     const applied = allocations.reduce((s, a) => s.plus(a.amount), D(0));
-    await audit(tx, actor, "supplier_payment", payment.id, "payment_created", `${payment.number} · ${supplier.code} · ${v.amount.toFixed(2)} · مخصص ${applied.toFixed(2)}`);
+    await audit(tx, actor, "supplier_payment", payment.id, "payment_created", `${payment.number} · ${supplier.code} · ${v.amount.toFixed(2)} · مخصص ${applied.toFixed(2)}${deductionNote(deductions)}`);
     return payment;
   });
 }
@@ -273,14 +359,19 @@ export async function reverseReceipt(id: string, input: unknown, actor: ServiceA
     const head = await tx.customerReceipt.findUnique({ where: { id }, select: { customerId: true } });
     if (!head) throw new ApiError(404, "الإيصال مش موجود");
     await advisoryXactLock(tx, `accounting:customer:${head.customerId}`);
-    const r = await tx.customerReceipt.findUniqueOrThrow({ where: { id }, include: { reversal: true, customer: { select: { name: true } }, cashAccount: { select: { accountId: true } } } });
+    const r = await tx.customerReceipt.findUniqueOrThrow({ where: { id }, include: { reversal: true, deductions: true, customer: { select: { name: true } }, cashAccount: { select: { accountId: true } } } });
     if (r.reversal) throw new ApiError(409, "الإيصال ده اتعكس قبل كده");
     const date = v.date ?? todayLocalISO();
     if (date < r.date) throw new ApiError(400, "تاريخ العكس قبل تاريخ الإيصال");
     const rev = await tx.customerReceiptReversal.create({ data: { receiptId: r.id, date, reason: v.reason, createdById: actor.id, createdBy: actor.name } });
     await postJournal(tx, {
       date, description: `عكس تحصيل ${r.number} من ${r.customer.name}: ${v.reason}`, sourceType: "receipt_reversal", sourceId: rev.id,
-      lines: [{ key: "ar", amount: r.amount, party: { type: "customer", id: r.customerId } }, { accountId: r.cashAccount.accountId, amount: r.amount.negated() }],
+      // Every leg of the original comes back: the cash, and each deduction.
+      lines: [
+        { key: "ar", amount: r.amount, party: { type: "customer", id: r.customerId } },
+        { accountId: r.cashAccount.accountId, amount: r.amount.minus(deductedOf(r.deductions)).negated() },
+        ...r.deductions.map((d) => ({ accountId: d.accountId, amount: d.amount.negated(), description: DEDUCTION_LABEL[d.kind as DeductionKind] })),
+      ],
     }, actor);
     await audit(tx, actor, "customer_receipt", r.id, "receipt_reversed", `${r.number} · ${r.amount.toFixed(2)} · ${v.reason}`);
     return rev;
@@ -295,24 +386,32 @@ export async function reversePayment(id: string, input: unknown, actor: ServiceA
     const head = await tx.supplierPayment.findUnique({ where: { id }, select: { supplierId: true } });
     if (!head) throw new ApiError(404, "السداد مش موجود");
     await advisoryXactLock(tx, `accounting:supplier:${head.supplierId}`);
-    const p = await tx.supplierPayment.findUniqueOrThrow({ where: { id }, include: { reversal: true, supplier: { select: { name: true, nameAr: true } }, cashAccount: { select: { accountId: true } } } });
+    const p = await tx.supplierPayment.findUniqueOrThrow({ where: { id }, include: { reversal: true, deductions: true, supplier: { select: { name: true, nameAr: true } }, cashAccount: { select: { accountId: true } } } });
     if (p.reversal) throw new ApiError(409, "السداد ده اتعكس قبل كده");
     const date = v.date ?? todayLocalISO();
     if (date < p.date) throw new ApiError(400, "تاريخ العكس قبل تاريخ السداد");
     const rev = await tx.supplierPaymentReversal.create({ data: { paymentId: p.id, date, reason: v.reason, createdById: actor.id, createdBy: actor.name } });
     await postJournal(tx, {
       date, description: `عكس سداد ${p.number} لـ ${p.supplier.name}: ${v.reason}`, sourceType: "payment_reversal", sourceId: rev.id,
-      lines: [{ key: "ap", amount: p.amount.negated(), party: { type: "supplier", id: p.supplierId } }, { accountId: p.cashAccount.accountId, amount: p.amount }],
+      lines: [
+        { key: "ap", amount: p.amount.negated(), party: { type: "supplier", id: p.supplierId } },
+        { accountId: p.cashAccount.accountId, amount: p.amount.minus(deductedOf(p.deductions)) },
+        ...p.deductions.map((d) => ({ accountId: d.accountId, amount: d.amount, description: DEDUCTION_LABEL[d.kind as DeductionKind] })),
+      ],
     }, actor);
     await audit(tx, actor, "supplier_payment", p.id, "payment_reversed", `${p.number} · ${p.amount.toFixed(2)} · ${v.reason}`);
     return rev;
   });
 }
 
-const present = (r: { id: string; number: string; date: string; amount: Prisma.Decimal; method: string; reference: string | null; createdBy: string; allocations: { amount: Prisma.Decimal }[]; reversal: { date: string; reason: string; createdBy: string } | null }) => {
+type PresentedDeduction = { kind: string; amount: Prisma.Decimal; reference: string | null; account: { code: string } };
+const present = (r: { id: string; number: string; date: string; amount: Prisma.Decimal; method: string; reference: string | null; createdBy: string; allocations: { amount: Prisma.Decimal }[]; deductions: PresentedDeduction[]; reversal: { date: string; reason: string; createdBy: string } | null }) => {
   const applied = r.reversal ? D(0) : r.allocations.reduce((s, a) => s.plus(a.amount), D(0));
   return {
     id: r.id, number: r.number, date: r.date, amount: r.amount.toFixed(2), method: r.method, reference: r.reference, createdBy: r.createdBy,
+    /** What moved in cash or bank: the amount less what was settled without cash. */
+    cashAmount: r.amount.minus(deductedOf(r.deductions)).toFixed(2),
+    deductions: r.deductions.map((d) => ({ kind: d.kind, amount: d.amount.toFixed(2), reference: d.reference, accountCode: d.account.code })),
     allocated: applied.toFixed(2), unallocated: r.reversal ? "0.00" : r.amount.minus(applied).toFixed(2),
     reversal: r.reversal ? { date: r.reversal.date, reason: r.reversal.reason, by: r.reversal.createdBy } : null,
   };
@@ -324,7 +423,7 @@ export async function listReceipts(filters: { customerId?: string; limit?: numbe
   const where = filters.customerId ? { customerId: filters.customerId } : {};
   const [total, rows] = await Promise.all([
     prisma.customerReceipt.count({ where }),
-    prisma.customerReceipt.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { allocations: true, reversal: true, customer: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true } } }, skip, take }),
+    prisma.customerReceipt.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { allocations: true, deductions: { include: { account: { select: { code: true } } } }, reversal: true, customer: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true } } }, skip, take }),
   ]);
   return { receipts: rows.map((r) => ({ ...present(r), customer: r.customer, cashAccount: r.cashAccount.name })), pagination: { total, limit: take, offset: skip } };
 }
@@ -335,9 +434,33 @@ export async function listPayments(filters: { supplierId?: string; limit?: numbe
   const where = filters.supplierId ? { supplierId: filters.supplierId } : {};
   const [total, rows] = await Promise.all([
     prisma.supplierPayment.count({ where }),
-    prisma.supplierPayment.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { allocations: true, reversal: true, supplier: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true } } }, skip, take }),
+    prisma.supplierPayment.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { allocations: true, deductions: { include: { account: { select: { code: true } } } }, reversal: true, supplier: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true } } }, skip, take }),
   ]);
   return { payments: rows.map((r) => ({ ...present(r), supplier: r.supplier, cashAccount: r.cashAccount.name })), pagination: { total, limit: take, offset: skip } };
+}
+
+/**
+ * Tax withheld in a period, one row per document: what customers withheld from
+ * their payments to us (receivable — reconciled against their certificates), or what we
+ * withheld from suppliers (payable — remitted to the tax authority). Reversed receipts
+ * and payments are left out: their withholding was reversed with them.
+ */
+export async function withholdingReport(side: "receivable" | "payable", from: string, to: string) {
+  if (!isValidISODate(from) || !isValidISODate(to) || from > to) throw new ApiError(400, "الفترة غير صالحة");
+  const party = { select: { id: true, code: true, name: true, nameAr: true } } as const;
+  const rows =
+    side === "receivable"
+      ? (await prisma.receiptDeduction.findMany({
+          where: { kind: "withholding", receipt: { date: { gte: from, lte: to }, reversal: { is: null } } },
+          include: { account: { select: { code: true } }, receipt: { select: { number: true, date: true, amount: true, customer: party } } },
+          orderBy: [{ receipt: { date: "asc" } }, { receipt: { number: "asc" } }],
+        })).map((d) => ({ date: d.receipt.date, document: d.receipt.number, party: d.receipt.customer, documentAmount: d.receipt.amount.toFixed(2), amount: d.amount.toFixed(2), reference: d.reference, accountCode: d.account.code }))
+      : (await prisma.paymentDeduction.findMany({
+          where: { kind: "withholding", payment: { date: { gte: from, lte: to }, reversal: { is: null } } },
+          include: { account: { select: { code: true } }, payment: { select: { number: true, date: true, amount: true, supplier: party } } },
+          orderBy: [{ payment: { date: "asc" } }, { payment: { number: "asc" } }],
+        })).map((d) => ({ date: d.payment.date, document: d.payment.number, party: d.payment.supplier, documentAmount: d.payment.amount.toFixed(2), amount: d.amount.toFixed(2), reference: d.reference, accountCode: d.account.code }));
+  return { side, from, to, rows, total: rows.reduce((s, r) => s.plus(r.amount), D(0)).toFixed(2), missingReference: rows.filter((r) => !r.reference).length };
 }
 
 // ---------------------------------------------------------------------------

@@ -1491,6 +1491,23 @@ const accounting = {
   "accounting.open": { ar: "مفتوح", en: "Open" },
   // Unallocated amount indicator
   "accounting.unallocated": { ar: "تحت الحساب", en: "Unallocated" },
+  "accounting.deductions.receipt-title": { ar: "جزء اتسوّى من غير فلوس (خصم من المنبع، مصاريف بنك، فرق)", en: "Settled without cash (withholding tax, bank charges, difference)" },
+  "accounting.deductions.payment-title": { ar: "الخصم من المنبع من المورد", en: "Tax withheld from the supplier" },
+  "accounting.deductions.withholding-in": { ar: "الخصم من المنبع (خصمه العميل)", en: "Withholding tax (deducted by the customer)" },
+  "accounting.deductions.withholding-out": { ar: "الخصم من المنبع (خصمناه)", en: "Withholding tax (we deducted)" },
+  "accounting.deductions.certificate": { ar: "رقم شهادة الخصم", en: "Certificate number" },
+  "accounting.deductions.bank-charge": { ar: "مصاريف البنك", en: "Bank charges" },
+  "accounting.deductions.write-off": { ar: "فرق مسموح بيه", en: "Allowed difference" },
+  "accounting.deductions.notice": { ar: "المبلغ فوق هو اللي بيتخصم من رصيد الطرف؛ الخصومات دي بتتسجل على الحسابات المحددة في إعدادات الحسابات، والفلوس الفعلية هي المبلغ ناقص الخصومات.", en: "The amount above is what the party's balance is settled by; these deductions post to the accounts set in the accounting settings, and the actual money is the amount less the deductions." },
+  "accounting.deductions.cash-in": { ar: "المحصّل فعلًا:", en: "Cash received:" },
+  "accounting.deductions.cash-out": { ar: "المدفوع فعلًا:", en: "Cash paid:" },
+  "accounting.deductions.kind.withholding": { ar: "خصم من المنبع", en: "Withholding" },
+  "accounting.deductions.kind.bank_charge": { ar: "مصاريف بنك", en: "Bank charges" },
+  "accounting.deductions.kind.write_off": { ar: "فرق مسموح", en: "Allowed difference" },
+  "accounting.withholding.title-in": { ar: "الخصم من المنبع اللي خصمه العملاء", en: "Tax withheld by customers" },
+  "accounting.withholding.title-out": { ar: "الخصم من المنبع اللي خصمناه من الموردين", en: "Tax withheld from suppliers" },
+  "accounting.withholding.export": { ar: "تصدير CSV", en: "Export CSV" },
+  "accounting.withholding.no-certificate": { ar: "من غير رقم شهادة", en: "No certificate number" },
   // Reversal display line
   "accounting.reversal-display": { ar: "{by} عكس في {date}", en: "{by} reversed on {date}" },
   // Refund recording buttons (customer/supplier specific)
