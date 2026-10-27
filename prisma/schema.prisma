@@ -1661,6 +1661,9 @@ model SupplierBill {
   number            String    @unique
   /// draft | pending_approval | posted | cancelled
   status            String    @default("draft")
+  /// goods (lines are goods receipts, three-way matched) | service (lines are expense or
+  /// asset accounts: rent, utilities, transport, services, equipment — no receipt).
+  kind              String    @default("goods")
   supplierId        String
   /// The supplier's own invoice number (unique per supplier among live bills).
   supplierInvoiceNo String
@@ -1691,9 +1694,10 @@ model SupplierBill {
   createdBy         String
   createdAt         DateTime  @default(now())
 
-  supplier   Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  lines      SupplierBillLine[]
-  debitNotes DebitNote[]
+  supplier     Supplier                  @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  lines        SupplierBillLine[]
+  serviceLines SupplierBillServiceLine[]
+  debitNotes   DebitNote[]
 
   paymentAllocations PaymentAllocation[]
 
@@ -1766,12 +1770,50 @@ model DebitNote {
   createdBy        String
   createdAt        DateTime @default(now())
 
-  bill     SupplierBill    @relation(fields: [billId], references: [id], onDelete: Restrict)
-  supplier Supplier        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  lines    DebitNoteLine[]
+  bill         SupplierBill           @relation(fields: [billId], references: [id], onDelete: Restrict)
+  supplier     Supplier               @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  lines        DebitNoteLine[]
+  serviceLines DebitNoteServiceLine[]
 
   @@index([supplierId])
   @@index([billId])
+}
+
+/// A line of a service bill: what was bought, the account it is charged to (an expense,
+/// or an asset such as equipment), and its tax. Frozen with its bill once posted.
+model SupplierBillServiceLine {
+  id          String  @id @default(cuid())
+  billId      String
+  lineNo      Int
+  accountId   String
+  description String
+  taxCode     String
+  taxRate     Decimal @db.Decimal(5, 2)
+  net         Decimal @db.Decimal(18, 2)
+  tax         Decimal @db.Decimal(18, 2)
+  total       Decimal @db.Decimal(18, 2)
+
+  bill       SupplierBill           @relation(fields: [billId], references: [id], onDelete: Restrict)
+  account    Account                @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  debitLines DebitNoteServiceLine[]
+
+  @@unique([billId, lineNo])
+}
+
+/// An allowance on a service line (the supplier credits part of what it charged).
+model DebitNoteServiceLine {
+  id            String  @id @default(cuid())
+  debitNoteId   String
+  serviceLineId String
+  net           Decimal @db.Decimal(18, 2)
+  tax           Decimal @db.Decimal(18, 2)
+  total         Decimal @db.Decimal(18, 2)
+
+  debitNote   DebitNote               @relation(fields: [debitNoteId], references: [id], onDelete: Restrict)
+  serviceLine SupplierBillServiceLine @relation(fields: [serviceLineId], references: [id], onDelete: Restrict)
+
+  @@index([debitNoteId])
+  @@index([serviceLineId])
 }
 
 model DebitNoteLine {
@@ -1959,6 +2001,7 @@ model Account {
 
   receiptDeductions ReceiptDeduction[]
   paymentDeductions PaymentDeduction[]
+  billServiceLines  SupplierBillServiceLine[]
 }
 
 model AccountingPeriod {

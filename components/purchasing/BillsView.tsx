@@ -36,9 +36,10 @@ const MATCH: Record<string, { label: string; cls: string }> = {
   unpriced: { label: "bills.match.unpriced", cls: "text-united-warn" },
 };
 
-type BillRow = { id: string; number: string; status: string; supplier: { id: string; code: string; name: string; nameAr?: string | null }; supplierInvoiceNo: string; billDate: string; dueDate: string; lineCount: number; total: string; variance: string; matchStatus: string; open: string | null };
+type BillRow = { id: string; number: string; status: string; kind?: string; supplier: { id: string; code: string; name: string; nameAr?: string | null }; supplierInvoiceNo: string; billDate: string; dueDate: string; lineCount: number; total: string; variance: string; matchStatus: string; open: string | null };
 type BillLine = { id: string; lineNo: number; intakeId: string; receiptNumber: string; receivedDate: string; poNumber: string | null; description: string; uomCode: string; receivedQty: string; quantity: string; unitPrice: string; expectedUnitPrice: string | null; expectedNet: string | null; lineVariance: string | null; taxCode: string; net: string; tax: string; total: string; debitedQty: string };
-type Bill = Omit<BillRow, "lineCount"> & { currencyCode: string; notes: string | null; cancelReason: string | null; expectedNet: string; net: string; taxTotal: string; debited: string; approvalId: string | null; createdBy: string; postedBy: string | null; approvedBy: string | null; version: number; lines: BillLine[]; debitNotes: { id: string; number: string; issueDate: string; reason: string; total: string; createdBy: string }[] };
+type ServiceLine = { id: string; lineNo: number; accountId: string; account: { code: string; name: string; nameAr: string }; description: string; taxCode: string; taxRate: string; net: string; tax: string; total: string; debitedNet: string };
+type Bill = Omit<BillRow, "lineCount"> & { currencyCode: string; notes: string | null; cancelReason: string | null; expectedNet: string; net: string; taxTotal: string; debited: string; approvalId: string | null; createdBy: string; postedBy: string | null; approvedBy: string | null; version: number; lines: BillLine[]; serviceLines: ServiceLine[]; debitNotes: { id: string; number: string; issueDate: string; reason: string; total: string; createdBy: string }[] };
 type Billable = { intakeId: string; receiptNumber: string; receivedDate: string; product: { id: string; name: string; unit: string }; poNumber: string | null; goodQty: string; expectedUnitPrice: string | null; priceSource: string | null; expectedNet: string | null; taxCode: string; taxRate: string };
 
 const emptyT = () => "";
@@ -60,14 +61,17 @@ function Bills({ onOpen }: { onOpen: (id: string) => void }) {
   const { can } = usePermissions();
   const { t, locale } = useLocale();
   const [status, setStatus] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<"goods" | "service" | null>(null);
   const q = useQuery({ queryKey: ["purchasing", "bills", status], queryFn: () => apiFetch<{ bills: BillRow[] }>(`/api/purchasing/bills${status ? `?status=${status}` : ""}`) });
-  if (creating) return <NewBill onDone={(id) => { setCreating(false); if (id) onOpen(id); }} />;
+  const done = (id?: string) => { setCreating(null); if (id) onOpen(id); };
+  if (creating === "goods") return <NewBill onDone={done} />;
+  if (creating === "service") return <NewServiceBill onDone={done} />;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2 items-center">
         <div className="flex-1"><Tabs value={status} onChange={setStatus} items={[{ key: "", label: t("purchasing.bill.filter.all") }, { key: "draft", label: t("purchasing.bill.filter.drafts") }, { key: "pending_approval", label: t("purchasing.bill.filter.pending_approval") }, { key: "posted", label: t("purchasing.bill.filter.posted") }]} /></div>
-        {can("purchasing.bills.manage") && <button type="button" className="btn-primary shrink-0" onClick={() => setCreating(true)}>{t("purchasing.bill.new_supplier")}</button>}
+        {can("purchasing.bills.manage") && <button type="button" className="btn-primary shrink-0" onClick={() => setCreating("goods")}>{t("purchasing.bill.new_supplier")}</button>}
+        {can("purchasing.bills.manage") && <button type="button" className="btn-secondary shrink-0" onClick={() => setCreating("service")}>{t("purchasing.bill.new_service")}</button>}
       </div>
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
@@ -77,7 +81,7 @@ function Bills({ onOpen }: { onOpen: (id: string) => void }) {
           <li key={b.id}>
             <button type="button" className="card p-3 w-full text-start flex justify-between gap-2" onClick={() => onOpen(b.id)}>
               <div>
-                <div className="font-extrabold"><span dir="ltr">{b.number}</span> · {localName(b.supplier, locale)}</div>
+                <div className="font-extrabold"><span dir="ltr">{b.number}</span> · {localName(b.supplier, locale)}{b.kind === "service" ? <span className="ms-2 rounded-full px-2 text-xs bg-united-dark/5">{t("purchasing.bill.kind_service")}</span> : null}</div>
                 <div className="text-xs font-bold text-united-muted">{t("purchasing.bill.supplier_invoice_label")} <span dir="ltr">{b.supplierInvoiceNo}</span> · {b.billDate} · {t("purchasing.bill.due_date")} {b.dueDate} · <span className={MATCH[b.matchStatus]?.cls}>{MATCH[b.matchStatus] ? t(MATCH[b.matchStatus].label) : b.matchStatus}</span></div>
               </div>
               <div className="flex flex-col items-end gap-1 shrink-0">
@@ -192,6 +196,98 @@ function NewBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill 
   );
 }
 
+type DraftServiceLine = { account_id: string; description: string; amount: string; tax_code: string };
+
+/** A supplier invoice with no goods receipt behind it: each line is an account, an amount before tax, and its tax. */
+function NewServiceBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const { t, locale } = useLocale();
+  const suppliers = useQuery({ queryKey: ["purchasing", "suppliers"], queryFn: () => apiFetch<{ suppliers: { id: string; code: string; name: string }[] }>("/api/purchasing/suppliers") });
+  const accounts = useQuery({
+    queryKey: ["acc", "accounts"],
+    queryFn: () => apiFetch<{ accounts: { id: string; code: string; name: string; nameAr: string; type: string; postable: boolean; active: boolean; systemKey: string | null }[] }>("/api/accounting/accounts").then((r) => r.accounts),
+    staleTime: 300_000,
+  });
+  const taxes = useQuery({ queryKey: ["sales", "tax-rates"], queryFn: () => apiFetch<{ taxRates: { code: string; name: string; nameAr: string; rate: string }[] }>("/api/sales/tax-rates").then((r) => r.taxRates), staleTime: 300_000 });
+  const chargeable = (accounts.data ?? []).filter((a) => a.postable && a.active && (a.type === "expense" || a.type === "asset") && !a.systemKey);
+  const [supplierId, setSupplierId] = useState(bill?.supplier.id ?? "");
+  const [invoiceNo, setInvoiceNo] = useState(bill?.supplierInvoiceNo ?? "");
+  const [billDate, setBillDate] = useState(bill?.billDate ?? todayLocalISO());
+  const [dueDate, setDueDate] = useState(bill?.dueDate ?? "");
+  const [notes, setNotes] = useState(bill?.notes ?? "");
+  const [lines, setLines] = useState<DraftServiceLine[]>(() => bill?.serviceLines.length ? bill.serviceLines.map((l) => ({ account_id: l.accountId, description: l.description, amount: l.net, tax_code: l.taxCode })) : [{ account_id: "", description: "", amount: "", tax_code: "" }]);
+  const [busy, setBusy] = useState(false);
+  const rate = (code: string) => Number(taxes.data?.find((x) => x.code === code)?.rate ?? 0);
+  const net = lines.reduce((a, l) => a + Number(l.amount || 0), 0);
+  const tax = lines.reduce((a, l) => a + Math.round(Number(l.amount || 0) * rate(l.tax_code)) / 100, 0);
+  const setLine = (i: number, patch: Partial<DraftServiceLine>) => setLines(lines.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const ready = supplierId && invoiceNo.trim() && lines.length > 0 && lines.every((l) => l.account_id && l.description.trim() && Number(l.amount) > 0 && l.tax_code);
+
+  async function save() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const payload = { kind: "service", supplier_id: supplierId, supplier_invoice_no: invoiceNo, bill_date: billDate, due_date: dueDate || null, notes: notes || null, lines, ...(bill ? { expected_version: bill.version } : {}) };
+      const res = bill ? await apiPut<{ bill: Bill }>(`/api/purchasing/bills/${bill.id}`, payload) : await apiPost<{ bill: Bill }>("/api/purchasing/bills", payload);
+      void qc.invalidateQueries({ queryKey: ["purchasing"] });
+      toast.show(res.bill.number, "success");
+      onDone(res.bill.id);
+    } catch (err) {
+      fail(toast, err, t);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex justify-between items-center"><h2 className="text-xl font-extrabold">{bill ? t("purchasing.bill.title.edit", { number: bill.number }) : t("purchasing.bill.title.new_service")}</h2><button type="button" className="btn-secondary" onClick={() => onDone()}>{t("ui.back")}</button></div>
+      <section className="card p-4 grid grid-cols-2 sm:grid-cols-5 gap-2">
+        <Field label={t("purchasing.bill.field.supplier")}>
+          <select className="field font-bold" value={supplierId} disabled={!!bill} onChange={(e) => setSupplierId(e.target.value)}>
+            <option value="">{t("purchasing.bill.field.select_supplier")}</option>
+            {suppliers.data?.suppliers.map((s) => <option key={s.id} value={s.id}>{localName(s, locale)} ({s.code})</option>)}
+          </select>
+        </Field>
+        <Field label={t("purchasing.bill.field.invoice_no")}><input className="field" dir="ltr" value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} /></Field>
+        <Field label={t("purchasing.bill.field.bill_date")}><input className="field" type="date" value={billDate} onChange={(e) => setBillDate(e.target.value)} /></Field>
+        <Field label={t("purchasing.bill.due_date")}><input className="field" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
+        <Field label={t("purchasing.bill.field.notes")}><input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+      </section>
+      <section className="card p-4 flex flex-col gap-2">
+        <h3 className="font-extrabold">{t("purchasing.bill.service_lines_header")}</h3>
+        {lines.map((l, i) => (
+          <div key={i} className="grid grid-cols-2 sm:grid-cols-[2fr_2fr_1fr_1fr_auto] gap-2 items-end">
+            <Field label={t("purchasing.bill.field.account")}>
+              <select className="field" value={l.account_id} onChange={(e) => setLine(i, { account_id: e.target.value })}>
+                <option value="">—</option>
+                {chargeable.map((a) => <option key={a.id} value={a.id}>{a.code} · {localName({ name: a.name, nameAr: a.nameAr }, locale)}</option>)}
+              </select>
+            </Field>
+            <Field label={t("purchasing.bill.field.description")}><input className="field" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} /></Field>
+            <Field label={t("purchasing.bill.before_tax")}><input className="field" dir="ltr" inputMode="decimal" value={l.amount} onChange={(e) => setLine(i, { amount: e.target.value })} /></Field>
+            <Field label={t("purchasing.bill.tax")}>
+              <select className="field" value={l.tax_code} onChange={(e) => setLine(i, { tax_code: e.target.value })}>
+                <option value="">—</option>
+                {(taxes.data ?? []).map((x) => <option key={x.code} value={x.code}>{localName(x, locale)}</option>)}
+              </select>
+            </Field>
+            <button type="button" className="btn-ghost text-united-danger" disabled={lines.length === 1} aria-label={t("purchasing.bill.remove_line")} onClick={() => setLines(lines.filter((_, j) => j !== i))}>✕</button>
+          </div>
+        ))}
+        <button type="button" className="btn-secondary self-start" onClick={() => setLines([...lines, { account_id: "", description: "", amount: "", tax_code: lines[lines.length - 1]?.tax_code ?? "" }])}>{t("purchasing.bill.add_line")}</button>
+        <div className="flex flex-wrap justify-between gap-2 font-extrabold border-t border-united-dark/10 pt-2">
+          <span>{t("purchasing.bill.before_tax")}: <span dir="ltr">{fmtMoney(net)}</span></span>
+          <span>{t("purchasing.bill.tax")}: <span dir="ltr">{fmtMoney(tax)}</span></span>
+          <span>{t("purchasing.bill.total")}: <span dir="ltr">{fmtMoney(net + tax)}</span></span>
+        </div>
+        <button type="button" className="btn-primary" disabled={busy || !ready} onClick={save}>{busy ? t("purchasing.bill.saving") : bill ? t("purchasing.bill.save_edit") : t("purchasing.bill.save_draft")}</button>
+      </section>
+    </div>
+  );
+}
+
 function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const { can } = usePermissions();
   const { t, locale } = useLocale();
@@ -207,7 +303,8 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   const b = q.data.bill;
-  if (editing) return <NewBill bill={b} onDone={() => { setEditing(false); void q.refetch(); }} />;
+  if (editing) return b.kind === "service" ? <NewServiceBill bill={b} onDone={() => { setEditing(false); void q.refetch(); }} /> : <NewBill bill={b} onDone={() => { setEditing(false); void q.refetch(); }} />;
+  const service = b.kind === "service";
   const manage = can("purchasing.bills.manage");
   const refresh = () => void qc.invalidateQueries({ queryKey: ["purchasing"] });
   const act = async (path: string, body: Record<string, unknown> = {}) => {
@@ -223,6 +320,7 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
     }
   };
   const debitLines = Object.entries(debit).filter(([, v]) => v.trim() !== "").map(([bill_line_id, quantity]) => ({ bill_line_id, quantity }));
+  const allowanceLines = Object.entries(debit).filter(([, v]) => v.trim() !== "").map(([service_line_id, amount]) => ({ service_line_id, amount }));
   return (
     <div className="flex flex-col gap-3">
       <div className="flex justify-between items-center gap-2">
@@ -238,6 +336,18 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
         {b.approvalId && <Link href={`/approvals?id=${b.approvalId}`} className="text-sm font-extrabold text-united-green underline">{t("orders.approval")}</Link>}
       </div>
       <section className="card p-4 flex flex-col divide-y divide-united-dark/5">
+        {service && b.serviceLines.map((l) => (
+          <div key={l.id} className="py-2 flex flex-col gap-1">
+            <div className="flex justify-between text-sm font-extrabold gap-2"><span>{l.description}</span><span dir="ltr">{fmtMoney(l.total)}</span></div>
+            <div className="flex flex-wrap justify-between gap-2 text-xs font-bold text-united-muted">
+              <span><span dir="ltr">{l.account.code}</span> · {localName(l.account, locale)} · {t("purchasing.bill.before_tax")} <span dir="ltr">{fmtMoney(l.net)}</span> · {t("purchasing.bill.tax")} {l.taxCode} <span dir="ltr">{fmtMoney(l.tax)}</span></span>
+              {Number(l.debitedNet) > 0 && <span>{t("purchasing.bill.debited_label")} <span dir="ltr">{fmtMoney(l.debitedNet)}</span></span>}
+            </div>
+            {manage && b.status === "posted" && Number(l.debitedNet) < Number(l.net) && (
+              <input className="field w-40 self-end" dir="ltr" inputMode="decimal" placeholder={t("purchasing.bill.allowance_placeholder")} aria-label={t("bills.debit-line", { line: l.lineNo })} value={debit[l.id] ?? ""} onChange={(e) => setDebit({ ...debit, [l.id]: e.target.value })} />
+            )}
+          </div>
+        ))}
         {b.lines.map((l) => (
           <div key={l.id} className="py-2 flex flex-col gap-1">
             <div className="flex justify-between text-sm font-extrabold gap-2"><span>{l.description}</span><span dir="ltr">{fmtMoney(l.total)}</span></div>
@@ -253,7 +363,7 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
         ))}
         <div className="pt-2 flex flex-col gap-1 text-sm font-extrabold">
           <div className="flex justify-between"><span>{t("purchasing.bill.before_tax")}</span><span dir="ltr">{fmtMoney(b.net)}</span></div>
-          <div className="flex justify-between text-united-muted"><span>{t("purchasing.bill.agreed_price")}</span><span dir="ltr">{fmtMoney(b.expectedNet)}</span></div>
+          {!service && <div className="flex justify-between text-united-muted"><span>{t("purchasing.bill.agreed_price")}</span><span dir="ltr">{fmtMoney(b.expectedNet)}</span></div>}
           <div className="flex justify-between"><span>{t("purchasing.bill.tax")}</span><span dir="ltr">{fmtMoney(b.taxTotal)}</span></div>
           <div className="flex justify-between text-lg"><span>{t("purchasing.bill.total")}</span><span dir="ltr">{fmtMoney(b.total)}</span></div>
           {b.open !== null && <div className="flex justify-between text-united-green"><span>{t("purchasing.bill.amount_due_to_supplier")}</span><span dir="ltr">{fmtMoney(b.open)}</span></div>}
@@ -272,7 +382,10 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
           {b.status === "draft" && <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>{t("ui.edit")}</button>}
           <input className="field flex-1 min-w-48" placeholder={b.status === "posted" ? t("purchasing.bill.debit_reason_placeholder") : t("purchasing.bill.cancel_reason_placeholder")} value={reason} onChange={(e) => setReason(e.target.value)} />
           {b.status !== "posted" && <button type="button" className="btn-danger" onClick={() => act("cancel", { reason })}>{t("purchasing.bill.cancel_bill_btn")}</button>}
-          {b.status === "posted" && b.open !== "0.00" && (
+          {b.status === "posted" && b.open !== "0.00" && service && (
+            <button type="button" className="btn-secondary" disabled={allowanceLines.length === 0} onClick={() => act("debit-notes", { reason, lines: allowanceLines })}>{t("purchasing.bill.allowance_btn")}</button>
+          )}
+          {b.status === "posted" && b.open !== "0.00" && !service && (
             <>
               <label className="flex items-center gap-2 text-sm font-bold w-full"><input type="checkbox" className="w-5 h-5" checked={returnGoods} onChange={(e) => setReturnGoods(e.target.checked)} />{t("purchasing.bill.return_goods_checkbox")}</label>
               <button type="button" className="btn-secondary" disabled={debitLines.length === 0} onClick={() => act("debit-notes", { reason, lines: debitLines, return_goods: returnGoods })}>{t("purchasing.bill.debit_qty_btn")}</button>

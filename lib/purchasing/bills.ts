@@ -19,7 +19,7 @@ import { effectiveSupplierPrice } from "@/lib/purchasing/suppliers";
 import { poLineUnitCost } from "@/lib/purchasing/receiving";
 import { isoDate, money, qty } from "@/lib/purchasing/orders";
 import { matchBill, type MatchLine } from "@/lib/purchasing/match";
-import { postDebitNote, postSupplierBill } from "@/lib/accounting/ledger";
+import { controlAccountMovedBy, postDebitNote, postSupplierBill } from "@/lib/accounting/ledger";
 import { postReturnToSupplierInTx } from "@/lib/inventory/documents";
 import { idempotencyKeyField, lockKey, replayRequest, requestFingerprint } from "@/lib/core/idempotency";
 
@@ -189,7 +189,7 @@ async function buildLines(tx: Tx, supplierId: string, v: z.infer<typeof billInpu
   return { lines: out, totals: sumAmounts(amounts), match };
 }
 
-async function headerFields(tx: Tx, v: z.infer<typeof billInput>) {
+async function headerFields(tx: Tx, v: { supplier_id: string; bill_date: string; due_date?: string | null }) {
   const supplier = await tx.supplier.findUnique({ where: { id: v.supplier_id } });
   if (!supplier) throw new ApiError(404, "المورد مش موجود");
   const dueDate = v.due_date ?? addDays(v.bill_date, supplier.paymentTermsDays);
@@ -222,6 +222,7 @@ async function guardRace<T>(fn: () => Promise<T>): Promise<T> {
 
 export async function createBill(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "purchasing.bills.manage");
+  if (isServiceInput(input)) return createServiceBill(input, actor);
   const v = parse(billInput, input);
   return guardRace(() =>
     inTx(async (tx) => {
@@ -259,6 +260,7 @@ export async function createBill(input: unknown, actor: ServiceActor) {
 
 export async function updateBill(id: string, input: unknown, actor: ServiceActor) {
   assertPermission(actor, "purchasing.bills.manage");
+  if (isServiceInput(input)) return updateServiceBill(id, input, actor);
   const v = parse(billInput, input);
   return guardRace(() =>
     inTx(async (tx) => {
@@ -268,6 +270,7 @@ export async function updateBill(id: string, input: unknown, actor: ServiceActor
       if (bill.status !== "draft") throw new ApiError(409, bill.status === "pending_approval" ? "الفاتورة مستنية اعتماد — مينفعش تتعدل" : "بس المسودة تتعدل");
       if (v.expected_version !== undefined && v.expected_version !== bill.version) throw new ApiError(409, "الفاتورة اتعدلت من حد تاني — حدّث الصفحة");
       if (v.supplier_id !== bill.supplierId) throw new ApiError(400, "مينفعش تغير مورد الفاتورة — الغيها واعمل واحدة جديدة");
+      if (bill.kind !== "goods") throw new ApiError(400, "دي فاتورة خدمة — بتتعدل بسطور حسابات مش استلامات");
       const { supplier, dueDate } = await headerFields(tx, v);
       await assertInvoiceNoFree(tx, supplier.id, v.supplier_invoice_no, bill.id);
       const tolerance = await getSetting("purchasing.bill_match_tolerance_pct");
@@ -291,6 +294,183 @@ export async function updateBill(id: string, input: unknown, actor: ServiceActor
   );
 }
 
+// ---------------------------------------------------------------------------
+// Service bills — rent, utilities, transport, services, equipment: no goods receipt,
+// so no three-way match. Each line names the expense (or asset) account it is charged
+// to and its tax; the bill posts Dr those accounts / Dr input VAT / Cr the supplier,
+// and is paid, aged and stated exactly like a goods bill. Above the configured total
+// it waits for approval (decided by someone other than who booked it).
+// ---------------------------------------------------------------------------
+
+const amount2 = z.union([z.number(), z.string()]).transform((v, ctx) => {
+  const s = typeof v === "number" ? String(v) : v.trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(s) || Number(s) <= 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "المبلغ لازم يكون أكبر من صفر بحد أقصى خانتين عشريتين" });
+    return z.NEVER;
+  }
+  return D(s);
+});
+const serviceInput = z.object({
+  kind: z.literal("service"),
+  supplier_id: text("المورد"),
+  supplier_invoice_no: text("رقم فاتورة المورد", 60),
+  bill_date: isoDate("تاريخ الفاتورة"),
+  due_date: isoDate("تاريخ الاستحقاق").nullable().optional(),
+  notes: optText("ملاحظات", 2000).optional(),
+  lines: z
+    .array(z.object({ account_id: text("الحساب"), description: text("البيان", 200), amount: amount2, tax_code: text("كود الضريبة", 40) }))
+    .min(1, "لازم سطر واحد على الأقل")
+    .max(100),
+  expected_version: version,
+});
+const isServiceInput = (input: unknown) => !!input && typeof input === "object" && (input as { kind?: unknown }).kind === "service";
+
+/** The account a service line may be charged to: an active, postable expense or asset account that no document ledger owns. */
+async function serviceAccount(tx: Tx, accountId: string) {
+  const a = await tx.account.findUnique({ where: { id: accountId } });
+  if (!a) throw new ApiError(404, "حساب مش موجود");
+  if (!a.active || !a.postable) throw new ApiError(400, `الحساب ${a.code} حساب رئيسي أو موقوف — مينفعش الترحيل عليه`);
+  if (a.type !== "expense" && a.type !== "asset") throw new ApiError(400, `الحساب ${a.code} مش حساب مصروفات أو أصول`);
+  const via = controlAccountMovedBy(a.systemKey);
+  if (via || a.systemKey === "vat_input" || (await tx.cashAccount.findFirst({ where: { accountId: a.id } }))) throw new ApiError(400, `الحساب ${a.code} (${a.nameAr}) مينفعش يتحمل على فاتورة خدمة`);
+  return a;
+}
+
+async function buildServiceLines(tx: Tx, v: z.infer<typeof serviceInput>) {
+  const taxes = new Map((await tx.taxRate.findMany({ where: { code: { in: [...new Set(v.lines.map((l) => l.tax_code))] }, active: true } })).map((t) => [t.code, D(t.rate)]));
+  const amounts: LineAmounts[] = [];
+  const lines: Prisma.SupplierBillServiceLineCreateManyBillInput[] = [];
+  for (const [i, l] of v.lines.entries()) {
+    const account = await serviceAccount(tx, l.account_id);
+    const rate = taxes.get(l.tax_code);
+    if (!rate) throw new ApiError(400, `كود ضريبة غير معروف: ${l.tax_code}`);
+    const a = lineAmounts({ quantity: 1, unitPrice: l.amount, discountPct: 0, taxRate: rate });
+    amounts.push(a);
+    lines.push({ lineNo: i + 1, accountId: account.id, description: l.description, taxCode: l.tax_code, taxRate: rate, net: a.net, tax: a.tax, total: a.total });
+  }
+  return { lines, totals: sumAmounts(amounts) };
+}
+
+async function createServiceBill(input: unknown, actor: ServiceActor) {
+  const v = parse(serviceInput, input);
+  return guardRace(() =>
+    inTx(async (tx) => {
+      await advisoryXactLock(tx, `purchasing:bills:${v.supplier_id}`);
+      const { supplier, dueDate } = await headerFields(tx, v);
+      assertEgpCurrency(supplier.currencyCode, "فاتورة المورد");
+      await assertInvoiceNoFree(tx, supplier.id, v.supplier_invoice_no);
+      const { lines, totals } = await buildServiceLines(tx, v);
+      const bill = await tx.supplierBill.create({
+        data: {
+          number: await nextDocumentNumber(tx, "purchasing.bill", todayLocalISO()),
+          kind: "service",
+          supplierId: supplier.id,
+          supplierInvoiceNo: v.supplier_invoice_no,
+          billDate: v.bill_date,
+          dueDate,
+          notes: v.notes ?? null,
+          ...totalsData(totals),
+          expectedNet: totals.net,
+          variance: 0,
+          matchStatus: "matched",
+          createdById: actor.id,
+          createdBy: actor.name,
+          serviceLines: { createMany: { data: lines } },
+        },
+      });
+      await auditBill(tx, actor, "supplier_bill", bill.id, bill.number, "supplier_bill_created", `${supplier.code} · ${v.supplier_invoice_no} · خدمة · ${lines.length} سطر · ${bill.total.toFixed(2)}`);
+      return bill;
+    })
+  );
+}
+
+async function updateServiceBill(id: string, input: unknown, actor: ServiceActor) {
+  const v = parse(serviceInput, input);
+  return guardRace(() =>
+    inTx(async (tx) => {
+      await advisoryXactLock(tx, `purchasing:bills:${v.supplier_id}`);
+      const bill = await tx.supplierBill.findUnique({ where: { id } });
+      if (!bill) throw new ApiError(404, "الفاتورة مش موجودة");
+      if (bill.kind !== "service") throw new ApiError(400, "دي فاتورة بضاعة — بتتعدل باستلامات");
+      if (bill.status !== "draft") throw new ApiError(409, bill.status === "pending_approval" ? "الفاتورة مستنية اعتماد — مينفعش تتعدل" : "بس المسودة تتعدل");
+      if (v.expected_version !== undefined && v.expected_version !== bill.version) throw new ApiError(409, "الفاتورة اتعدلت من حد تاني — حدّث الصفحة");
+      if (v.supplier_id !== bill.supplierId) throw new ApiError(400, "مينفعش تغير مورد الفاتورة — الغيها واعمل واحدة جديدة");
+      const { supplier, dueDate } = await headerFields(tx, v);
+      await assertInvoiceNoFree(tx, supplier.id, v.supplier_invoice_no, bill.id);
+      const { lines, totals } = await buildServiceLines(tx, v);
+      await tx.supplierBillServiceLine.deleteMany({ where: { billId: id } });
+      await tx.supplierBillServiceLine.createMany({ data: lines.map((l) => ({ ...l, billId: id })) });
+      const updated = await transition(tx, bill, { supplierInvoiceNo: v.supplier_invoice_no, billDate: v.bill_date, dueDate, notes: v.notes ?? null, ...totalsData(totals), expectedNet: totals.net, variance: 0 });
+      await auditBill(tx, actor, "supplier_bill", id, bill.number, "supplier_bill_edited", `خدمة · ${lines.length} سطر · ${updated.total.toFixed(2)}`);
+      return updated;
+    })
+  );
+}
+
+const serviceDebitInput = z.object({
+  reason: text("سبب الإشعار", 500),
+  lines: z.array(z.object({ service_line_id: text("سطر الفاتورة"), amount: amount2 })).min(1, "حدد السطور اللي هتتخصم").max(100),
+  idempotency_key: idempotencyKeyField,
+});
+
+/** An allowance on a posted service bill: per line, never more than what is left of it, at the line's tax rate. */
+async function createServiceDebitNote(billId: string, input: unknown, actor: ServiceActor) {
+  const v = parse(serviceDebitInput, input);
+  const requestHash = requestFingerprint({ billId, request: v });
+  return inTx(async (tx) => {
+    await lockKey(tx, v.idempotency_key);
+    if (v.idempotency_key) {
+      const prev = await tx.debitNote.findUnique({ where: { idempotencyKey: v.idempotency_key }, include: { serviceLines: true } });
+      if (prev) {
+        const key = (xs: [string, Prisma.Decimal][]) => xs.map(([k, a]) => `${k}:${a.toFixed(2)}`).sort().join("|");
+        return replayRequest(prev, requestHash, prev.billId === billId && prev.reason === v.reason && key(prev.serviceLines.map((l) => [l.serviceLineId, D(l.net)])) === key(v.lines.map((l) => [l.service_line_id, l.amount])));
+      }
+    }
+    await advisoryXactLock(tx, `purchasing:debit-note:${billId}`);
+    const bill = await tx.supplierBill.findUnique({ where: { id: billId }, include: { serviceLines: { orderBy: { lineNo: "asc" } } } });
+    if (!bill) throw new ApiError(404, "الفاتورة مش موجودة");
+    if (bill.status !== "posted") throw new ApiError(409, "الإشعار المدين بيتعمل على فاتورة مترحّلة بس");
+    const prior = await tx.debitNoteServiceLine.groupBy({ by: ["serviceLineId"], where: { serviceLineId: { in: bill.serviceLines.map((l) => l.id) } }, _sum: { net: true, tax: true, total: true } });
+    const already = new Map(prior.map((p) => [p.serviceLineId, p._sum]));
+    const perLine = new Map<string, Prisma.Decimal>();
+    for (const l of v.lines) perLine.set(l.service_line_id, (perLine.get(l.service_line_id) ?? D(0)).plus(l.amount));
+    const rows: { serviceLineId: string; a: LineAmounts }[] = [];
+    for (const [lineId, net] of perLine) {
+      const line = bill.serviceLines.find((l) => l.id === lineId);
+      if (!line) throw new ApiError(400, "السطر مش تابع للفاتورة");
+      const done = already.get(lineId);
+      const left = D(line.net).minus(done?.net ?? 0);
+      if (net.greaterThan(left)) throw new ApiError(400, `"${line.description}": المتبقي من السطر ${left.toFixed(2)} بس`);
+      // The rest of a line comes off exactly — its remaining tax, not a re-rounding.
+      const a = net.equals(left)
+        ? { gross: left, discount: D(0), net: left, tax: D(line.tax).minus(done?.tax ?? 0), total: D(line.total).minus(done?.total ?? 0) }
+        : lineAmounts({ quantity: 1, unitPrice: net, discountPct: 0, taxRate: line.taxRate });
+      rows.push({ serviceLineId: lineId, a });
+    }
+    const totals = sumAmounts(rows.map((r) => r.a));
+    const today = todayLocalISO();
+    const dn = await tx.debitNote.create({
+      data: {
+        number: await nextDocumentNumber(tx, "purchasing.debit_note", today),
+        billId,
+        supplierId: bill.supplierId,
+        issueDate: today,
+        reason: v.reason,
+        idempotencyKey: v.idempotency_key ?? null,
+        requestHash,
+        currencyCode: bill.currencyCode,
+        ...totalsData(totals),
+        createdById: actor.id,
+        createdBy: actor.name,
+        serviceLines: { createMany: { data: rows.map((r) => ({ serviceLineId: r.serviceLineId, net: r.a.net, tax: r.a.tax, total: r.a.total })) } },
+      },
+    });
+    await auditBill(tx, actor, "debit_note", dn.id, dn.number, "debit_note_issued", `على ${bill.number} · خدمة · ${dn.total.toFixed(2)}`, v.reason);
+    await postDebitNote(tx, dn.id, actor);
+    return dn;
+  });
+}
+
 async function transition(tx: Tx, bill: SupplierBill, data: Prisma.SupplierBillUpdateInput) {
   try {
     return await tx.supplierBill.update({ where: { id: bill.id, version: bill.version }, data: { ...data, version: { increment: 1 } } });
@@ -312,6 +492,26 @@ export async function postBill(id: string, actor: ServiceActor) {
     const bill = await tx.supplierBill.findUnique({ where: { id }, include: { lines: true, supplier: true } });
     if (!bill) throw new ApiError(404, "الفاتورة مش موجودة");
     if (bill.status !== "draft") throw new ApiError(409, bill.status === "pending_approval" ? "الفاتورة مستنية اعتماد بالفعل" : "بس المسودة تترحّل");
+    if (bill.kind === "service") {
+      const threshold = D(await getSetting("purchasing.service_bill_approval_threshold"));
+      if (bill.total.greaterThan(threshold)) {
+        const updated = await transition(tx, bill, { status: "pending_approval" });
+        await requestApproval(tx, {
+          type: "purchasing.bill",
+          entityId: bill.id,
+          title: `فاتورة خدمة ${bill.number} — ${bill.supplier.name} (${bill.supplierInvoiceNo})`,
+          summary: `فاتورة خدمة إجماليها ${bill.total.toFixed(2)} — أكبر من حد الاعتماد ${threshold.toFixed(2)}`,
+          amount: bill.total,
+          requester: actor,
+        });
+        await auditBill(tx, actor, "supplier_bill", bill.id, bill.number, "supplier_bill_submitted", `خدمة · ${bill.total.toFixed(2)}`);
+        return updated;
+      }
+      const posted = await transition(tx, bill, { status: "posted", postedAt: new Date(), postedById: actor.id, postedBy: actor.name });
+      await auditBill(tx, actor, "supplier_bill", bill.id, bill.number, "supplier_bill_posted", `خدمة · ${bill.total.toFixed(2)}`);
+      await postSupplierBill(tx, bill.id, actor);
+      return posted;
+    }
     // Judged with the tolerance in force now, on the stored lines.
     const m = matchBill(bill.lines.map((l) => ({ net: l.net, expectedNet: l.expectedNet })), await getSetting("purchasing.bill_match_tolerance_pct"));
     if (m.needsApproval) {
@@ -406,6 +606,7 @@ function sameDebit(prev: { billId: string; reason: string; returnDocumentId: str
 
 export async function createDebitNote(billId: string, input: unknown, actor: ServiceActor) {
   assertPermission(actor, "purchasing.bills.manage");
+  if ((await prisma.supplierBill.findUnique({ where: { id: billId }, select: { kind: true } }))?.kind === "service") return createServiceDebitNote(billId, input, actor);
   const v = parse(debitInput, input);
   const requestHash = requestFingerprint({ billId, request: v });
   if (!v.full && !v.lines?.length) throw new ApiError(400, "حدد السطور اللي هتتخصم أو اختار الفاتورة كلها");
@@ -514,7 +715,7 @@ export async function listBills(filters: { status?: string; supplierId?: string 
   const rows = await prisma.supplierBill.findMany({
     where: { ...(filters.status ? { status: filters.status } : {}), ...(filters.supplierId ? { supplierId: filters.supplierId } : {}) },
     orderBy: [{ createdAt: "desc" }],
-    include: { supplier: { select: { id: true, code: true, name: true, nameAr: true } }, _count: { select: { lines: true } } },
+    include: { supplier: { select: { id: true, code: true, name: true, nameAr: true } }, _count: { select: { lines: true, serviceLines: true } } },
     take: 300,
   });
   const debited = await debitedByBill(prisma, rows.filter((b) => b.status === "posted").map((b) => b.id));
@@ -522,11 +723,12 @@ export async function listBills(filters: { status?: string; supplierId?: string 
     id: b.id,
     number: b.number,
     status: b.status,
+    kind: b.kind,
     supplier: b.supplier,
     supplierInvoiceNo: b.supplierInvoiceNo,
     billDate: b.billDate,
     dueDate: b.dueDate,
-    lineCount: b._count.lines,
+    lineCount: b._count.lines + b._count.serviceLines,
     net: b.net.toFixed(2),
     total: b.total.toFixed(2),
     variance: b.variance.toFixed(2),
@@ -542,6 +744,7 @@ export async function getBill(id: string) {
     include: {
       supplier: { select: { id: true, code: true, name: true, nameAr: true, paymentTermsDays: true } },
       lines: { orderBy: { lineNo: "asc" }, include: { intake: { select: { receiptNumber: true, receivedDate: true } }, poLine: { select: { po: { select: { id: true, number: true } } } } } },
+      serviceLines: { orderBy: { lineNo: "asc" }, include: { account: { select: { code: true, name: true, nameAr: true } }, debitLines: { select: { net: true } } } },
       debitNotes: { orderBy: { createdAt: "asc" }, include: { lines: true } },
       paymentAllocations: { where: { payment: { reversal: { is: null } } }, include: { payment: { select: { id: true, number: true, date: true } } } },
     },
@@ -556,6 +759,7 @@ export async function getBill(id: string) {
     id: b.id,
     number: b.number,
     status: b.status,
+    kind: b.kind,
     supplier: b.supplier,
     supplierInvoiceNo: b.supplierInvoiceNo,
     billDate: b.billDate,
@@ -601,6 +805,19 @@ export async function getBill(id: string) {
       tax: l.tax.toFixed(2),
       total: l.total.toFixed(2),
       debitedQty: (debitedQty.get(l.id) ?? D(0)).toString(),
+    })),
+    serviceLines: b.serviceLines.map((l) => ({
+      id: l.id,
+      lineNo: l.lineNo,
+      accountId: l.accountId,
+      account: l.account,
+      description: l.description,
+      taxCode: l.taxCode,
+      taxRate: l.taxRate.toString(),
+      net: l.net.toFixed(2),
+      tax: l.tax.toFixed(2),
+      total: l.total.toFixed(2),
+      debitedNet: l.debitLines.reduce((s, d) => s.plus(d.net), D(0)).toFixed(2),
     })),
     debitNotes: b.debitNotes.map((dn) => ({ id: dn.id, number: dn.number, issueDate: dn.issueDate, reason: dn.reason, total: dn.total.toFixed(2), createdBy: dn.createdBy })),
   };

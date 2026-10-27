@@ -933,4 +933,13 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["الخصومات {} لازم تكون أقل من المبلغ {}", "Deductions of {0} must be less than the amount {1}"],
   ["كود حساب غير صالح", "Invalid account code"],
   ["كود الحساب طويل", "The account code is too long"],
+  // Service bills
+  ["فاتورة الخدمة {} مفيهاش سطور", "Service bill {0} has no lines"],
+  ["دي فاتورة خدمة — بتتعدل بسطور حسابات مش استلامات", "This is a service bill — it is edited with account lines, not receipts"],
+  ["دي فاتورة بضاعة — بتتعدل باستلامات", "This is a goods bill — it is edited with receipts"],
+  ["كود الضريبة", "The tax code"],
+  ["الحساب {} مش حساب مصروفات أو أصول", "Account {0} is not an expense or asset account"],
+  ["الحساب {} ({}) مينفعش يتحمل على فاتورة خدمة", "Account {0} ({1}) cannot be charged on a service bill"],
+  ["حدد السطور اللي هتتخصم", "Choose the lines to deduct"],
+  ["\"{}\": المتبقي من السطر {} بس", "\"{0}\": only {1} is left on the line"],
 ];

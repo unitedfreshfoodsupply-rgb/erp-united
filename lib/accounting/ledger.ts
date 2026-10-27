@@ -159,9 +159,23 @@ export async function postCreditNote(tx: Tx, creditNoteId: string, actor: Actori
 
 export async function postSupplierBill(tx: Tx, billId: string, actor: Actorish) {
   if (await posted(tx, "supplier_bill", billId)) return null;
-  const bill = await tx.supplierBill.findUniqueOrThrow({ where: { id: billId }, include: { lines: true } });
+  const bill = await tx.supplierBill.findUniqueOrThrow({ where: { id: billId }, include: { lines: true, serviceLines: true } });
   if (bill.status !== "posted") return null;
   assertEgpCurrency(bill.currencyCode, `فاتورة المورد ${bill.number}`);
+  if (bill.kind === "service") {
+    // No receipt behind it: each line goes straight to its expense (or asset) account.
+    if (!bill.serviceLines.length) throw new ApiError(409, `فاتورة الخدمة ${bill.number} مفيهاش سطور`);
+    const byAccount = new Map<string, Prisma.Decimal>();
+    for (const l of bill.serviceLines) byAccount.set(l.accountId, (byAccount.get(l.accountId) ?? D(0)).plus(l.net));
+    return postJournal(tx, {
+      date: bill.billDate, description: `فاتورة خدمة ${bill.number} (${bill.supplierInvoiceNo})`, sourceType: "supplier_bill", sourceId: bill.id,
+      lines: [
+        ...[...byAccount].map(([accountId, amount]) => ({ accountId, amount })),
+        { key: "vat_input", amount: bill.taxTotal },
+        { key: "ap", amount: bill.total.negated(), party: { type: "supplier", id: bill.supplierId } },
+      ],
+    }, actor);
+  }
   // GRNI carries what the receipts were valued at in stock (the agreed price); anything
   // else the supplier charged is a purchase price variance.
   const agreed = bill.lines.reduce((a, l) => a.plus(l.expectedNet ?? 0), D(0));
@@ -178,8 +192,21 @@ export async function postSupplierBill(tx: Tx, billId: string, actor: Actorish) 
 
 export async function postDebitNote(tx: Tx, debitNoteId: string, actor: Actorish) {
   if (await posted(tx, "debit_note", debitNoteId)) return null;
-  const dn = await tx.debitNote.findUniqueOrThrow({ where: { id: debitNoteId }, include: { bill: { select: { number: true } } } });
+  const dn = await tx.debitNote.findUniqueOrThrow({ where: { id: debitNoteId }, include: { bill: { select: { number: true } }, serviceLines: { include: { serviceLine: { select: { accountId: true } } } } } });
   assertEgpCurrency(dn.currencyCode, `الإشعار المدين ${dn.number}`);
+  if (dn.serviceLines.length) {
+    // An allowance on a service bill takes back from the accounts the bill charged.
+    const byAccount = new Map<string, Prisma.Decimal>();
+    for (const l of dn.serviceLines) byAccount.set(l.serviceLine.accountId, (byAccount.get(l.serviceLine.accountId) ?? D(0)).plus(l.net));
+    return postJournal(tx, {
+      date: dn.issueDate, description: `إشعار مدين ${dn.number} على ${dn.bill.number}`, sourceType: "debit_note", sourceId: dn.id,
+      lines: [
+        { key: "ap", amount: dn.total, party: { type: "supplier", id: dn.supplierId } },
+        ...[...byAccount].map(([accountId, amount]) => ({ accountId, amount: amount.negated() })),
+        { key: "vat_input", amount: dn.taxTotal.negated() },
+      ],
+    }, actor);
+  }
   // Goods returned left stock against GRNI at what they were carried at; anything the
   // supplier credits beyond that (or a pure allowance) is a purchase price variance.
   let grni = D(0);

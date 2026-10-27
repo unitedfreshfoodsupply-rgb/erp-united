@@ -242,6 +242,14 @@ export const SETTING_DEFS = {
     schema: z.number().min(0).max(100),
     default: 1,
   }),
+  "purchasing.service_bill_approval_threshold": def({
+    group: "purchasing",
+    label: "حد اعتماد فواتير الخدمات",
+    description: "فاتورة الخدمة (إيجار، كهرباء، نقل، صيانة، معدات…) اللي إجماليها أكبر من ده بتستنى اعتماد قبل الترحيل. صفر = كل فواتير الخدمات محتاجة اعتماد.",
+    unit: "ج.م",
+    schema: z.number().min(0).max(100_000_000),
+    default: 0,
+  }),
   "accounting.withholding_receivable_account": def({
     group: "accounting",
     label: "حساب الضريبة المخصومة من العملاء",
