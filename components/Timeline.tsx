@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api-client";
 import type { AuditLogDTO } from "@/lib/client-types";
-import { buildTimeline, SOURCE_LABEL } from "@/lib/auditLabels";
+import { buildTimeline, SOURCE_LABEL, SOURCE_LABEL_EN } from "@/lib/auditLabels";
 import { agoLabel, clockLabel } from "@/lib/format";
 import { TimelineSkeleton } from "@/components/Skeleton";
 import { useLocale } from "@/lib/locale";
@@ -17,7 +17,7 @@ import { useLocale } from "@/lib/locale";
  * supervisor's audit screen under the technical view.
  */
 export function Timeline({ orderId }: { orderId: string }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["audit", orderId],
     queryFn: () => apiFetch<{ logs: AuditLogDTO[] }>(`/api/audit?orderId=${orderId}`),
@@ -38,7 +38,7 @@ export function Timeline({ orderId }: { orderId: string }) {
       </p>
     );
 
-  const events = buildTimeline(data?.logs ?? []);
+  const events = buildTimeline(data?.logs ?? [], locale);
   if (!events.length) return <p className="text-united-dark/50">{t("ui.timeline.empty")}</p>;
 
   return (
@@ -63,12 +63,12 @@ export function Timeline({ orderId }: { orderId: string }) {
             {e.detail && <div className="text-sm font-bold text-united-dark/70">{e.detail}</div>}
             {e.reason && <div className="text-sm text-united-muted">{t("audit.reason-prefix")} {e.reason}</div>}
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-united-muted mt-0.5">
-              <span dir="ltr">{clockLabel(e.at)}</span>
+              <span dir="ltr">{clockLabel(e.at, locale)}</span>
               <span>·</span>
-              <span>{agoLabel(e.at)}</span>
+              <span>{agoLabel(e.at, undefined, locale)}</span>
               {e.source !== "user" && (
                 <span className="bg-united-dark/5 px-1.5 py-0.5 rounded-full">
-                  {SOURCE_LABEL[e.source] ?? e.source}
+                  {(locale === "en" ? SOURCE_LABEL_EN : SOURCE_LABEL)[e.source] ?? e.source}
                 </span>
               )}
             </div>

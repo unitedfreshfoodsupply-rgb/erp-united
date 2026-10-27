@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useLocale } from "@/lib/locale";
 import { localName, otherLocalName } from "@/lib/locale/names";
 import { useQueryClient } from "@tanstack/react-query";
-import { apiPost, ApiClientError } from "@/lib/api-client";
+import { apiFetch, apiPost, ApiClientError } from "@/lib/api-client";
 import { useToast } from "@/components/ui/Toast";
 import { EmptyState } from "@/components/States";
 import { invalidateStockData } from "@/lib/stockInvalidation";
@@ -143,7 +143,7 @@ function CoverageRow({
       toast.show(msg, "success");
       setLinking(false);
     } catch (err) {
-      const m = err instanceof ApiClientError ? err.message : "حصل خطأ";
+      const m = err instanceof ApiClientError && err.message ? err.message : t("ui.error.generic");
       setError(m);
       toast.show(m, "error");
     } finally {
@@ -182,17 +182,16 @@ function CoverageRow({
       </div>
 
       {row.inactiveMapping && (
-        <p className="text-united-warn font-bold text-sm mt-2">⚠️ مربوط بصنف موقوف</p>
+        <p className="text-united-warn font-bold text-sm mt-2">{t("coverage.inactive-mapping")}</p>
       )}
       {row.unitMismatch && row.product && (
         <p className="text-united-warn font-bold text-sm mt-2">
-          ⚠️ الأوردر بوحدة <span dir="ltr">{row.unit}</span> والصنف أساسه{" "}
-          <span dir="ltr">{row.product.unit}</span> — محتاج قرار تحويل قبل خصم المخزون
+          {t("coverage.unit-mismatch", { orderUnit: row.unit, productUnit: row.product.unit })}
         </p>
       )}
       {row.status === "ambiguous" && (
         <p className="text-united-danger font-bold text-sm mt-2">
-          ⚠️ {t("stock.row.needs_resolution")} — {row.candidates.map((c) => c.name).join("، ")}
+          ⚠️ {t("stock.row.needs_resolution")} — {row.candidates.map((c) => localName(c, locale)).join(locale === "en" ? ", " : "، ")}
         </p>
       )}
 
@@ -204,30 +203,30 @@ function CoverageRow({
             <div className="flex gap-2">
               {row.status !== "mapped" && (
                 <button onClick={() => setLinking(true)} className="btn-primary text-sm px-4">
-                  اربط بصنف
+                  {t("coverage.link")}
                 </button>
               )}
               {row.status === "mapped" && (
                 <>
                   <button onClick={() => setLinking(true)} className="btn-secondary text-sm px-4">
-                    غيّر الربط
+                    {t("coverage.relink")}
                   </button>
                   <button
                     onClick={() => {
-                      if (!window.confirm(`متأكد تفك ربط "${row.productName}" بصنف "${row.product?.name}"؟`)) return;
+                      if (!window.confirm(t("coverage.unlink-confirm", { name: row.productName, product: row.product ? localName(row.product, locale) : "" }))) return;
                       run(
                         () =>
                           apiFetchDelete("/api/stock/products/mapping", {
                             product_name: row.productName,
                             remove_alias: true,
                           }),
-                        "اتفك الربط"
+                        t("coverage.unlinked")
                       );
                     }}
                     disabled={busy}
                     className="btn-danger text-sm px-4"
                   >
-                    فك الربط
+                    {t("coverage.unlink")}
                   </button>
                 </>
               )}
@@ -254,11 +253,11 @@ function CoverageRow({
                   className="w-5 h-5 accent-[#3f8f3f]"
                 />
                 <span className="text-sm font-bold text-united-dark">
-                  خلّي الاسم ده يتعرف تلقائي في الأوردرات الجاية
+                  {t("coverage.create-alias")}
                 </span>
               </label>
               <p className="text-[11px] font-bold text-united-muted">
-                الربط بيتسجل في سجل المراجعة باسمك. الكميات والوحدات مش بتتغير.
+                {t("coverage.audit-note")}
               </p>
               <div className="flex gap-2">
                 <button
@@ -270,16 +269,16 @@ function CoverageRow({
                           product_id: productId,
                           create_alias: createAlias,
                         }),
-                      "اترّبط الاسم بالصنف"
+                      t("coverage.linked")
                     )
                   }
                   disabled={busy || !productId}
                   className="btn-primary flex-1 text-sm"
                 >
-                  {busy ? "بيتربط…" : "تأكيد الربط"}
+                  {busy ? t("coverage.linking") : t("coverage.confirm")}
                 </button>
                 <button onClick={() => setLinking(false)} className="btn-secondary flex-1 text-sm">
-                  رجوع
+                  {t("coverage.back")}
                 </button>
               </div>
             </div>
@@ -290,20 +289,9 @@ function CoverageRow({
   );
 }
 
-/** DELETE with a body — the mapping endpoint identifies its target by name, not path. */
-async function apiFetchDelete(path: string, body: unknown) {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (typeof window !== "undefined") {
-    const token = window.sessionStorage.getItem("united_token");
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-  }
-  const res = await fetch(path, {
-    method: "DELETE",
-    headers,
-    credentials: "include",
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiClientError(data.error ?? `خطأ (${res.status})`);
-  return data;
+/** DELETE with a body — the mapping endpoint identifies its target by name, not path.
+ * Goes through apiFetch so it carries the session token, the user's language and the
+ * shared error handling like every other call. */
+function apiFetchDelete(path: string, body: unknown) {
+  return apiFetch(path, { method: "DELETE", body: JSON.stringify(body) });
 }

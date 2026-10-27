@@ -50,3 +50,27 @@ test("keys used through lookup tables exist (import statuses, location types, su
   // The duplicate placeholder that used to override this label is gone.
   assert.equal((DICTIONARY as Record<string, { ar: string }>)["sales.customer.nameAr"].ar, "الاسم بالعربي");
 });
+
+test("keys built from codes at render time all exist (the integrity script only sees literal keys)", () => {
+  const families: Record<string, string[]> = {
+    "picking.filter": ["all", "pending", "done", "rejected"],
+    "picking.status": ["new", "preparing", "ready_for_loading", "loading"],
+    "approvals.tab": ["pending", "all"],
+    "approvals.status": ["pending", "approved", "rejected", "cancelled"],
+    "approvals.type": ["orders.shortage", "inventory.adjustment", "purchasing.order", "purchasing.bill", "hr.expense", "sales.credit"],
+    "attention.reason": ["blocked_approval", "stalled", "delivery_risk", "waiting_to_start", "ready_for_loading", "loading", "on_track"],
+    "attention.why": ["blocked_approval", "stalled", "delivery_risk", "waiting_to_start", "ready_for_loading", "loading", "on_track"],
+    "attention.action": ["blocked_approval", "stalled", "delivery_risk", "waiting_to_start", "ready_for_loading", "loading", "on_track"],
+    "health.reason": ["blocked", "stalled", "delivery-risk"],
+    "report.health": ["healthy", "attention", "critical"],
+    "printdoc.source": ["n8n", "hermes", "manual", "system", "user"],
+    "pricing.delivery": ["pending", "delivered", "partial", "failed"],
+    "pricing.credit": ["warning", "pending_approval", "approved", "rejected"],
+    "bills.status": ["draft", "pending_approval", "posted", "cancelled"],
+    "bills.match": ["matched", "within_tolerance", "variance", "unpriced"],
+    "audit.entity": ["sales_invoice", "credit_note", "supplier_bill", "debit_note", "journal_entry", "customer_receipt", "supplier_payment", "order", "purchase_order", "stock_intake", "inventory_document", "approval_request", "employee", "expense", "user", "settings"],
+  };
+  const dict = DICTIONARY as Record<string, { ar: string; en: string }>;
+  const missing = Object.entries(families).flatMap(([prefix, codes]) => codes.map((c) => `${prefix}.${c}`)).filter((k) => !dict[k]?.ar || !dict[k]?.en);
+  assert.deepEqual(missing, []);
+});

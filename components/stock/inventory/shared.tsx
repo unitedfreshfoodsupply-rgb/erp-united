@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api-client";
 import { storageLocationTypeLabel } from "@/lib/core/reference-data";
 import { localName } from "@/lib/locale/names";
+import { activeLocale } from "@/lib/locale/active";
 import { useLocale } from "@/lib/locale";
 
 /** Quantities arrive as decimal strings (exact). Display only — never computed on. */
@@ -17,7 +18,9 @@ export function fmtQty(q: string | number | null | undefined, unit?: string) {
 export function fmtMoney(v: string | number | null | undefined) {
   if (v === null || v === undefined) return "—";
   const n = Number(v);
-  return Number.isFinite(n) ? `${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م` : String(v);
+  // The currency suffix follows the UI language (see lib/locale/active.ts).
+  const currency = activeLocale() === "en" ? "EGP" : "ج.م";
+  return Number.isFinite(n) ? `${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}` : String(v);
 }
 
 export type LocationDTO = { id: string; code: string; name: string; nameAr: string | null; type: string; active: boolean };

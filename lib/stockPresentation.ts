@@ -164,6 +164,6 @@ export function shortDate(iso: string) {
   return iso.slice(5).replace("-", "/"); // YYYY-MM-DD -> MM/DD
 }
 
-export function timeLabel(iso: string) {
-  return new Date(iso).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
+export function timeLabel(iso: string, locale: "ar" | "en" = "ar") {
+  return new Date(iso).toLocaleTimeString(locale === "en" ? "en-GB" : "ar-EG", { hour: "2-digit", minute: "2-digit" });
 }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocale, type Locale } from "@/lib/locale";
+import { intlLocale } from "@/lib/format";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { LoadingState, ErrorState, EmptyState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
@@ -241,8 +242,8 @@ function WarehouseBlock({ warehouse, canManage }: { warehouse: WarehouseDTO; can
       />
       <Facts
         items={[
-          [t("admin.warehouse-fact-area"), warehouse.areaM2 && `${fmt(warehouse.areaM2)} م²`],
-          [t("admin.warehouse-fact-daily-capacity"), warehouse.dailyCapacityKg && `${fmtKg(warehouse.dailyCapacityKg)}`],
+          [t("admin.warehouse-fact-area"), warehouse.areaM2 && `${fmt(warehouse.areaM2, locale)} ${locale === "en" ? "m²" : "م²"}`],
+          [t("admin.warehouse-fact-daily-capacity"), warehouse.dailyCapacityKg && `${fmtKg(warehouse.dailyCapacityKg, locale)}`],
         ]}
       />
       {editing && (
@@ -347,7 +348,7 @@ function LocationNode({ location, all, canManage, depth }: { location: StorageLo
         <Facts
           items={[
             [t("admin.location-fact-type"), storageLocationTypeLabel(location.type, locale)],
-            [t("admin.location-fact-capacity"), location.capacityKg && fmtKg(location.capacityKg)],
+            [t("admin.location-fact-capacity"), location.capacityKg && fmtKg(location.capacityKg, locale)],
             [t("admin.location-fact-temp"), band],
           ]}
         />
@@ -771,8 +772,10 @@ function Facts({ items }: { items: [string, string | null | undefined | false][]
   );
 }
 
-const fmt = (v: string) => Number(v).toLocaleString("ar-EG", { maximumFractionDigits: 3 });
-const fmtKg = (v: string) => {
+const fmt = (v: string, locale: Locale) => Number(v).toLocaleString(intlLocale(locale), { maximumFractionDigits: 3 });
+const fmtKg = (v: string, locale: Locale) => {
   const n = Number(v);
-  return n >= 1000 ? `${(n / 1000).toLocaleString("ar-EG", { maximumFractionDigits: 2 })} طن` : `${fmt(v)} كجم`;
+  return n >= 1000
+    ? `${(n / 1000).toLocaleString(intlLocale(locale), { maximumFractionDigits: 2 })} ${locale === "en" ? "t" : "طن"}`
+    : `${fmt(v, locale)} ${locale === "en" ? "kg" : "كجم"}`;
 };

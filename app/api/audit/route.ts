@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import type { Permission } from "@/lib/permissions";
 import { visibleAuditRows } from "@/lib/security/audit-visibility";
 import { isValidISODate } from "@/lib/dates";
+import { localizeServerMessage, requestLocale } from "@/lib/locale/server-messages";
 
 const MAX_PAGE = 200;
 const KNOWN_ENTITY_TYPES = new Set([
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
     if (orderId) where["orderId"] = orderId;
     if (action) where["action"] = { contains: action };
     if (entityType) {
-      if (!KNOWN_ENTITY_TYPES.has(entityType)) return NextResponse.json({ error: `نوع الكيان "${entityType}" مش معروف` }, { status: 400 });
+      if (!KNOWN_ENTITY_TYPES.has(entityType)) return NextResponse.json({ error: localizeServerMessage(`نوع الكيان "${entityType}" مش معروف`, requestLocale(req)) }, { status: 400 });
       where["entityType"] = entityType;
     }
     if (isValidISODate(from ?? "") || isValidISODate(to ?? "")) {

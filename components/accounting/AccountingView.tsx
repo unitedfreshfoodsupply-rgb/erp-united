@@ -11,6 +11,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { Pagination } from "@/components/ui/Pagination";
 import { useLocale } from "@/lib/locale";
+import { intlLocale } from "@/lib/format";
 import { localName, type LocalizedNameSource } from "@/lib/locale/names";
 
 /**
@@ -439,7 +440,7 @@ function VatSummary() {
             </tbody>
           </table>
         </section>
-        <section className="card p-3 flex flex-wrap justify-between gap-2 text-sm font-extrabold"><span>{t("accounting.net-payable")}</span><span dir="ltr">{fmtMoney(q.data.summary.totals.netPayable)} ج.م</span></section>
+        <section className="card p-3 flex flex-wrap justify-between gap-2 text-sm font-extrabold"><span>{t("accounting.net-payable")}</span><span dir="ltr">{fmtMoney(q.data.summary.totals.netPayable)}</span></section>
         <p className="text-xs font-bold text-united-muted">{t("accounting.comparison-note")}</p>
       </>}
     </div>
@@ -531,7 +532,7 @@ function Reconcile() {
 type Check = { key: string; label: string; ok: boolean; subledger?: string; ledger?: string; difference?: string; count?: number; detail?: unknown };
 
 function Health() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const q = useQuery({ queryKey: ["acc", "integrity"], queryFn: () => apiFetch<{ integrity: { ok: boolean; checkedAt: string; checks: Check[] } }>("/api/accounting/integrity") });
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
@@ -540,7 +541,7 @@ function Health() {
     <div className="flex flex-col gap-3">
       <section className={`card p-4 font-extrabold ${r.ok ? "bg-united-green/10 text-united-green" : "bg-united-danger/10 text-united-danger"}`}>
         {r.ok ? t("accounting.health-matched") : t("accounting.health-diff")}
-        <div className="text-xs font-bold text-united-muted mt-1">{t("accounting.last-checked")} {new Date(r.checkedAt).toLocaleString("ar-EG")}</div>
+        <div className="text-xs font-bold text-united-muted mt-1">{t("accounting.last-checked")} {new Date(r.checkedAt).toLocaleString(intlLocale(locale))}</div>
       </section>
       <ul className="flex flex-col gap-2">
         {r.checks.map((c) => (

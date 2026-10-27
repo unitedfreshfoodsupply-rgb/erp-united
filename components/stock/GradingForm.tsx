@@ -188,15 +188,15 @@ export function GradingForm({
         <>
           <div className="flex items-center justify-between">
             <div className="text-sm font-extrabold text-united-dark" dir={dir}>
-              فرز استلام <span dir="ltr">{intake.receiptNumber}</span> — {intake.product.name}
+              {t("grading.title", { number: intake.receiptNumber, product: localName(intake.product, locale) })}
             </div>
             <span dir="ltr" className="text-xs font-bold text-united-muted">
-              متبقي للفرز: {fmtKg(remaining)} كجم
+              {t("grading.remaining", { qty: fmtKg(remaining) })}
             </span>
           </div>
 
           {!ledgerQ.isLoading && remaining <= 0 && (
-            <p className="text-united-danger font-bold text-sm">مفيش رصيد متبقي من الاستلام ده للفرز.</p>
+            <p className="text-united-danger font-bold text-sm">{t("grading.nothing-left")}</p>
           )}
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -241,7 +241,7 @@ export function GradingForm({
             }`}
           >
             <span>
-              {fmtKg(total)} = ممتاز {fmtKg(g)} + فرزة {fmtKg(b)} + هالك {fmtKg(w)}
+              {t("grading.equation", { total: fmtKg(total), good: fmtKg(g), gradeB: fmtKg(b), waste: fmtKg(w) })}
             </span>
             <span dir="ltr">
               {conservationOk ? t("stock.conservation.equal") : `${t("stock.conservation.diff")} ${fmtKg(residual)}`}
@@ -250,12 +250,12 @@ export function GradingForm({
 
           {!conservationOk && (
             <p className="text-[11px] font-bold text-united-danger">
-              مجموع المخرجات لازم يساوي إجمالي الفرز بالظبط — أي فرق بيتصد على أساسه.
+              {t("grading.must-balance")}
             </p>
           )}
           {i > remaining && (
             <p className="text-[11px] font-bold text-united-danger">
-              الكمية دي أكبر من المتبقي ({fmtKg(remaining)} كجم).
+              {t("grading.over-remaining", { qty: fmtKg(remaining) })}
             </p>
           )}
 
@@ -266,7 +266,7 @@ export function GradingForm({
               {busy ? t("stock.submit.saving") : t("stock.submit.label")}
             </button>
             <button onClick={onClose} disabled={busy} className="btn-secondary text-sm">
-              رجوع
+              {t("grading.back")}
             </button>
           </div>
         </>
@@ -317,16 +317,16 @@ function SortResult({
       {/* Costing basis from the backend — allocated costs only for valuation users. */}
       {p?.costBasis && (
         <div className={`rounded-xl px-3 py-2 text-sm font-bold ${fallback ? "bg-united-warn/10 text-united-warn" : "bg-united-dark/[0.04] text-united-muted"}`}>
-          أساس التكلفة: {costBasisKey ? t(costBasisKey as Parameters<typeof t>[0]) : p.costBasis}
-          {fallback && p.fallbackReason ? ` — سبب: ${p.fallbackReason}` : ""}
+          {t("grading.cost-basis", { basis: costBasisKey ? t(costBasisKey as Parameters<typeof t>[0]) : p.costBasis })}
+          {fallback && p.fallbackReason ? t("grading.fallback-reason", { reason: p.fallbackReason }) : ""}
         </div>
       )}
       {canSeeCosts && p?.goodUnitCost != null && (
-        <div className="rounded-xl bg-united-dark/[0.04] px-3 py-2 text-xs font-extrabold text-united-dark grid grid-cols-2 gap-1" dir="rtl">
-          <span>ممتاز: <span dir="ltr">{p.goodUnitCost}</span> / كجم</span>
-          {p.gradeBUnitCost != null && <span>فرزة: <span dir="ltr">{p.gradeBUnitCost}</span> / كجم</span>}
-          {p.wasteUnitCost != null && <span>هالك: <span dir="ltr">{p.wasteUnitCost}</span> / كجم</span>}
-          {p.wasteLoss != null && <span>خسارة الهالك: <span dir="ltr">{p.wasteLoss}</span></span>}
+        <div className="rounded-xl bg-united-dark/[0.04] px-3 py-2 text-xs font-extrabold text-united-dark grid grid-cols-2 gap-1" dir={dir}>
+          <span>{t("grading.cost.good", { cost: p.goodUnitCost })}</span>
+          {p.gradeBUnitCost != null && <span>{t("grading.cost.grade-b", { cost: p.gradeBUnitCost })}</span>}
+          {p.wasteUnitCost != null && <span>{t("grading.cost.waste", { cost: p.wasteUnitCost })}</span>}
+          {p.wasteLoss != null && <span>{t("grading.cost.waste-loss", { cost: p.wasteLoss })}</span>}
         </div>
       )}
 

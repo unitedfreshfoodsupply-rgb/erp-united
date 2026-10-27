@@ -1,6 +1,6 @@
 import {
   MOVEMENT_ICON,
-  MOVEMENT_LABEL,
+  movementLabel,
   fmtSignedKg,
   shortDate,
   timeLabel,
@@ -19,16 +19,16 @@ export function MovementRow({ movement }: { movement: MovementDTO }) {
       <span className="text-lg leading-none mt-0.5">{MOVEMENT_ICON[movement.kind]}</span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
-          <span className="font-bold text-united-dark truncate">{movement.product.name}</span>
+          <span className="font-bold text-united-dark truncate">{localName(movement.product, locale)}</span>
           <span dir="ltr" className={`font-extrabold shrink-0 ${positive ? "text-united-green" : "text-united-danger"}`}>
             {fmtSignedKg(movement.quantityKg)} {movement.product.unit}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-x-2 text-xs font-bold text-united-muted">
-          <span>{MOVEMENT_LABEL[movement.kind]}</span>
+          <span>{movementLabel(movement.kind, locale)}</span>
           {movement.intake && <span>· {movement.intake.receiptNumber}</span>}
           {movement.intake?.supplier?.name && <span>· {localName(movement.intake.supplier, locale)}</span>}
-          <span dir="ltr">· {shortDate(movement.effectiveDate)} {timeLabel(movement.occurredAt)}</span>
+          <span dir="ltr">· {shortDate(movement.effectiveDate)} {timeLabel(movement.occurredAt, locale)}</span>
           <span>· {movement.actorName}</span>
         </div>
         {movement.reason && (

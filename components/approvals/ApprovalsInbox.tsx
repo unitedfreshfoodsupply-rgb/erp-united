@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
+import { useLocale } from "@/lib/locale";
 
 type Decision = { id: string; level: number; decision: "approve" | "reject"; decider: string; comment: string | null; createdAt: string };
 type ApprovalDTO = {
@@ -30,16 +31,18 @@ type ApprovalDTO = {
 };
 
 const STATUS: Record<ApprovalDTO["status"], { label: string; cls: string }> = {
-  pending: { label: "مستني قرار", cls: "bg-united-warn/10 text-united-warn" },
-  approved: { label: "اتوافق", cls: "bg-united-green/10 text-united-green" },
-  rejected: { label: "اترفض", cls: "bg-united-danger/10 text-united-danger" },
-  cancelled: { label: "اتلغى", cls: "bg-united-dark/5 text-united-muted" },
+  pending: { label: "approvals.status.pending", cls: "bg-united-warn/10 text-united-warn" },
+  approved: { label: "approvals.status.approved", cls: "bg-united-green/10 text-united-green" },
+  rejected: { label: "approvals.status.rejected", cls: "bg-united-danger/10 text-united-danger" },
+  cancelled: { label: "approvals.status.cancelled", cls: "bg-united-dark/5 text-united-muted" },
 };
 
-const when = (iso: string) => new Date(iso).toLocaleString("ar-EG", { dateStyle: "short", timeStyle: "short" });
+const when = (iso: string, locale: string) => new Date(iso).toLocaleString(locale === "en" ? "en-GB" : "ar-EG", { dateStyle: "short", timeStyle: "short" });
 
 /** One inbox for every approval type: decide here, or open the thing being approved. */
 export function ApprovalsInbox() {
+  // `t` is the tab variable below; the translator is `tr` here.
+  const { t: tr } = useLocale();
   const [tab, setTab] = useState<"pending" | "all">("pending");
   const q = useQuery({
     queryKey: ["approvals", tab],
@@ -49,7 +52,7 @@ export function ApprovalsInbox() {
 
   return (
     <div className="p-4 max-w-3xl mx-auto pb-10 flex flex-col gap-4">
-      <h1 className="text-2xl font-extrabold text-united-dark">الموافقات</h1>
+      <h1 className="text-2xl font-extrabold text-united-dark">{tr("approvals.title")}</h1>
       <div className="flex gap-2">
         {(["pending", "all"] as const).map((t) => (
           <button
@@ -58,13 +61,13 @@ export function ApprovalsInbox() {
             onClick={() => setTab(t)}
             className={`tap-target flex-1 rounded-xl font-extrabold text-sm ${tab === t ? "bg-united-green text-white" : "bg-united-dark/5 text-united-dark"}`}
           >
-            {t === "pending" ? "مستنية قرار" : "كل الطلبات"}
+            {tr(`approvals.tab.${t}`)}
           </button>
         ))}
       </div>
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
-      {q.data && q.data.approvals.length === 0 && <EmptyState icon="✅" title={tab === "pending" ? "مفيش حاجة مستنية موافقتك" : "مفيش طلبات"} />}
+      {q.data && q.data.approvals.length === 0 && <EmptyState icon="✅" title={tab === "pending" ? tr("approvals.empty.pending") : tr("approvals.empty.all")} />}
       <ul className="flex flex-col gap-3">
         {q.data?.approvals.map((a) => (
           <ApprovalCard key={a.id} a={a} />
@@ -75,6 +78,14 @@ export function ApprovalsInbox() {
 }
 
 function ApprovalCard({ a }: { a: ApprovalDTO }) {
+  const { t, locale } = useLocale();
+  // The type label is a fixed definition (lib/core/approvals.ts): show it by key, and the
+  // server's own label for a type this screen does not know yet.
+  const typeLabel = (x: ApprovalDTO) => {
+    const key = `approvals.type.${x.type}`;
+    const label = t(key);
+    return label === key ? x.label : label;
+  };
   const qc = useQueryClient();
   const toast = useToast();
   const [comment, setComment] = useState("");
@@ -84,7 +95,7 @@ function ApprovalCard({ a }: { a: ApprovalDTO }) {
   async function decide(decision: "approve" | "reject") {
     if (busy) return;
     if (decision === "reject" && !comment.trim()) {
-      setError("اكتب سبب الرفض");
+      setError(t("approvals.reject-reason"));
       return;
     }
     setBusy(true);
@@ -92,9 +103,9 @@ function ApprovalCard({ a }: { a: ApprovalDTO }) {
     try {
       await apiPost(`/api/approvals/${a.id}/decide`, { decision, comment: comment || undefined, expected_version: a.version });
       await Promise.all([qc.invalidateQueries({ queryKey: ["approvals"] }), qc.invalidateQueries({ queryKey: ["orders"] }), qc.invalidateQueries({ queryKey: ["notifications"] })]);
-      toast.show(decision === "approve" ? "اتوافق" : "اترفض", "success");
+      toast.show(decision === "approve" ? t("approvals.toast.approved") : t("approvals.toast.rejected"), "success");
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "حصل خطأ");
+      setError(err instanceof ApiClientError && err.message ? err.message : t("ui.error.generic"));
     } finally {
       setBusy(false);
     }
@@ -105,18 +116,18 @@ function ApprovalCard({ a }: { a: ApprovalDTO }) {
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div className="min-w-0">
           <div className="text-xs font-bold text-united-muted">
-            {a.label} · <bdi dir="ltr">{a.number}</bdi>
+            {typeLabel(a)} · <bdi dir="ltr">{a.number}</bdi>
           </div>
           <div className="font-extrabold text-united-dark text-lg">{a.title}</div>
           {a.summary && <p className="text-sm font-bold text-united-dark/80 mt-0.5">{a.summary}</p>}
           <p className="text-xs font-bold text-united-muted mt-1">
-            طلبه {a.requestedBy} · <bdi dir="ltr">{when(a.createdAt)}</bdi>
-            {a.requiredLevels > 1 && ` · مستوى ${a.approvedLevels}/${a.requiredLevels}`}
+            {t("approvals.requested-by", { name: a.requestedBy })} · <bdi dir="ltr">{when(a.createdAt, locale)}</bdi>
+            {a.requiredLevels > 1 && t("approvals.level", { done: a.approvedLevels, required: a.requiredLevels })}
           </p>
-          {a.requestReason && <p className="text-xs font-bold text-united-dark/70">السبب: {a.requestReason}</p>}
+          {a.requestReason && <p className="text-xs font-bold text-united-dark/70">{t("approvals.reason-line", { reason: a.requestReason })}</p>}
           {a.closedReason && <p className="text-xs font-bold text-united-muted">{a.closedReason}</p>}
         </div>
-        <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-full ${STATUS[a.status].cls}`}>{STATUS[a.status].label}</span>
+        <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-full ${STATUS[a.status].cls}`}>{t(STATUS[a.status].label)}</span>
       </div>
 
       {a.decisions.length > 0 && (
@@ -124,7 +135,7 @@ function ApprovalCard({ a }: { a: ApprovalDTO }) {
           {a.decisions.map((d) => (
             <li key={d.id}>
               {d.decision === "approve" ? "✓" : "✗"} {d.decider}
-              {d.comment && ` — ${d.comment}`} · <bdi dir="ltr">{when(d.createdAt)}</bdi>
+              {d.comment && ` — ${d.comment}`} · <bdi dir="ltr">{when(d.createdAt, locale)}</bdi>
             </li>
           ))}
         </ul>
@@ -133,22 +144,22 @@ function ApprovalCard({ a }: { a: ApprovalDTO }) {
       <div className="mt-3 flex flex-wrap gap-2 items-end">
         {a.link && (
           <Link href={a.link} className="btn-secondary text-sm">
-            افتح
+            {t("approvals.open")}
           </Link>
         )}
         {a.canDecide && (
           <>
             <input
               className="field flex-1 min-w-[12rem]"
-              placeholder="تعليق (مطلوب للرفض)"
+              placeholder={t("approvals.comment")}
               value={comment}
               onChange={(e) => setComment(e.target.value)}
             />
             <button type="button" className="btn-primary" disabled={busy} onClick={() => decide("approve")}>
-              موافقة
+              {t("approvals.btn.approve")}
             </button>
             <button type="button" className="btn-danger" disabled={busy} onClick={() => decide("reject")}>
-              رفض
+              {t("approvals.reject")}
             </button>
           </>
         )}

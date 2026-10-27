@@ -67,6 +67,8 @@ export type BottleneckStageDTO = { status: OrderStatus; count: number; avgMinute
 export type OperationalHealthDTO = {
   level: "healthy" | "attention" | "critical";
   reasons: string[];
+  /** `reasons` as dictionary keys with their counts (newer servers). */
+  reasonKeys?: { key: string; count: number }[];
   counts: {
     activeOrders: number;
     stalledOrders: number;

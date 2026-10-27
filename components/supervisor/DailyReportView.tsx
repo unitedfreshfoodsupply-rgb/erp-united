@@ -16,7 +16,7 @@ import { NeedsAttentionQueue } from "./NeedsAttentionQueue";
 const OPEN_ORDER: OrderStatus[] = ["new", "preparing", "ready_for_loading", "loading", "loaded"];
 
 export function DailyReportView() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { data, isLoading, isError, error, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["report", "daily"],
     queryFn: () => apiFetch<DailyReportDTO>("/api/reports/daily"),
@@ -41,7 +41,7 @@ export function DailyReportView() {
         <>
           <div className="no-print flex justify-end mb-3">
             <a
-              href="/supervisor/report/print"
+              href={`/supervisor/report/print${locale === "en" ? "?lang=en" : ""}`}
               target="_blank"
               rel="noopener noreferrer"
               className="btn-secondary text-sm px-4 py-2"

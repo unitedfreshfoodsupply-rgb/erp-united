@@ -22,19 +22,18 @@ import { localName } from "@/lib/locale/names";
 
 const fail = (toast: ReturnType<typeof useToast>, err: unknown, t: (key: string) => string) => toast.show(err instanceof ApiClientError ? err.message : t("sales.invoice.error-generic"), "error");
 
-// Module-level label map — Arabic defaults; components override locally via t().
-// Kept for backward compat (e.g. BillDetail references BILL_STATUS); component-local t() versions are preferred.
+// Labels are dictionary keys, translated at render with the active locale.
 export const BILL_STATUS: Record<string, { label: string; cls: string }> = {
-  draft: { label: "مسودة", cls: "bg-united-dark/5" },
-  pending_approval: { label: "مستنية اعتماد", cls: "bg-united-warn/10 text-united-warn" },
-  posted: { label: "مترحّلة", cls: "bg-united-green/10 text-united-green" },
-  cancelled: { label: "ملغية", cls: "bg-united-danger/10 text-united-danger" },
+  draft: { label: "bills.status.draft", cls: "bg-united-dark/5" },
+  pending_approval: { label: "bills.status.pending_approval", cls: "bg-united-warn/10 text-united-warn" },
+  posted: { label: "bills.status.posted", cls: "bg-united-green/10 text-united-green" },
+  cancelled: { label: "bills.status.cancelled", cls: "bg-united-danger/10 text-united-danger" },
 };
 const MATCH: Record<string, { label: string; cls: string }> = {
-  matched: { label: "مطابقة", cls: "text-united-green" },
-  within_tolerance: { label: "في حدود السماحية", cls: "text-united-green" },
-  variance: { label: "فيها فرق", cls: "text-united-danger" },
-  unpriced: { label: "مفيش سعر متفق عليه", cls: "text-united-warn" },
+  matched: { label: "bills.match.matched", cls: "text-united-green" },
+  within_tolerance: { label: "bills.match.within_tolerance", cls: "text-united-green" },
+  variance: { label: "bills.match.variance", cls: "text-united-danger" },
+  unpriced: { label: "bills.match.unpriced", cls: "text-united-warn" },
 };
 
 type BillRow = { id: string; number: string; status: string; supplier: { id: string; code: string; name: string; nameAr?: string | null }; supplierInvoiceNo: string; billDate: string; dueDate: string; lineCount: number; total: string; variance: string; matchStatus: string; open: string | null };
@@ -79,10 +78,10 @@ function Bills({ onOpen }: { onOpen: (id: string) => void }) {
             <button type="button" className="card p-3 w-full text-start flex justify-between gap-2" onClick={() => onOpen(b.id)}>
               <div>
                 <div className="font-extrabold"><span dir="ltr">{b.number}</span> · {localName(b.supplier, locale)}</div>
-                <div className="text-xs font-bold text-united-muted">{t("purchasing.bill.supplier_invoice_label")} <span dir="ltr">{b.supplierInvoiceNo}</span> · {b.billDate} · {t("purchasing.bill.due_date")} {b.dueDate} · <span className={MATCH[b.matchStatus]?.cls}>{MATCH[b.matchStatus]?.label}</span></div>
+                <div className="text-xs font-bold text-united-muted">{t("purchasing.bill.supplier_invoice_label")} <span dir="ltr">{b.supplierInvoiceNo}</span> · {b.billDate} · {t("purchasing.bill.due_date")} {b.dueDate} · <span className={MATCH[b.matchStatus]?.cls}>{MATCH[b.matchStatus] ? t(MATCH[b.matchStatus].label) : b.matchStatus}</span></div>
               </div>
               <div className="flex flex-col items-end gap-1 shrink-0">
-                <span className={`rounded-full px-2 text-xs font-extrabold ${BILL_STATUS[b.status]?.cls}`}>{BILL_STATUS[b.status]?.label}</span>
+                <span className={`rounded-full px-2 text-xs font-extrabold ${BILL_STATUS[b.status]?.cls}`}>{BILL_STATUS[b.status] ? t(BILL_STATUS[b.status].label) : b.status}</span>
                 <span dir="ltr" className="font-extrabold">{fmtMoney(b.total)}</span>
                 {b.open !== null && b.open !== b.total && <span className="text-xs font-bold text-united-muted">{t("purchasing.bill.remaining")} <span dir="ltr">{fmtMoney(b.open)}</span></span>}
               </div>
@@ -135,7 +134,7 @@ function NewBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill 
       };
       const res = bill ? await apiPut<{ bill: Bill }>(`/api/purchasing/bills/${bill.id}`, payload) : await apiPost<{ bill: Bill }>("/api/purchasing/bills", payload);
       void qc.invalidateQueries({ queryKey: ["purchasing"] });
-      toast.show(`${res.bill.number} · ${MATCH[res.bill.matchStatus]?.label}`, res.bill.matchStatus === "variance" || res.bill.matchStatus === "unpriced" ? "error" : "success");
+      toast.show(`${res.bill.number} · ${MATCH[res.bill.matchStatus] ? t(MATCH[res.bill.matchStatus].label) : res.bill.matchStatus}`, res.bill.matchStatus === "variance" || res.bill.matchStatus === "unpriced" ? "error" : "success");
       onDone(res.bill.id);
     } catch (err) {
       fail(toast, err, t);
@@ -234,8 +233,8 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
         <button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button>
       </div>
       <div className="flex flex-wrap gap-2 items-center">
-        <span className={`rounded-full px-3 py-1 text-sm font-extrabold ${BILL_STATUS[b.status]?.cls}`}>{BILL_STATUS[b.status]?.label}</span>
-        <span className={`text-sm font-extrabold ${MATCH[b.matchStatus]?.cls}`}>{MATCH[b.matchStatus]?.label}{Number(b.variance) ? <> · {t("purchasing.bill.variance")} <span dir="ltr">{fmtMoney(b.variance)}</span></> : null}</span>
+        <span className={`rounded-full px-3 py-1 text-sm font-extrabold ${BILL_STATUS[b.status]?.cls}`}>{BILL_STATUS[b.status] ? t(BILL_STATUS[b.status].label) : b.status}</span>
+        <span className={`text-sm font-extrabold ${MATCH[b.matchStatus]?.cls}`}>{MATCH[b.matchStatus] ? t(MATCH[b.matchStatus].label) : b.matchStatus}{Number(b.variance) ? <> · {t("purchasing.bill.variance")} <span dir="ltr">{fmtMoney(b.variance)}</span></> : null}</span>
         {b.approvalId && <Link href={`/approvals?id=${b.approvalId}`} className="text-sm font-extrabold text-united-green underline">{t("orders.approval")}</Link>}
       </div>
       <section className="card p-4 flex flex-col divide-y divide-united-dark/5">
@@ -248,7 +247,7 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
               {Number(l.debitedQty) > 0 && <span>{t("purchasing.bill.debited_label")} <span dir="ltr">{fmtQty(l.debitedQty, l.uomCode)}</span></span>}
             </div>
             {manage && b.status === "posted" && Number(l.debitedQty) < Number(l.quantity) && (
-              <input className="field w-40 self-end" dir="ltr" inputMode="decimal" placeholder={`${t("purchasing.bill.variance")} ${l.lineNo}`} aria-label={`خصم ${l.lineNo}`} value={debit[l.id] ?? ""} onChange={(e) => setDebit({ ...debit, [l.id]: e.target.value })} />
+              <input className="field w-40 self-end" dir="ltr" inputMode="decimal" placeholder={`${t("purchasing.bill.variance")} ${l.lineNo}`} aria-label={t("bills.debit-line", { line: l.lineNo })} value={debit[l.id] ?? ""} onChange={(e) => setDebit({ ...debit, [l.id]: e.target.value })} />
             )}
           </div>
         ))}
@@ -305,7 +304,7 @@ function Payables() {
   if (a.rows.length === 0) return <EmptyState icon="✅" title={t("purchasing.bill.no_payables_empty")} />;
   return (
     <section className="card p-3 overflow-x-auto">
-      <p className="text-xs font-bold text-united-muted mb-2">{t("purchasing.bill.ap_aging_intro")}{a.asOf} ({t("purchasing.bill.col.date")} بعد الاستحقاق) — المدفوعات بتتسجل في مرحلة الحسابات</p>
+      <p className="text-xs font-bold text-united-muted mb-2">{t("bills.aging-note", { date: a.asOf })}</p>
       <table className="w-full text-sm">
         <thead><tr className="text-xs text-united-muted text-start"><th className="text-start p-1">{t("purchasing.suppliers")}</th>{buckets.map(([k, l]) => <th key={k} className="p-1 text-end">{l}</th>)}</tr></thead>
         <tbody>

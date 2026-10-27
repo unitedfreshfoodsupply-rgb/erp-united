@@ -1476,13 +1476,17 @@ export async function getOperationalIntelligence(allOrders: OrderForIntel[]) {
   // it; "healthy" only when neither is true.
   let level: "healthy" | "attention" | "critical";
   const reasons: string[] = [];
+  // The same reasons as dictionary keys + counts, so a screen can show them in the
+  // user's language; `reasons` keeps its Arabic text for existing consumers.
+  const reasonKeys: { key: string; count: number }[] = [];
   if (blockedApprovals > 0) {
     level = "critical";
     reasons.push(`${blockedApprovals} أوردر محتاج اعتمادك`);
+    reasonKeys.push({ key: "health.reason.blocked", count: blockedApprovals });
   } else if (stalledCount > 0 || deliveryRiskCount > 0) {
     level = "attention";
-    if (stalledCount > 0) reasons.push(`${stalledCount} أوردر متوقف من فترة`);
-    if (deliveryRiskCount > 0) reasons.push(`${deliveryRiskCount} أوردر قريب/متأخر عن الميعاد`);
+    if (stalledCount > 0) { reasons.push(`${stalledCount} أوردر متوقف من فترة`); reasonKeys.push({ key: "health.reason.stalled", count: stalledCount }); }
+    if (deliveryRiskCount > 0) { reasons.push(`${deliveryRiskCount} أوردر قريب/متأخر عن الميعاد`); reasonKeys.push({ key: "health.reason.delivery-risk", count: deliveryRiskCount }); }
   } else {
     level = "healthy";
   }
@@ -1495,6 +1499,7 @@ export async function getOperationalIntelligence(allOrders: OrderForIntel[]) {
     health: {
       level,
       reasons,
+      reasonKeys,
       counts: {
         activeOrders: openOrders.length,
         stalledOrders: stalledCount,

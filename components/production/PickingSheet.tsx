@@ -9,12 +9,14 @@ import { LiveIndicator } from "@/components/ui/LiveIndicator";
 import { todayLocalISO } from "@/lib/localDate";
 import { qty } from "@/lib/format";
 import type { DailySheetDTO } from "@/lib/picking-sheet";
+import { useLocale } from "@/lib/locale";
 
+// Dictionary keys, translated at render.
 const STATUS_LABEL: Record<string, string> = {
-  new: "جديد",
-  preparing: "يُجهز",
-  ready_for_loading: "جاهز للتحميل",
-  loading: "يُحمل",
+  new: "picking.status.new",
+  preparing: "picking.status.preparing",
+  ready_for_loading: "picking.status.ready_for_loading",
+  loading: "picking.status.loading",
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -25,6 +27,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export function PickingSheet() {
+  const { t } = useLocale();
   const today = todayLocalISO();
   const [date, setDate] = useState(today);
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
@@ -81,14 +84,14 @@ export function PickingSheet() {
   };
 
   return (
-    <div className="p-4 max-w-4xl mx-auto pb-16 print:pb-0" dir="rtl">
+    <div className="p-4 max-w-4xl mx-auto pb-16 print:pb-0">
       {/* Header */}
       <div className="flex items-center justify-between mb-1 print:mb-2">
         <h1 className="text-2xl font-extrabold text-united-dark print:hidden">
-          شيت التجهيز الموحد
+          {t("picking.title")}
         </h1>
         <h2 className="hidden print:block text-xl font-bold text-center">
-          شيت التجهيز الموحد — {date}
+          {t("picking.print-title", { date })}
         </h2>
         <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
       </div>
@@ -96,7 +99,7 @@ export function PickingSheet() {
       {/* Date picker row */}
       <div className="flex gap-3 items-center mb-4 flex-wrap print:hidden">
         <label className="flex items-center gap-2">
-          <span className="text-sm font-bold text-united-muted">التاريخ:</span>
+          <span className="text-sm font-bold text-united-muted">{t("picking.date")}</span>
           <input
             type="date"
             value={date}
@@ -117,22 +120,16 @@ export function PickingSheet() {
                   : "bg-united-dark/5 text-united-muted"
               }`}
             >
-              {f === "all"
-                ? "الكل"
-                : f === "pending"
-                ? "متبقي"
-                : f === "done"
-                ? "تم"
-                : "مرفوض"}
+              {t(`picking.filter.${f}`)}
             </button>
           ))}
         </div>
 
         <button
           onClick={() => window.print()}
-          className="btn-secondary text-xs px-3 py-1.5 mr-auto"
+          className="btn-secondary text-xs px-3 py-1.5 ms-auto"
         >
-          🖨️ طباعة
+          {t("picking.print")}
         </button>
       </div>
 
@@ -141,42 +138,42 @@ export function PickingSheet() {
         <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />
       )}
       {!isLoading && !isError && lines.length === 0 && (
-        <EmptyState icon="📦" title="مفيش أوردرات في التاريخ ده" />
+        <EmptyState icon="📦" title={t("picking.empty")} />
       )}
 
       {/* Summary bar */}
       {summary && lines.length > 0 && (
         <div className="bg-united-dark text-white rounded-2xl p-4 mb-4 flex flex-wrap gap-x-6 gap-y-2 print:bg-gray-800">
           <div>
-            <div className="text-xs text-white/60 font-bold">الأوردرات</div>
+            <div className="text-xs text-white/60 font-bold">{t("picking.orders")}</div>
             <div className="text-xl font-extrabold">{summary.orderCount}</div>
           </div>
           <div>
-            <div className="text-xs text-white/60 font-bold">المطلوب</div>
+            <div className="text-xs text-white/60 font-bold">{t("picking.required")}</div>
             <div dir="ltr" className="text-xl font-extrabold">
               {qty(summary.totalRequired)}
             </div>
           </div>
           <div>
-            <div className="text-xs text-white/60 font-bold">اتجهز</div>
+            <div className="text-xs text-white/60 font-bold">{t("picking.prepared")}</div>
             <div dir="ltr" className="text-xl font-extrabold text-emerald-300">
               {qty(summary.totalPrepared)}
             </div>
           </div>
           <div>
-            <div className="text-xs text-white/60 font-bold">اتعتمد</div>
+            <div className="text-xs text-white/60 font-bold">{t("picking.approved")}</div>
             <div dir="ltr" className="text-xl font-extrabold text-emerald-300">
               {qty(summary.totalApproved)}
             </div>
           </div>
           <div>
-            <div className="text-xs text-white/60 font-bold">اتحمل</div>
+            <div className="text-xs text-white/60 font-bold">{t("picking.loaded")}</div>
             <div dir="ltr" className="text-xl font-extrabold text-emerald-300">
               {qty(summary.totalLoaded)}
             </div>
           </div>
           <div>
-            <div className="text-xs text-white/60 font-bold">المتبقي</div>
+            <div className="text-xs text-white/60 font-bold">{t("picking.remaining")}</div>
             <div
               dir="ltr"
               className={`text-xl font-extrabold ${
@@ -222,7 +219,7 @@ export function PickingSheet() {
             >
               {/* Product header */}
               <button
-                className="w-full text-right flex items-center justify-between gap-2"
+                className="w-full text-start flex items-center justify-between gap-2"
                 onClick={() =>
                   setExpandedProduct(
                     isExpanded ? null : line.productName
@@ -233,7 +230,7 @@ export function PickingSheet() {
                   <span className="text-lg font-extrabold text-united-dark">
                     {line.productName}
                   </span>
-                  <span className="text-xs text-united-muted mr-2">
+                  <span className="text-xs text-united-muted ms-2">
                     {line.unit}
                   </span>
                 </div>
@@ -251,11 +248,11 @@ export function PickingSheet() {
                       </span>
                     )}
                     <span className={remaining > 0 ? "text-amber-600" : "text-emerald-600"}>
-                      باقي {qty(remaining)}
+                      {t("picking.remaining-qty", { qty: qty(remaining) })}
                     </span>
                   </div>
                   <span className="text-sm font-bold text-united-muted">
-                    {allocationSet.size} عميل
+                    {t("picking.customers-count", { count: allocationSet.size })}
                   </span>
                   <span className="text-united-muted">
                     {isExpanded ? "▲" : "▼"}
@@ -280,18 +277,18 @@ export function PickingSheet() {
                 <div className="mt-3 border-t border-united-dark/5 pt-3 space-y-2">
                   {line.allocations.length === 0 && (
                     <p className="text-sm text-united-dark/40">
-                      مفيش توزيعات
+                      {t("picking.no-allocations")}
                     </p>
                   )}
 
                   {/* Column headers */}
                   <div className="grid grid-cols-7 gap-1 text-[11px] font-bold text-united-muted px-2 print:text-gray-500">
-                    <span className="col-span-2">العميل</span>
-                    <span>مطلوب</span>
-                    <span>اتجهز</span>
-                    <span>اتحمل</span>
-                    <span>المتبقي</span>
-                    <span>الحالة</span>
+                    <span className="col-span-2">{t("picking.col.customer")}</span>
+                    <span>{t("picking.col.required")}</span>
+                    <span>{t("picking.prepared")}</span>
+                    <span>{t("picking.loaded")}</span>
+                    <span>{t("picking.remaining")}</span>
+                    <span>{t("picking.col.status")}</span>
                   </div>
 
                   {line.allocations.map((a) => {
@@ -364,7 +361,7 @@ export function PickingSheet() {
                           <span className="text-center">
                             {a.rejected ? (
                               <span className="text-xs font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded">
-                                🚫 مرفوض
+                                {t("picking.rejected-badge")}
                               </span>
                             ) : (
                               <span
@@ -373,7 +370,7 @@ export function PickingSheet() {
                                   "text-gray-500 bg-gray-50"
                                 }`}
                               >
-                                {STATUS_LABEL[a.status] ?? a.status}
+                                {STATUS_LABEL[a.status] ? t(STATUS_LABEL[a.status]) : a.status}
                               </span>
                             )}
                           </span>
@@ -390,7 +387,7 @@ export function PickingSheet() {
 
       {/* Print footer */}
       <div className="hidden print:block text-xs text-gray-400 mt-4 text-center">
-        شيت التجهيز الموحد — {date} — UNITED
+        {t("picking.footer", { date })}
       </div>
     </div>
   );

@@ -27,9 +27,11 @@ type Detail = {
   products: { id: string; name: string; nameAr: string | null; unit: string; salesTaxCode: string; packagings: { uomCode: string; qtyInBaseUnit: string }[] }[];
 };
 
-const fail = (toast: ReturnType<typeof useToast>, err: unknown) => toast.show(err instanceof ApiClientError ? err.message : "حصل خطأ", "error");
+const fail = (toast: ReturnType<typeof useToast>, err: unknown, t: (key: string) => string) =>
+  toast.show(err instanceof ApiClientError && err.message ? err.message : t("ui.error.generic"), "error");
 
 export function PriceListsView() {
+  const { t } = useLocale();
   const { can } = usePermissions();
   const qc = useQueryClient();
   const toast = useToast();
@@ -45,7 +47,7 @@ export function PriceListsView() {
       <div className="flex gap-2 overflow-x-auto pb-1">
         {rows.map((l) => (
           <button key={l.id} type="button" onClick={() => setSelected(l.id)} className={`tap-target shrink-0 rounded-xl px-4 font-extrabold text-sm ${current === l.id ? "bg-united-dark text-white" : "bg-united-dark/5"} ${l.active ? "" : "opacity-50"}`}>
-            {l.name}{l.isDefault ? " ★" : ""} <span className="text-xs opacity-70">({l._count.customers} عميل)</span>
+            {l.name}{l.isDefault ? " ★" : ""} <span className="text-xs opacity-70">{t("pricelists.customers", { count: l._count.customers })}</span>
           </button>
         ))}
       </div>
@@ -59,21 +61,21 @@ export function PriceListsView() {
               setNewList({ code: "", name: "" });
               void qc.invalidateQueries({ queryKey: ["sales", "price-lists"] });
               setSelected(r.priceList.id);
-            } catch (err) { fail(toast, err); }
+            } catch (err) { fail(toast, err, t); }
           }}
         >
           <input className="field flex-1" dir="ltr" placeholder="CODE" value={newList.code} onChange={(e) => setNewList({ ...newList, code: e.target.value })} />
-          <input className="field flex-[2]" placeholder="اسم القائمة (مثلاً: فنادق)" value={newList.name} onChange={(e) => setNewList({ ...newList, name: e.target.value })} />
-          <button className="btn-secondary shrink-0">+ قائمة</button>
+          <input className="field flex-[2]" placeholder={t("pricelists.name-placeholder")} value={newList.name} onChange={(e) => setNewList({ ...newList, name: e.target.value })} />
+          <button className="btn-secondary shrink-0">{t("pricelists.add")}</button>
         </form>
       )}
-      {current ? <ListDetail id={current} /> : <EmptyState icon="🏷️" title="مفيش قوائم أسعار لسه" />}
+      {current ? <ListDetail id={current} /> : <EmptyState icon="🏷️" title={t("pricelists.empty")} />}
     </div>
   );
 }
 
 function ListDetail({ id }: { id: string }) {
-  const { locale } = useLocale();
+  const { locale, t } = useLocale();
   const { can } = usePermissions();
   const qc = useQueryClient();
   const toast = useToast();
@@ -100,13 +102,13 @@ function ListDetail({ id }: { id: string }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="card p-3 flex flex-wrap items-end gap-3">
-        <Field label="الأسعار ابتداءً من"><input type="date" className="field" value={date} onChange={(e) => { setDate(e.target.value || todayLocalISO()); setDraft({}); }} /></Field>
-        <input className="field flex-1" placeholder="دوّر على صنف" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <Field label={t("pricelists.from")}><input type="date" className="field" value={date} onChange={(e) => { setDate(e.target.value || todayLocalISO()); setDraft({}); }} /></Field>
+        <input className="field flex-1" placeholder={t("pricelists.search")} value={filter} onChange={(e) => setFilter(e.target.value)} />
         {canManage && (
           <div className="flex gap-2">
             {!d.priceList.isDefault && d.priceList.active && (
-              <button type="button" className="btn-secondary" onClick={async () => { try { await apiPatch(`/api/sales/price-lists/${id}`, { is_default: true, expected_version: d.priceList.version }); refresh(); } catch (err) { fail(toast, err); } }}>
-                خليها الافتراضية
+              <button type="button" className="btn-secondary" onClick={async () => { try { await apiPatch(`/api/sales/price-lists/${id}`, { is_default: true, expected_version: d.priceList.version }); refresh(); } catch (err) { fail(toast, err, t); } }}>
+                {t("pricelists.make-default")}
               </button>
             )}
           </div>
@@ -116,7 +118,7 @@ function ListDetail({ id }: { id: string }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-xs text-united-muted">
-              <th className="p-2 text-start">الصنف</th><th className="p-2">الوحدة</th><th className="p-2">السعر في {date}</th>{canManage && <th className="p-2">السعر الجديد من {date}</th>}<th className="p-2">الضريبة</th>
+              <th className="p-2 text-start">{t("pricelists.col.product")}</th><th className="p-2">{t("pricelists.col.unit")}</th><th className="p-2">{t("pricelists.col.price-on", { date })}</th>{canManage && <th className="p-2">{t("pricelists.col.new-price", { date })}</th>}<th className="p-2">{t("pricelists.col.tax")}</th>
             </tr>
           </thead>
           <tbody>
@@ -134,9 +136,9 @@ function ListDetail({ id }: { id: string }) {
                     <td className="p-2 text-center">
                       {idx === 0 && (can("sales.tax.manage") ? (
                         <select className="field text-xs" value={p.salesTaxCode} onChange={async (e) => {
-                          const reason = window.prompt("سبب تغيير ضريبة الصنف؟");
+                          const reason = window.prompt(t("pricelists.tax-reason"));
                           if (!reason) return;
-                          try { await apiPatch(`/api/sales/products/${p.id}/tax`, { tax_code: e.target.value, reason }); refresh(); } catch (err) { fail(toast, err); }
+                          try { await apiPatch(`/api/sales/products/${p.id}/tax`, { tax_code: e.target.value, reason }); refresh(); } catch (err) { fail(toast, err, t); }
                         }}>
                           {(taxes.data?.taxRates ?? []).map((t) => <option key={t.code} value={t.code}>{localName(t, locale)}</option>)}
                         </select>
@@ -161,17 +163,17 @@ function ListDetail({ id }: { id: string }) {
                 valid_from: date,
                 prices: changed.map(([key, v]) => { const [product_id, uom] = key.split("|"); return { product_id, uom, unit_price: v.trim() }; }),
               });
-              toast.show(`اتسجل ${r.created} سعر${r.replaced ? `، واتصحح ${r.replaced}` : ""}`, "success");
+              toast.show(r.replaced ? t("pricelists.saved-replaced", { count: r.created, replaced: r.replaced }) : t("pricelists.saved", { count: r.created }), "success");
               setDraft({});
               refresh();
-            } catch (err) { fail(toast, err); } finally { setBusy(false); }
+            } catch (err) { fail(toast, err, t); } finally { setBusy(false); }
           }}
         >
-          {busy ? "بيتسجل..." : `سجّل ${changed.length} سعر من ${date}`}
+          {busy ? t("pricelists.saving") : t("pricelists.save", { count: changed.length, date })}
         </button>
       )}
       <details className="card p-3">
-        <summary className="font-extrabold cursor-pointer">تاريخ الأسعار</summary>
+        <summary className="font-extrabold cursor-pointer">{t("pricelists.history")}</summary>
         <ul className="text-sm mt-2 flex flex-col gap-1">
           {d.history.map((h) => (
             <li key={h.id} className="flex justify-between border-b border-united-dark/5 py-1 font-bold">

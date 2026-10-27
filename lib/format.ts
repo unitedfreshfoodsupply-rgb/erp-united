@@ -50,20 +50,28 @@ export function qtyUnit(n: number | null | undefined, unit: string): string {
   return n === null || n === undefined ? "—" : `${qty(n)} ${unit}`;
 }
 
-/** "من ٣ دقايق" — relative time for "when did this last move". */
-export function agoLabel(iso: string, now = Date.now()): string {
+/** The Intl locale for dates and numbers: "ar-EG" writes Arabic-Indic digits, which an
+ * English screen must not show. */
+export function intlLocale(locale?: string): string {
+  return locale === "en" ? "en-GB" : "ar-EG";
+}
+
+/** "من ٣ دقايق" / "3 min ago" — relative time for "when did this last move". */
+export function agoLabel(iso: string, now = Date.now(), locale: "ar" | "en" = "ar"): string {
+  const en = locale === "en";
   const secs = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
-  if (secs < 60) return "دلوقتي";
+  if (secs < 60) return en ? "just now" : "دلوقتي";
   const mins = Math.round(secs / 60);
-  if (mins < 60) return `من ${mins} دقيقة`;
+  if (mins < 60) return en ? `${mins} min ago` : `من ${mins} دقيقة`;
   const hours = Math.round(mins / 60);
-  if (hours < 24) return `من ${hours} ساعة`;
+  if (hours < 24) return en ? `${hours} h ago` : `من ${hours} ساعة`;
   const days = Math.round(hours / 24);
+  if (en) return days === 1 ? "a day ago" : `${days} days ago`;
   return days === 1 ? "من يوم" : `من ${days} يوم`;
 }
 
-export function clockLabel(iso: string) {
-  return new Date(iso).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
+export function clockLabel(iso: string, locale: "ar" | "en" = "ar") {
+  return new Date(iso).toLocaleTimeString(intlLocale(locale), { hour: "2-digit", minute: "2-digit" });
 }
 
 export function dateTimeLabel(iso: string) {

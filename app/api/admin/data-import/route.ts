@@ -19,6 +19,7 @@ import { isValidISODate } from "@/lib/dates";
 import { validateImportRow } from "@/lib/data-import/validation";
 import { normalizeProductName } from "@/lib/productIdentity";
 import { xlsxToCsv } from "@/lib/data-import/xlsx";
+import { localizeServerMessage, requestLocale } from "@/lib/locale/server-messages";
 
 const templates = {
   customers: { headers: "name,name_ar,legal_name,legal_name_ar,type,tax_registration_no,commercial_reg_no,phone,email,city,area,address,delivery_notes,external_ref,notes,payment_terms_days,credit_limit,credit_hold,credit_hold_reason,credit_reason,price_list_code,price_list_reason,group_code,legal_entity_code", required: ["name"] },
@@ -333,6 +334,11 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // Row errors and per-row failure messages follow the user's language; `status` keeps
+  // its fixed Arabic value (the client maps it) so existing callers see no change.
+  const locale = requestLocale(req);
+  const localize = (message: string) => localizeServerMessage(message, locale);
+  const localizeResults = <T extends { error?: string }>(results: T[]) => results.map((row) => (row.error ? { ...row, error: localize(row.error) } : row));
   try {
     const actor = await requireServiceActor(req, "users.view");
     let body: Record<string, unknown>;
@@ -374,7 +380,7 @@ export async function POST(req: NextRequest) {
     if (kind === "product_settings" && rows.some((r) => r.values.standard_cost || r.values.costing_method)) assertPermission(actor, "accounting.manage");
     const validation = await previewRows(kind, rows, body);
     const errors = validation.filter((r) => r.errors.length);
-    if (body.action !== "commit") return NextResponse.json({ rows: validation, rowCount: rows.length, errorCount: errors.length });
+    if (body.action !== "commit") return NextResponse.json({ rows: validation.map((row) => ({ ...row, errors: row.errors.map(localize) })), rowCount: rows.length, errorCount: errors.length });
     if (errors.length) throw new ApiError(400, `فيه ${errors.length} صف محتاج تصحيح — مفيش بيانات اتسجلت`);
 
     if (kind === "opening_stock") {
@@ -423,7 +429,7 @@ export async function POST(req: NextRequest) {
           results.push({ rowNumber: row.rowNumber, status: "فشل", error: err instanceof Error ? err.message : "تعذر الحفظ" });
         }
       }
-      return NextResponse.json({ created: results.filter((r) => r.status === "تم").length, failed: results.filter((r) => r.status === "فشل").length, results });
+      return NextResponse.json({ created: results.filter((r) => r.status === "تم").length, failed: results.filter((r) => r.status === "فشل").length, results: localizeResults(results) });
     }
 
     if (kind === "sales_prices" || kind === "supplier_prices") {
@@ -457,7 +463,7 @@ export async function POST(req: NextRequest) {
         }
       }
       results.sort((a, b) => a.rowNumber - b.rowNumber);
-      return NextResponse.json({ created: results.filter((r) => r.status === "تم").length, failed: results.filter((r) => r.status === "فشل").length, results });
+      return NextResponse.json({ created: results.filter((r) => r.status === "تم").length, failed: results.filter((r) => r.status === "فشل").length, results: localizeResults(results) });
     }
 
     const results: { rowNumber: number; status: string; code?: string; error?: string }[] = [];
@@ -523,6 +529,6 @@ export async function POST(req: NextRequest) {
         results.push({ rowNumber: row.rowNumber, status: "فشل", error: err instanceof Error ? err.message : "تعذر الحفظ" });
       }
     }
-    return NextResponse.json({ created: results.filter((r) => r.status === "تم").length, failed: results.filter((r) => r.status === "فشل").length, results });
+    return NextResponse.json({ created: results.filter((r) => r.status === "تم").length, failed: results.filter((r) => r.status === "فشل").length, results: localizeResults(results) });
   } catch (err) { return handleApiError(err, req); }
 }

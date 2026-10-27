@@ -14,6 +14,7 @@ import { IntegrationsPanel } from "@/components/admin/IntegrationsPanel";
 import { StatTile } from "@/components/stock/StatTile";
 import { DataImportPanel } from "@/components/admin/DataImportPanel";
 import { useLocale } from "@/lib/locale";
+import { intlLocale } from "@/lib/format";
 
 type Tab = "users" | "matrix" | "overview" | "settings" | "master" | "integrations" | "import";
 
@@ -208,7 +209,7 @@ function PermissionMatrix({ data }: { data: AdminOverview }) {
 }
 
 function SystemOverview({ data, canSeeAudit }: { data: AdminOverview; canSeeAudit: boolean }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
 
   return (
     <div className="flex flex-col gap-4">
@@ -258,7 +259,7 @@ function SystemOverview({ data, canSeeAudit }: { data: AdminOverview; canSeeAudi
                       {SECURITY_ACTION_LABEL[l.action] ?? l.action}
                     </span>
                     <span dir="ltr" className="text-[11px] font-bold text-united-muted">
-                      {new Date(l.timestamp).toLocaleString("ar-EG", { dateStyle: "short", timeStyle: "short" })}
+                      {new Date(l.timestamp).toLocaleString(intlLocale(locale), { dateStyle: "short", timeStyle: "short" })}
                     </span>
                   </div>
                   <div className="text-xs font-bold text-united-muted">

@@ -20,13 +20,14 @@ function levelLabel(t: (k: string) => string, level: OperationalHealthDTO["level
  * right now" — every word here maps to a real, visible count. */
 export function OperationalHealthBanner({ health }: { health: OperationalHealthDTO }) {
   const { t } = useLocale();
-  const { level, reasons, counts } = health;
+  const { level, reasons, reasonKeys, counts } = health;
+  const shownReasons = reasonKeys?.length ? reasonKeys.map((r) => t(r.key, { count: r.count })) : reasons;
   return (
     <div className={`card p-4 border-2 ${LEVEL_STYLE[level]}`}>
       <div className="flex items-center justify-between flex-wrap gap-2">
         <span className="font-extrabold text-lg">{levelLabel(t, level)}</span>
-        {reasons.length > 0 && (
-          <span className="text-sm font-bold text-united-dark/70">{reasons.join(" · ")}</span>
+        {shownReasons.length > 0 && (
+          <span className="text-sm font-bold text-united-dark/70">{shownReasons.join(" · ")}</span>
         )}
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs font-bold text-united-dark/60">

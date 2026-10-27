@@ -59,12 +59,12 @@ function xlsxCustomer(name: string) {
   });
 }
 
-async function upload(who: string, kind: string, filename: string, bytes: Uint8Array, action: "preview" | "commit", businessDate?: string) {
+async function upload(who: string, kind: string, filename: string, bytes: Uint8Array, action: "preview" | "commit", businessDate?: string, lang?: "en") {
   const form = new FormData();
   form.set("action", action); form.set("kind", kind);
   if (businessDate) form.set("business_date", businessDate);
   form.set("file", new Blob([bytes as BlobPart]), filename);
-  const response = await fetch(`${BASE}/api/admin/data-import`, { method: "POST", headers: { cookie: cookieFor(who) ?? "" }, body: form });
+  const response = await fetch(`${BASE}/api/admin/data-import`, { method: "POST", headers: { cookie: cookieFor(who) ?? "", ...(lang ? { "accept-language": lang } : {}) }, body: form });
   const text = await response.text();
   try { return { status: response.status, body: JSON.parse(text) }; }
   catch { return { status: response.status, body: text }; }
@@ -190,6 +190,20 @@ async function main() {
   check("re-import matched by Arabic name previews clean and commits as 'already exists'", reimportPreview.status === 200 && reimportPreview.body.errorCount === 0 && reimportCommit.status === 200 && reimportCommit.body.created === 0 && reimportCommit.body.failed === 0 && reimportCommit.body.results[0].status === "موجود — لم يتكرر", { reimportPreview: reimportPreview.body, reimportCommit: reimportCommit.body });
   const biCustomer = (await call("mona", "GET", `/api/sales/customers?q=${encodeURIComponent(`${TAG} Nile`)}`)).body.customers.find((c: any) => c.externalRef === `${TAG}-C2`);
   check("the existing customer's names are unchanged by the re-import", biCustomer?.name === `${TAG} Nile Hotel` && biCustomer?.nameAr === `فندق النيل ${TAG}`, biCustomer);
+
+  section("8. ERRORS FOLLOW THE USER'S LANGUAGE, WITH THEIR DETAILS");
+  const enSwap = await upload("admin", "suppliers", "suppliers-swapped.csv", swappedCsv, "preview", undefined, "en");
+  check("English preview row errors are English and keep the column names",
+    enSwap.status === 200 && enSwap.body.rows[0].errors.join(" ").includes("name_ar and name look swapped") && !/[\u0600-\u06FF]/.test(enSwap.body.rows[0].errors.join(" ")), enSwap.body);
+  check("the Arabic preview of the same file is unchanged", swapped.body.rows[0].errors.join(" ").includes("متبدلين"));
+  const enMissing = await upload("admin", "products", "products-missing.csv", csv("name\nX\n"), "preview", undefined, "en");
+  check("a file-level error (thrown ApiError) is English with the missing column named", enMissing.status === 400 && enMissing.body.error === "Missing required columns: unit", enMissing.body);
+  const arMissing = await upload("admin", "products", "products-missing.csv", csv("name\nX\n"), "preview");
+  check("…and stays Arabic without Accept-Language: en", arMissing.status === 400 && arMissing.body.error === "أعمدة مطلوبة ناقصة: unit", arMissing.body);
+  const enCommit = await upload("admin", "suppliers", "suppliers-swapped.csv", swappedCsv, "commit", undefined, "en");
+  check("a refused commit says how many rows need fixing, in English", enCommit.status === 400 && enCommit.body.error === "1 row(s) need fixing — nothing was saved", enCommit.body);
+  const enService = await call("omar", "POST", "/api/purchasing/suppliers", { name: biSupplier.name }, { "accept-language": "en" });
+  check("a service error (duplicate supplier) is English and keeps the supplier's name", enService.status === 409 && enService.body.error === `Supplier "${biSupplier.name}" already exists`, enService.body);
 
   finish("DATA IMPORT");
 }

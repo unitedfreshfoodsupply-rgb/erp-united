@@ -11,6 +11,7 @@ import { Field, Tabs, fmtMoney, fmtQty, locationTypeLabel, useLocations, type St
 import { MoveForms } from "./MoveForms";
 import { Pagination } from "@/components/ui/Pagination";
 import { useLocale } from "@/lib/locale";
+import { intlLocale } from "@/lib/format";
 import { localName } from "@/lib/locale/names";
 
 /**
@@ -230,7 +231,7 @@ function ProductPanel({ productId, onClose }: { productId: string; onClose: () =
             <li key={m.id} className="py-2 flex items-center justify-between gap-2">
               <div className="flex flex-col">
                 <span className="font-extrabold">{KIND_LABEL[m.kind] ? t(KIND_LABEL[m.kind]) : m.kind} · {m.document?.number ?? m.intake?.receiptNumber ?? ""}</span>
-                <span className="text-xs font-bold text-united-muted">{m.location.code}{m.lot ? ` · ${m.lot.lotNumber}` : ""} · {m.actorName} · {new Date(m.occurredAt).toLocaleString("ar-EG", { dateStyle: "short", timeStyle: "short" })}</span>
+                <span className="text-xs font-bold text-united-muted">{m.location.code}{m.lot ? ` · ${m.lot.lotNumber}` : ""} · {m.actorName} · {new Date(m.occurredAt).toLocaleString(intlLocale(locale), { dateStyle: "short", timeStyle: "short" })}</span>
               </div>
               <span dir="ltr" className={`font-extrabold ${Number(m.quantity) < 0 ? "text-united-danger" : "text-united-green"}`}>{Number(m.quantity) > 0 ? "+" : ""}{fmtQty(m.quantity)}</span>
             </li>

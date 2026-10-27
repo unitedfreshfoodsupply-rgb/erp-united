@@ -376,7 +376,7 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
       <p className="text-sm font-bold text-united-muted">
         {r.status}
         {r.neededBy ? ` · ${t("purchasing.rfqs.neededby")} ${r.neededBy}` : ""} ·
-        {r.invited.map((i) => `${localName(i.supplier, locale)} (${i.status === "quoted" ? t("purchasing.rfq_status.quoted") : i.status === "declined" ? t("purchasing.rfq_status.declined") : t("purchasing.rfq_status.pending")})`).join("، ")}
+        {r.invited.map((i) => `${localName(i.supplier, locale)} (${i.status === "quoted" ? t("purchasing.rfq_status.quoted") : i.status === "declined" ? t("purchasing.rfq_status.declined") : t("purchasing.rfq_status.pending")})`).join(locale === "en" ? ", " : "، ")}
       </p>
       {r.status === "draft" && <button type="button" className="btn-primary self-start" onClick={async () => { try { await apiPost(`/api/purchasing/rfqs/${id}/send`, {}); refresh(); } catch (err) { toast.show(errorMsg(err), "error"); } }}>{t("purchasing.rfq.send_to_suppliers")}</button>}
       <section className="card p-4 flex flex-col gap-3">
@@ -403,7 +403,7 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
           <button type="button" className="btn-primary self-start" disabled={!Object.keys(award).length} onClick={async () => {
             try {
               const res = await apiPost<{ orders: { id: string; number: string }[] }>(`/api/purchasing/rfqs/${id}/award`, { awards: Object.entries(award).map(([rfq_line_id, supplier_id]) => ({ rfq_line_id, supplier_id })) });
-              const nums = res.orders.map((o) => o.number).join("، ");
+              const nums = res.orders.map((o) => o.number).join(locale === "en" ? ", " : "، ");
               toast.show(t("purchasing.new_po.toast").replace("%s", nums), "success");
               refresh();
             } catch (err) { toast.show(errorMsg(err), "error"); }

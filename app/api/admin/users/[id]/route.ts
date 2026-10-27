@@ -3,6 +3,7 @@ import { handleApiError } from "@/lib/rbac";
 import { requirePermission } from "@/lib/authz";
 import { changeUserRole, getUserPermissionDetail, setUserActive, updateUser } from "@/lib/admin-service";
 import { readJson } from "@/lib/http";
+import { localizeServerMessage, requestLocale } from "@/lib/locale/server-messages";
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -43,7 +44,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     if (!user) {
       await requirePermission(req, "users.view");
-      return NextResponse.json({ error: "مفيش حاجة تتعدّل في الطلب ده" }, { status: 400 });
+      return NextResponse.json({ error: localizeServerMessage("مفيش حاجة تتعدّل في الطلب ده", requestLocale(req)) }, { status: 400 });
     }
     return NextResponse.json({
       user: { id: user.id, name: user.name, username: user.username, role: user.role, active: user.active, version: user.version },

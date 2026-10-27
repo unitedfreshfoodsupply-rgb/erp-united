@@ -13,9 +13,10 @@ import { todayLocalISO } from "@/lib/localDate";
 import { fmtKg, fmtYield, YIELD_TONE_CLASS, yieldTone } from "@/lib/stockPresentation";
 import type { StockDashboardDTO } from "@/lib/stock-client-types";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 export function StockDashboard() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
 
   // The tablet's own calendar day, not the server's — a shift that starts before
   // midnight UTC must still file its receipts under the day the operator is living in.
@@ -83,8 +84,8 @@ export function StockDashboard() {
                 {data.currentStock.map((s) => (
                   <li key={s.productId} className="flex items-center justify-between py-2.5">
                     <span className="font-bold text-united-dark">
-                      {s.productName}
-                      {!s.active && <span className="text-xs font-bold text-united-muted mr-2">{t("stock.suspended-badge")}</span>}
+                      {localName({ name: s.productName, nameAr: s.productNameAr }, locale)}
+                      {!s.active && <span className="text-xs font-bold text-united-muted ms-2">{t("stock.suspended-badge")}</span>}
                     </span>
                     <span dir="ltr" className={`font-extrabold ${s.balanceKg > 0 ? "text-united-dark" : "text-united-muted"}`}>
                       {fmtKg(s.balanceKg)} {s.unit}
@@ -105,7 +106,7 @@ export function StockDashboard() {
                 {data.todayByProduct.map((p) => (
                   <li key={p.productId}>
                     <div className="flex items-center justify-between text-sm font-bold mb-1">
-                      <span className="text-united-dark">{p.productName}</span>
+                      <span className="text-united-dark">{localName({ name: p.productName, nameAr: p.productNameAr }, locale)}</span>
                       <span dir="ltr" className="text-united-muted">
                         {fmtKg(p.goodKg)} / {fmtKg(p.receivedKg)} {t("stock.unit-kg")}
                       </span>
@@ -134,7 +135,7 @@ export function StockDashboard() {
                 {data.supplierPerformance.map((s) => (
                   <li key={s.supplierId} className="py-3">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-extrabold text-united-dark">{s.supplierName}</span>
+                      <span className="font-extrabold text-united-dark">{localName({ name: s.supplierName, nameAr: s.supplierNameAr }, locale)}</span>
                       <span dir="ltr" className={`font-extrabold ${YIELD_TONE_CLASS[yieldTone(s.yieldPct)]}`}>
                         {fmtYield(s.yieldPct)}
                       </span>
@@ -177,7 +178,7 @@ export function StockDashboard() {
 }
 
 function PeriodCard({ title, totals }: { title: string; totals: StockDashboardDTO["week"] }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   return (
     <div className="card p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between">

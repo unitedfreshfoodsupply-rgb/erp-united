@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { localizeServerMessage } from "@/lib/locale/server-messages";
 
 export class ApiError extends Error {
   status: number;
@@ -53,14 +54,15 @@ function msg(locale: "ar" | "en", key: string, fallbackAr: string): string {
 export function handleApiError(err: unknown, req?: NextRequest) {
   const loc = localeFromReq(req);
   if (err instanceof ApiError) {
-    // If the error has a known code, translate it; otherwise return as-is
+    // A known code has a fixed translation; any other message is translated from the
+    // catalog with its specific details intact (unknown text stays as written).
     if (err.code && loc === "en") {
       const translated = ERRORS_EN[err.code];
       if (translated) {
         return NextResponse.json({ error: translated }, { status: err.status });
       }
     }
-    return NextResponse.json({ error: err.message }, { status: err.status });
+    return NextResponse.json({ error: localizeServerMessage(err.message, loc) }, { status: err.status });
   }
   // A short reference ties what the user reports to the server log line.
   const ref = randomUUID().slice(0, 8);

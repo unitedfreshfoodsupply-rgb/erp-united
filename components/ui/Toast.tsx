@@ -24,7 +24,9 @@ const KIND_ICON: Record<ToastKind, string> = {
 };
 
 function nowLabel() {
-  return new Date().toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
+  // Called outside render: read the language the locale provider put on <html>.
+  const en = typeof document !== "undefined" && document.documentElement.lang === "en";
+  return new Date().toLocaleTimeString(en ? "en-GB" : "ar-EG", { hour: "2-digit", minute: "2-digit" });
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {

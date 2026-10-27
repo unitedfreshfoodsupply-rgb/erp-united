@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useEffect, useState, type ReactNode } from "react";
 import { DICTIONARY } from "./dictionary";
+import { setActiveLocale } from "./active";
 
 export type Locale = "ar" | "en";
 
@@ -71,6 +72,8 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
     document.body.classList.toggle("font-arabic", locale === "ar");
     document.body.classList.toggle("font-english", locale === "en");
+    // The layout's <title> is fixed server-side in Arabic; follow the chosen language.
+    document.title = DICTIONARY["app.title"][locale];
   }, [locale, mounted]);
 
   const toggleLocale = useCallback(() => {
@@ -95,6 +98,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   );
 
   const dir: "ltr" | "rtl" = locale === "ar" ? "rtl" : "ltr";
+  setActiveLocale(locale);
   const isRTL = locale === "ar";
   const isEN = locale === "en";
 

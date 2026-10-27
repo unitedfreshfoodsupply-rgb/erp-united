@@ -13,6 +13,7 @@ import { PriceListsView } from "@/components/sales/PriceListsView";
 import { QuotationsView } from "@/components/sales/QuotationsView";
 import { CustomerStatement, InvoicesView } from "@/components/sales/InvoicesView";
 import { useLocale } from "@/lib/locale";
+import { intlLocale } from "@/lib/format";
 import { codedLocalName, localName, otherLocalName } from "@/lib/locale/names";
 
 /**
@@ -117,7 +118,7 @@ function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
               </div>
               <div className="flex flex-wrap gap-2 text-xs font-bold text-united-muted">
                 <span>{t(`sales.type.${c.type}` as any) ?? c.type}</span>
-                {c.area || c.city ? <span>· {[c.area, c.city].filter(Boolean).join("، ")}</span> : null}
+                {c.area || c.city ? <span>· {[c.area, c.city].filter(Boolean).join(locale === "en" ? ", " : "، ")}</span> : null}
                 <span>· {c.paymentTermsDays ? `${t("sales.label.payment-terms-prefix")}${c.paymentTermsDays} ${t("sales.label.day")}` : t("sales.label.payment-cash")}</span>
                 <span>· {c._count.orders} {t("sales.label.orders")}</span>
                 {c.creditHold && <span className="text-united-danger">· {t("sales.label.on-hold")}</span>}
@@ -205,6 +206,13 @@ function NewCustomer({ onCreated }: { onCreated: (id: string) => void }) {
 function CustomerPanel({ id, onClose }: { id: string; onClose: () => void }) {
   const { can } = usePermissions();
   const { locale, t } = useLocale();
+  // t() returns the key itself when it is missing, so fall back to the raw action
+  // explicitly instead of with ??, which never fired.
+  const actionLabel = (action: string) => {
+    const key = `sales.action.${action.replace("-", "_")}`;
+    const label = t(key);
+    return label === key ? action : label;
+  };
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState(false);
@@ -249,7 +257,7 @@ function CustomerPanel({ id, onClose }: { id: string; onClose: () => void }) {
           />
         ) : (
           <dl className="grid grid-cols-2 gap-2 text-sm">
-            {[[t("sales.customer.type"), (customerTypeLabels(t))[c.type] || c.type], [t("sales.customer.legal-name"), c.legalName], [t("sales.customer.nameAr"), c.legalNameAr], [t("sales.customer.phone"), c.phone], [t("sales.customer.email"), c.email], [t("sales.customer.address"), [c.address, c.area, c.city].filter(Boolean).join("، ")], [t("sales.customer.delivery-notes"), c.deliveryNotes], [t("sales.customer.ext-ref"), c.externalRef]].map(([k, v]) => (
+            {[[t("sales.customer.type"), (customerTypeLabels(t))[c.type] || c.type], [t("sales.customer.legal-name"), c.legalName], [t("sales.customer.nameAr"), c.legalNameAr], [t("sales.customer.phone"), c.phone], [t("sales.customer.email"), c.email], [t("sales.customer.address"), [c.address, c.area, c.city].filter(Boolean).join(locale === "en" ? ", " : "، ")], [t("sales.customer.delivery-notes"), c.deliveryNotes], [t("sales.customer.ext-ref"), c.externalRef]].map(([k, v]) => (
               <div key={String(k)}><dt className="text-xs font-extrabold text-united-muted">{k}</dt><dd className="font-bold">{v || "—"}</dd></div>
             ))}
           </dl>
@@ -309,9 +317,9 @@ function CustomerPanel({ id, onClose }: { id: string; onClose: () => void }) {
         <ul className="text-sm flex flex-col gap-1">
           {history.data?.logs.map((l) => (
             <li key={l.id} className="border-b border-united-dark/5 py-1">
-              <span className="font-bold">{l.userName}</span> · {t(`sales.action.${l.action.replace("-", "_")}` as any) ?? l.action}{l.fieldChanged && FIELD_LABEL[l.fieldChanged] ? ` · ${FIELD_LABEL[l.fieldChanged]}` : ""}{l.newValue ? `: ${l.oldValue ?? "—"} ← ${l.newValue}` : ""}
+              <span className="font-bold">{l.userName}</span> · {actionLabel(l.action)}{l.fieldChanged && FIELD_LABEL[l.fieldChanged] ? ` · ${t(FIELD_LABEL[l.fieldChanged])}` : ""}{l.newValue ? `: ${l.oldValue ?? "—"} ← ${l.newValue}` : ""}
               {l.reason ? <span className="text-united-muted"> ({l.reason})</span> : null}
-              <span className="text-xs text-united-muted"> · {new Date(l.timestamp).toLocaleString("ar-EG", { dateStyle: "short", timeStyle: "short" })}</span>
+              <span className="text-xs text-united-muted"> · {new Date(l.timestamp).toLocaleString(intlLocale(locale), { dateStyle: "short", timeStyle: "short" })}</span>
             </li>
           ))}
         </ul>
@@ -320,10 +328,22 @@ function CustomerPanel({ id, onClose }: { id: string; onClose: () => void }) {
   );
 }
 
-// Re-add dicts where needed for backward compatibility in form/template helpers
+// Audit field names shown in the customer history, as dictionary keys.
 const FIELD_LABEL: Record<string, string> = {
-  name: "الاسم", nameAr: "الاسم بالعربي", phone: "التليفون", email: "الإيميل", type: "النوع", city: "المدينة", area: "المنطقة", address: "العنوان",
-  taxRegistrationNo: "الرقم الضريبي", externalRef: "كود نظام الطلبات", active: "التفعيل", paymentTermsDays: "مدة السداد", creditLimit: "حد الائتمان", creditHold: "إيقاف الآجل",
+  name: "sales.field.name",
+  nameAr: "sales.field.nameAr",
+  phone: "sales.field.phone",
+  email: "sales.field.email",
+  type: "sales.field.type",
+  city: "sales.field.city",
+  area: "sales.field.area",
+  address: "sales.field.address",
+  taxRegistrationNo: "sales.field.taxRegistrationNo",
+  externalRef: "sales.field.externalRef",
+  active: "sales.field.active",
+  paymentTermsDays: "sales.field.paymentTermsDays",
+  creditLimit: "sales.field.creditLimit",
+  creditHold: "sales.field.creditHold",
 };
 
 function GroupLegalSection({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit: boolean; onSaved: () => void }) {

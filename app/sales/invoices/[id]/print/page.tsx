@@ -22,7 +22,7 @@ export default async function InvoicePrint({ params, searchParams }: { params: {
     if (e instanceof ApiError && e.status === 404) notFound();
     throw e;
   });
-  if (inv.status !== "issued") return <main className="p-8 font-bold">الفاتورة لسه مسودة — مفيش طباعة قبل الإصدار.</main>;
+  if (inv.status !== "issued") return <main className="p-8 font-bold" dir={lang === "ar" ? "rtl" : "ltr"}>{lang === "en" ? "The invoice is still a draft — it cannot be printed before it is issued." : "الفاتورة لسه مسودة — مفيش طباعة قبل الإصدار."}</main>;
   const [company, eta] = await Promise.all([prisma.company.findFirst({ where: { active: true }, orderBy: { createdAt: "asc" } }), etaPublicState(inv.id)]);
   const d = invoiceDocument({ invoice: { ...inv, payments: inv.payments }, company, eta, lang });
   const L = d.labels;
@@ -164,7 +164,7 @@ export default async function InvoicePrint({ params, searchParams }: { params: {
         <span dir="ltr">{d.meta.number}</span>
       </footer>
       <div className="no-print mt-6 flex gap-2">
-        <PrintButton />
+        <PrintButton lang={lang} />
         <a className="btn-secondary mt-6" href={`?lang=${lang === "ar" ? "en" : "ar"}`}>{lang === "ar" ? "English" : "عربي"}</a>
       </div>
     </main>

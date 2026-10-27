@@ -441,7 +441,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         <div className="flex flex-wrap gap-2 mt-3 border-t border-united-border pt-3">
           {isSupervisor && (
             <a
-              href={`/orders/${orderId}/print/delivery`}
+              href={`/orders/${orderId}/print/delivery${locale === "en" ? "?lang=en" : ""}`}
               target="_blank"
               rel="noopener noreferrer"
               className="btn-secondary text-sm px-3 py-2"
@@ -451,7 +451,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           )}
           {canPrep && (
             <a
-              href={`/orders/${orderId}/print/picking`}
+              href={`/orders/${orderId}/print/picking${locale === "en" ? "?lang=en" : ""}`}
               target="_blank"
               rel="noopener noreferrer"
               className="btn-secondary text-sm px-3 py-2"
@@ -461,7 +461,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           )}
           {canLoad && (
             <a
-              href={`/orders/${orderId}/print/dispatch`}
+              href={`/orders/${orderId}/print/dispatch${locale === "en" ? "?lang=en" : ""}`}
               target="_blank"
               rel="noopener noreferrer"
               className="btn-secondary text-sm px-3 py-2"

@@ -25,11 +25,11 @@ const REASON_TONE: Record<PriorityReason, string> = {
   on_track: "border-united-border",
 };
 
-function minutesLabel(min: number) {
-  if (min < 60) return `${min} دقيقة`;
+function minutesLabel(min: number, t: (key: string, params?: Record<string, string | number>) => string) {
+  if (min < 60) return t("attention.minutes", { m: min });
   const h = Math.floor(min / 60);
   const m = min % 60;
-  return m > 0 ? `${h} ساعة و${m} دقيقة` : `${h} ساعة`;
+  return m > 0 ? t("attention.hours-minutes", { h, m }) : t("attention.hours", { h });
 }
 
 /** "Needs Attention Now" — the one, ranked, explained list a supervisor should
@@ -37,6 +37,13 @@ function minutesLabel(min: number) {
  * (server-classified); nothing that's merely informational/historical. */
 export function NeedsAttentionQueue({ items }: { items: ClassifiedOrderDTO[] }) {
   const { t } = useLocale();
+  // The server sends Arabic text plus the reason code; show the code's own wording in
+  // the user's language, and the server text for a code this screen does not know.
+  const byCode = (kind: "reason" | "why" | "action", code: string, fallback: string) => {
+    const key = `attention.${kind}.${code}`;
+    const text = t(key);
+    return text === key ? fallback : text;
+  };
   const [expanded, setExpanded] = useState(false);
   if (items.length === 0) {
     return (
@@ -66,12 +73,12 @@ export function NeedsAttentionQueue({ items }: { items: ClassifiedOrderDTO[] }) 
                 <span className="text-united-muted font-bold text-sm">· {o.orderNumber}</span>
               </span>
               <span className="text-xs font-bold text-united-dark/60 whitespace-nowrap">
-                من {minutesLabel(o.minutesInStage)}
+                {t("attention.since", { duration: minutesLabel(o.minutesInStage, t) })}
               </span>
             </div>
-            <p className="text-sm font-bold text-united-dark mt-1">{o.reasonLabel}</p>
-            <p className="text-xs text-united-dark/60 mt-0.5">{o.whyItMatters}</p>
-            <p className="text-sm font-bold text-united-green mt-1">← {o.recommendedAction}</p>
+            <p className="text-sm font-bold text-united-dark mt-1">{byCode("reason", o.reason, o.reasonLabel)}</p>
+            <p className="text-xs text-united-dark/60 mt-0.5">{byCode("why", o.reason, o.whyItMatters)}</p>
+            <p className="text-sm font-bold text-united-green mt-1">← {byCode("action", o.reason, o.recommendedAction)}</p>
           </Link>
         ))}
       </div>

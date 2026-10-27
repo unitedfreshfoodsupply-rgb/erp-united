@@ -3,6 +3,7 @@ import { handleApiError } from "@/lib/rbac";
 import { requireOrderActor } from "@/lib/api-auth";
 import { setLoadedQuantity, markItemLoaded } from "@/lib/orders-service";
 import { readJson } from "@/lib/http";
+import { localizeServerMessage, requestLocale } from "@/lib/locale/server-messages";
 
 export async function POST(
   req: NextRequest,
@@ -30,7 +31,7 @@ export async function POST(
       return NextResponse.json({ item });
     }
 
-    return NextResponse.json({ error: "لازم تبعت quantity أو mark_done" }, { status: 400 });
+    return NextResponse.json({ error: localizeServerMessage("لازم تبعت quantity أو mark_done", requestLocale(req)) }, { status: 400 });
   } catch (err) {
     return handleApiError(err, req);
   }

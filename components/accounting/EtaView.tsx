@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
+import { intlLocale } from "@/lib/format";
 import type { TranslationKey } from "@/lib/locale/dictionary";
 import { localName } from "@/lib/locale/names";
 
@@ -83,7 +84,7 @@ function Invoices({ data }: { data: Overview }) {
 }
 
 function InvoiceEta({ id }: { id: string }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { can } = usePermissions();
   const toast = useToast();
   const qc = useQueryClient();
@@ -136,7 +137,7 @@ function InvoiceEta({ id }: { id: string }) {
         <details className="text-xs"><summary className="cursor-pointer text-united-muted">{t("eta.document-summary")}</summary><pre className="whitespace-pre-wrap" dir="ltr">{JSON.stringify(q.data.document, null, 1)}</pre></details>
       )}
       {eta && eta.events.length > 0 && (
-        <ul className="text-xs text-united-muted">{eta.events.map((e, k) => <li key={k}>{new Date(e.createdAt).toLocaleString("ar-EG")} · {e.action} → {e.toStatus} · {e.actorName}</li>)}</ul>
+        <ul className="text-xs text-united-muted">{eta.events.map((e, k) => <li key={k}>{new Date(e.createdAt).toLocaleString(intlLocale(locale))} · {e.action} → {e.toStatus} · {e.actorName}</li>)}</ul>
       )}
     </div>
   );

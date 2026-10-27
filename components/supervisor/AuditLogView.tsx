@@ -7,7 +7,8 @@ import { apiFetch, errorMessage } from "@/lib/api-client";
 import type { AuditLogDTO } from "@/lib/client-types";
 import { EmptyState, ErrorState } from "@/components/States";
 import { LiveIndicator } from "@/components/ui/LiveIndicator";
-import { buildTimeline, timeLabel, SOURCE_LABEL } from "@/lib/auditLabels";
+import { buildTimeline, timeLabel, SOURCE_LABEL, SOURCE_LABEL_EN, type TimelineLocale } from "@/lib/auditLabels";
+import { ROLE_LABEL, ROLE_LABEL_EN, isRole } from "@/lib/types";
 import { CardSkeleton } from "@/components/Skeleton";
 import { useLocale } from "@/lib/locale";
 
@@ -21,8 +22,10 @@ const DECISION_FILTER_KEYS: { key: DecisionFilter; dictKey: string; actions?: st
   { key: "edits", dictKey: "audit.filter.edits", actions: ["order_edited", "required_quantity_edited"] },
 ];
 
+const AUDIT_ENTITIES = ["sales_invoice", "credit_note", "supplier_bill", "debit_note", "journal_entry", "customer_receipt", "supplier_payment", "order", "purchase_order", "stock_intake", "inventory_document", "approval_request", "employee", "expense", "user", "settings"];
+
 export function AuditLogView() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [search, setSearch] = useState("");
   const [decisionFilter, setDecisionFilter] = useState<DecisionFilter>("all");
   const [entityFilter, setEntityFilter] = useState("all");
@@ -51,7 +54,7 @@ export function AuditLogView() {
         l.userName.toLowerCase().includes(needle) ||
         l.order?.customerName.toLowerCase().includes(needle) ||
         l.order?.orderNumber.toLowerCase().includes(needle) ||
-        describeOne(l).headline.toLowerCase().includes(needle)
+        describeOne(l, locale).headline.toLowerCase().includes(needle)
     );
 
   return (
@@ -95,22 +98,7 @@ export function AuditLogView() {
           className="field text-sm"
         >
           <option value="all">{t("audit.entity-label")}</option>
-          <option value="sales_invoice">الفاتورة</option>
-          <option value="credit_note">الإشعار الدائن</option>
-          <option value="supplier_bill">فاتورة مورد</option>
-          <option value="debit_note">إشعار مدين</option>
-          <option value="journal_entry">قيد اليومية</option>
-          <option value="customer_receipt">قبض</option>
-          <option value="supplier_payment">صرف</option>
-          <option value="order">أوردر</option>
-          <option value="purchase_order">أمر شراء</option>
-          <option value="stock_intake">استلام مخزون</option>
-          <option value="inventory_document">مستند مخزون</option>
-          <option value="approval_request">موافقة</option>
-          <option value="employee">موظف</option>
-          <option value="expense">مصروف</option>
-          <option value="user">مستخدم</option>
-          <option value="settings">إعدادات</option>
+          {AUDIT_ENTITIES.map((entity) => <option key={entity} value={entity}>{t(`audit.entity.${entity}`)}</option>)}
         </select>
 
         <input
@@ -148,7 +136,7 @@ export function AuditLogView() {
 
       <div className="flex flex-col gap-2">
         {logs.map((l) => {
-          const { icon, headline, detail } = describeOne(l);
+          const { icon, headline, detail } = describeOne(l, locale);
           return (
             <div key={l.id} className="card p-4">
               {l.order && (
@@ -161,9 +149,9 @@ export function AuditLogView() {
               )}
               <div className="flex items-center justify-between mb-1 text-sm">
                 <span className="font-bold text-united-dark">
-                  {l.userName} <span className="text-united-muted font-normal">· {l.role}</span>
+                  {l.userName} <span className="text-united-muted font-normal">· {isRole(l.role) ? (locale === "en" ? ROLE_LABEL_EN : ROLE_LABEL)[l.role] : l.role}</span>
                 </span>
-                <span className="text-united-muted">{timeLabel(l.timestamp)}</span>
+                <span className="text-united-muted">{timeLabel(l.timestamp, locale)}</span>
               </div>
               <p className="font-bold text-united-dark flex items-center gap-1.5">
                 <span>{icon}</span> {headline}
@@ -172,11 +160,11 @@ export function AuditLogView() {
               {l.reason && <p className="text-sm text-united-muted">{t("audit.reason-prefix")} {l.reason}</p>}
               <div className="flex items-center justify-between mt-2">
                 <span className="text-xs font-bold text-united-muted bg-united-dark/5 px-2 py-0.5 rounded-full">
-                  {SOURCE_LABEL[l.source] ?? l.source}
+                  {(locale === "en" ? SOURCE_LABEL_EN : SOURCE_LABEL)[l.source] ?? l.source}
                 </span>
                 {l.orderId && (
                   <Link href={`/orders/${l.orderId}`} className="text-xs font-bold text-united-green">
-                    t("audit.view-order-link")
+                    {t("audit.view-order-link")}
                   </Link>
                 )}
               </div>
@@ -189,7 +177,7 @@ export function AuditLogView() {
 }
 
 /** Same operational wording as the order timeline, for one standalone row. */
-function describeOne(l: AuditLogDTO) {
-  const [event] = buildTimeline([l]);
+function describeOne(l: AuditLogDTO, locale: TimelineLocale) {
+  const [event] = buildTimeline([l], locale);
   return event ?? { icon: "•", headline: l.action, detail: undefined };
 }

@@ -111,7 +111,7 @@ export function OrderCard({ order }: { order: OrderDTO }) {
       )}
 
       <div className="text-[11px] font-bold text-united-muted mt-2">
-        {t("order.last-movement")} {agoLabel(order.updatedAt)}
+        {t("order.last-movement")} {agoLabel(order.updatedAt, undefined, locale)}
       </div>
     </Link>
   );

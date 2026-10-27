@@ -250,8 +250,8 @@ async function nextReceiptNumber(tx: Prisma.TransactionClient, prefix: string) {
 
 const INTAKE_INCLUDE = {
   supplier: { select: { id: true, name: true, nameAr: true } },
-  product: { select: { id: true, name: true, unit: true } },
-  gradeBProduct: { select: { id: true, name: true, unit: true } },
+  product: { select: { id: true, name: true, nameAr: true, unit: true } },
+  gradeBProduct: { select: { id: true, name: true, nameAr: true, unit: true } },
   location: { select: { id: true, code: true, name: true, nameAr: true } },
   lot: { select: { id: true, lotNumber: true, expiryDate: true } },
   purchaseOrderLine: { select: { id: true, lineNo: true, po: { select: { id: true, number: true } } } },
@@ -271,7 +271,7 @@ export function serializeIntake(row: IntakeRow) {
 }
 
 const MOVEMENT_INCLUDE = {
-  product: { select: { id: true, name: true, unit: true } },
+  product: { select: { id: true, name: true, nameAr: true, unit: true } },
   intake: { select: { id: true, receiptNumber: true, supplier: { select: { name: true, nameAr: true } } } },
   location: { select: { id: true, code: true } },
   lot: { select: { id: true, lotNumber: true, expiryDate: true } },
@@ -931,6 +931,7 @@ export async function currentStock() {
       return {
         productId: p.id,
         productName: p.name,
+        productNameAr: p.nameAr,
         unit: p.unit,
         active: p.active,
         balance: balance.toFixed(),
@@ -992,6 +993,7 @@ export function startOfMonth(dateISO: string) {
 export type SupplierPerformance = {
   supplierId: string;
   supplierName: string;
+  supplierNameAr: string | null;
   intakeCount: number;
   receivedKg: number;
   rejectedKg: number;
@@ -1014,9 +1016,10 @@ export async function supplierPerformance(from: string, to: string): Promise<Sup
       _count: { _all: true },
       _max: { receivedDate: true },
     }),
-    prisma.supplier.findMany({ select: { id: true, name: true } }),
+    prisma.supplier.findMany({ select: { id: true, name: true, nameAr: true } }),
   ]);
   const nameById = new Map(suppliers.map((s) => [s.id, s.name]));
+  const nameArById = new Map(suppliers.map((s) => [s.id, s.nameAr]));
   return grouped
     .map((g) => {
       const receivedKg = num(g._sum.receivedQty);
@@ -1024,6 +1027,7 @@ export async function supplierPerformance(from: string, to: string): Promise<Sup
       return {
         supplierId: g.supplierId,
         supplierName: nameById.get(g.supplierId) ?? "—",
+        supplierNameAr: nameArById.get(g.supplierId) ?? null,
         intakeCount: g._count._all,
         receivedKg,
         rejectedKg: num(g._sum.rejectedQty),
@@ -1044,7 +1048,7 @@ export async function productTotals(from: string, to: string) {
       _sum: { receivedQty: true, rejectedQty: true, goodQty: true },
       _count: { _all: true },
     }),
-    prisma.stockProduct.findMany({ select: { id: true, name: true, unit: true } }),
+    prisma.stockProduct.findMany({ select: { id: true, name: true, nameAr: true, unit: true } }),
   ]);
   const byId = new Map(products.map((p) => [p.id, p]));
   return grouped
@@ -1054,6 +1058,7 @@ export async function productTotals(from: string, to: string) {
       return {
         productId: g.productId,
         productName: byId.get(g.productId)?.name ?? "—",
+        productNameAr: byId.get(g.productId)?.nameAr ?? null,
         unit: byId.get(g.productId)?.unit ?? "KG",
         intakeCount: g._count._all,
         receivedKg,

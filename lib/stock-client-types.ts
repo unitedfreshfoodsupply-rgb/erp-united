@@ -86,7 +86,7 @@ export type IntakeDTO = {
   version: number;
   createdAt: string;
   supplier: { id: string; name: string };
-  product: { id: string; name: string; unit: string };
+  product: { id: string; name: string; nameAr?: string | null; unit: string };
   /** Exact decimal strings (the *Kg numbers above are the legacy display copies). */
   receivedQty?: string;
   rejectedQty?: string;
@@ -113,13 +113,14 @@ export type MovementDTO = {
   intakeId: string | null;
   reason: string | null;
   actorName: string;
-  product: { id: string; name: string; unit: string };
-  intake: { id: string; receiptNumber: string; supplier: { name: string } } | null;
+  product: { id: string; name: string; nameAr?: string | null; unit: string };
+  intake: { id: string; receiptNumber: string; supplier: { name: string; nameAr?: string | null } } | null;
 };
 
 export type StockBalanceDTO = {
   productId: string;
   productName: string;
+  productNameAr?: string | null;
   unit: string;
   active: boolean;
   balanceKg: number;
@@ -139,6 +140,7 @@ export type PeriodTotalsDTO = {
 export type SupplierPerformanceDTO = {
   supplierId: string;
   supplierName: string;
+  supplierNameAr?: string | null;
   intakeCount: number;
   receivedKg: number;
   rejectedKg: number;
@@ -150,6 +152,7 @@ export type SupplierPerformanceDTO = {
 export type ProductTotalsDTO = {
   productId: string;
   productName: string;
+  productNameAr?: string | null;
   unit: string;
   intakeCount: number;
   receivedKg: number;

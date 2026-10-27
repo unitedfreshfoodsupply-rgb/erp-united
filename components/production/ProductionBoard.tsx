@@ -10,6 +10,7 @@ import { LoadingState, EmptyState, ErrorState } from "@/components/States";
 import { LiveIndicator } from "@/components/ui/LiveIndicator";
 import { todayLocalISO } from "@/lib/localDate";
 import { qty } from "@/lib/format";
+import { useLocale } from "@/lib/locale";
 
 type ProductionRow = {
   productName: string;
@@ -20,6 +21,7 @@ type ProductionRow = {
 };
 
 export function ProductionBoard() {
+  const { t } = useLocale();
   const today = todayLocalISO();
   const [open, setOpen] = useState<string | null>(null);
 
@@ -65,7 +67,7 @@ export function ProductionBoard() {
   return (
     <div className="p-4 max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-1">
-        <h1 className="text-2xl font-extrabold text-united-dark">إنتاج النهارده</h1>
+        <h1 className="text-2xl font-extrabold text-united-dark">{t("production.title")}</h1>
         <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
       </div>
       <p className="text-united-muted font-bold mb-4">{today}</p>
@@ -73,18 +75,18 @@ export function ProductionBoard() {
       {isLoading && <LoadingState />}
       {isError && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
       {!isLoading && !isError && products.length === 0 && (
-        <EmptyState icon="📦" title="مفيش أوردرات لسه" />
+        <EmptyState icon="📦" title={t("prodboard.empty")} />
       )}
 
       {!isLoading && !isError && products.length > 0 && (
         <div className="bg-united-dark text-white rounded-2xl p-5 mb-4 flex items-center justify-between flex-wrap gap-3">
           <div>
-            <div className="text-sm font-bold text-white/60">إجمالي الأوردرات</div>
+            <div className="text-sm font-bold text-white/60">{t("prodboard.total-orders")}</div>
             <div className="text-3xl font-extrabold">{openOrders.length}</div>
           </div>
           <div className="flex gap-4 flex-wrap">
             {[...totalsByUnit.entries()].map(([unit, total]) => (
-              <div key={unit} className="text-left">
+              <div key={unit} className="text-end">
                 <div className="text-sm font-bold text-white/60">{unit}</div>
                 <div dir="ltr" className="text-2xl font-extrabold">{qty(total)}</div>
               </div>
@@ -105,7 +107,7 @@ export function ProductionBoard() {
           return (
             <div key={p.productName} className="card p-5">
               <button
-                className="w-full text-right"
+                className="w-full text-start"
                 onClick={() => setOpen(isOpen ? null : p.productName)}
               >
                 <div className="flex items-center justify-between mb-1">
@@ -121,10 +123,10 @@ export function ProductionBoard() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm text-united-dark/50 font-bold mb-2">
-                  <span>{p.orderCount} أوردر</span>
+                  <span>{t("prodboard.orders", { count: p.orderCount })}</span>
                   {!complete && (
                     <span className="text-united-warn">
-                      باقي <span dir="ltr">{qty(remaining)} {p.unit}</span>
+                      {t("prodboard.left")} <span dir="ltr">{qty(remaining)} {p.unit}</span>
                     </span>
                   )}
                 </div>
@@ -139,7 +141,7 @@ export function ProductionBoard() {
               {isOpen && (
                 <div className="mt-4 border-t border-united-dark/5 pt-3 flex flex-col gap-1">
                   {relatedOrders.length === 0 && (
-                    <p className="text-sm text-united-dark/40">مفيش أوردرات مرتبطة دلوقتي</p>
+                    <p className="text-sm text-united-dark/40">{t("prodboard.no-related")}</p>
                   )}
                   {relatedOrders.map((o) => {
                     const item = o.items.find((i) => i.productName === p.productName)!;

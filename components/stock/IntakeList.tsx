@@ -16,6 +16,7 @@ import { localName } from "@/lib/locale/names";
 import { useLocale } from "@/lib/locale";
 
 export function IntakeList() {
+  const { t } = useLocale();
   const [date, setDate] = useState(todayLocalISO());
   const [showVoided, setShowVoided] = useState(false);
 
@@ -36,7 +37,7 @@ export function IntakeList() {
   return (
     <div className="p-4 max-w-3xl mx-auto pb-10">
       <div className="flex items-center justify-between mb-3">
-        <h1 className="text-2xl font-extrabold text-united-dark">الاستلامات</h1>
+        <h1 className="text-2xl font-extrabold text-united-dark">{t("intake.title")}</h1>
         <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
       </div>
 
@@ -46,7 +47,7 @@ export function IntakeList() {
           value={date}
           onChange={(e) => setDate(e.target.value || todayLocalISO())}
           className="tap-target border-2 border-united-dark/10 rounded-xl px-3 font-bold bg-white focus:border-united-green outline-none"
-          aria-label="تاريخ"
+          aria-label={t("intake.date")}
         />
         <button
           type="button"
@@ -56,11 +57,11 @@ export function IntakeList() {
             showVoided ? "bg-united-dark text-white" : "bg-united-dark/5 text-united-dark"
           }`}
         >
-          يشمل الملغي
+          {t("intake.include-voided")}
         </button>
         {posted.length > 0 && (
-          <span dir="ltr" className="text-sm font-bold text-united-muted mr-auto">
-            {fmtKg(good)} / {fmtKg(received)} كجم · {posted.length} استلام
+          <span className="text-sm font-bold text-united-muted ms-auto">
+            {t("intake.summary", { good: fmtKg(good), received: fmtKg(received), count: posted.length })}
           </span>
         )}
       </div>
@@ -68,7 +69,7 @@ export function IntakeList() {
       {isLoading && <LoadingState />}
       {isError && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
       {!isLoading && !isError && intakes.length === 0 && (
-        <EmptyState icon="📋" title="مفيش استلامات مسجلة في اليوم ده" />
+        <EmptyState icon="📋" title={t("intake.empty")} />
       )}
 
       <div className="flex flex-col gap-3">
@@ -81,7 +82,7 @@ export function IntakeList() {
 }
 
 function IntakeCard({ intake }: { intake: IntakeDTO }) {
-  const { locale } = useLocale();
+  const { locale, t } = useLocale();
   const qc = useQueryClient();
   const toast = useToast();
   const { can } = usePermissions();
@@ -106,7 +107,7 @@ function IntakeCard({ intake }: { intake: IntakeDTO }) {
       setMode("view");
       setReason("");
     } catch (err) {
-      const msg = err instanceof ApiClientError ? err.message : "حصل خطأ";
+      const msg = err instanceof ApiClientError && err.message ? err.message : t("ui.error.generic");
       setError(msg);
       toast.show(msg, "error");
     } finally {
@@ -123,7 +124,7 @@ function IntakeCard({ intake }: { intake: IntakeDTO }) {
         reason,
         expected_version: intake.version,
       });
-      toast.show(`اتعدّل ${intake.receiptNumber}`, "success");
+      toast.show(t("intake.toast-edited", { number: intake.receiptNumber }), "success");
     });
 
   const doVoid = () =>
@@ -132,7 +133,7 @@ function IntakeCard({ intake }: { intake: IntakeDTO }) {
         reason,
         expected_version: intake.version,
       });
-      toast.show(`اتلغى ${intake.receiptNumber}`, "success");
+      toast.show(t("intake.toast-voided", { number: intake.receiptNumber }), "success");
     });
 
   return (
@@ -140,10 +141,10 @@ function IntakeCard({ intake }: { intake: IntakeDTO }) {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-extrabold text-united-dark">{intake.product.name}</span>
+            <span className="font-extrabold text-united-dark">{localName(intake.product, locale)}</span>
             {voided && (
               <span className="text-[11px] font-extrabold bg-united-danger/10 text-united-danger px-2 py-0.5 rounded-full">
-                ملغي
+                {t("intake.voided")}
               </span>
             )}
           </div>
@@ -157,19 +158,19 @@ function IntakeCard({ intake }: { intake: IntakeDTO }) {
       </div>
 
       <div className="grid grid-cols-4 gap-2 mt-3 text-center">
-        <Cell label="مستلم" value={fmtKg(intake.receivedKg)} />
-        <Cell label="مرفوض" value={fmtKg(intake.rejectedKg)} tone="text-united-warn" />
-        <Cell label="صالح" value={fmtKg(intake.goodKg)} tone="text-united-green" />
-        <Cell label="أقفاص" value={intake.crateCount == null ? "—" : String(intake.crateCount)} />
+        <Cell label={t("intake.received")} value={fmtKg(intake.receivedKg)} />
+        <Cell label={t("intake.rejected")} value={fmtKg(intake.rejectedKg)} tone="text-united-warn" />
+        <Cell label={t("intake.good")} value={fmtKg(intake.goodKg)} tone="text-united-green" />
+        <Cell label={t("intake.crates")} value={intake.crateCount == null ? "—" : String(intake.crateCount)} />
       </div>
 
       {(Number(intake.gradeBQty) > 0 || Number(intake.wasteQty) > 0) && (
         <div className="grid grid-cols-2 gap-2 mt-2 text-center">
           {Number(intake.gradeBQty) > 0 && (
-            <Cell label="فرزة (ب)" value={fmtKg(Number(intake.gradeBQty))} tone="text-united-dark" />
+            <Cell label={t("intake.grade-b")} value={fmtKg(Number(intake.gradeBQty))} tone="text-united-dark" />
           )}
           {Number(intake.wasteQty) > 0 && (
-            <Cell label="هالك" value={fmtKg(Number(intake.wasteQty))} tone="text-united-danger" />
+            <Cell label={t("intake.waste")} value={fmtKg(Number(intake.wasteQty))} tone="text-united-danger" />
           )}
         </div>
       )}
@@ -180,15 +181,15 @@ function IntakeCard({ intake }: { intake: IntakeDTO }) {
       {!voided && mode === "view" && (
         <div className="flex gap-2 mt-3">
           <button onClick={() => setMode("edit")} className="btn-secondary flex-1 text-sm">
-            تعديل
+            {t("intake.edit")}
           </button>
           {can("stock.adjust") && (
             <button onClick={() => setMode("sort")} className="btn-primary flex-1 text-sm">
-              فرز
+              {t("intake.sort")}
             </button>
           )}
           <button onClick={() => setMode("void")} className="btn-danger flex-1 text-sm">
-            إلغاء الاستلام
+            {t("intake.void")}
           </button>
         </div>
       )}
@@ -214,25 +215,25 @@ function IntakeCard({ intake }: { intake: IntakeDTO }) {
       {mode === "edit" && (
         <div className="flex flex-col gap-2 mt-3">
           <div className="grid grid-cols-3 gap-2">
-            <EditField label="مستلم" value={receivedKg} onChange={setReceivedKg} />
-            <EditField label="مرفوض" value={rejectedKg} onChange={setRejectedKg} />
-            <EditField label="أقفاص" value={crates} onChange={setCrates} integer />
+            <EditField label={t("intake.received")} value={receivedKg} onChange={setReceivedKg} />
+            <EditField label={t("intake.rejected")} value={rejectedKg} onChange={setRejectedKg} />
+            <EditField label={t("intake.crates")} value={crates} onChange={setCrates} integer />
           </div>
           <input
-            placeholder="سبب التعديل (إجباري)"
+            placeholder={t("intake.edit-reason")}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             className="field"
           />
           <p className="text-[11px] font-bold text-united-muted">
-            التعديل بيتسجل كحركة تصحيح في السجل — الحركة الأصلية بتفضل زي ما هي.
+            {t("intake.edit-note")}
           </p>
           <div className="flex gap-2">
             <button onClick={save} disabled={busy || !reason.trim()} className="btn-primary flex-1 text-sm">
-              حفظ
+              {t("intake.save")}
             </button>
             <button onClick={() => setMode("view")} className="btn-secondary flex-1 text-sm">
-              رجوع
+              {t("intake.back")}
             </button>
           </div>
         </div>
@@ -241,20 +242,20 @@ function IntakeCard({ intake }: { intake: IntakeDTO }) {
       {mode === "void" && (
         <div className="flex flex-col gap-2 mt-3">
           <input
-            placeholder="سبب الإلغاء (إجباري)"
+            placeholder={t("intake.void-reason")}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             className="field"
           />
           <p className="text-[11px] font-bold text-united-muted">
-            مفيش حاجة بتتمسح — بيتسجل قيد عكسي بيرجّع الرصيد لمكانه.
+            {t("intake.void-note")}
           </p>
           <div className="flex gap-2">
             <button onClick={doVoid} disabled={busy || !reason.trim()} className="btn-danger flex-1 text-sm">
-              تأكيد الإلغاء
+              {t("intake.void-confirm")}
             </button>
             <button onClick={() => setMode("view")} className="btn-secondary flex-1 text-sm">
-              رجوع
+              {t("intake.back")}
             </button>
           </div>
         </div>
