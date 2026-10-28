@@ -73,6 +73,8 @@
     "hr.payroll.prepare",
     "hr.payroll.approve",
     "hr.payroll.view",
+    "hr.payroll.post",
+    "hr.payroll.pay",
     "hr.statutory.manage",
     "integrations.manage",
     "operations.trips.manage",
@@ -162,6 +164,8 @@
       "hr.employees.view",
       "hr.expenses.submit",
       "hr.leave.request",
+      "hr.payroll.pay",
+      "hr.payroll.post",
       "hr.payroll.prepare",
       "hr.payroll.view",
       "hr.statutory.manage",
@@ -1657,6 +1661,26 @@
     },
     {
       "method": "POST",
+      "path": "/api/hr/payroll/payments/[id]/reverse",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.pay"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/payroll/runs/[id]/bank-file",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.pay"
+        ]
+      }
+    },
+    {
+      "method": "POST",
       "path": "/api/hr/payroll/runs/[id]/calculate",
       "gate": {
         "kind": "all",
@@ -1686,12 +1710,84 @@
       }
     },
     {
+      "method": "GET",
+      "path": "/api/hr/payroll/runs/[id]/journal",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.payroll.prepare",
+          "hr.payroll.view",
+          "hr.payroll.approve",
+          "hr.payroll.post",
+          "hr.payroll.pay"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/payroll/runs/[id]/payments",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.payroll.prepare",
+          "hr.payroll.view",
+          "hr.payroll.approve",
+          "hr.payroll.post",
+          "hr.payroll.pay"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/payroll/runs/[id]/payments",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.pay"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/payroll/runs/[id]/post",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.post"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/payroll/runs/[id]/register",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.payroll.prepare",
+          "hr.payroll.view",
+          "hr.payroll.approve",
+          "hr.payroll.post",
+          "hr.payroll.pay"
+        ]
+      }
+    },
+    {
       "method": "POST",
       "path": "/api/hr/payroll/runs/[id]/reopen",
       "gate": {
         "kind": "all",
         "permissions": [
           "hr.payroll.approve"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/payroll/runs/[id]/reverse",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.post"
         ]
       }
     },
@@ -1703,7 +1799,9 @@
         "permissions": [
           "hr.payroll.prepare",
           "hr.payroll.view",
-          "hr.payroll.approve"
+          "hr.payroll.approve",
+          "hr.payroll.post",
+          "hr.payroll.pay"
         ]
       }
     },
@@ -1735,7 +1833,9 @@
         "permissions": [
           "hr.payroll.prepare",
           "hr.payroll.view",
-          "hr.payroll.approve"
+          "hr.payroll.approve",
+          "hr.payroll.post",
+          "hr.payroll.pay"
         ]
       }
     },
@@ -3671,6 +3771,8 @@
         "hr.payroll.prepare",
         "hr.payroll.view",
         "hr.payroll.approve",
+        "hr.payroll.post",
+        "hr.payroll.pay",
         "hr.statutory.manage"
       ],
       "pageOpenToAll": false

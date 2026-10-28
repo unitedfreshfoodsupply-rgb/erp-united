@@ -58,7 +58,7 @@ export const NAV_LINKS: NavLink[] = [
   { href: "/hr", labelKey: "nav.link.hr", label: "الموظفين والمصروفات", permission: "hr.expenses.submit", group: "admin", primary: true },
   { href: "/hr/attendance", labelKey: "nav.link.attendance", label: "الحضور والانصراف", permission: ["hr.attendance.record", "hr.attendance.approve", "hr.employees.manage"], group: "admin", primary: true },
   { href: "/hr/leave", labelKey: "nav.link.leave", label: "الإجازات", permission: ["hr.leave.request", "hr.leave.approve", "hr.leave.configure"], group: "admin", primary: true },
-  { href: "/hr/payroll", labelKey: "nav.link.payroll", label: "المرتبات", permission: ["hr.compensation.view", "hr.compensation.manage", "hr.payroll.prepare", "hr.payroll.view", "hr.payroll.approve", "hr.statutory.manage"], group: "admin", primary: true },
+  { href: "/hr/payroll", labelKey: "nav.link.payroll", label: "المرتبات", permission: ["hr.compensation.view", "hr.compensation.manage", "hr.payroll.prepare", "hr.payroll.view", "hr.payroll.approve", "hr.payroll.post", "hr.payroll.pay", "hr.statutory.manage"], group: "admin", primary: true },
   { href: "/management", labelKey: "nav.link.management", label: "تقارير الإدارة", permission: "reports.finance", group: "finance", primary: true },
   { href: "/management/operations", labelKey: "nav.link.ops-report", label: "أداء التشغيل", permission: "reports.view", group: "control", primary: true },
   { href: "/stock", labelKey: "nav.link.stock", label: "المخزون", permission: "stock.view", group: "stock", primary: true },

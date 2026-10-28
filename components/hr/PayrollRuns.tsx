@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Calculator, ChevronDown, ChevronUp, Plus, Send, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Calculator, ChevronDown, ChevronUp, FileSpreadsheet, Plus, Send, ShieldCheck } from "lucide-react";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
@@ -12,6 +12,7 @@ import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
+import { PaymentsPanel, PostingPanel } from "@/components/hr/PayrollPosting";
 
 /**
  * The payroll run workspace (docs/erp/DESIGN_SYSTEM.md §8.4): one month's run, its blocking
@@ -30,11 +31,12 @@ type RunSummary = { id: string; number: string; period: string; status: string; 
 type Run = RunSummary & {
   gross: string; employeeDeductions: string; employerContributions: string; advanceRecovery: string; submittedBy: string | null; approvalRequestId: string | null; calculatedAt: string | null;
   calculationHash: string | null; exceptions: Exception[] | null; cancelledReason: string | null; employees: Slip[];
+  postedBy: string | null; postingDate: string | null; reversedBy: string | null; reversalReason: string | null;
   snapshots: { sequence: number; calculationHash: string; calculatedBy: string; calculatedAt: string; totals: Record<string, unknown> }[];
-  can: { edit: boolean; calculate: boolean; submit: boolean; withdraw: boolean; decide: boolean; reopen: boolean; cancel: boolean };
+  can: { edit: boolean; calculate: boolean; submit: boolean; withdraw: boolean; decide: boolean; reopen: boolean; cancel: boolean; post: boolean; reverse: boolean; pay: boolean; bankFile: boolean };
 };
 
-const RUN_TONE: Record<string, Tone> = { draft: "neutral", calculated: "info", pending_approval: "warn", approved: "success", cancelled: "neutral" };
+const RUN_TONE: Record<string, Tone> = { draft: "neutral", calculated: "info", pending_approval: "warn", approved: "success", posted: "success", reversed: "danger", cancelled: "neutral" };
 const fail = (t: (k: string) => string, err: unknown) => (err instanceof ApiClientError ? err.message : t("hr.error"));
 
 export function PayrollRuns() {
@@ -137,6 +139,7 @@ function RunDetail({ id, onBack }: { id: string; onBack: () => void }) {
               <button type="button" className="btn-danger btn-sm" disabled={busy} onClick={() => withReason(t("pay.return"), (comment) => apiPost(`/api/approvals/${run.approvalRequestId}/decide`, { decision: "reject", comment }), t("pay.returned"))}>{t("pay.return")}</button>
             </>}
             {run.can.reopen && <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={() => withReason(t("pay.reopen"), (reason) => apiPost(`/api/hr/payroll/runs/${id}/reopen`, { reason }), t("pay.saved"))}>{t("pay.reopen")}</button>}
+            {run.status !== "draft" && run.status !== "cancelled" && <a className="btn-ghost btn-sm gap-1.5" href={`/api/hr/payroll/runs/${id}/register`}><FileSpreadsheet size={16} aria-hidden />{t("pay.register")}</a>}
             {run.can.cancel && <button type="button" className="btn-ghost btn-sm text-united-danger" disabled={busy} onClick={() => withReason(t("pay.cancel_run"), (reason) => apiPost(`/api/hr/payroll/runs/${id}/cancel`, { reason }), t("pay.saved"))}>{t("pay.cancel_run")}</button>}
           </div>
         </div>
@@ -149,8 +152,11 @@ function RunDetail({ id, onBack }: { id: string; onBack: () => void }) {
           {t("pay.prepared_by")} {run.preparedBy}{run.submittedBy ? ` · ${t("pay.submitted_by")} ${run.submittedBy}` : ""}{run.approvedBy ? ` · ${t("pay.approved_by")} ${run.approvedBy}` : ""}
           {run.calculationHash ? <> · <span dir="ltr">#{run.calculationHash.slice(0, 12)}</span></> : null}{run.cancelledReason ? ` · ${run.cancelledReason}` : ""}
         </div>
-        <p className="border-t border-united-border bg-united-subtle px-5 py-2 text-xs text-united-muted">{t("pay.no_posting_note")}</p>
+        {!["approved", "posted", "reversed"].includes(run.status) && <p className="border-t border-united-border bg-united-subtle px-5 py-2 text-xs text-united-muted">{t("pay.no_posting_note")}</p>}
       </section>
+
+      <PostingPanel run={run} />
+      <PaymentsPanel run={run} />
 
       {(errors.length > 0 || warnings.length > 0) && (
         <section className="card p-4">

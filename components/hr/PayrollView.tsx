@@ -39,7 +39,7 @@ const useComponents = (enabled = true) => useQuery({ queryKey: ["hr", "payroll",
 export function PayrollView() {
   const { t } = useLocale();
   const { can } = usePermissions();
-  const runs = can("hr.payroll.prepare") || can("hr.payroll.view") || can("hr.payroll.approve");
+  const runs = can("hr.payroll.prepare") || can("hr.payroll.view") || can("hr.payroll.approve") || can("hr.payroll.post") || can("hr.payroll.pay");
   const salaries = can("hr.compensation.view");
   const components = salaries || can("hr.compensation.manage") || runs;
   const rules = can("hr.statutory.manage") || runs;

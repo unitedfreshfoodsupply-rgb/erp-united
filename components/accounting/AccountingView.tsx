@@ -643,7 +643,7 @@ function Health() {
       <ul className="flex flex-col gap-2">
         {r.checks.map((c) => (
           <li key={c.key} className="card p-3 flex flex-col gap-1 text-sm font-bold">
-            <div className="flex justify-between gap-2"><span>{c.ok ? "✓" : "✗"} {checkLabel(c)}</span>{c.count !== undefined && c.key !== "waste_pending" && <span>{c.count}</span>}</div>
+            <div className="flex justify-between gap-2"><span>{c.ok ? "✓" : "✗"} {checkLabel(c)}</span>{c.count !== undefined && !["waste_pending", "payroll"].includes(c.key) && <span>{c.count}</span>}</div>
             {c.subledger !== undefined && c.ledger !== undefined && (
               <div className="text-xs text-united-muted flex flex-wrap gap-3">
                 <span>{t("accounting.detail.documents")} <span dir="ltr">{fmtMoney(c.subledger)}</span></span>

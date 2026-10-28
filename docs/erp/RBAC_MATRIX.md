@@ -80,6 +80,8 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `hr.payroll.prepare` — تجهيز المرتبات | ✓ |  |  |  |  |  | ✓ |  |
 | `hr.payroll.approve` — اعتماد المرتبات | ✓ |  |  |  |  |  |  |  |
 | `hr.payroll.view` — عرض المرتبات المحسوبة | ✓ |  |  |  |  |  | ✓ |  |
+| `hr.payroll.post` — ترحيل المرتبات | ✓ |  |  |  |  |  | ✓ |  |
+| `hr.payroll.pay` — صرف المرتبات | ✓ |  |  |  |  |  | ✓ |  |
 | `hr.statutory.manage` — القواعد القانونية للمرتبات | ✓ |  |  |  |  |  | ✓ |  |
 | `integrations.manage` — إدارة التكاملات | ✓ |  |  |  |  |  |  |  |
 | `operations.trips.manage` — تخطيط الرحلات والأسطول | ✓ | ✓ |  |  |  |  |  |  |
@@ -106,7 +108,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `/hr` الموظفين والمصروفات (`hr.expenses.submit`) | ✓ | ✓ |  |  |  |  | ✓ |  |
 | `/hr/attendance` الحضور والانصراف (`hr.attendance.record` / `hr.attendance.approve` / `hr.employees.manage`) | ✓ | ✓ |  |  |  |  | ✓ |  |
 | `/hr/leave` الإجازات (`hr.leave.request` / `hr.leave.approve` / `hr.leave.configure`) | ✓ |  |  |  |  |  | ✓ |  |
-| `/hr/payroll` المرتبات (`hr.compensation.view` / `hr.compensation.manage` / `hr.payroll.prepare` / `hr.payroll.view` / `hr.payroll.approve` / `hr.statutory.manage`) | ✓ |  |  |  |  |  | ✓ |  |
+| `/hr/payroll` المرتبات (`hr.compensation.view` / `hr.compensation.manage` / `hr.payroll.prepare` / `hr.payroll.view` / `hr.payroll.approve` / `hr.payroll.post` / `hr.payroll.pay` / `hr.statutory.manage`) | ✓ |  |  |  |  |  | ✓ |  |
 | `/management` تقارير الإدارة (`reports.finance`) | ✓ |  |  |  |  |  | ✓ |  |
 | `/management/operations` أداء التشغيل (`reports.view`) | ✓ | ✓ |  |  |  |  |  |  |
 | `/stock` المخزون (`stock.view`) | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |
@@ -264,14 +266,22 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | PATCH | `/api/hr/payroll/components/[id]` | `hr.compensation.manage` | ✓ |  |  |  |  |  | ✓ |  |
 | GET | `/api/hr/payroll/components` | any of `hr.compensation.view`, `hr.compensation.manage`, `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve` | ✓ |  |  |  |  |  | ✓ |  |
 | POST | `/api/hr/payroll/components` | `hr.compensation.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/payroll/payments/[id]/reverse` | `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/payroll/runs/[id]/bank-file` | `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |
 | POST | `/api/hr/payroll/runs/[id]/calculate` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |
 | POST | `/api/hr/payroll/runs/[id]/cancel` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |
 | PATCH | `/api/hr/payroll/runs/[id]/employees/[employeeId]` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/payroll/runs/[id]/journal` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve`, `hr.payroll.post`, `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/payroll/runs/[id]/payments` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve`, `hr.payroll.post`, `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/payroll/runs/[id]/payments` | `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/payroll/runs/[id]/post` | `hr.payroll.post` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/payroll/runs/[id]/register` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve`, `hr.payroll.post`, `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |
 | POST | `/api/hr/payroll/runs/[id]/reopen` | `hr.payroll.approve` | ✓ |  |  |  |  |  |  |  |
-| GET | `/api/hr/payroll/runs/[id]` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/payroll/runs/[id]/reverse` | `hr.payroll.post` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/payroll/runs/[id]` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve`, `hr.payroll.post`, `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |
 | POST | `/api/hr/payroll/runs/[id]/submit` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |
 | POST | `/api/hr/payroll/runs/[id]/withdraw` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |
-| GET | `/api/hr/payroll/runs` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/payroll/runs` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve`, `hr.payroll.post`, `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |
 | POST | `/api/hr/payroll/runs` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |
 | PATCH | `/api/hr/schedules/[id]` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |
 | GET | `/api/hr/schedules` | any of `hr.attendance.record`, `hr.attendance.approve`, `hr.employees.manage` | ✓ | ✓ |  |  |  |  | ✓ |  |

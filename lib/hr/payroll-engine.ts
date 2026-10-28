@@ -87,8 +87,9 @@ export async function calculatePayroll(tx: Tx, run: { id: string; period: string
     tx.payComponent.findMany({ where: { active: true, systemRole: { not: null } } }),
     tx.employeeTransaction.groupBy({ by: ["employeeId"], where: { employeeId: { in: ids }, type: "salary_on_account", payrollPeriod: run.period }, _sum: { amount: true } }),
     tx.journalLine.groupBy({ by: ["partyId"], where: { partyType: "employee", partyId: { in: ids }, account: { systemKey: "employee_advances" } }, _sum: { debit: true, credit: true } }),
-    // Recoveries already counted by other live runs (nothing is posted yet, so the journal does not show them).
-    tx.payrollRunEmployee.groupBy({ by: ["employeeId"], where: { employeeId: { in: ids }, runId: { not: run.id }, inclusion: "included", run: { status: { not: "cancelled" } } }, _sum: { advanceRecovery: true } }),
+    // Recoveries counted by other runs not yet posted (a posted run's recovery is already in the
+    // journal balance above; a reversed one's was reversed there).
+    tx.payrollRunEmployee.groupBy({ by: ["employeeId"], where: { employeeId: { in: ids }, runId: { not: run.id }, inclusion: "included", run: { status: { notIn: ["cancelled", "posted", "reversed"] } } }, _sum: { advanceRecovery: true } }),
     tx.employee.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true, jobTitle: true, department: { select: { name: true } } } }),
   ]);
 

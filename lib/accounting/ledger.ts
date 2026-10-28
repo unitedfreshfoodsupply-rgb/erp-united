@@ -55,7 +55,7 @@ export type PostLine = {
   description?: string;
 };
 
-export type SourceType = "manual" | "sales_invoice" | "credit_note" | "supplier_bill" | "debit_note" | "customer_receipt" | "supplier_payment" | "stock_valuation" | "reversal" | "expense" | "employee_transaction" | "opening_balance" | "receipt_reversal" | "payment_reversal" | "customer_refund" | "supplier_refund";
+export type SourceType = "manual" | "sales_invoice" | "credit_note" | "supplier_bill" | "debit_note" | "customer_receipt" | "supplier_payment" | "stock_valuation" | "reversal" | "expense" | "employee_transaction" | "opening_balance" | "receipt_reversal" | "payment_reversal" | "customer_refund" | "supplier_refund" | "payroll_run" | "payroll_payment";
 
 async function accountIds(tx: Tx, keys: SystemKey[]) {
   const rows = await tx.account.findMany({ where: { systemKey: { in: keys } }, select: { id: true, systemKey: true } });

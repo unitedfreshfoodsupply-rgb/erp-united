@@ -1,11 +1,12 @@
-/* HR phases 4–5 — compensation, statutory rule sets and payroll runs up to approval
+/* HR phases 4–5 and Phase D — compensation, statutory rule sets, payroll runs up to approval,
+   then posting, payments, exports and reversal
    (docs/erp/HR_PAYROLL_GAP_AUDIT.md §3.6–3.10, §4.1–4.5).
    Every rate, limit and bracket below is a TEST VALUE chosen to make the arithmetic checkable by
    hand — none is a statutory figure. The suite checks that payroll refuses to calculate without
    verified rules, that the figures follow the entered rules exactly, that nobody approves their
    own package / rule / run, that submission freezes the figures and the attendance, and that an
    approval is refused when anything changed after submission. */
-import { call, login, makeChecker } from "./_harness";
+import { call, login, makeChecker, page } from "./_harness";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { assertTestDatabase } from "./_guard";
 
@@ -242,6 +243,140 @@ async function main() {
   check("payroll and salary audit rows are hidden from the supervisor", saraAudit.every((l: any) => !["payroll_run", "payroll_adjustment", "employee_compensation", "pay_component", "statutory_rule_set"].includes(l.entityType)));
   const audited = new Set((await s.auditLog.findMany({ where: { OR: [{ entityType: "payroll_run", entityId: run.id }, { action: { in: ["compensation_proposed", "compensation_approved", "rule_set_verified", "payroll_adjustment_created"] } }], timestamp: { gte: new Date(Date.now() - 3600_000) } }, select: { action: true } })).map((a) => a.action));
   check("every step is audited", ["payroll_run_created", "payroll_run_calculated", "payroll_run_submitted", "payroll_run_returned", "payroll_run_withdrawn", "payroll_run_approved", "compensation_proposed", "compensation_approved", "rule_set_verified", "payroll_adjustment_created"].every((a) => audited.has(a)), [...audited]);
+
+  // =========================================================================
+  section("10. POSTING — only with the accounts the accountant chose");
+  async function setting(key: string, value: unknown) {
+    const cur = (await call("admin", "GET", "/api/admin/settings")).body.settings.find((x: any) => x.key === key);
+    const res = await call("admin", "PATCH", `/api/admin/settings/${key}`, { value, reason: TAG, expected_version: cur.version });
+    if (res.status !== 200) throw new Error(`setting ${key}: ${JSON.stringify(res.body)}`);
+  }
+  await setting("hr.payroll_net_pay_account", null);
+  let preview = (await call("karim", "GET", `/api/hr/payroll/runs/${run.id}/journal`)).body;
+  const problemCodes = (preview.problems ?? []).map((p: any) => `${p.code}:${p.params?.component ?? ""}`);
+  check("the preview lists every missing account (net salaries, component expense)", problemCodes.includes("net_pay_account_missing:") && problemCodes.includes(`expense_account_missing:${BASIC.code}`), problemCodes);
+  r = await call("karim", "POST", `/api/hr/payroll/runs/${run.id}/post`, {});
+  check("posting is refused while accounts are missing (409), nothing posted", r.status === 409 && (await s.journalEntry.count({ where: { sourceType: "payroll_run", sourceId: run.id } })) === 0, r.body);
+  check("the supervisor cannot post (403)", (await call("sara", "POST", `/api/hr/payroll/runs/${run.id}/post`, {})).status === 403);
+  check("the supervisor cannot read the preview (403)", (await call("sara", "GET", `/api/hr/payroll/runs/${run.id}/journal`)).status === 403);
+
+  const code = () => `9${String(Date.now() + Math.floor(Math.random() * 1000)).slice(-6)}`;
+  const account = async (parent_id: string, name: string) => (await call("karim", "POST", "/api/accounting/accounts", { code: code(), name: `${TAG} ${name}`, name_ar: `${TAG} ${name}`, parent_id })).body.account;
+  const EXP = await account("acc_6000", "salaries test");
+  const LIAB = await account("acc_2000", "withholdings test");
+  const NET = await account("acc_2000", "net salaries test");
+  check("finance opens test accounts (expense, liability, net salaries)", !!EXP?.id && !!LIAB?.id && !!NET?.id, [EXP, LIAB, NET]);
+  r = await call("karim", "PATCH", `/api/hr/payroll/components/${BASIC.id}`, { code: BASIC.code, name_ar: BASIC.nameAr, kind: "earning", method: "fixed", taxable: true, insurable: true, active: true, expense_account_id: EXP.id, expected_version: (await s.payComponent.findUniqueOrThrow({ where: { id: BASIC.id } })).version });
+  check("finance maps a component to its expense account", r.status === 200, r.body);
+  await s.payComponent.updateMany({ where: { id: { in: [ALLOW.id, BONUS.id] } }, data: { expenseAccountId: EXP.id } });
+  for (const role of ["overtime_day", "overtime_night", "overtime_rest_day", "overtime_holiday", "unpaid_absence", "partial_leave"]) await s.payComponent.updateMany({ where: { systemRole: role }, data: { expenseAccountId: EXP.id, liabilityAccountId: null } });
+  for (const role of ["social_insurance_employee", "income_tax"]) await s.payComponent.updateMany({ where: { systemRole: role }, data: { liabilityAccountId: LIAB.id, expenseAccountId: null } });
+  await s.payComponent.updateMany({ where: { systemRole: "social_insurance_employer" }, data: { expenseAccountId: EXP.id, liabilityAccountId: LIAB.id } });
+  await setting("hr.payroll_net_pay_account", EXP.code);
+  preview = (await call("karim", "GET", `/api/hr/payroll/runs/${run.id}/journal`)).body;
+  check("an expense account as net salaries is refused (must be a liability)", (preview.problems ?? []).some((p: any) => p.code === "net_pay_account_invalid"), preview.problems);
+  await setting("hr.payroll_net_pay_account", NET.code);
+  preview = (await call("karim", "GET", `/api/hr/payroll/runs/${run.id}/journal`)).body;
+  const runNow = await s.payrollRun.findUniqueOrThrow({ where: { id: run.id } });
+  const slipLines = await s.payrollRunLine.findMany({ where: { runEmployee: { runId: run.id, inclusion: "included" } } });
+  const sumKind = (k: string) => slipLines.filter((l) => l.kind === k).reduce((a, l) => a + Number(l.amount), 0);
+  const expectedDebit = money(sumKind("earning") + sumKind("employer_contribution"));
+  check("with every account set: no problem, balanced", (preview.problems ?? []).length === 0 && preview.balanced === true, preview.problems);
+  check(`the entry debits earnings + employer contributions (${expectedDebit})`, money(preview.totals?.debit) === expectedDebit && money(preview.totals?.credit) === expectedDebit, preview.totals);
+  check("net salaries credited in one line equal to the run's net", preview.lines.filter((l: any) => l.role === "net").length === 1 && money(preview.lines.find((l: any) => l.role === "net").amount) === money(runNow.netPayable), preview.lines);
+  check("the preview is dated the month's last day", preview.date === last, preview.date);
+
+  r = await call("karim", "POST", `/api/hr/payroll/runs/${run.id}/post`, {});
+  const posted = await s.payrollRun.findUniqueOrThrow({ where: { id: run.id } });
+  const je = await s.journalEntry.findFirst({ where: { sourceType: "payroll_run", sourceId: run.id }, include: { lines: { include: { account: true } } } });
+  check("finance posts the approved run: one entry, status posted", r.status === 200 && posted.status === "posted" && posted.journalEntryId === je?.id && je?.date === last, r.body);
+  check("the entry total = earnings + employer contributions", money(je?.total) === expectedDebit, je?.total);
+  const advLine = je?.lines.find((l) => l.account.systemKey === "employee_advances");
+  check("e1's on-account 500 credits employee advances against e1", money(advLine?.credit) === "500.00" && advLine?.partyType === "employee" && advLine?.partyId === e1.id, advLine);
+  check("no journal line carries an individual net salary (net line has no party)", je!.lines.filter((l) => l.accountId === NET.id).every((l) => !l.partyId) && je!.lines.filter((l) => l.accountId === NET.id).length === 1);
+  check("posting twice -> 409", (await call("karim", "POST", `/api/hr/payroll/runs/${run.id}/post`, {})).status === 409);
+  check("a posted run cannot be reopened (409)", (await call("admin", "POST", `/api/hr/payroll/runs/${run.id}/reopen`, { reason: "x" })).status === 409);
+  check("the bonus adjustment is applied", (await s.payrollAdjustment.findUnique({ where: { id: adj.id } }))?.status === "applied");
+  check("a new adjustment for a posted month -> 409", (await call("karim", "POST", "/api/hr/payroll/adjustments", { employee_id: e2.id, target_period: P, pay_component_id: BONUS.id, amount: 1, reason: "x" })).status === 409);
+  check("DB: a posted run's figures cannot change", await rejects(() => s.payrollRun.update({ where: { id: run.id }, data: { gross: 1, netPayable: 1 } })));
+  check("DB: a posted run cannot go back to approved", await rejects(() => s.payrollRun.update({ where: { id: run.id }, data: { status: "approved" } })));
+  let health = (await call("karim", "GET", "/api/accounting/integrity")).body.integrity;
+  const payCheck = () => health.checks.find((c: any) => c.key === "payroll");
+  const owedAfterPost = Number(payCheck()?.subledger);
+  check("Accounts Health: payroll owed = net salaries account, books balanced", payCheck()?.ok === true && health.checks.find((c: any) => c.key === "trial_balance")?.ok === true && health.checks.find((c: any) => c.key === "traceable")?.ok === true, health.checks);
+
+  // =========================================================================
+  section("11. PAYMENTS — partial, capped at each payslip's net, reversible");
+  const slipOf = async (emp: string) => s.payrollRunEmployee.findFirstOrThrow({ where: { runId: run.id, employeeId: emp } });
+  const net1 = Number((await slipOf(e1.id)).netPayable);
+  const net2 = Number((await slipOf(e2.id)).netPayable);
+  const payBody = (extra: Record<string, unknown>) => ({ date: last, cash_account_id: "bank_main", method: "bank_transfer", ...extra });
+  check("the supervisor cannot pay (403)", (await call("sara", "POST", `/api/hr/payroll/runs/${run.id}/payments`, payBody({ all_remaining: true }))).status === 403);
+  check("more than e1's net -> 400", (await call("karim", "POST", `/api/hr/payroll/runs/${run.id}/payments`, payBody({ lines: [{ employee_id: e1.id, amount: (net1 + 1).toFixed(2) }] }))).status === 400);
+  check("an employee on hold cannot be paid (400)", (await call("karim", "POST", `/api/hr/payroll/runs/${run.id}/payments`, payBody({ lines: [{ employee_id: e3.id, amount: "1" }] }))).status === 400);
+  const key1 = `${TAG}-pay-1`;
+  r = await call("karim", "POST", `/api/hr/payroll/runs/${run.id}/payments`, payBody({ lines: [{ employee_id: e1.id, amount: "1000" }], reference: "TRX-1", idempotency_key: key1 }));
+  const pay1 = r.body.payment;
+  const pay1je = !pay1 ? null : (await s.journalEntry.findFirst({ where: { sourceType: "payroll_payment", sourceId: pay1.id }, include: { lines: true } }));
+  check("finance pays e1 1000 (PPY-, its own entry: Dr net salaries, Cr bank)", r.status === 201 && /^PPY-/.test(pay1?.number ?? "") && money(pay1je?.total) === "1000.00" && pay1je!.lines.some((l) => l.accountId === NET.id && money(l.debit) === "1000.00"), r.body);
+  check("the same key replays the same payment", (await call("karim", "POST", `/api/hr/payroll/runs/${run.id}/payments`, payBody({ lines: [{ employee_id: e1.id, amount: "1000" }], reference: "TRX-1", idempotency_key: key1 }))).body.payment?.id === pay1?.id);
+  check("the same key with another amount -> 409", (await call("karim", "POST", `/api/hr/payroll/runs/${run.id}/payments`, payBody({ lines: [{ employee_id: e1.id, amount: "999" }], reference: "TRX-1", idempotency_key: key1 }))).status === 409);
+  let pays = (await call("karim", "GET", `/api/hr/payroll/runs/${run.id}/payments`)).body;
+  const remain = (emp: string) => pays.slips.find((x: any) => x.employeeId === emp);
+  check("e1 shows 1000 paid and the rest unpaid", money(remain(e1.id)?.paid) === "1000.00" && money(remain(e1.id)?.remaining) === money(net1 - 1000), remain(e1.id));
+  const slip2 = await slipOf(e2.id);
+  check("DB: a payment line above a payslip's net is refused", await rejects(() => strictTx(async (tx) => { await tx.payrollPaymentLine.create({ data: { paymentId: pay1.id, runEmployeeId: slip2.id, amount: net2 + 1 } }); })));
+  const pay1line = await s.payrollPaymentLine.findFirstOrThrow({ where: { paymentId: pay1.id } });
+  check("DB: payment lines are append-only", await rejects(() => s.payrollPaymentLine.update({ where: { id: pay1line.id }, data: { amount: 1 } })));
+  check("DB: a payment's amount cannot change", await rejects(() => s.payrollPayment.update({ where: { id: pay1.id }, data: { amount: 1 } })));
+  check("reversing a run with a live payment -> 409", (await call("karim", "POST", `/api/hr/payroll/runs/${run.id}/reverse`, { reason: "غلط" })).status === 409);
+  check("…and the run screen does not offer reversal while a payment is live", (await call("karim", "GET", `/api/hr/payroll/runs/${run.id}`)).body.can?.reverse === false);
+
+  r = await call("karim", "GET", `/api/hr/payroll/runs/${run.id}/register`);
+  check("payroll register CSV: a row per included payslip with net and paid", r.status === 200 && typeof r.body === "string" && r.body.includes(e1.code) && r.body.includes(e2.code) && !r.body.includes(e3.code) && r.body.includes("Net"), typeof r.body === "string" ? r.body.slice(0, 300) : r.body);
+  check("the supervisor cannot export the register (403)", (await call("sara", "GET", `/api/hr/payroll/runs/${run.id}/register`)).status === 403);
+  check("bank file needs private-data access: finance without it -> 403", (await call("karim", "GET", `/api/hr/payroll/runs/${run.id}/bank-file`)).status === 403);
+  r = await call("admin", "GET", `/api/hr/payroll/runs/${run.id}/bank-file`);
+  const bankRow = typeof r.body === "string" ? r.body.split("\r\n").find((l: string) => l.startsWith(e1.code)) : undefined;
+  check("bank file: e1's unpaid remainder, flagged with no verified account (no number printed)", r.status === 200 && !!bankRow && bankRow.includes(money(net1 - 1000)) && bankRow.endsWith("no_account"), bankRow ?? r.body);
+  const slipPage = await page("karim", `/hr/payroll/runs/${run.id}/payslips/${e1.id}/print`);
+  check("bilingual payslip prints for a posted run", slipPage.status === 200 && slipPage.html.includes("Payslip") && slipPage.html.includes("قسيمة مرتب") && slipPage.html.includes(e1.code), slipPage.status);
+  check("the supervisor cannot open a payslip", !(await page("sara", `/hr/payroll/runs/${run.id}/payslips/${e1.id}/print`)).html.includes("data-payslip"));
+
+  check("reversing a payment needs a reason (400)", (await call("karim", "POST", `/api/hr/payroll/payments/${pay1.id}/reverse`, {})).status === 400);
+  r = await call("karim", "POST", `/api/hr/payroll/payments/${pay1.id}/reverse`, { reason: "اتحول لحساب غلط" });
+  const pay1rev = await s.payrollPayment.findUniqueOrThrow({ where: { id: pay1.id }, include: { reversalEntry: true } });
+  check("finance reverses the payment: reversing entry, e1 unpaid again", r.status === 200 && !!pay1rev.reversedAt && pay1rev.reversalEntry?.reversalOfId === pay1je?.id, r.body);
+  check("reversing it twice -> 409", (await call("karim", "POST", `/api/hr/payroll/payments/${pay1.id}/reverse`, { reason: "x" })).status === 409);
+  const twin = await Promise.all([1, 2].map(() => call("karim", "POST", `/api/hr/payroll/runs/${run.id}/payments`, payBody({ lines: [{ employee_id: e2.id, amount: net2.toFixed(2) }] }))));
+  check("two parallel full payments of e2: exactly one is recorded", twin.filter((x) => x.status === 201).length === 1 && twin.filter((x) => x.status === 400 || x.status === 409).length === 1, twin.map((x) => x.status));
+  r = await call("karim", "POST", `/api/hr/payroll/runs/${run.id}/payments`, payBody({ all_remaining: true }));
+  pays = (await call("karim", "GET", `/api/hr/payroll/runs/${run.id}/payments`)).body;
+  check("pay all unpaid: the rest is paid, nothing left", r.status === 201 && money(r.body.payment?.amount) === money(net1) && money(pays.totals.remaining) === "0.00", [r.body, pays.totals]);
+  check("nothing left to pay -> 409", (await call("karim", "POST", `/api/hr/payroll/runs/${run.id}/payments`, payBody({ all_remaining: true }))).status === 409);
+  health = (await call("karim", "GET", "/api/accounting/integrity")).body.integrity;
+  // Other posted runs may share the database; this run's share of what is owed must be gone.
+  check("Accounts Health after payments: this run owes nothing, ledger agrees", payCheck()?.ok === true && money(payCheck()?.subledger) === money(owedAfterPost - net1 - net2), [payCheck(), owedAfterPost]);
+
+  // =========================================================================
+  section("12. REVERSAL — only with nothing paid; the month opens again");
+  for (const live of await s.payrollPayment.findMany({ where: { runId: run.id, reversedAt: null } })) await call("karim", "POST", `/api/hr/payroll/payments/${live.id}/reverse`, { reason: "عكس قبل عكس المسير" });
+  check("the supervisor cannot reverse a run (403)", (await call("sara", "POST", `/api/hr/payroll/runs/${run.id}/reverse`, { reason: "x" })).status === 403);
+  check("reversing needs a reason (400)", (await call("karim", "POST", `/api/hr/payroll/runs/${run.id}/reverse`, {})).status === 400);
+  r = await call("karim", "POST", `/api/hr/payroll/runs/${run.id}/reverse`, { reason: "مكافأة اتسجلت غلط" });
+  const reversed = await s.payrollRun.findUniqueOrThrow({ where: { id: run.id }, include: { reversalEntry: true } });
+  check("finance reverses the run: reversing entry of the posting, status reversed", r.status === 200 && reversed.status === "reversed" && reversed.reversalEntry?.reversalOfId === posted.journalEntryId, r.body);
+  check("the bonus is open again for the next run", (await s.payrollAdjustment.findUnique({ where: { id: adj.id } }))?.status === "open");
+  check("the month's attendance is unlocked", (await s.attendanceDay.count({ where: { lockedRunId: run.id } })) === 0);
+  check("DB: a reversed run cannot change", await rejects(() => s.payrollRun.update({ where: { id: run.id }, data: { status: "posted" } })));
+  health = (await call("karim", "GET", "/api/accounting/integrity")).body.integrity;
+  check("Accounts Health after reversal: all green", health.ok === true, health.checks.filter((c: any) => !c.ok));
+  r = await call("karim", "POST", "/api/hr/payroll/runs", { period: P });
+  check("the month accepts a new regular run", r.status === 201, r.body);
+  if (r.body.run) await call("karim", "POST", `/api/hr/payroll/runs/${r.body.run.id}/cancel`, { reason: "اختبار — مش هيتحسب" });
+  const pAudit = new Set((await s.auditLog.findMany({ where: { OR: [{ entityType: "payroll_run", entityId: run.id }, { entityType: "payroll_payment", fieldChanged: run.number }, { entityType: "payroll_payment", entityId: pay1.id }] }, select: { action: true } })).map((a) => a.action));
+  check("posting, payments, exports and reversals are audited", ["payroll_run_posted", "payroll_payment_recorded", "payroll_payment_reversed", "payroll_register_exported", "payroll_bank_file_exported", "payroll_run_reversed"].every((a) => pAudit.has(a)), [...pAudit]);
+  await setting("hr.payroll_net_pay_account", null);
 
   await db?.$disconnect();
   finish("HR PAYROLL");

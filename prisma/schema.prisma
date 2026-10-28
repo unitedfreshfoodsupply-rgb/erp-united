@@ -2007,6 +2007,7 @@ model Account {
 
   payComponentsExpense   PayComponent[] @relation("PayComponentExpense")
   payComponentsLiability PayComponent[] @relation("PayComponentLiability")
+  payrollRunsNetPay      PayrollRun[]   @relation("PayrollNetPay")
 }
 
 model AccountingPeriod {
@@ -2042,6 +2043,11 @@ model JournalEntry {
   reversalOf JournalEntry? @relation("Reversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
   reversedBy JournalEntry? @relation("Reversal")
   lines      JournalLine[]
+
+  payrollRun             PayrollRun?     @relation("PayrollRunEntry")
+  payrollRunReversal     PayrollRun?     @relation("PayrollRunReversal")
+  payrollPayment         PayrollPayment? @relation("PayrollPaymentEntry")
+  payrollPaymentReversal PayrollPayment? @relation("PayrollPaymentReversal")
 
   valuationPostings StockValuationPosting[]
 
@@ -2087,6 +2093,7 @@ model CashAccount {
   customerRefunds CustomerRefund[]
   supplierRefunds SupplierRefund[]
   reconciliations BankReconciliation[]
+  payrollPayments PayrollPayment[]
 }
 
 /// Money in from a customer, allocated to invoices; what is not allocated is a credit
@@ -2843,7 +2850,7 @@ model PayrollRun {
   /// regular | off_cycle | correction
   runType               String    @default("regular")
   correctionOfRunId     String?
-  /// draft | calculated | pending_approval | approved | cancelled
+  /// draft | calculated | pending_approval | approved | posted | reversed | cancelled
   status                String    @default("draft")
   attendanceFrom        String
   attendanceTo          String
@@ -2868,16 +2875,34 @@ model PayrollRun {
   /// Run-level validation messages of the last calculation.
   exceptions            Json?
   cancelledReason       String?
+  /// Posting: one journal entry per run, on postingDate (the period's last day), crediting
+  /// net pay to netPayAccountId (the account configured when it was posted).
+  postedAt              DateTime?
+  postedById            String?
+  postedBy              String?
+  postingDate           String?
+  journalEntryId        String?   @unique
+  netPayAccountId       String?
+  /// Reversal: a reversing entry, only while nothing is paid; frees the month for a new run.
+  reversedAt            DateTime?
+  reversedById          String?
+  reversedBy            String?
+  reversalReason        String?
+  reversalEntryId       String?   @unique
   idempotencyKey        String?   @unique
   requestHash           String?
   version               Int       @default(1)
   createdAt             DateTime  @default(now())
 
-  correctionOf PayrollRun?                  @relation("PayrollCorrection", fields: [correctionOfRunId], references: [id], onDelete: Restrict)
-  corrections  PayrollRun[]                 @relation("PayrollCorrection")
-  employees    PayrollRunEmployee[]
-  snapshots    PayrollCalculationSnapshot[]
-  lockedDays   AttendanceDay[]
+  correctionOf  PayrollRun?                  @relation("PayrollCorrection", fields: [correctionOfRunId], references: [id], onDelete: Restrict)
+  corrections   PayrollRun[]                 @relation("PayrollCorrection")
+  employees     PayrollRunEmployee[]
+  snapshots     PayrollCalculationSnapshot[]
+  lockedDays    AttendanceDay[]
+  journalEntry  JournalEntry?                @relation("PayrollRunEntry", fields: [journalEntryId], references: [id], onDelete: Restrict)
+  reversalEntry JournalEntry?                @relation("PayrollRunReversal", fields: [reversalEntryId], references: [id], onDelete: Restrict)
+  netPayAccount Account?                     @relation("PayrollNetPay", fields: [netPayAccountId], references: [id], onDelete: Restrict)
+  payments      PayrollPayment[]
 
   @@index([period])
 }
@@ -2906,10 +2931,11 @@ model PayrollRunEmployee {
   inputsHash               String?
   version                  Int      @default(1)
 
-  run         PayrollRun          @relation(fields: [runId], references: [id], onDelete: Restrict)
-  employee    Employee            @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  lines       PayrollRunLine[]
-  adjustments PayrollAdjustment[]
+  run          PayrollRun           @relation(fields: [runId], references: [id], onDelete: Restrict)
+  employee     Employee             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  lines        PayrollRunLine[]
+  adjustments  PayrollAdjustment[]
+  paymentLines PayrollPaymentLine[]
 
   @@unique([runId, employeeId])
 }
@@ -2987,6 +3013,53 @@ model PayrollAdjustment {
 
   @@index([employeeId, targetPeriod])
   @@index([status])
+}
+
+/// Salary paid against a posted run, per payslip (lines). Never above a payslip's net payable
+/// (DB trigger); corrected by reversal, never edited. Dr net-salaries account, Cr cash/bank.
+model PayrollPayment {
+  id              String    @id @default(cuid())
+  /// PPY-YYYY-#####
+  number          String    @unique
+  runId           String
+  date            String
+  cashAccountId   String
+  /// cash | bank_transfer | cheque | wallet | other
+  method          String
+  reference       String?
+  amount          Decimal   @db.Decimal(18, 2)
+  journalEntryId  String?   @unique
+  reversedAt      DateTime?
+  reversedById    String?
+  reversedBy      String?
+  reversalReason  String?
+  reversalEntryId String?   @unique
+  idempotencyKey  String?   @unique
+  requestHash     String?
+  createdById     String?
+  createdBy       String
+  createdAt       DateTime  @default(now())
+
+  run           PayrollRun           @relation(fields: [runId], references: [id], onDelete: Restrict)
+  cashAccount   CashAccount          @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  journalEntry  JournalEntry?        @relation("PayrollPaymentEntry", fields: [journalEntryId], references: [id], onDelete: Restrict)
+  reversalEntry JournalEntry?        @relation("PayrollPaymentReversal", fields: [reversalEntryId], references: [id], onDelete: Restrict)
+  lines         PayrollPaymentLine[]
+
+  @@index([runId])
+}
+
+model PayrollPaymentLine {
+  id            String  @id @default(cuid())
+  paymentId     String
+  runEmployeeId String
+  amount        Decimal @db.Decimal(18, 2)
+
+  payment     PayrollPayment     @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  runEmployee PayrollRunEmployee @relation(fields: [runEmployeeId], references: [id], onDelete: Restrict)
+
+  @@unique([paymentId, runEmployeeId])
+  @@index([runEmployeeId])
 }
 
 /// A business expense. Paid from a cash/bank account, owed back to the employee who

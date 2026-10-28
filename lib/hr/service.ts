@@ -270,7 +270,7 @@ export async function createEmployeeTransaction(input: unknown, actor: ServiceAc
   // Part of a month's salary paid early: an advance that month's payroll recovers in full.
   const payrollPeriod = v.type === "salary_on_account" ? v.payroll_period ?? null : null;
   if (v.type === "salary_on_account" && !payrollPeriod) throw new ApiError(400, "حدد شهر المرتب اللي هيتخصم منه");
-  if (payrollPeriod && (await prisma.payrollRun.findFirst({ where: { period: payrollPeriod, runType: "regular", status: { in: ["pending_approval", "approved"] } } }))) {
+  if (payrollPeriod && (await prisma.payrollRun.findFirst({ where: { period: payrollPeriod, runType: "regular", status: { in: ["pending_approval", "approved", "posted"] } } }))) {
     throw new ApiError(409, `مسير ${payrollPeriod} اتبعت للاعتماد — الصرف تحت الحساب يتسجل على شهر تاني`);
   }
   const requestHash = requestFingerprint({ employeeId: v.employee_id, type: v.type, amount: v.amount, cashAccountId: v.cash_account_id, date: d, notes: v.notes ?? null, ...(payrollPeriod ? { payrollPeriod } : {}) });

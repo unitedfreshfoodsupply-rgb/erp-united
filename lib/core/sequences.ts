@@ -60,6 +60,7 @@ export const SEQUENCE_DEFS = {
   "hr.compensation": { prefix: "CMP", padding: 5, reset: "yearly", label: "مرتب مقترح" },
   "hr.payroll_run": { prefix: "PRL", padding: 5, reset: "yearly", label: "مسير مرتبات" },
   "hr.payroll_adjustment": { prefix: "PAD", padding: 5, reset: "yearly", label: "تسوية مرتب" },
+  "hr.payroll_payment": { prefix: "PPY", padding: 5, reset: "yearly", label: "صرف مرتبات" },
 } as const satisfies Record<string, SequenceDef>;
 
 export type SequenceKey = keyof typeof SEQUENCE_DEFS;

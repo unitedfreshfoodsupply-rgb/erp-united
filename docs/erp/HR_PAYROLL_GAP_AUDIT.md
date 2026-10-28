@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Schema proposal approved ("go", 28 Oct 2026). Phases 1–5 implemented locally — see §0.** Phase 6 (posting and payments) and Phase 7 are not built: they wait on the decisions in §12. Nothing is committed, pushed or deployed; migrations were applied to the local test database only. §1–§12 below are the proposal as approved and are kept unchanged as the design record. |
+| Status | **Schema proposal approved ("go", 28 Oct 2026). Phases 1–5 implemented and committed (`ac579a9`); Phase 6 (posting, payments, payslips, register, bank file, reversal) implemented 29 Oct — see §0.** Every account is configured by the accountant (§12 A1 stays theirs): posting is refused until each used component and the net-salaries account are set. Nothing is pushed or deployed; migrations were applied to disposable test databases only. §1–§12 below are the proposal as approved and are kept unchanged as the design record. |
 | Date | 28 October 2026 |
 | Source of truth | The working tree (six local commits `4c948a3` … `ffb297a` plus uncommitted work), read file by file. Model, field, setting and function names marked **(existing)** were verified in the repository; names marked **(proposed)** do not exist yet. |
 | Decision labels used below | **APPROVED** = decided by the business owner in the request of 28 Oct 2026 · **PROPOSED** = design in this document, not approved · **ASSUMPTION** = working assumption, to be confirmed · **OPEN** = needs an explicit decision (owner, accountant or HR) before the related phase starts |
@@ -20,6 +20,7 @@ Built on the local test database only (PostgreSQL 16, `united_test`); nothing co
 | `20261028140000_hr_leave` | 3 | `LeaveType`, `LeavePolicy` (draft → verified by another person → retired; never edited once verified; no overlap) + `LeavePolicyTier`, `LeaveLedgerEntry` (append-only, sign per kind, idempotent per source), `LeaveRequest` (no overlap, recorder ≠ decider CHECK); `AttendanceDay.leaveRequestId` FK |
 | `20261028150000_hr_compensation` | 4 | `PayComponent` (inactive until taxable + insurable decided), `EmployeeCompensation` + lines (proposer ≠ approver CHECK; approved packages never overlap or change), `StatutoryRuleSet` (verified by another person; no overlap per code; frozen once verified) |
 | `20261028160000_hr_payroll_runs` | 5 | `PayrollRun` (one regular run per month; approver ≠ preparer and ≠ submitter CHECK; frozen figures once submitted), `PayrollRunEmployee`, `PayrollRunLine` (frozen once submitted), `PayrollCalculationSnapshot` (append-only), `PayrollAdjustment` (on one payslip at most); `EmployeeTransaction.type = salary_on_account` + `payrollPeriod`; `AttendanceDay.lockedRunId` FK |
+| `20261029100000_hr_payroll_posting` | 6 | `PayrollRun` posted/reversed states and stamps (journal entry, posting date, net-salaries account; reversal entry); one regular run per month now ignores reversed runs; `PayrollPayment` + `PayrollPaymentLine` (append-only lines, a payslip never paid above its net — row-locked trigger; payment = its lines and has its entry, checked at commit; corrected only by reversal); `JournalEntry.sourceType` gains `payroll_run`, `payroll_payment`; an applied adjustment reopens only when its run is reversed |
 
 No statutory value, leave entitlement, schedule, pay component or account mapping is seeded by any migration.
 
@@ -48,8 +49,16 @@ Status uses §1's classification (**IT** = implemented and covered by an automat
 | Payroll | Run: create (one regular per month), calculate (every calculation kept), validation exceptions (blocking / warning), holds with reason, one-off adjustments reserved on one payslip | **IT** | §4, §6 |
 | | Refuses to calculate figures no verified rule covers | **IT** | §4 |
 | | Submit freezes figures and locks the month's attendance; approval only by someone who neither prepared nor submitted; refused if a fresh calculation differs; return, withdraw, reopen, cancel | **IT** | §7–8 |
-| | Posting, payments, payslip print, reversal / correction runs, reconciliation | **M** | Phase 6 — needs §12 A1–A4 |
-| Reporting | Payroll register, cost by department | **M** | Phase 7 |
+| | Journal preview listing every missing/unsuitable account; posting an approved run once (Dr expense per component, Cr liability or contra-expense per deduction, employer contributions Dr/Cr, advance recovery Cr employee advances per employee, net Cr the configured net-salaries account as one line — no individual salary in the journal) | **IT** | `tests/hr-payroll.test.ts` §10 |
+| | Payments: partial or all-remaining, per payslip, capped at net (DB trigger, parallel requests), idempotent; reversal of a payment | **IT** | §11 |
+| | Reversal of a posted run with nothing paid: reversing entry, adjustments reopened, attendance unlocked, month accepts a new run | **IT** | §12 |
+| | Bilingual payslip print (approved/posted; reversed marked void) | **IT** | §11 (page render) + screenshots |
+| | Reconciliation: posted runs' unpaid net = net-salaries account; payroll entries traceable and none missing | **IT** | §10–12 via Accounts Health |
+| | Correction runs (`runType = correction`) | **M** | not built: a posted month is corrected by reversing (before payment) or by an adjustment in the next month |
+| | SI / tax remittance documents (§12 A4) | **M** | recorded by manual journal against the liability accounts until decided |
+| Reporting | Payroll register (CSV: a column per component, paid / unpaid) | **IT** | §11 |
+| | Generic bank payment list (CSV; verified primary accounts only, others flagged with no number) — not a bank's upload format | **IT** | §11 |
+| | Cost by department | **M** | Phase 7 |
 
 ### 0.3 Where the build differs from the proposal (and why)
 
@@ -59,11 +68,12 @@ Status uses §1's classification (**IT** = implemented and covered by an automat
 - **Attendance status `absent`** is not deducted; only `absent_unpaid` and unpaid / partially paid leave are. Payroll reports `absent` days as a warning.
 - **Suspended days and joiners' / leavers' social insurance** are reported as warnings for a human decision; the engine does not prorate insurance or decide suspension pay.
 - **Statutory rule editing** is a JSON form with a key-only template (every value empty). Structured per-rule forms are a candidate UI improvement.
-- **Lint:** `npm run lint` fails before and after this work with `next lint` / ESLint 9 option errors (tooling, not code); CI does not run it.
+- **Lint:** fixed later (`506dcb9`): eslint 8 pinned, 0 findings, lint runs in CI.
+- **Posting (Phase 6):** the posting date is the period's last day (§12 A2 option 1); a closed period refuses it. Deductions credit the component's liability account, or its expense account when no liability is set (a deduction that only reduces cost, e.g. an unpaid day). Net pay posts as one line on the configured net-salaries account instead of per employee, so the journal — readable with `accounting.view` — shows no individual salary; per-employee amounts stay in payroll. Reversal uses the ledger's own reversal mechanism (`sourceType = reversal`). Posting and paying are new permissions `hr.payroll.post` and `hr.payroll.pay` (ACCOUNTANT by default); the bank list also needs `hr.private.view`.
 
 ### 0.4 Permissions as implemented (role defaults are the OPEN P1–P3 decisions; one option shown)
 
-SUPER_ADMIN holds everything. ACCOUNTANT gains `hr.employees.view`, `hr.leave.request`, `hr.compensation.view`, `hr.compensation.manage`, `hr.payroll.prepare`, `hr.payroll.view`, `hr.statutory.manage`. SUPERVISOR gains `hr.attendance.record`. Private data, leave/attendance approval, leave configuration and payroll approval stay with SUPER_ADMIN until P1–P3 are decided — so today the owner approves what finance prepares, and the database refuses anyone approving their own work.
+SUPER_ADMIN holds everything. ACCOUNTANT gains `hr.employees.view`, `hr.leave.request`, `hr.compensation.view`, `hr.compensation.manage`, `hr.payroll.prepare`, `hr.payroll.view`, `hr.statutory.manage`, and (Phase 6) `hr.payroll.post`, `hr.payroll.pay`. SUPERVISOR gains `hr.attendance.record`. Private data, leave/attendance approval, leave configuration and payroll approval stay with SUPER_ADMIN until P1–P3 are decided — so today the owner approves what finance prepares, and the database refuses anyone approving their own work.
 
 ---
 

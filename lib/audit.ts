@@ -77,6 +77,7 @@ export type AuditInput = {
     | "statutory_rule_set"
     | "payroll_run"
     | "payroll_adjustment"
+    | "payroll_payment"
     | "eta_document"
     | "eta_setup"
     | "expense"

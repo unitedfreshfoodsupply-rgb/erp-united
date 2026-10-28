@@ -142,7 +142,9 @@ export async function integrityReport() {
     UNION ALL SELECT 'customer_refund', count(*) FROM "CustomerRefund" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'customer_refund' AND e."sourceId" = d."id")
     UNION ALL SELECT 'supplier_refund', count(*) FROM "SupplierRefund" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'supplier_refund' AND e."sourceId" = d."id")
     UNION ALL SELECT 'expense', count(*) FROM "Expense" d WHERE d."status" = 'approved' AND NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'expense' AND e."sourceId" = d."id")
-    UNION ALL SELECT 'stock_movement', count(*) FROM "StockMovement" m WHERE NOT EXISTS (SELECT 1 FROM "StockValuationPosting" p WHERE p."movementId" = m."id")`;
+    UNION ALL SELECT 'stock_movement', count(*) FROM "StockMovement" m WHERE NOT EXISTS (SELECT 1 FROM "StockValuationPosting" p WHERE p."movementId" = m."id")
+    UNION ALL SELECT 'payroll_run', count(*) FROM "PayrollRun" d WHERE d."status" IN ('posted', 'reversed') AND NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'payroll_run' AND e."sourceId" = d."id")
+    UNION ALL SELECT 'payroll_payment', count(*) FROM "PayrollPayment" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'payroll_payment' AND e."sourceId" = d."id")`;
   const missing = unposted.filter((u) => Number(u.n) > 0).map((u) => ({ kind: u.kind, count: Number(u.n) }));
   checks.push({ key: "unposted", label: "كل المستندات وحركات المخزون مترحّلة للحسابات", ok: missing.length === 0, count: missing.reduce((s, m) => s + m.count, 0), detail: missing });
 
@@ -162,6 +164,8 @@ export async function integrityReport() {
       OR (e."sourceType" = 'expense' AND NOT EXISTS (SELECT 1 FROM "Expense" d WHERE d."id" = e."sourceId"))
       OR (e."sourceType" = 'employee_transaction' AND NOT EXISTS (SELECT 1 FROM "EmployeeTransaction" d WHERE d."id" = e."sourceId"))
       OR (e."sourceType" = 'opening_balance' AND NOT EXISTS (SELECT 1 FROM "PartyOpeningBalance" d WHERE d."id" = e."sourceId"))
+      OR (e."sourceType" = 'payroll_run' AND NOT EXISTS (SELECT 1 FROM "PayrollRun" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
+      OR (e."sourceType" = 'payroll_payment' AND NOT EXISTS (SELECT 1 FROM "PayrollPayment" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
       OR (e."sourceType" = 'stock_valuation' AND NOT EXISTS (SELECT 1 FROM "StockValuationPosting" p WHERE p."entryId" = e."id") AND e."sourceId" NOT LIKE '%|%')`;
   checks.push({ key: "traceable", label: "كل قيد له مستند مصدر", ok: Number(orphans?.n ?? 0) === 0, count: Number(orphans?.n ?? 0) });
 
@@ -196,6 +200,19 @@ export async function integrityReport() {
   // Received but not yet billed (informational: it is normal to carry some).
   const grni = (await glBalance("grni")).negated();
   checks.push({ key: "grni", label: "بضاعة مستلمة لسه فواتيرها مجتش (معلومة)", ok: true, ledger: grni.toFixed(2) });
+
+  // Payroll: what posted runs still owe their employees (net payable less payments, reversed
+  // runs and payments left out) against the net-salaries account(s) the runs posted to.
+  const [pay] = await prisma.$queryRaw<{ sub: Prisma.Decimal | null; runs: bigint }[]>`
+    SELECT (SELECT coalesce(sum(r."netPayable"), 0) FROM "PayrollRun" r WHERE r."status" = 'posted')
+         - (SELECT coalesce(sum(p."amount"), 0) FROM "PayrollPayment" p JOIN "PayrollRun" r ON r."id" = p."runId" WHERE r."status" = 'posted' AND p."reversedAt" IS NULL) AS sub,
+           (SELECT count(*) FROM "PayrollRun" r WHERE r."status" IN ('posted', 'reversed')) AS runs`;
+  const [payGl] = await prisma.$queryRaw<{ gl: Prisma.Decimal | null }[]>`
+    SELECT coalesce(sum(l."credit" - l."debit"), 0) AS gl FROM "JournalLine" l
+    WHERE l."accountId" IN (SELECT DISTINCT "netPayAccountId" FROM "PayrollRun" WHERE "netPayAccountId" IS NOT NULL)`;
+  const paySub = D(pay?.sub);
+  const payLedger = D(payGl?.gl);
+  checks.push({ key: "payroll", label: "صافي المرتبات المستحقة = حسابها في الأستاذ", ok: paySub.equals(payLedger), subledger: paySub.toFixed(2), ledger: payLedger.toFixed(2), difference: paySub.minus(payLedger).toFixed(2), count: Number(pay?.runs ?? 0) });
 
   // Waste still on the books (informational): grading sends waste to the waste location at
   // cost and it stays in inventory until a scrap document writes it off. Whether and when to

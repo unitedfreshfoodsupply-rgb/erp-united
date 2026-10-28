@@ -25,11 +25,11 @@ import { ENGINE_VERSION, calculatePayroll, type Calculation } from "@/lib/hr/pay
  * Prepared and submitted by hr.payroll.prepare; approved by hr.payroll.approve, never by whoever
  * prepared or submitted it (service check and DB CHECK). Submitting locks the period's attendance
  * of the included employees; approving re-runs the calculation and refuses if anything changed.
- * Posting to the ledger and payments are not built in this phase (§12 A1).
+ * Posting, payments and reversal after approval: lib/hr/payroll-posting.ts.
  */
 
 const D = (v: Prisma.Decimal | number | string) => new Prisma.Decimal(v);
-const READ: Permission[] = ["hr.payroll.prepare", "hr.payroll.view", "hr.payroll.approve"];
+const READ: Permission[] = ["hr.payroll.prepare", "hr.payroll.view", "hr.payroll.approve", "hr.payroll.post", "hr.payroll.pay"];
 function assertCanRead(actor: ServiceActor) {
   if (!READ.some((p) => actorCan(actor, p))) assertPermission(actor, "hr.payroll.view");
 }
@@ -69,7 +69,7 @@ export async function createRun(body: unknown, actor: ServiceActor) {
   try {
     return await inTx(async (tx) => {
       await advisoryXactLock(tx, `payroll-period:${v.period}`);
-      if (await tx.payrollRun.findFirst({ where: { period: v.period, runType: "regular", status: { not: "cancelled" } } })) throw new ApiError(409, `فيه مسير مرتبات لشهر ${v.period} بالفعل`);
+      if (await tx.payrollRun.findFirst({ where: { period: v.period, runType: "regular", status: { notIn: ["cancelled", "reversed"] } } })) throw new ApiError(409, `فيه مسير مرتبات لشهر ${v.period} بالفعل`);
       const number = await nextDocumentNumber(tx, "hr.payroll_run", todayLocalISO());
       const run = await tx.payrollRun.create({ data: { number, period: v.period, attendanceFrom: from, attendanceTo: to, preparedById: actor.id, preparedBy: actor.name } });
       const ids = await employedIn(tx, from, to);
@@ -106,6 +106,7 @@ export async function getRun(id: string, actor: ServiceActor) {
   const approver = actorCan(actor, "hr.payroll.approve");
   const blocking = run.employees.some((e) => e.inclusion === "included" && Array.isArray(e.exceptions) && (e.exceptions as { severity: string }[]).some((x) => x.severity === "error"));
   const mine = actor.id && (actor.id === run.preparedById || actor.id === run.submittedById);
+  const livePayments = run.status === "posted" ? await prisma.payrollPayment.count({ where: { runId: id, reversedAt: null } }) : 0;
   return {
     ...run,
     can: {
@@ -116,6 +117,11 @@ export async function getRun(id: string, actor: ServiceActor) {
       decide: approver && run.status === "pending_approval" && !mine,
       reopen: approver && run.status === "approved",
       cancel: prepare && ["draft", "calculated"].includes(run.status),
+      post: actorCan(actor, "hr.payroll.post") && run.status === "approved",
+      // Reversal waits until every payment of the run is reversed (server-checked too).
+      reverse: actorCan(actor, "hr.payroll.post") && run.status === "posted" && livePayments === 0,
+      pay: actorCan(actor, "hr.payroll.pay") && run.status === "posted",
+      bankFile: actorCan(actor, "hr.payroll.pay") && actorCan(actor, "hr.private.view") && run.status === "posted",
     },
   };
 }
@@ -180,7 +186,7 @@ export async function createAdjustment(body: unknown, actor: ServiceActor) {
     const [emp, comp] = await Promise.all([tx.employee.findUnique({ where: { id: v.employee_id } }), tx.payComponent.findUnique({ where: { id: v.pay_component_id } })]);
     if (!emp) throw new ApiError(404, "الموظف مش موجود");
     if (!comp || !comp.active || comp.method !== "input") throw new ApiError(400, "البند لازم يكون مفعّل ومن نوع إدخال شهري");
-    const run = await tx.payrollRun.findFirst({ where: { period: v.target_period, runType: "regular", status: { in: ["pending_approval", "approved"] } } });
+    const run = await tx.payrollRun.findFirst({ where: { period: v.target_period, runType: "regular", status: { in: ["pending_approval", "approved", "posted"] } } });
     if (run) throw new ApiError(409, `مسير ${v.target_period} اتبعت للاعتماد — رجّعه الأول`);
     const number = await nextDocumentNumber(tx, "hr.payroll_adjustment", todayLocalISO());
     const row = await tx.payrollAdjustment.create({ data: { number, employeeId: emp.id, targetPeriod: v.target_period, payComponentId: comp.id, amount: D(v.amount), reason: v.reason, createdById: actor.id, createdBy: actor.name } });
@@ -282,7 +288,7 @@ async function lockAttendance(tx: Tx, run: { id: string; attendanceFrom: string;
 
 /** Unlocks the run's days. A correction applied while they were locked is absorbed by this
  * still-unposted run's next calculation, so it no longer needs a retro adjustment. */
-async function unlockAttendance(tx: Tx, runId: string, actor: { id: string | null; name: string; role: string }) {
+export async function unlockAttendance(tx: Tx, runId: string, actor: { id: string | null; name: string; role: string }) {
   const days = await tx.attendanceDay.findMany({ where: { lockedRunId: runId } });
   for (const d of days) {
     await tx.attendanceCorrection.updateMany({ where: { employeeId: d.employeeId, date: d.date, status: "approved", retroStatus: "pending" }, data: { retroStatus: "none" } });

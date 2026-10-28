@@ -108,6 +108,8 @@ export const PERMISSION_DEFS = [
   { key: "hr.payroll.prepare", group: "hr", label: "تجهيز المرتبات", description: "يعمل مسير الشهر ويحسبه ويقدمه للاعتماد" },
   { key: "hr.payroll.approve", group: "hr", label: "اعتماد المرتبات", description: "يعتمد مسير المرتبات أو يرجعه — مينفعش يعتمد مسير جهزه أو قدمه بنفسه" },
   { key: "hr.payroll.view", group: "hr", label: "عرض المرتبات المحسوبة", description: "يشوف مسيرات المرتبات وقسائم الموظفين" },
+  { key: "hr.payroll.post", group: "hr", label: "ترحيل المرتبات", description: "يرحّل مسير معتمد للحسابات أو يعكسه قبل أي صرف — بحسابات البنود وحساب صافي المرتبات اللي المحاسب حددها" },
+  { key: "hr.payroll.pay", group: "hr", label: "صرف المرتبات", description: "يسجّل صرف مرتبات مسير مترحّل (لحد صافي كل قسيمة) ويعكس صرف غلط" },
   { key: "hr.statutory.manage", group: "hr", label: "القواعد القانونية للمرتبات", description: "يسجل نسب التأمينات والضرايب بمرجعها القانوني؛ اعتمادها بيحتاج شخص تاني" },
   { key: "integrations.manage", group: "integrations", label: "إدارة التكاملات", description: "يعمل ويلغي مفاتيح التكامل (n8n، Hermes) ويشوف سجل الاتصالات" },
   { key: "operations.trips.manage", group: "operations", label: "تخطيط الرحلات والأسطول", description: "يسجل العربيات والسواقين، ويعمل الرحلات ويوزّع عليها الأوردرات ويلغيها" },
@@ -205,6 +207,8 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     // Payroll preparation and salary proposals sit with finance; private data and every
     // approval stay with the owner (SUPER_ADMIN) until an HR role is decided (audit doc §12 P2/P3).
     "hr.employees.view", "hr.leave.request", "hr.compensation.view", "hr.compensation.manage", "hr.payroll.prepare", "hr.payroll.view", "hr.statutory.manage",
+    // Posting an approved run and paying it are finance's, like any other payable.
+    "hr.payroll.post", "hr.payroll.pay",
     "audit.view"],
   // New in Phase 4. Buys: suppliers, their prices, RFQs, purchase orders; reads stock
   // levels to know what to buy. Does not approve its own spend, book bills, or move stock.
@@ -259,6 +263,8 @@ export const PERMISSION_LABEL_EN: Record<string, string> = {
   "hr.payroll.prepare": "Prepare Payroll",
   "hr.payroll.approve": "Approve Payroll",
   "hr.payroll.view": "View Payroll",
+  "hr.payroll.post": "Post Payroll",
+  "hr.payroll.pay": "Pay Payroll",
   "hr.statutory.manage": "Manage Statutory Payroll Rules",
   "hr.expenses.approve": "Approve Expenses",
   "hr.expenses.submit": "Submit Expenses",
@@ -351,6 +357,8 @@ export const PERMISSION_DESC_EN: Record<string, string> = {
   "hr.payroll.prepare": "Create, calculate and submit the monthly payroll run",
   "hr.payroll.approve": "Approve or return a payroll run — never one you prepared or submitted",
   "hr.payroll.view": "View payroll runs and payslips",
+  "hr.payroll.post": "Post an approved run to the ledger, or reverse it before anything is paid — using the accounts the accountant configured",
+  "hr.payroll.pay": "Record salary payments of a posted run (up to each payslip's net) and reverse a mistaken payment",
   "hr.statutory.manage": "Record statutory payroll rules with their legal reference; verification needs a second person",
   "hr.expenses.approve": "Approve expense claims and advances",
   "hr.expenses.submit": "Submit expense claims and advances",

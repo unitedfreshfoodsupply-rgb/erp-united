@@ -290,6 +290,14 @@ export const SETTING_DEFS = {
     schema: z.number().min(0).max(1_000_000),
     default: 0,
   }),
+  "hr.payroll_net_pay_account": def({
+    group: "hr",
+    label: "حساب صافي المرتبات المستحقة",
+    description: "كود حساب الخصوم اللي بيتسجل فيه صافي المرتبات عند ترحيل المسير، وبيتقفل منه عند الصرف. فاضي = ترحيل المرتبات مقفول لحد ما المحاسب يحدده.",
+    unit: "",
+    schema: accountCode,
+    default: "",
+  }),
   "hr.expense_approval_threshold": def({
     group: "hr",
     label: "حد اعتماد المصروفات",

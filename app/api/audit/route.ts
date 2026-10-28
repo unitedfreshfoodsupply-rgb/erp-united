@@ -15,7 +15,7 @@ const KNOWN_ENTITY_TYPES = new Set([
   "debit_note", "journal_entry", "customer_receipt", "supplier_payment",
   "accounting_period", "bank_reconciliation", "stock_intake", "inventory_document",
   "stock_movement", "employee", "department", "expense", "employee_transaction", "rfq",
-  "work_schedule", "public_holiday", "attendance_day", "attendance_correction", "attendance_source", "leave_type", "leave_policy", "leave_request", "pay_component", "employee_compensation", "statutory_rule_set", "payroll_run", "payroll_adjustment",
+  "work_schedule", "public_holiday", "attendance_day", "attendance_correction", "attendance_source", "leave_type", "leave_policy", "leave_request", "pay_component", "employee_compensation", "statutory_rule_set", "payroll_run", "payroll_adjustment", "payroll_payment",
   "customer", "supplier", "product", "settings", "user",
 ]);
 
