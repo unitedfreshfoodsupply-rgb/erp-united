@@ -197,5 +197,24 @@ export async function integrityReport() {
   const grni = (await glBalance("grni")).negated();
   checks.push({ key: "grni", label: "بضاعة مستلمة لسه فواتيرها مجتش (معلومة)", ok: true, ledger: grni.toFixed(2) });
 
+  // Waste still on the books (informational): grading sends waste to the waste location at
+  // cost and it stays in inventory until a scrap document writes it off. Whether and when to
+  // write it off is the accountant's policy; this shows what is waiting.
+  const waste = await prisma.$queryRaw<{ productId: string; name: string; nameAr: string | null; unit: string; qty: Prisma.Decimal; value: Prisma.Decimal }[]>`
+    SELECT m."productId", p."name", p."nameAr", p."unit", sum(m."quantity") AS qty, coalesce(sum(v."value"), 0) AS value
+    FROM "StockMovement" m
+    JOIN "StorageLocation" l ON l."id" = m."locationId"
+    JOIN "StockProduct" p ON p."id" = m."productId"
+    LEFT JOIN "StockValuationLayer" v ON v."movementId" = m."id"
+    WHERE l."type" = 'waste'
+    GROUP BY m."productId", p."name", p."nameAr", p."unit"
+    HAVING sum(m."quantity") <> 0 OR coalesce(sum(v."value"), 0) <> 0
+    ORDER BY value DESC`;
+  const wasteValue = waste.reduce((sum, w) => sum.plus(w.value), D(0));
+  checks.push({
+    key: "waste_pending", label: "هالك لسه في المخزون مستني الإعدام (معلومة)", ok: true, ledger: wasteValue.toFixed(2), count: waste.length,
+    detail: waste.slice(0, 20).map((w) => ({ productId: w.productId, name: w.name, nameAr: w.nameAr, unit: w.unit, quantity: D(w.qty).toString(), value: D(w.value).toFixed(2) })),
+  });
+
   return { ok: checks.every((c) => c.ok), checkedAt: new Date().toISOString(), checks };
 }

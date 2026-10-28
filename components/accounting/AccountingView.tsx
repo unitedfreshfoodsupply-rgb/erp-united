@@ -8,7 +8,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
-import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
+import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { Pagination } from "@/components/ui/Pagination";
 import { useLocale } from "@/lib/locale";
 import { intlLocale } from "@/lib/format";
@@ -619,12 +619,21 @@ function Reconcile() {
 
 type Check = { key: string; label: string; ok: boolean; subledger?: string; ledger?: string; difference?: string; count?: number; detail?: unknown };
 
+type WasteRow = { productId: string; name: string; nameAr: string | null; unit: string; quantity: string; value: string };
+
 function Health() {
   const { t, locale } = useLocale();
   const q = useQuery({ queryKey: ["acc", "integrity"], queryFn: () => apiFetch<{ integrity: { ok: boolean; checkedAt: string; checks: Check[] } }>("/api/accounting/integrity") });
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   const r = q.data.integrity;
+  // Labels come from the dictionary by check key; the server's Arabic label covers a check
+  // this build does not know yet.
+  const checkLabel = (c: Check) => {
+    const k = `accounting.integrity.${c.key}`;
+    const label = t(k);
+    return label === k ? c.label : label;
+  };
   return (
     <div className="flex flex-col gap-3">
       <section className={`card p-4 font-extrabold ${r.ok ? "bg-united-green/10 text-united-green" : "bg-united-danger/10 text-united-danger"}`}>
@@ -634,7 +643,7 @@ function Health() {
       <ul className="flex flex-col gap-2">
         {r.checks.map((c) => (
           <li key={c.key} className="card p-3 flex flex-col gap-1 text-sm font-bold">
-            <div className="flex justify-between gap-2"><span>{c.ok ? "✓" : "✗"} {c.label}</span>{c.count !== undefined && <span>{c.count}</span>}</div>
+            <div className="flex justify-between gap-2"><span>{c.ok ? "✓" : "✗"} {checkLabel(c)}</span>{c.count !== undefined && c.key !== "waste_pending" && <span>{c.count}</span>}</div>
             {c.subledger !== undefined && c.ledger !== undefined && (
               <div className="text-xs text-united-muted flex flex-wrap gap-3">
                 <span>{t("accounting.detail.documents")} <span dir="ltr">{fmtMoney(c.subledger)}</span></span>
@@ -642,7 +651,19 @@ function Health() {
                 {c.difference !== undefined && <span className={Number(c.difference) ? "text-united-danger" : ""}>{t("accounting.detail.difference")} <span dir="ltr">{fmtMoney(c.difference)}</span></span>}
               </div>
             )}
-            {c.key !== "grni" && c.subledger === undefined && c.ledger !== undefined && <div className="text-xs text-united-muted" dir="ltr">{fmtMoney(c.ledger)}</div>}
+            {c.key !== "grni" && c.key !== "waste_pending" && c.subledger === undefined && c.ledger !== undefined && <div className="text-xs text-united-muted" dir="ltr">{fmtMoney(c.ledger)}</div>}
+            {c.key === "waste_pending" && (
+              <div className="text-xs text-united-muted flex flex-col gap-1">
+                <span>{t("accounting.waste-note")}: <span dir="ltr">{fmtMoney(c.ledger)}</span></span>
+                {Array.isArray(c.detail) && c.detail.length > 0 && (
+                  <ul className="flex flex-col">
+                    {(c.detail as WasteRow[]).map((w) => (
+                      <li key={w.productId} className="flex justify-between gap-2"><span>{localName(w, locale)}</span><span dir="ltr">{fmtQty(w.quantity, w.unit)} · {fmtMoney(w.value)}</span></li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
             {c.key === "grni" && <div className="text-xs text-united-muted">{t("accounting.grni-note")}: <span dir="ltr">{fmtMoney(c.ledger)}</span></div>}
             {!c.ok && Array.isArray(c.detail) && c.detail.length > 0 && <pre className="text-xs whitespace-pre-wrap text-united-danger" dir="ltr">{JSON.stringify(c.detail, null, 1)}</pre>}
           </li>

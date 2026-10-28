@@ -165,11 +165,19 @@ async function main() {
   const pT8 = await newProduct(`${TAG} T8 scrap`);
   await intake({ product_id: pT8.id, received_kg: 50, waste_qty: 50, unit_cost: "5" });
   check("waste 50 before scrap", (await atWaste(pT8.id)) === 50);
+  // Accounts Health shows the waste still carried in stock value, per product (C-3).
+  const wastePending = async () => (await call("karim", "GET", "/api/accounting/integrity")).body.integrity.checks.find((c: any) => c.key === "waste_pending");
+  const wp1 = await wastePending();
+  const wp1Row = wp1?.detail?.find((d: any) => d.productId === pT8.id);
+  check("waste awaiting write-off listed, informational", wp1?.ok === true && wp1Row?.quantity === "50" && wp1Row?.value === "250.00", wp1Row);
   const s8 = await call("hossam", "POST", "/api/inventory/scrap", { reason: `${TAG} إعدام`, lines: [{ product_id: pT8.id, quantity: 50, location_id: "loc_waste" }] });
   check("scrap posted", s8.status === 201 && s8.body?.document?.status === "posted", [s8.status, s8.body?.error]);
   check("waste bucket zeroed", (await atWaste(pT8.id)) === 0 && (await onHand(pT8.id)) === 0, await onHand(pT8.id));
   const scrapMoves = (await ledger(pT8.id)).filter((m: any) => m.kind === "scrap");
   check("scrap movement from loc_waste recorded", scrapMoves.some((m: any) => m.locationId === "loc_waste"));
+  const wp2 = await wastePending();
+  check("written-off waste leaves the pending list", !wp2?.detail?.some((d: any) => d.productId === pT8.id));
+  check("pending waste value drops by the write-off", Math.abs(Number(wp1.ledger) - Number(wp2.ledger) - 250) < 0.005, [wp1.ledger, wp2.ledger]);
 
   // =========================================================================
   section("T9. DISPOSAL ABOVE THRESHOLD — ADJUSTMENT WAITS FOR APPROVAL");
