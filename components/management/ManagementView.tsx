@@ -137,6 +137,10 @@ function Finance({ r, t, kinds }: { r: FinanceReport; t: (k: string) => string; 
 }
 
 function CashFlow({ r, t }: { r: CashFlowReport; t: (k: string) => string }) {
+  const { locale } = useLocale();
+  const lineLabel = (l: CashFlowReport["sections"][string]["lines"][number]) =>
+    l.kind === "net_income" ? t("mgmt.cf.row.net_income") : t("mgmt.cf.row.change_in").replace("{}", `${l.accountCode ?? ""} ${localName({ name: l.accountName ?? l.label, nameAr: l.accountNameAr }, locale)}`.trim());
+  const cashName = (a: CashFlowReport["cashAccounts"][number]) => localName(a, locale);
   const sectionLabels: Record<string, string> = { operating: t("mgmt.cf.section.operating"), investing: t("mgmt.cf.section.investing"), financing: t("mgmt.cf.section.financing") };
   return (
     <>
@@ -149,7 +153,7 @@ function CashFlow({ r, t }: { r: CashFlowReport; t: (k: string) => string }) {
         <div key={key}>
           <H>{sectionLabels[key]}</H>
           <Table head={[t("mgmt.cf.table.head.description"), t("mgmt.cf.table.head.amount")]} rows={[
-            ...r.sections[key].lines.map((l) => [l.label, fmtMoney(l.amount)]),
+            ...r.sections[key].lines.map((l) => [lineLabel(l), fmtMoney(l.amount)]),
             [t("mgmt.cf.table.row.total"), fmtMoney(r.sections[key].total)],
           ]} total />
         </div>
@@ -157,9 +161,9 @@ function CashFlow({ r, t }: { r: CashFlowReport; t: (k: string) => string }) {
       <H>{t("mgmt.cf.heading.cash_change")}</H>
       <Table head={[t("mgmt.cf.table.head.description"), t("mgmt.cf.table.head.amount")]} rows={[
         [t("mgmt.cf.row.net_flow"), fmtMoney(r.netCashFlow)],
-        ...r.cashAccounts.map((a) => [t("mgmt.cf.row.opening").replace("{}", a.name), fmtMoney(a.opening)]),
-        ...r.cashAccounts.map((a) => [t("mgmt.cf.row.closing").replace("{}", a.name), fmtMoney(a.closing)]),
-        ...r.cashAccounts.map((a) => [t("mgmt.cf.row.change").replace("{}", a.name), fmtMoney(a.change)]),
+        ...r.cashAccounts.map((a) => [t("mgmt.cf.row.opening").replace("{}", cashName(a)), fmtMoney(a.opening)]),
+        ...r.cashAccounts.map((a) => [t("mgmt.cf.row.closing").replace("{}", cashName(a)), fmtMoney(a.closing)]),
+        ...r.cashAccounts.map((a) => [t("mgmt.cf.row.change").replace("{}", cashName(a)), fmtMoney(a.change)]),
         [t("mgmt.cf.row.total_opening"), fmtMoney(r.cashTotal.opening)],
         [t("mgmt.cf.row.total_closing"), fmtMoney(r.cashTotal.closing)],
         [t("mgmt.cf.row.net_change"), fmtMoney(r.cashTotal.change)],

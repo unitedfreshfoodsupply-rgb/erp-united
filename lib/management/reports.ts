@@ -8,6 +8,7 @@ import { valuationReport } from "@/lib/inventory/reports";
 import { agingReport } from "@/lib/sales/invoicing";
 import { apAgingReport } from "@/lib/purchasing/bills";
 import { cashPosition } from "@/lib/accounting/cash";
+import { getSetting } from "@/lib/core/settings-service";
 
 /**
  * Management reporting — read-only queries over the sources of truth (invoices, the
@@ -131,6 +132,7 @@ export async function financeReport(opts: { from?: string; to?: string }) {
  *    asset(not cash/bank) → investing (working capital changes get explicit labels)
  *    liability → financing (working capital → operating)
  *    equity → financing (net income → operating)
+ *  except accounts the configuration itself says are working capital (operatingAccountIds).
  */
 const CF_CLASSIFY: Record<string, "operating" | "investing" | "financing"> = {
   // Cash & bank — what we're measuring the change in; not classified.
@@ -148,6 +150,28 @@ const CF_CLASSIFY: Record<string, "operating" | "investing" | "financing"> = {
 
 /** System keys for cash & bank accounts (whose balance change is the target). */
 const CASH_ACCOUNT_KEYS = new Set(["cash", "bank"]);
+
+/**
+ * Accounts the configuration names as working capital: the payroll liability and expense
+ * accounts of pay components, every account a payroll entry posted to, and the accounts
+ * configured for receipt/payment deductions. Without this they would fall to the type
+ * default (a non-system liability → financing), which a salary or tax payable is not.
+ */
+async function operatingAccountIds() {
+  const [components, runs, payrollPosted] = await Promise.all([
+    prisma.payComponent.findMany({ select: { expenseAccountId: true, liabilityAccountId: true } }),
+    prisma.payrollRun.findMany({ where: { netPayAccountId: { not: null } }, distinct: ["netPayAccountId"], select: { netPayAccountId: true } }),
+    // Accounts payroll actually posted to stay operating after a component is re-mapped.
+    prisma.journalLine.findMany({ where: { entry: { sourceType: "payroll_run" } }, distinct: ["accountId"], select: { accountId: true } }),
+  ]);
+  const ids = new Set<string>(payrollPosted.map((l) => l.accountId));
+  for (const c of components) for (const id of [c.expenseAccountId, c.liabilityAccountId]) if (id) ids.add(id);
+  for (const r of runs) if (r.netPayAccountId) ids.add(r.netPayAccountId);
+  const codes = (await Promise.all((["hr.payroll_net_pay_account", "accounting.withholding_receivable_account", "accounting.withholding_payable_account", "accounting.bank_charges_account", "accounting.write_off_account"] as const).map((k) => getSetting(k))))
+    .map((v) => String(v ?? "").trim()).filter(Boolean);
+  if (codes.length) for (const a of await prisma.account.findMany({ where: { code: { in: codes } }, select: { id: true } })) ids.add(a.id);
+  return ids;
+}
 
 export async function cashFlowReport(opts: { from: string; to: string }) {
   const { from, to } = range(opts.from, opts.to);
@@ -208,7 +232,9 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
   //   Investing CF = decrease in investing assets + increase in investing liabilities (negated)
   //   Financing CF = decrease in financing assets + increase in financing liabilities
 
-  const sections: Record<string, { lines: { label: string; amount: string; accountCode?: string }[]; total: string }> = {
+  const operating = await operatingAccountIds();
+  type CfLine = { kind: "net_income" | "change"; label: string; amount: string; accountCode?: string; accountName?: string; accountNameAr?: string | null };
+  const sections: Record<string, { lines: CfLine[]; total: string }> = {
     operating: { lines: [], total: "0.00" },
     investing: { lines: [], total: "0.00" },
     financing: { lines: [], total: "0.00" },
@@ -227,6 +253,8 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
     let cf: "operating" | "investing" | "financing";
     if (sk && CF_CLASSIFY[sk]) {
       cf = CF_CLASSIFY[sk];
+    } else if (operating.has(a.id)) {
+      cf = "operating";
     } else {
       // Default by account type.
       if (a.type === "asset") cf = "investing";
@@ -246,25 +274,27 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
     // working capital adjustments handle the rest.
     if (a.type === "revenue" || a.type === "expense") continue;
 
-    let cashEffect: Prisma.Decimal;
-    if (a.type === "asset") {
-      cashEffect = delta.negated(); // Asset increase → cash decrease
-    } else {
-      // Liability or equity: increase → cash increase
-      cashEffect = delta;
-    }
+    // `delta` is debit-style (debit − credit). Debits and credits sum to zero, so
+    //   cash change = net income − Σ delta over every other balance-sheet account,
+    // whatever the account's type: an asset that grows (delta > 0) used cash; a
+    // liability or equity that grows (credited, delta < 0) brought cash in.
+    const cashEffect = delta.negated();
 
     if (cashEffect.isZero()) continue;
 
     sections[cf].lines.push({
+      kind: "change",
       label: `تغير في ${acctLabel}`,
       amount: cashEffect.toFixed(2),
       accountCode: a.code,
+      accountName: a.name,
+      accountNameAr: a.nameAr,
     });
   }
 
   // Add net income as the first operating line.
   sections.operating.lines.unshift({
+    kind: "net_income",
     label: "صافي الدخل",
     amount: netIncome.toFixed(2),
   });
@@ -275,8 +305,8 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
     sections[key].total = sum.toFixed(2);
   }
 
-  // Net cash flow = sum of all three sections (negated to match cash‑change sign).
-  const netCashFlow = ["operating", "investing", "financing"].reduce((s, key) => s.plus(D(sections[key].total)), D(0)).negated();
+  // Net cash flow = the three sections together; equals the cash and bank change.
+  const netCashFlow = ["operating", "investing", "financing"].reduce((s, key) => s.plus(D(sections[key].total)), D(0));
 
   // Cash balances: compute opening and closing balances of cash/bank accounts.
   const cashAccountEntries = allIds
@@ -286,7 +316,9 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
       return {
         accountId: id,
         code: a.code,
-        name: a.nameAr,
+        name: a.nameAr ?? a.name,
+        nameAr: a.nameAr,
+        nameEn: a.name,
         opening: (open.get(id) ?? D(0)).toFixed(2),
         closing: (close.get(id) ?? D(0)).toFixed(2),
         change: (close.get(id) ?? D(0)).minus(open.get(id) ?? D(0)).toFixed(2),

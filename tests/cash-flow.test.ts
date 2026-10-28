@@ -101,6 +101,16 @@ async function main() {
   // (N7 removed — redundant; the sum-check sign depends on the negate convention)
   check("N7 cash change equals net flow", cf._balanced === true, cf._balanced);
 
+  // =========================================================================
+  section("N8. EVERY BALANCE-SHEET MOVEMENT COUNTS WITH ITS SIGN");
+  // Over the whole history of the database (supplier bills, payroll, opening balances,
+  // liabilities and equity included), net income + the balance-sheet changes = cash change.
+  const all = await cfReport("2000-01-01", today);
+  const sum = ["operating", "investing", "financing"].reduce((a, k) => a + n(all.sections[k].total), 0);
+  check("N8 net cash flow = operating + investing + financing", Math.abs(sum - n(all.netCashFlow)) < 0.01, { sum, net: all.netCashFlow });
+  check("N8 whole-history report balances against the cash and bank accounts", all._balanced === true && Math.abs(n(all.netCashFlow) - n(all.cashTotal.change)) < 0.01, { net: all.netCashFlow, change: all.cashTotal.change });
+  check("N8 lines carry a kind for the screen to label in either language", all.sections.operating.lines[0]?.kind === "net_income" && Object.values(all.sections).every((sec: any) => sec.lines.every((l: any) => l.kind === "net_income" || (l.kind === "change" && l.accountCode))));
+
   finish("CASH-FLOW");
 }
 
