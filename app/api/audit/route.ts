@@ -57,10 +57,16 @@ export async function GET(req: NextRequest) {
     if (q) {
       const words = q.trim().split(/\s+/);
       where.AND = words.map((word) => ({
+        // Every word must match somewhere: who, what, why, the values, the order, or an id.
         OR: [
-          { reason: { contains: word } },
-          { oldValue: { contains: word } },
-          { newValue: { contains: word } },
+          { reason: { contains: word, mode: "insensitive" } },
+          { oldValue: { contains: word, mode: "insensitive" } },
+          { newValue: { contains: word, mode: "insensitive" } },
+          { fieldChanged: { contains: word, mode: "insensitive" } },
+          { userName: { contains: word, mode: "insensitive" } },
+          { action: { contains: word, mode: "insensitive" } },
+          { order: { orderNumber: { contains: word, mode: "insensitive" } } },
+          { order: { customerName: { contains: word, mode: "insensitive" } } },
           { entityId: word },
           { id: word },
         ],

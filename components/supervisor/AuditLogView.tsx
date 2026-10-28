@@ -13,6 +13,7 @@ import { CardSkeleton } from "@/components/Skeleton";
 import { useLocale } from "@/lib/locale";
 import { DICTIONARY } from "@/lib/locale/dictionary";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Pagination } from "@/components/ui/Pagination";
 import { EventIcon } from "@/components/ui/EventIcon";
 
 type DecisionFilter = "all" | "approvals" | "overrides" | "cancel_reopen" | "edits";
@@ -25,7 +26,8 @@ const DECISION_FILTER_KEYS: { key: DecisionFilter; dictKey: string; actions?: st
   { key: "edits", dictKey: "audit.filter.edits", actions: ["order_edited", "required_quantity_edited"] },
 ];
 
-const AUDIT_ENTITIES = ["sales_invoice", "credit_note", "supplier_bill", "debit_note", "journal_entry", "customer_receipt", "supplier_payment", "order", "purchase_order", "stock_intake", "inventory_document", "approval_request", "employee", "department", "expense", "user", "settings"];
+const AUDIT_ENTITIES = ["sales_invoice", "credit_note", "supplier_bill", "debit_note", "journal_entry", "customer_receipt", "supplier_payment", "order", "purchase_order", "stock_intake", "inventory_document", "approval_request", "employee", "department", "expense", "employee_transaction", "attendance_day", "attendance_correction", "leave_request", "employee_compensation", "pay_component", "statutory_rule_set", "payroll_run", "payroll_adjustment", "payroll_payment", "customer", "supplier", "product", "user", "settings"];
+const PAGE_SIZE = 50;
 
 export function AuditLogView() {
   const { t, locale } = useLocale();
@@ -34,8 +36,9 @@ export function AuditLogView() {
   const [entityFilter, setEntityFilter] = useState("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  // Build query string for server-side filtering
-  const qs = new URLSearchParams();
+  const [page, setPage] = useState(1);
+  // Server-side filtering and paging; any filter change goes back to the first page.
+  const qs = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String((page - 1) * PAGE_SIZE) });
   if (search.trim()) qs.set("q", search.trim());
   if (entityFilter !== "all") qs.set("entity", entityFilter);
   if (from) qs.set("from", from);
@@ -43,22 +46,15 @@ export function AuditLogView() {
   const queryStr = qs.toString() ? "?" + qs.toString() : "";
   const { data, isLoading, isError, error, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["audit", queryStr || "all"],
-    queryFn: () => apiFetch<{ logs: AuditLogDTO[] }>("/api/audit" + queryStr),
+    queryFn: () => apiFetch<{ logs: AuditLogDTO[]; total: number }>("/api/audit" + queryStr),
     refetchInterval: 5000,
   });
 
   const activeFilter = DECISION_FILTER_KEYS.find((f) => f.key === decisionFilter)!;
-  const needle = search.trim().toLowerCase();
-  const logs = (data?.logs ?? [])
-    .filter((l) => !activeFilter.actions || activeFilter.actions.includes(l.action))
-    .filter(
-      (l) =>
-        !needle ||
-        l.userName.toLowerCase().includes(needle) ||
-        l.order?.customerName.toLowerCase().includes(needle) ||
-        l.order?.orderNumber.toLowerCase().includes(needle) ||
-        describeOne(l, locale).headline.toLowerCase().includes(needle)
-    );
+  // The text search runs on the server (who, action, reason, values, order, ids); the
+  // decision pills narrow the page already loaded.
+  const logs = (data?.logs ?? []).filter((l) => !activeFilter.actions || activeFilter.actions.includes(l.action));
+  const reset = <T,>(set: (v: T) => void) => (v: T) => { set(v); setPage(1); };
 
   return (
     <div className="page-narrow">
@@ -71,7 +67,7 @@ export function AuditLogView() {
 
       <input
         value={search}
-        onChange={(e) => setSearch(e.target.value)}
+        onChange={(e) => reset(setSearch)(e.target.value)}
         placeholder={t("audit.search-placeholder")}
         className="field mb-3"
       />
@@ -95,7 +91,7 @@ export function AuditLogView() {
         <span className="field-label">{t("audit.entity-filter-label")}</span>
         <select
           value={entityFilter}
-          onChange={(e) => setEntityFilter(e.target.value)}
+          onChange={(e) => reset(setEntityFilter)(e.target.value)}
           className="field field-sm"
         >
           <option value="all">{t("audit.entity-label")}</option>
@@ -105,11 +101,11 @@ export function AuditLogView() {
 
         <label className="flex flex-col gap-1">
           <span className="field-label">{t("audit.from-date-placeholder")}</span>
-          <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className="field field-sm w-auto" />
+          <input type="date" value={from} max={to || undefined} onChange={(e) => reset(setFrom)(e.target.value)} className="field field-sm w-auto" />
         </label>
         <label className="flex flex-col gap-1">
           <span className="field-label">{t("audit.to-date-placeholder")}</span>
-          <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className="field field-sm w-auto" />
+          <input type="date" value={to} min={from || undefined} onChange={(e) => reset(setTo)(e.target.value)} className="field field-sm w-auto" />
         </label>
       </div>
 
@@ -166,6 +162,7 @@ export function AuditLogView() {
           );
         })}
       </div>
+      {data && data.total > PAGE_SIZE && <Pagination page={page} pageSize={PAGE_SIZE} total={data.total} onChange={setPage} />}
     </div>
   );
 }

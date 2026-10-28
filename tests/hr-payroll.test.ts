@@ -376,6 +376,15 @@ async function main() {
   if (r.body.run) await call("karim", "POST", `/api/hr/payroll/runs/${r.body.run.id}/cancel`, { reason: "اختبار — مش هيتحسب" });
   const pAudit = new Set((await s.auditLog.findMany({ where: { OR: [{ entityType: "payroll_run", entityId: run.id }, { entityType: "payroll_payment", fieldChanged: run.number }, { entityType: "payroll_payment", entityId: pay1.id }] }, select: { action: true } })).map((a) => a.action));
   check("posting, payments, exports and reversals are audited", ["payroll_run_posted", "payroll_payment_recorded", "payroll_payment_reversed", "payroll_register_exported", "payroll_bank_file_exported", "payroll_run_reversed"].every((a) => pAudit.has(a)), [...pAudit]);
+  // Audit search (E-2): words match the action, the changed field, who did it, and ids.
+  const byAction = (await call("admin", "GET", `/api/audit?entity=payroll_run&q=payroll_run_reversed&limit=50`)).body.logs ?? [];
+  check("audit search finds an action by its name", byAction.some((l: any) => l.entityId === run.id && l.action === "payroll_run_reversed"), byAction.length);
+  const byNumber = (await call("admin", "GET", `/api/audit?entity=payroll_payment&q=${encodeURIComponent(run.number)}&limit=50`)).body.logs ?? [];
+  check("audit search finds payments by the run number they name", byNumber.length >= 3 && byNumber.every((l: any) => l.entityType === "payroll_payment"), byNumber.length);
+  const byUser = (await call("admin", "GET", `/api/audit?entity=payroll_run&q=${encodeURIComponent((await s.user.findUniqueOrThrow({ where: { username: "karim" } })).name)}%20payroll_run_posted&limit=50`)).body.logs ?? [];
+  check("audit search combines who and what (every word must match)", byUser.some((l: any) => l.entityId === run.id) && byUser.every((l: any) => l.action === "payroll_run_posted"), byUser.length);
+  const pg1 = (await call("admin", "GET", "/api/audit?limit=1&offset=0")).body, pg2 = (await call("admin", "GET", "/api/audit?limit=1&offset=1")).body;
+  check("audit pages: a total and distinct rows per offset", pg1.total > 1 && pg1.logs?.[0]?.id !== pg2.logs?.[0]?.id, [pg1.total, pg1.logs?.[0]?.id, pg2.logs?.[0]?.id]);
   await setting("hr.payroll_net_pay_account", null);
 
   await db?.$disconnect();
