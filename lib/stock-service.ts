@@ -62,13 +62,6 @@ export function yieldPct(receivedKg: number, goodKg: number): number | null {
   return Math.round((goodKg / receivedKg) * 1000) / 10;
 }
 
-function assertKg(value: unknown, label: string, { allowZero = true } = {}): asserts value is number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    throw new ApiError(400, `${label} لازم يكون رقم موجب`);
-  }
-  if (!allowZero && value === 0) throw new ApiError(400, `${label} لازم يكون أكبر من صفر`);
-}
-
 function assertDate(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || !DATE_RE.test(value)) {
     throw new ApiError(400, `${label} لازم يكون بصيغة YYYY-MM-DD`);
@@ -602,6 +595,15 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
       },
       tx
     );
+    // inventory.grading_price_missing = "fallback" promises the reason is recorded — the same
+    // row the post-receipt sort writes (lib/inventory/documents.ts), never a silent switch.
+    if (fallbackReason) {
+      await writeAudit({
+        userId: actor.id, userName: actor.name, role: actor.role, action: "grading_cost_fallback",
+        entityType: "stock_intake", entityId: created.id, fieldChanged: "costBasis", oldValue: "nrv",
+        newValue: `proportional · ${fallbackReason}`, source: "user", deviceId: actor.deviceId, reason: "سعر المخرجات غير متاح — اتروزعت التكلفة بالتناسب",
+      }, tx);
+    }
     if (poLine) await afterPoReceipt(tx, poLine.poId, actor);
     return { intake: created, replayed: false };
   });

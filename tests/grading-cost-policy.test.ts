@@ -133,6 +133,11 @@ async function main() {
   check("payload goodUnitCost = 5.0000 (proportional fallback)", Math.abs(n(d7p?.goodUnitCost) - 5) < 1e-9, d7p?.goodUnitCost);
   const audit = (await call("admin", "GET", "/api/audit?action=grading_cost_fallback")).body.logs ?? [];
   check("grading_cost_fallback audit row exists", audit.some((l: any) => l.entityId === d7.id), audit.length);
+  // Grading at the dock (intake with Grade B) under the same settings records it too.
+  const i7b = await intake({ product_id: d7g.id, received_kg: 50, grade_b_qty: 10, waste_qty: 5, grade_b_product_id: d7b.id, unit_cost: "5" });
+  check("intake graded at the dock with a missing price: 201 (fallback)", i7b.status === 201, [i7b.status, i7b.body?.error]);
+  const audit7b = (await call("admin", "GET", "/api/audit?action=grading_cost_fallback")).body.logs ?? [];
+  check("…and its grading_cost_fallback audit row exists (was silently dropped)", audit7b.some((l: any) => l.entityId === i7b.body.intake?.id && String(l.newValue).startsWith("proportional")), audit7b.length);
   await resetSetting("inventory.grading_cost_policy");
   await resetSetting("inventory.grading_price_missing");
 

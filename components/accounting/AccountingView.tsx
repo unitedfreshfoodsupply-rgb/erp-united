@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
+import { apiFetch, apiPost, errorMessage } from "@/lib/api-client";
 import { newClientKey } from "@/lib/clientKey";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
@@ -51,6 +51,23 @@ const METHOD_LABELS: Record<string, string> = {
   cheque: "accounting.method.cheque",
   wallet: "accounting.method.wallet",
   other: "accounting.method.other",
+};
+
+/** A receipt or payment as the list endpoints return it (fields this screen reads). */
+type SettlementRow = {
+  id: string;
+  number: string;
+  date: string;
+  method: string;
+  cashAccount: string;
+  reference: string | null;
+  amount: string;
+  cashAmount: string;
+  unallocated: string;
+  customer?: LocalizedNameSource | null;
+  supplier?: LocalizedNameSource | null;
+  deductions?: { kind: string; amount: string; reference: string | null }[];
+  reversal?: { date: string; reason: string; by: string } | null;
 };
 
 function getPartyName(party: LocalizedNameSource | null | undefined, locale: string) {
@@ -136,8 +153,8 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
   const list = useQuery({
     queryKey: ["acc", kind, page],
     queryFn: async () => {
-      const r = await apiFetch<Record<string, any[]> & { pagination: { total: number; limit: number; offset: number } }>(`/api/accounting/${kind}?limit=${pageSize}&offset=${(page - 1) * pageSize}`);
-      const items: any[] = r[kind] ?? [];
+      const r = await apiFetch<Partial<Record<typeof kind, SettlementRow[]>> & { pagination: { total: number; limit: number; offset: number } }>(`/api/accounting/${kind}?limit=${pageSize}&offset=${(page - 1) * pageSize}`);
+      const items: SettlementRow[] = r[kind] ?? [];
       const totalPages = Math.max(1, Math.ceil((r.pagination?.total ?? 0) / pageSize));
       return { items, total: r.pagination?.total ?? 0, totalPages };
     },
@@ -163,7 +180,7 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
             </Field>
             <Field label={t("accounting.form.amount")}><input className="field" dir="ltr" inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
             <Field label={t("accounting.form.date")}><input type="date" className="field" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
-            <Field label={t("accounting.form.method")}><select className="field" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>{Object.entries(METHOD_LABELS).map(([k, vk]) => <option key={k} value={k}>{t(vk as any)}</option>)}</select></Field>
+            <Field label={t("accounting.form.method")}><select className="field" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>{Object.entries(METHOD_LABELS).map(([k, vk]) => <option key={k} value={k}>{t(vk)}</option>)}</select></Field>
             <Field label={t("accounting.form.account.label")}><select className="field" value={form.cash_account_id} onChange={(e) => setForm({ ...form, cash_account_id: e.target.value })}><option value="cash_main">{t("accounting.form.account.treasury")}</option><option value="bank_main">{t("accounting.form.account.bank")}</option></select></Field>
             <Field label={t("accounting.form.reference-hint")}><input className="field" dir="ltr" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></Field>
           </div>
@@ -199,21 +216,21 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
               setDed({ withholding: "", withholding_ref: "", bank_charge: "", write_off: "" });
               setKey(newClientKey());
               void qc.invalidateQueries({ queryKey: ["acc"] });
-            } catch (err) { /* handled inline below */ } finally { setBusy(false); }
+            } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); } finally { setBusy(false); }
           }}>{isReceipt ? t("accounting.button.record-receipt") : t("accounting.button.record-payment")}</button>
         </section>
       )}
       {list.isLoading && <LoadingState />}
       {list.data?.items.length === 0 && <EmptyState icon="💵" title={t("accounting.empty.no-transactions")} />}
       <ul className="flex flex-col gap-2">
-        {list.data?.items.map((r: any) => (
+        {list.data?.items.map((r) => (
           <li key={r.id} className={`card p-3 flex justify-between gap-2 text-sm font-bold ${r.reversal ? "opacity-70" : ""}`}>
             <div>
               <div className="font-extrabold"><span dir="ltr">{r.number}</span> · {getPartyName(r.customer, locale) || getPartyName(r.supplier, locale)}</div>
-              <div className="text-xs text-united-muted">{r.date} · {t(SOURCE_TYPES[r.sourceType] as any)} · {r.cashAccount}{r.reference ? <> · <span dir="ltr">{r.reference}</span></> : null}{Number(r.unallocated) > 0 ? ` · ${t("accounting.unallocated")} ${r.unallocated}` : ""}</div>
-              {r.deductions?.length > 0 && (
+              <div className="text-xs text-united-muted">{r.date} · {METHOD_LABELS[r.method] ? t(METHOD_LABELS[r.method]) : r.method} · {r.cashAccount}{r.reference ? <> · <span dir="ltr">{r.reference}</span></> : null}{Number(r.unallocated) > 0 ? ` · ${t("accounting.unallocated")} ${r.unallocated}` : ""}</div>
+              {(r.deductions?.length ?? 0) > 0 && (
                 <div className="text-xs text-united-muted">
-                  {r.deductions.map((d: { kind: string; amount: string; reference: string | null }) => `${t(`accounting.deductions.kind.${d.kind}` as any)} ${fmtMoney(d.amount)}${d.reference ? ` (${d.reference})` : ""}`).join(" · ")} · {isReceipt ? t("accounting.deductions.cash-in") : t("accounting.deductions.cash-out")} <span dir="ltr">{fmtMoney(r.cashAmount)}</span>
+                  {r.deductions!.map((d) => `${t(`accounting.deductions.kind.${d.kind}`)} ${fmtMoney(d.amount)}${d.reference ? ` (${d.reference})` : ""}`).join(" · ")} · {isReceipt ? t("accounting.deductions.cash-in") : t("accounting.deductions.cash-out")} <span dir="ltr">{fmtMoney(r.cashAmount)}</span>
                 </div>
               )}
               {r.reversal && <div className="text-xs text-united-danger">{t("accounting.reversal-display", { n: r.reversal.date, reason: r.reversal.reason, by: r.reversal.by })}</div>}
@@ -224,7 +241,7 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
                 <button type="button" className="text-xs text-united-danger underline" onClick={async () => {
                   const reason = await dialogs.prompt({ title: isReceipt ? t("accounting.prompt-reverse-receipt", { number: r.number }) : t("accounting.prompt-reverse-payment", { number: r.number }), label: t("ui.reason-label"), required: true, multiline: true, tone: "danger", confirmLabel: t("accounting.button.reverse") });
                   if (!reason) return;
-                  try { await apiPost(`/api/accounting/${kind}/${r.id}/reverse`, { reason }); toast.show(t("accounting.toast-reversed", { n: r.number }), "success"); void qc.invalidateQueries({ queryKey: ["acc"] }); } catch (err) { /* handled inline */ }
+                  try { await apiPost(`/api/accounting/${kind}/${r.id}/reverse`, { reason }); toast.show(t("accounting.toast-reversed", { n: r.number }), "success"); void qc.invalidateQueries({ queryKey: ["acc"] }); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
                 }}>{t("accounting.button.reverse")}</button>
               )}
             </div>
@@ -305,7 +322,7 @@ function Refunds({ kind }: { kind: "customer" | "supplier" }) {
               </select>
             </Field>
             <Field label={t("accounting.form.amount")}><input className="field" dir="ltr" inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
-            <Field label={t("accounting.form.method")}><select className="field" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>{Object.entries(METHOD_LABELS).map(([k, vk]) => <option key={k} value={k}>{t(vk as any)}</option>)}</select></Field>
+            <Field label={t("accounting.form.method")}><select className="field" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>{Object.entries(METHOD_LABELS).map(([k, vk]) => <option key={k} value={k}>{t(vk)}</option>)}</select></Field>
             <Field label={t("accounting.form.account.label")}><select className="field" value={form.cash_account_id} onChange={(e) => setForm({ ...form, cash_account_id: e.target.value })}><option value="cash_main">{t("accounting.form.account.treasury")}</option><option value="bank_main">{t("accounting.form.account.bank")}</option></select></Field>
             <Field label={t("accounting.form.reference")}><input className="field" dir="ltr" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></Field>
             <Field label={t("accounting.form.reason")}><input className="field" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></Field>
@@ -318,7 +335,7 @@ function Refunds({ kind }: { kind: "customer" | "supplier" }) {
               setForm({ ...form, amount: "", reference: "", reason: "" });
               setKey(newClientKey());
               void qc.invalidateQueries({ queryKey: ["acc"] });
-            } catch (err) { /* handled inline */ } finally { setBusy(false); }
+            } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); } finally { setBusy(false); }
           }}>{isCustomer ? t("accounting.button.record-customer-refund") : t("accounting.button.record-supplier-refund")}</button>
         </>
       )}
@@ -326,7 +343,7 @@ function Refunds({ kind }: { kind: "customer" | "supplier" }) {
         <ul className="text-sm font-bold divide-y divide-united-dark/5">
           {list.data.map((f) => (
             <li key={f.id} className="py-1 flex justify-between gap-2">
-              <span><span dir="ltr">{f.number}</span> · {getPartyName(f.customer, locale) || getPartyName(f.supplier, locale)} · {f.date} · {t(METHOD_LABELS[f.method] as any)} · {f.reason}</span>
+              <span><span dir="ltr">{f.number}</span> · {getPartyName(f.customer, locale) || getPartyName(f.supplier, locale)} · {f.date} · {t(METHOD_LABELS[f.method])} · {f.reason}</span>
               <span dir="ltr" className="font-extrabold">{fmtMoney(f.amount)}</span>
             </li>
           ))}
@@ -379,7 +396,7 @@ function Journals() {
                   setMKey(newClientKey());
                   setM({ date: todayLocalISO(), description: "", lines: [{ account_id: "", debit: "", credit: "" }, { account_id: "", debit: "", credit: "" }] });
                   void qc.invalidateQueries({ queryKey: ["acc"] });
-                } catch (err) { /* handled inline */ }
+                } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
               }}>{t("accounting.button.post")}</button>
             </div>
           </div>
@@ -403,7 +420,7 @@ function Journals() {
         {q.data?.journals.map((j) => (
           <li key={j.id}>
             <button type="button" className="card p-2 w-full text-start flex justify-between gap-2 text-sm font-bold" onClick={() => setOpen(j.id)}>
-              <span><span dir="ltr">{j.number}</span> · {j.date} · {t(SOURCE_TYPES[j.sourceType] as any)} · {j.description}</span>
+              <span><span dir="ltr">{j.number}</span> · {j.date} · {t(SOURCE_TYPES[j.sourceType])} · {j.description}</span>
               <span dir="ltr">{fmtMoney(j.total)}</span>
             </button>
           </li>
@@ -525,7 +542,7 @@ function Periods() {
   const { t } = useLocale();
   const q = useQuery({ queryKey: ["acc", "periods"], queryFn: () => apiFetch<{ periods: { id: string; code: string; status: string; closedBy: string | null }[] }>("/api/accounting/periods") });
   const run = async (path: string, doneMsg: string) => {
-    try { await apiPost(path, {}); toast.show(doneMsg, "success"); void qc.invalidateQueries({ queryKey: ["acc"] }); } catch (err) { /* handled inline */ }
+    try { await apiPost(path, {}); toast.show(doneMsg, "success"); void qc.invalidateQueries({ queryKey: ["acc"] }); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
   };
   return (
     <div className="flex flex-col gap-3">
@@ -556,7 +573,7 @@ function Reconcile() {
   const [recId, setRecId] = useState<string | null>(null);
   const rec = useQuery({ queryKey: ["acc", "rec", recId], queryFn: () => apiFetch<{ reconciliation: { status: string; statementBalance: string; clearedBalance: string; difference: string; lines: { id: string; date: string; number: string; description: string; debit: string; credit: string; cleared: boolean }[] } }>(`/api/accounting/reconciliations/${recId}`), enabled: !!recId });
   const mark = async (ids: string[], cleared: boolean) => {
-    try { await apiPost(`/api/accounting/reconciliations/${recId}/mark`, { line_ids: ids, cleared }); void qc.invalidateQueries({ queryKey: ["acc", "rec", recId] }); } catch (err) { /* handled inline */ }
+    try { await apiPost(`/api/accounting/reconciliations/${recId}/mark`, { line_ids: ids, cleared }); void qc.invalidateQueries({ queryKey: ["acc", "rec", recId] }); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
   };
   if (!recId) {
     return (
@@ -565,7 +582,7 @@ function Reconcile() {
         <Field label={t("accounting.rec-statement-date")}><input type="date" className="field" value={form.statement_date} onChange={(e) => setForm({ ...form, statement_date: e.target.value })} /></Field>
         <Field label={t("accounting.rec-statement-balance")}><input className="field" dir="ltr" inputMode="decimal" value={form.statement_balance} onChange={(e) => setForm({ ...form, statement_balance: e.target.value })} /></Field>
         <button type="button" className="btn-primary self-end" onClick={async () => {
-          try { const r = await apiPost<{ reconciliation: { id: string } }>("/api/accounting/reconciliations", form); setRecId(r.reconciliation.id); } catch (err) { /* handled inline */ }
+          try { const r = await apiPost<{ reconciliation: { id: string } }>("/api/accounting/reconciliations", form); setRecId(r.reconciliation.id); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
         }}>{t("accounting.button.start-reconcile")}</button>
       </section>
     );
@@ -590,7 +607,7 @@ function Reconcile() {
         {r.lines.length === 0 && <EmptyState icon="🏦" title={t("accounting.empty.no-reconcile-items")} />}
       </ul>
       {r.status === "open" && <button type="button" className="btn-primary" onClick={async () => {
-        try { await apiPost(`/api/accounting/reconciliations/${recId}/complete`, {}); toast.show(t("accounting.toast-reconciled"), "success"); void qc.invalidateQueries({ queryKey: ["acc"] }); } catch (err) { /* handled inline */ }
+        try { await apiPost(`/api/accounting/reconciliations/${recId}/complete`, {}); toast.show(t("accounting.toast-reconciled"), "success"); void qc.invalidateQueries({ queryKey: ["acc"] }); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
       }}>{t("accounting.button.finish-reconcile")}</button>}
     </div>
   );
@@ -665,7 +682,7 @@ function Opening() {
         <Field label={t("accounting.info-due-date")}><input type="date" className="field" value={b.due_date} onChange={(e) => setB({ ...b, due_date: e.target.value })} /></Field>
         <Field label={t("accounting.form.reference")}><input className="field" value={b.reference} onChange={(e) => setB({ ...b, reference: e.target.value })} /></Field>
         <button type="button" className="btn-primary col-span-full" disabled={!b.party_id || !b.amount} onClick={async () => {
-          try { await apiPost("/api/accounting/opening-balances", { ...b, due_date: b.due_date || undefined, reference: b.reference || null, idempotency_key: bKey }); setBKey(newClientKey()); setB({ ...b, party_id: "", amount: "", reference: "" }); done(t("accounting-toast-opening-saved")); } catch (err) { /* handled inline */ }
+          try { await apiPost("/api/accounting/opening-balances", { ...b, due_date: b.due_date || undefined, reference: b.reference || null, idempotency_key: bKey }); setBKey(newClientKey()); setB({ ...b, party_id: "", amount: "", reference: "" }); done(t("accounting-toast-opening-saved")); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
         }}>{t("accounting.button.record-opening")}</button>
       </section>
       <section className="card p-4 flex flex-col gap-2">
@@ -681,7 +698,7 @@ function Opening() {
         <div className="flex gap-2">
           <button type="button" className="btn-secondary" onClick={() => setStock([...stock, { product_id: "", quantity: "", unit_cost: "", expiry_date: "" }])}>{t("accounting.button.add-item")}</button>
           <button type="button" className="btn-primary" onClick={async () => {
-            try { await apiPost("/api/accounting/opening-stock", { lines: stock.filter((l) => l.product_id).map((l) => ({ ...l, expiry_date: l.expiry_date || undefined })), idempotency_key: sKey }); setSKey(newClientKey()); setStock([{ product_id: "", quantity: "", unit_cost: "", expiry_date: "" }]); done(t("accounting-toast-stock-saved")); } catch (err) { /* handled inline */ }
+            try { await apiPost("/api/accounting/opening-stock", { lines: stock.filter((l) => l.product_id).map((l) => ({ ...l, expiry_date: l.expiry_date || undefined })), idempotency_key: sKey }); setSKey(newClientKey()); setStock([{ product_id: "", quantity: "", unit_cost: "", expiry_date: "" }]); done(t("accounting-toast-stock-saved")); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
           }}>{t("accounting.button.record-stock")}</button>
         </div>
       </section>

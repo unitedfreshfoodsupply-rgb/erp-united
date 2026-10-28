@@ -716,6 +716,8 @@ function ReleaseButton({ productId, bucket: b }: { productId: string; bucket: Bu
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // The release endpoint requires stock.adjust; don't offer a form that can only be refused.
+  if (!can("stock.adjust")) return null;
   if (!open) {
     return (
       <button type="button" className="text-xs font-extrabold text-united-green underline" onClick={() => setOpen(true)}>

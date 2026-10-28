@@ -35,15 +35,25 @@ export function ItemRow({
   // the server's own numbers change, but never while the operator is mid-entry
   // (touched), so their typing is never yanked out from under them.
   const [touched, setTouched] = useState(false);
+  // The server's new value when another tablet saved this line while the operator was typing.
+  const [remoteValue, setRemoteValue] = useState<number | null>(null);
   const lastVersion = useRef(item.version);
+  const draft = useRef({ touched, qty });
+  draft.current = { touched, qty };
   useEffect(() => {
-    // item.version changes exactly when the server accepted a write to this line —
-    // by this operator or another one. That is the moment the local draft is stale,
-    // so re-seed from the server and let the field track it again.
+    // item.version changes exactly when the server accepted a write to this line — by this
+    // operator (their value is now the server's) or by another tablet. Re-seed, unless the
+    // operator is mid-entry with a different value: then keep their typing and say that the
+    // line changed elsewhere, so a confirm never silently overwrites it either way.
     if (lastVersion.current !== item.version) {
       lastVersion.current = item.version;
-      setQty(startValue);
-      setTouched(false);
+      if (draft.current.touched && draft.current.qty !== startValue) {
+        setRemoteValue(startValue);
+      } else {
+        setQty(startValue);
+        setTouched(false);
+        setRemoteValue(null);
+      }
     }
   }, [item.version, startValue]);
   const [editingRequired, setEditingRequired] = useState(false);
@@ -172,6 +182,14 @@ export function ItemRow({
                 : t("orders.item.done_load")}
             </button>
           </div>
+          {remoteValue !== null && (
+            <div role="status" className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-united-warn/10 px-3 py-2 text-sm font-medium text-united-warn">
+              <span>{t("orders.item.changed_elsewhere", { qty: qtyLabel(remoteValue), unit: item.unit })}</span>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => { setQty(remoteValue); setTouched(false); setRemoteValue(null); }}>
+                {t("orders.item.use_server_value")}
+              </button>
+            </div>
+          )}
           {/* Inline prepared-vs-ordered comparison — updates immediately on every keystroke. */}
           <div className="flex items-center gap-2 mt-2 text-sm font-bold">
             <span className="text-united-muted">{t("orders.item.req_label")}</span>

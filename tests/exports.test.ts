@@ -46,6 +46,13 @@ async function main() {
   const fin = await fetch(url(`/api/management/finance/export?from=2000-01-01&to=2099-12-31`), { headers: { cookie } });
   check("finance report export 200", fin.status === 200, fin.status);
   check("finance BOM", await hasBom(fin));
+  // The receivables/payables summary rows carry the aging totals (they were blank: the
+  // export read a `balance` field the aging report does not have).
+  const finJson = await (await fetch(url(`/api/management/finance?from=2000-01-01&to=2099-12-31`), { headers: { cookie } })).json();
+  const finText = await (await fetch(url(`/api/management/finance/export?from=2000-01-01&to=2099-12-31`), { headers: { cookie } })).text();
+  const rowAmount = (label: string) => finText.split("\r\n").find((l) => l.startsWith(label))?.split(",")[1] ?? null;
+  check("finance CSV receivables total = aging total", rowAmount("عملاء (كبار)") === finJson.report.receivables.totals.total, `${rowAmount("عملاء (كبار)")} vs ${finJson.report.receivables.totals.total}`);
+  check("finance CSV payables total = aging total", rowAmount("موردون (كبار)") === finJson.report.payables.totals.total, `${rowAmount("موردون (كبار)")} vs ${finJson.report.payables.totals.total}`);
 
   section("6. VALUATION CSV");
   const val = await fetch(url(`/api/inventory/reports/valuation/export`), { headers: { cookie } });

@@ -453,7 +453,7 @@ function Suppliers({ locale, t, sup_type }: { locale: Locale; t: (key: string) =
   const q = useSuppliers();
   const [open, setOpen] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", name_ar: "", type: "farm", payment_terms_days: "0", tax_registration_no: "" });
-  if (open) return <SupplierDetail id={open} onClose={() => setOpen(null)} locale={locale} t={t} sup_type={sup_type} />;
+  if (open) return <SupplierDetail id={open} onClose={() => setOpen(null)} locale={locale} t={t} />;
   return (
     <div className="flex flex-col gap-3">
       {can("purchasing.suppliers.manage") && (
@@ -492,7 +492,7 @@ function Suppliers({ locale, t, sup_type }: { locale: Locale; t: (key: string) =
   );
 }
 
-function SupplierDetail({ id, onClose, locale, t, sup_type }: { id: string; onClose: () => void; locale: Locale; t: (key: string) => string; sup_type: Record<string, string> }) {
+function SupplierDetail({ id, onClose, locale, t }: { id: string; onClose: () => void; locale: Locale; t: (key: string) => string }) {
   const { can } = usePermissions();
   const toast = useToast();
   const qc = useQueryClient();
@@ -511,7 +511,7 @@ function SupplierDetail({ id, onClose, locale, t, sup_type }: { id: string; onCl
       <section className="card p-4 flex flex-col gap-2 text-sm font-bold">
         {otherLocalName(s, locale) && <div dir="auto" className="text-united-muted">{otherLocalName(s, locale)}</div>}
         <div>
-          <span className="text-united-muted">{t("purchasing.supplier.type." + s.type as any) ?? s.type}</span>
+          <span className="text-united-muted">{t("purchasing.supplier.type." + s.type) ?? s.type}</span>
           {s.phone && <span className="ms-2 text-united-green">· {s.phone}</span>}
           {s.city && <span className="ms-2">· {s.city}</span>}
           {s.address && <span className="ms-2">· {s.address}</span>}
@@ -536,9 +536,30 @@ function SupplierDetail({ id, onClose, locale, t, sup_type }: { id: string; onCl
         {s.leadTimeDays != null && <div>{t("purchasing.supplier.detail.delivery_in").replace("%s", String(s.leadTimeDays))}</div>}
         {!s.leadTimeDays && <div className="text-united-muted">{t("purchasing.supplier.detail.not_logged")}</div>}
       </section>
-      {can("purchasing.prices.manage") && prices.data && (
+      {can("purchasing.prices.view") && prices.data && (
         <section className="card p-4 flex flex-col gap-2">
           <h3 className="font-extrabold">{t("purchasing.supplier.prices_title")}</h3>
+          {/* Registering an agreed price (restored: dropped in the 37f9064 redesign). */}
+          {can("purchasing.prices.manage") && (
+            <form className="grid grid-cols-2 gap-2 sm:grid-cols-4" onSubmit={async (e) => {
+              e.preventDefault();
+              if (!price.product_id || !price.unit_price.trim()) return;
+              try {
+                await apiPost(`/api/purchasing/suppliers/${id}/prices`, { valid_from: price.valid_from, prices: [{ product_id: price.product_id, unit_price: price.unit_price.trim() }] });
+                setPrice({ ...price, unit_price: "" });
+                toast.show(t("purchasing.supplier.price_registered"), "success");
+                refresh();
+              } catch (err) { toast.show(errorMsg(err), "error"); }
+            }}>
+              <select className="field col-span-2" value={price.product_id} onChange={(e) => setPrice({ ...price, product_id: e.target.value })} aria-label={t("purchasing.line.product.placeholder")}>
+                <option value="">{t("purchasing.line.product.placeholder")}</option>
+                {(catalog.data?.products ?? []).map((p) => <option key={p.id} value={p.id}>{localName(p, locale)} ({p.unit})</option>)}
+              </select>
+              <input className="field" dir="ltr" inputMode="decimal" placeholder={t("purchasing.rfq.quote_price")} aria-label={t("purchasing.rfq.quote_price")} value={price.unit_price} onChange={(e) => setPrice({ ...price, unit_price: e.target.value })} />
+              <input className="field" type="date" value={price.valid_from} onChange={(e) => setPrice({ ...price, valid_from: e.target.value })} aria-label={t("purchasing.supplier.price_valid_from")} />
+              <button type="submit" className="btn-secondary col-span-full" disabled={!price.product_id || !price.unit_price.trim()}>{t("purchasing.supplier.price_register")}</button>
+            </form>
+          )}
           {prices.data.prices.map((p) => (
             <div key={p.id} className="flex justify-between text-xs font-bold">
               <span>{localName(p.product, locale)} · {p.uomCode}</span>

@@ -19,10 +19,10 @@ export async function GET(req: NextRequest) {
     for (const p of r.sales.byProduct) rows.push({ section: `  بند: ${p.product}`, amount: p.revenue, extra: `تكلفة ${p.cost} · هامش ${p.margin}` });
     rows.push({ section: "أرباح/خسائر", amount: r.profitAndLoss.net, extra: `إيرادات ${r.profitAndLoss.revenue} · مصروفات ${r.profitAndLoss.expenses}` });
     for (const l of r.profitAndLoss.lines) rows.push({ section: `  ${l.code} ${l.name}`, amount: l.amount, extra: l.type });
-    rows.push({ section: "عملاء (كبار)", amount: (r.receivables.totals as any)?.balance ?? "", extra: "" });
-    for (const t of r.receivables.top) rows.push({ section: `  ${(t as any).customer?.name ?? (t as any).name ?? ""}`, amount: (t as any).total ?? "", extra: "" });
-    rows.push({ section: "موردون (كبار)", amount: (r.payables.totals as any)?.balance ?? "", extra: "" });
-    for (const t of r.payables.top) rows.push({ section: `  ${(t as any).supplier?.name ?? (t as any).name ?? ""}`, amount: (t as any).total ?? "", extra: "" });
+    rows.push({ section: "عملاء (كبار)", amount: r.receivables.totals.total, extra: "" });
+    for (const t of r.receivables.top) rows.push({ section: `  ${t.customer.name}`, amount: t.total, extra: "" });
+    rows.push({ section: "موردون (كبار)", amount: r.payables.totals.total, extra: "" });
+    for (const t of r.payables.top) rows.push({ section: `  ${t.supplier.name}`, amount: t.total, extra: "" });
     rows.push({ section: "المخزون", amount: r.inventory.value, extra: "" });
     for (const t of r.inventory.top) rows.push({ section: `  ${t.product}`, amount: t.value, extra: `${t.quantity} ${t.unit}` });
     rows.push({ section: "حركة المخزون", amount: "", extra: "" });

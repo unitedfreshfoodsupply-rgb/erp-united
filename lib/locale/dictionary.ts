@@ -1247,6 +1247,8 @@ const purchasing = {
   "purchasing.supplier.edit_terms_days_supply": { ar: "أيام التوريد", en: "Supply days" },
   "purchasing.supplier.edit_terms_save": { ar: "حفظ", en: "Save" },
   "purchasing.supplier.price_register": { ar: "سجّل السعر", en: "Register price" },
+  "purchasing.supplier.price_registered": { ar: "السعر اتسجل", en: "Price registered" },
+  "purchasing.supplier.price_valid_from": { ar: "ساري من", en: "Valid from" },
   "purchasing.supplier.from": { ar: "من %s", en: "From %s" },
 
   // Common labels
@@ -3496,6 +3498,8 @@ export const DICTIONARY = {
   "attention.show-all": { ar: "اعرض كل الـ{count}", en: "Show all {count}" },
   "create.success-toast": { ar: "اتعمل الأوردر {orderNumber}", en: "Order {orderNumber} created" },
   "orders.clone.toast_success": { ar: "اتعمل نسخة: {number}", en: "Copy created: {number}" },
+  "orders.item.changed_elsewhere": { ar: "السطر ده اتعدّل من جهاز تاني لـ {qty} {unit} — الرقم اللي كتبته لسه زي ما هو", en: "This line was changed on another device to {qty} {unit} — your entry is kept" },
+  "orders.item.use_server_value": { ar: "استخدم الرقم الجديد", en: "Use the new value" },
   "orders.item.excess_warning": { ar: "الكمية المعدة ({qty}) أكتر من المطلوب ({required})", en: "Prepared quantity ({qty}) is more than required ({required})" },
   "orders.item.outlier_warning": { ar: "الكمية دي بعيدة عن المطلوب ({required} {unit}) — {msg}", en: "This quantity is far from the requirement ({required} {unit}) — {msg}" },
   "orders.item.shortage_text": { ar: "ناقص {qty} {unit} عن المطلوب", en: "{qty} {unit} short of the requirement" },

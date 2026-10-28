@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { handleApiError } from "@/lib/rbac";
 import { requireOrderActor } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import type { Permission } from "@/lib/permissions";
 import { visibleAuditRows } from "@/lib/security/audit-visibility";
 import { isValidISODate } from "@/lib/dates";
@@ -36,22 +37,26 @@ export async function GET(req: NextRequest) {
     const can = (p: Permission) => actor.permissions.includes(p);
 
     // Build the where clause.
-    const where: Record<string, unknown> = {};
-    if (orderId) where["orderId"] = orderId;
-    if (action) where["action"] = { contains: action };
+    const where: Prisma.AuditLogWhereInput = {};
+    if (orderId) where.orderId = orderId;
+    if (action) where.action = { contains: action };
     if (entityType) {
       if (!KNOWN_ENTITY_TYPES.has(entityType)) return NextResponse.json({ error: localizeServerMessage(`نوع الكيان "${entityType}" مش معروف`, requestLocale(req)) }, { status: 400 });
-      where["entityType"] = entityType;
+      where.entityType = entityType;
     }
-    if (isValidISODate(from ?? "") || isValidISODate(to ?? "")) {
-      const tsFilter: Record<string, unknown> = {};
-      if (from) tsFilter["gte"] = new Date(from + "T00:00:00Z");
-      if (to) tsFilter["lte"] = new Date(to + "T23:59:59Z");
-      where["timestamp"] = tsFilter;
+    // Each bound is used only when it is a real date: a malformed one is ignored rather
+    // than reaching Prisma as an Invalid Date (a 500).
+    const fromOk = from && isValidISODate(from);
+    const toOk = to && isValidISODate(to);
+    if (fromOk || toOk) {
+      where.timestamp = {
+        ...(fromOk ? { gte: new Date(from + "T00:00:00Z") } : {}),
+        ...(toOk ? { lte: new Date(to + "T23:59:59Z") } : {}),
+      };
     }
     if (q) {
       const words = q.trim().split(/\s+/);
-      where["AND"] = words.map((word) => ({
+      where.AND = words.map((word) => ({
         OR: [
           { reason: { contains: word } },
           { oldValue: { contains: word } },
@@ -63,9 +68,9 @@ export async function GET(req: NextRequest) {
     }
 
     const [total, rows] = await Promise.all([
-      prisma.auditLog.count({ where: where as any }),
+      prisma.auditLog.count({ where }),
       prisma.auditLog.findMany({
-        where: where as any,
+        where,
         orderBy: orderId ? { timestamp: "desc" } : { timestamp: "desc" },
         skip: offset,
         take: limit,
