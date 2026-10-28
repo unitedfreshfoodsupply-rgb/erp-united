@@ -2,10 +2,70 @@
 
 | | |
 |---|---|
-| Status | **Documentation and schema design only — awaiting approval.** Nothing in §3–§11 is implemented. No Prisma schema, migration, code, or production configuration has been changed for this proposal. |
+| Status | **Schema proposal approved ("go", 28 Oct 2026). Phases 1–5 implemented locally — see §0.** Phase 6 (posting and payments) and Phase 7 are not built: they wait on the decisions in §12. Nothing is committed, pushed or deployed; migrations were applied to the local test database only. §1–§12 below are the proposal as approved and are kept unchanged as the design record. |
 | Date | 28 October 2026 |
 | Source of truth | The working tree (six local commits `4c948a3` … `ffb297a` plus uncommitted work), read file by file. Model, field, setting and function names marked **(existing)** were verified in the repository; names marked **(proposed)** do not exist yet. |
 | Decision labels used below | **APPROVED** = decided by the business owner in the request of 28 Oct 2026 · **PROPOSED** = design in this document, not approved · **ASSUMPTION** = working assumption, to be confirmed · **OPEN** = needs an explicit decision (owner, accountant or HR) before the related phase starts |
+
+## 0. Implementation record (after approval, 28 Oct 2026)
+
+Built on the local test database only (PostgreSQL 16, `united_test`); nothing committed, pushed or deployed. Every phase: migration wrapped in `BEGIN`/`COMMIT`, applied with `prisma migrate deploy`, and `prisma migrate diff --from-migrations … --to-schema-datamodel … --exit-code` = 0 (no drift).
+
+### 0.1 Migrations
+
+| Migration | Phase | Adds |
+|---|---|---|
+| `20261028120000_hr_employee_foundation` | 1 | `EmployeeEmployment` (append-only, non-overlapping, one open row; backfilled one row per employee), `EmployeePrivateInfo`, `EmployeeBankAccount`, `EmployeeDocument`, `Department.managerEmployeeId`, 5 HR attachment categories |
+| `20261028130000_hr_attendance` | 2 | `WorkSchedule` + `WorkScheduleDay`, `PublicHoliday`, `AttendanceDay` (+ revision required per version, locked days change only through a correction), `AttendanceDayRevision` (append-only), `AttendanceCorrection` (requester ≠ decider CHECK), device seam `AttendanceSource` / `AttendanceIdentity` / `AttendanceEvent` (append-only, idempotent per event id) / `AttendanceImportBatch`; integration scope `attendance.ingest`; seeds only the `manual` source |
+| `20261028140000_hr_leave` | 3 | `LeaveType`, `LeavePolicy` (draft → verified by another person → retired; never edited once verified; no overlap) + `LeavePolicyTier`, `LeaveLedgerEntry` (append-only, sign per kind, idempotent per source), `LeaveRequest` (no overlap, recorder ≠ decider CHECK); `AttendanceDay.leaveRequestId` FK |
+| `20261028150000_hr_compensation` | 4 | `PayComponent` (inactive until taxable + insurable decided), `EmployeeCompensation` + lines (proposer ≠ approver CHECK; approved packages never overlap or change), `StatutoryRuleSet` (verified by another person; no overlap per code; frozen once verified) |
+| `20261028160000_hr_payroll_runs` | 5 | `PayrollRun` (one regular run per month; approver ≠ preparer and ≠ submitter CHECK; frozen figures once submitted), `PayrollRunEmployee`, `PayrollRunLine` (frozen once submitted), `PayrollCalculationSnapshot` (append-only), `PayrollAdjustment` (on one payslip at most); `EmployeeTransaction.type = salary_on_account` + `payrollPeriod`; `AttendanceDay.lockedRunId` FK |
+
+No statutory value, leave entitlement, schedule, pay component or account mapping is seeded by any migration.
+
+### 0.2 Capability status after phases 1–5
+
+Status uses §1's classification (**IT** = implemented and covered by an automated end-to-end test).
+
+| Area | Capability | Status | Evidence |
+|---|---|---|---|
+| Organisation | Department manager | **IT** | `tests/hr-foundation.test.ts` |
+| Lifecycle | Effective-dated history: transfer, promotion, status change, contract change, termination (reason required), re-hire; same-day supersede kept and marked | **IT** | `tests/hr-foundation.test.ts` §1–3 (48 checks) |
+| Personal data | Private file (national ID unique, insurance, tax no., birth date, emergency contact), read audited, field names only in audit | **IT** | `tests/hr-foundation.test.ts` §5 |
+| | Bank accounts: replaced never edited, masked in lists, audited reveal | **IT** | §6 |
+| | Document register with expiry on employee attachments | **IT** | §7 |
+| Time | Work schedules (per weekday, break, night window) assigned through employment history | **IT** | `tests/hr-attendance.test.ts` §1, §3 (104 checks) |
+| | Public holidays with reference; removal refused once relied on | **IT** | §2, §11 |
+| | Daily register: draft → confirmed; measured worked / late / early / outside-schedule minutes per class (day, night, rest day, holiday); night shift across midnight | **IT** | §4–6 |
+| | Revision trail: every version has its revision row (DB-enforced) | **IT** | §5, §9 |
+| | Corrections approved by someone else; locked days only through corrections; retro marker for posted runs | **IT** | §7–8; `tests/hr-payroll.test.ts` §8 |
+| | Device seam: per-device integration key, idempotent ingestion, identity mapping, compile to drafts that never overwrite a person's entry | **IT** | `tests/hr-attendance.test.ts` §10 (no physical device connected) |
+| Leave | Types, verified policies with service/age tiers, idempotent allocation, adjustments with reason, balances from the ledger, requests counted on the schedule and holidays, approval writing the ledger and confirmed leave days atomically, cancellation reversing both, documents required per type | **IT** | `tests/hr-leave.test.ts` (69 checks) |
+| Compensation | Component catalogue, packages proposed/approved by different people, closing the previous package, salary confidentiality on the server | **IT** | `tests/hr-payroll.test.ts` §1–2 |
+| Statutory | Rule sets per code with structure validation, source required, second-person verification, frozen once verified | **IT** (framework) | §5 — **no real values entered**; see §7 |
+| Money during the month | Salary paid on account of a month (posted like an advance) and recovered in full by that month's run | **IT** | §3, §6 |
+| | Recovery of ordinary advances through payroll | **P** | amount entered per payslip by the preparer, capped at the open advance and the net; the automatic rule (instalment plans, §3.7) is open (P5) |
+| Payroll | Run: create (one regular per month), calculate (every calculation kept), validation exceptions (blocking / warning), holds with reason, one-off adjustments reserved on one payslip | **IT** | §4, §6 |
+| | Refuses to calculate figures no verified rule covers | **IT** | §4 |
+| | Submit freezes figures and locks the month's attendance; approval only by someone who neither prepared nor submitted; refused if a fresh calculation differs; return, withdraw, reopen, cancel | **IT** | §7–8 |
+| | Posting, payments, payslip print, reversal / correction runs, reconciliation | **M** | Phase 6 — needs §12 A1–A4 |
+| Reporting | Payroll register, cost by department | **M** | Phase 7 |
+
+### 0.3 Where the build differs from the proposal (and why)
+
+- **Payroll adjustments have no approval of their own.** Each one is a separate line on the payslip the approver must approve with the run, so the four-eyes rule still covers it; a second approval step was not added (`PayrollAdjustment.status`: open → reserved → applied/cancelled).
+- **Advance recovery reservations** are the payslip's `advanceRecovery` figure (capped against the open 1600 balance minus recoveries already counted by other live runs). The proposed `AdvanceRecovery` table with its cap trigger belongs to posting (Phase 6), when recoveries become ledger entries.
+- **Leave:** half days, carry-over/expiry jobs and encashment are not built (fields exist on the policy). Cancelling a leave whose days a payroll run has locked is refused until posting exists; unpaid leave is stored as `status = leave` with the type's pay mode deciding the deduction.
+- **Attendance status `absent`** is not deducted; only `absent_unpaid` and unpaid / partially paid leave are. Payroll reports `absent` days as a warning.
+- **Suspended days and joiners' / leavers' social insurance** are reported as warnings for a human decision; the engine does not prorate insurance or decide suspension pay.
+- **Statutory rule editing** is a JSON form with a key-only template (every value empty). Structured per-rule forms are a candidate UI improvement.
+- **Lint:** `npm run lint` fails before and after this work with `next lint` / ESLint 9 option errors (tooling, not code); CI does not run it.
+
+### 0.4 Permissions as implemented (role defaults are the OPEN P1–P3 decisions; one option shown)
+
+SUPER_ADMIN holds everything. ACCOUNTANT gains `hr.employees.view`, `hr.leave.request`, `hr.compensation.view`, `hr.compensation.manage`, `hr.payroll.prepare`, `hr.payroll.view`, `hr.statutory.manage`. SUPERVISOR gains `hr.attendance.record`. Private data, leave/attendance approval, leave configuration and payroll approval stay with SUPER_ADMIN until P1–P3 are decided — so today the owner approves what finance prepares, and the database refuses anyone approving their own work.
+
+---
 
 Contents: 1 Capability matrix · 2 Approved requirements · 3 Proposed data model · 4 Lifecycles · 5 Accounting integration · 6 RBAC & confidentiality · 7 Egyptian statutory decision register · 8 Odoo benchmark · 9 Phased implementation & migrations · 10 Rollback & recovery · 11 Acceptance criteria & test plan · 12 Open decisions
 

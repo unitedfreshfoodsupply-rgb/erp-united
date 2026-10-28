@@ -60,6 +60,20 @@
     "hr.expenses.submit",
     "hr.expenses.approve",
     "hr.advances.manage",
+    "hr.employees.view",
+    "hr.private.view",
+    "hr.private.manage",
+    "hr.attendance.record",
+    "hr.attendance.approve",
+    "hr.leave.request",
+    "hr.leave.approve",
+    "hr.leave.configure",
+    "hr.compensation.view",
+    "hr.compensation.manage",
+    "hr.payroll.prepare",
+    "hr.payroll.approve",
+    "hr.payroll.view",
+    "hr.statutory.manage",
     "integrations.manage",
     "operations.trips.manage",
     "purchasing.bills.approve"
@@ -71,6 +85,7 @@
     "SUPERVISOR": [
       "accounting.eta.view",
       "audit.view",
+      "hr.attendance.record",
       "hr.expenses.submit",
       "operations.trips.manage",
       "orders.approve",
@@ -141,8 +156,15 @@
       "accounting.view",
       "audit.view",
       "hr.advances.manage",
+      "hr.compensation.manage",
+      "hr.compensation.view",
       "hr.employees.manage",
+      "hr.employees.view",
       "hr.expenses.submit",
+      "hr.leave.request",
+      "hr.payroll.prepare",
+      "hr.payroll.view",
+      "hr.statutory.manage",
       "orders.view",
       "purchasing.bills.manage",
       "purchasing.bills.view",
@@ -1012,10 +1034,283 @@
     },
     {
       "method": "POST",
+      "path": "/api/hr/attendance/compile",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.attendance.record"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/attendance/confirm",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.attendance.record"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/attendance/corrections/[id]/cancel",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.attendance.record",
+          "hr.attendance.approve"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/attendance/corrections",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.attendance.record",
+          "hr.attendance.approve",
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/attendance/corrections",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.attendance.record"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/attendance/days/[id]/reopen",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.attendance.approve"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/attendance/days/[id]",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.attendance.record",
+          "hr.attendance.approve",
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/attendance/days",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.attendance.record"
+        ]
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/hr/attendance/identities/[id]",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/attendance/identities",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/attendance/month",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.attendance.record",
+          "hr.attendance.approve",
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/attendance",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.attendance.record",
+          "hr.attendance.approve",
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/attendance/sources",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.attendance.record",
+          "hr.attendance.approve",
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/attendance/sources",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/compensation/[id]/cancel",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.compensation.manage",
+          "hr.payroll.approve"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/compensation",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.compensation.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/compensation",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.compensation.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
       "path": "/api/hr/departments",
       "gate": {
         "kind": "all",
         "permissions": [
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/documents/expiring",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.private.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/employees/[id]/bank-accounts/[accountId]/deactivate",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.private.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/employees/[id]/bank-accounts/[accountId]/reveal",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.private.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/employees/[id]/bank-accounts",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.private.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/employees/[id]/documents",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.private.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/employees/[id]/employment",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/employees/[id]/private",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.private.view"
+        ]
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/hr/employees/[id]/private",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.private.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/employees/[id]",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.employees.view",
           "hr.employees.manage"
         ]
       }
@@ -1044,9 +1339,10 @@
       "method": "GET",
       "path": "/api/hr/employees",
       "gate": {
-        "kind": "all",
+        "kind": "any",
         "permissions": [
-          "hr.expenses.submit"
+          "hr.expenses.submit",
+          "hr.employees.view"
         ]
       }
     },
@@ -1091,6 +1387,454 @@
       }
     },
     {
+      "method": "DELETE",
+      "path": "/api/hr/holidays/[id]",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/holidays",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.attendance.record",
+          "hr.attendance.approve",
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/holidays",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/leave/adjustments",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.leave.configure"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/leave/allocate",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.leave.configure"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/leave/balances",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.leave.request",
+          "hr.leave.approve",
+          "hr.leave.configure"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/leave/ledger",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.leave.request",
+          "hr.leave.approve",
+          "hr.leave.configure"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/leave/policies/[id]/retire",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.leave.configure"
+        ]
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/hr/leave/policies/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.leave.configure"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/leave/policies/[id]/verify",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.leave.configure"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/leave/policies",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.leave.request",
+          "hr.leave.approve",
+          "hr.leave.configure"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/leave/policies",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.leave.configure"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/leave/preview",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.leave.request"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/leave/requests/[id]/cancel",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.leave.request",
+          "hr.leave.approve"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/leave/requests",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.leave.request",
+          "hr.leave.approve",
+          "hr.leave.configure"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/leave/requests",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.leave.request"
+        ]
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/hr/leave/types/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.leave.configure"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/leave/types",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.leave.request",
+          "hr.leave.approve",
+          "hr.leave.configure"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/leave/types",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.leave.configure"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/payroll/adjustments/[id]/cancel",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.prepare"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/payroll/adjustments",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.payroll.prepare",
+          "hr.payroll.view",
+          "hr.payroll.approve"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/payroll/adjustments",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.prepare"
+        ]
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/hr/payroll/components/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.compensation.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/payroll/components",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.compensation.view",
+          "hr.compensation.manage",
+          "hr.payroll.prepare",
+          "hr.payroll.view",
+          "hr.payroll.approve"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/payroll/components",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.compensation.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/payroll/runs/[id]/calculate",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.prepare"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/payroll/runs/[id]/cancel",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.prepare"
+        ]
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/hr/payroll/runs/[id]/employees/[employeeId]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.prepare"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/payroll/runs/[id]/reopen",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.approve"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/payroll/runs/[id]",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.payroll.prepare",
+          "hr.payroll.view",
+          "hr.payroll.approve"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/payroll/runs/[id]/submit",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.prepare"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/payroll/runs/[id]/withdraw",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.prepare"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/payroll/runs",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.payroll.prepare",
+          "hr.payroll.view",
+          "hr.payroll.approve"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/payroll/runs",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.prepare"
+        ]
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/hr/schedules/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/schedules",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.attendance.record",
+          "hr.attendance.approve",
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/schedules",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.employees.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/statutory/[id]/retire",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.statutory.manage"
+        ]
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/hr/statutory/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.statutory.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/statutory/[id]/verify",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.statutory.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/statutory",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.statutory.manage",
+          "hr.payroll.prepare",
+          "hr.payroll.approve",
+          "hr.payroll.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/statutory",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.statutory.manage"
+        ]
+      }
+    },
+    {
       "method": "POST",
       "path": "/api/hr/transactions",
       "gate": {
@@ -1098,6 +1842,14 @@
         "permissions": [
           "hr.advances.manage"
         ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/integrations/attendance/events",
+      "gate": {
+        "kind": "api-key",
+        "scope": "attendance.ingest"
       }
     },
     {
@@ -2861,7 +3613,10 @@
         "sales.credit.manage",
         "purchasing.orders.approve",
         "purchasing.bills.approve",
-        "hr.expenses.approve"
+        "hr.expenses.approve",
+        "hr.attendance.approve",
+        "hr.leave.approve",
+        "hr.payroll.approve"
       ],
       "pageOpenToAll": true
     },
@@ -2888,6 +3643,36 @@
     {
       "href": "/hr",
       "permission": "hr.expenses.submit",
+      "pageOpenToAll": false
+    },
+    {
+      "href": "/hr/attendance",
+      "permission": [
+        "hr.attendance.record",
+        "hr.attendance.approve",
+        "hr.employees.manage"
+      ],
+      "pageOpenToAll": false
+    },
+    {
+      "href": "/hr/leave",
+      "permission": [
+        "hr.leave.request",
+        "hr.leave.approve",
+        "hr.leave.configure"
+      ],
+      "pageOpenToAll": false
+    },
+    {
+      "href": "/hr/payroll",
+      "permission": [
+        "hr.compensation.view",
+        "hr.compensation.manage",
+        "hr.payroll.prepare",
+        "hr.payroll.view",
+        "hr.payroll.approve",
+        "hr.statutory.manage"
+      ],
       "pageOpenToAll": false
     },
     {

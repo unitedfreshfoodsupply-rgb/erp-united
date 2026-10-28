@@ -16,22 +16,23 @@ export function IntegrationsPanel() {
   const qc = useQueryClient();
   const { t } = useLocale();
   const q = useQuery({ queryKey: ["admin", "integrations"], queryFn: () => apiFetch<{ integrations: Row[]; logs: Log[] }>("/api/admin/integrations") });
-  const [f, setF] = useState({ code: "", name: "", create: true, status: true });
+  const [f, setF] = useState({ code: "", name: "", create: true, status: true, attendance: false });
   const [key, setKey] = useState<string | null>(null);
   const fail = (err: unknown) => toast.show(err instanceof ApiClientError ? err.message : t("ui.error"), "error");
   if (q.isLoading) return <LoadingState />;
   return (
     <div className="flex flex-col gap-3">
-      <section className="card p-4 grid grid-cols-2 sm:grid-cols-5 gap-2 items-center">
+      <section className="card p-4 grid grid-cols-2 sm:grid-cols-6 gap-2 items-center">
         <input className="field" dir="ltr" placeholder={t("admin.integrations.code-placeholder")} value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} />
         <input className="field" placeholder={t("admin.integrations.name-placeholder")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
         <label className="flex gap-2 font-bold text-sm"><input type="checkbox" checked={f.create} onChange={(e) => setF({ ...f, create: e.target.checked })} />{t("admin.integrations.create-orders")}</label>
         <label className="flex gap-2 font-bold text-sm"><input type="checkbox" checked={f.status} onChange={(e) => setF({ ...f, status: e.target.checked })} />{t("admin.integrations.track-status")}</label>
+        <label className="flex gap-2 font-bold text-sm"><input type="checkbox" checked={f.attendance} onChange={(e) => setF({ ...f, attendance: e.target.checked })} />{t("admin.integrations.attendance-ingest")}</label>
         <button type="button" className="btn-primary" onClick={async () => {
           try {
-            const r = await apiPost<{ key: string }>("/api/admin/integrations", { code: f.code, name: f.name, scopes: [...(f.create ? ["orders.create"] : []), ...(f.status ? ["orders.status"] : [])] });
+            const r = await apiPost<{ key: string }>("/api/admin/integrations", { code: f.code, name: f.name, scopes: [...(f.create ? ["orders.create"] : []), ...(f.status ? ["orders.status"] : []), ...(f.attendance ? ["attendance.ingest"] : [])] });
             setKey(r.key);
-            setF({ code: "", name: "", create: true, status: true });
+            setF({ code: "", name: "", create: true, status: true, attendance: false });
             void qc.invalidateQueries({ queryKey: ["admin", "integrations"] });
           } catch (err) { fail(err); }
         }}>{t("admin.integrations.add-key")}</button>

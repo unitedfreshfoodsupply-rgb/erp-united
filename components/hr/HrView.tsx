@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Banknote, FileText, Pencil, Plus, Search } from "lucide-react";
 import { newClientKey } from "@/lib/clientKey";
@@ -230,6 +231,7 @@ function Employees() {
   const [paying, setPaying] = useState<Emp | null>(null);
   const [statementOf, setStatementOf] = useState<Emp | null>(null);
   const canPay = can("hr.advances.manage");
+  const canOpen = can("hr.employees.view");
 
   const all = q.data?.employees ?? [];
   const needle = search.trim().toLowerCase();
@@ -287,7 +289,11 @@ function Employees() {
                     <tr key={e.id} className={e.active ? undefined : "text-united-muted"}>
                       <td className="min-w-[12rem]">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium text-united-dark">{e.name}</span>
+                          {canOpen ? (
+                            <Link href={`/hr/employees/${e.id}`} className="font-medium text-united-dark hover:text-united-green hover:underline">{e.name}</Link>
+                          ) : (
+                            <span className="font-medium text-united-dark">{e.name}</span>
+                          )}
                           {!e.active && <StatusPill tone="neutral">{t("hr.status.inactive")}</StatusPill>}
                         </div>
                         <div className="text-xs text-united-muted"><span dir="ltr">{e.code}</span>{e.jobTitle ? ` · ${e.jobTitle}` : ""}</div>
@@ -428,19 +434,19 @@ function MoneyDialog({ employee, onClose }: { employee: Emp; onClose: () => void
   const { t } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
-  const [f, setF] = useState({ type: "advance", amount: "", cash_account_id: "cash_main", date: todayLocalISO(), notes: "" });
+  const [f, setF] = useState({ type: "advance", amount: "", cash_account_id: "cash_main", date: todayLocalISO(), notes: "", payroll_period: todayLocalISO().slice(0, 7) });
   const [key, setKey] = useState(newClientKey);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bal = Number(employee.balance ?? 0);
   const ready = /^\d+(\.\d{1,2})?$/.test(f.amount.trim()) && Number(f.amount) > 0;
-  const effect: Record<string, string> = { advance: t("hr.money.effect.advance"), reimbursement: t("hr.money.effect.reimbursement"), advance_return: t("hr.money.effect.advance_return") };
+  const effect: Record<string, string> = { advance: t("hr.money.effect.advance"), reimbursement: t("hr.money.effect.reimbursement"), advance_return: t("hr.money.effect.advance_return"), salary_on_account: t("hr.money.effect.salary_on_account") };
 
   const save = async () => {
     setBusy(true);
     setError(null);
     try {
-      await apiPost("/api/hr/transactions", { employee_id: employee.id, type: f.type, amount: f.amount.trim(), cash_account_id: f.cash_account_id, date: f.date, notes: f.notes.trim() || undefined, idempotency_key: key });
+      await apiPost("/api/hr/transactions", { employee_id: employee.id, type: f.type, amount: f.amount.trim(), cash_account_id: f.cash_account_id, date: f.date, notes: f.notes.trim() || undefined, ...(f.type === "salary_on_account" ? { payroll_period: f.payroll_period } : {}), idempotency_key: key });
       setKey(newClientKey());
       toast.show(t("hr.registered"), "success");
       void qc.invalidateQueries({ queryKey: ["hr"] });
@@ -472,10 +478,16 @@ function MoneyDialog({ employee, onClose }: { employee: Emp; onClose: () => void
               <option value="advance">{t("hr.transaction_type.advance")}</option>
               <option value="reimbursement">{t("hr.transaction_type.reimbursement")}</option>
               <option value="advance_return">{t("hr.transaction_type.advance_return")}</option>
+              <option value="salary_on_account">{t("hr.transaction_type.salary_on_account")}</option>
             </select>
           </Field>
           <p className="mt-1.5 text-xs text-united-muted">{effect[f.type]}</p>
         </div>
+        {f.type === "salary_on_account" && (
+          <Field label={t("hr.money.payroll_period")} required>
+            <input type="month" className="field" value={f.payroll_period} onChange={(e) => setF({ ...f, payroll_period: e.target.value })} />
+          </Field>
+        )}
         <Field label={t("hr.label.amount")} required>
           <input className="field" required autoFocus dir="ltr" inputMode="decimal" autoComplete="off" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
         </Field>

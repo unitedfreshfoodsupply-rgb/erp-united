@@ -12,6 +12,10 @@ import { applyCreditDecision } from "@/lib/sales/credit";
 import { applyPoDecision } from "@/lib/purchasing/orders";
 import { applyBillDecision } from "@/lib/purchasing/bills";
 import { applyExpenseDecision } from "@/lib/hr/service";
+import { applyCorrectionDecision } from "@/lib/hr/attendance";
+import { applyLeaveDecision } from "@/lib/hr/leave";
+import { applyCompensationDecision } from "@/lib/hr/compensation";
+import { applyRunDecision } from "@/lib/hr/payroll";
 
 /**
  * What each approval type DOES once decided. Kept apart from the engine core so the
@@ -55,6 +59,30 @@ const HANDLERS: Record<ApprovalType, Handler> = {
     // Approved: posted to the ledger. Rejected: recorded, nothing posted.
     onApproved: (tx, req, decider, comment) => applyExpenseDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyExpenseDecision(tx, req.entityId, false, decider, comment),
+  },
+  "hr.attendance_correction": {
+    // Approved: the day takes the requested values (a locked day's pay difference goes to the
+    // next payroll run). Rejected: the day stays as it was. The requester may not decide.
+    onApproved: (tx, req, decider, comment) => applyCorrectionDecision(tx, req.entityId, true, decider, comment),
+    onRejected: (tx, req, decider, comment) => applyCorrectionDecision(tx, req.entityId, false, decider, comment),
+  },
+  "hr.leave": {
+    // Approved: `taken` on the balance and confirmed leave days in the register. Rejected:
+    // nothing changes. The person who recorded the request may not decide it.
+    onApproved: (tx, req, decider, comment) => applyLeaveDecision(tx, req.entityId, true, decider, comment),
+    onRejected: (tx, req, decider, comment) => applyLeaveDecision(tx, req.entityId, false, decider, comment),
+  },
+  "hr.compensation_change": {
+    // Approved: the package is in force from its start and the previous one ends the day
+    // before. Rejected: nothing changes. The proposer may not decide.
+    onApproved: (tx, req, decider, comment) => applyCompensationDecision(tx, req.entityId, true, decider, comment),
+    onRejected: (tx, req, decider, comment) => applyCompensationDecision(tx, req.entityId, false, decider, comment),
+  },
+  "hr.payroll_run": {
+    // Approved: only by someone who neither prepared nor submitted it, and only if a fresh
+    // calculation still gives the submitted figures. Rejected: returned to the preparer.
+    onApproved: (tx, req, decider, comment) => applyRunDecision(tx, req.entityId, true, decider, comment),
+    onRejected: (tx, req, decider, comment) => applyRunDecision(tx, req.entityId, false, decider, comment),
   },
   "sales.credit": {
     // Finance accepts the risk for this one order; it may then start preparation.

@@ -7,13 +7,14 @@ import { writeAudit } from "@/lib/audit";
 import { actorCan, assertPermission } from "@/lib/authz-core";
 import { inTx, type Tx } from "@/lib/tx";
 import { todayLocalISO } from "@/lib/localDate";
-import { isValidISODate } from "@/lib/dates";
+import { isValidCalendarDate, isValidISODate } from "@/lib/dates";
 import { getSetting } from "@/lib/core/settings-service";
 import { nextDocumentNumber } from "@/lib/core/sequences";
 import { requestApproval } from "@/lib/core/approvals";
 import { active, optText, parse, text } from "@/lib/core/validation";
 import type { ServiceActor } from "@/lib/core/actor";
 import { postJournal, type PostLine } from "@/lib/accounting/ledger";
+import { applyEmploymentChange, createHireRecord } from "@/lib/hr/employment";
 
 /**
  * HR and expenses — the minimum UNITED needs: who works where, what they spend, and
@@ -50,7 +51,7 @@ const audit = (tx: Tx, actor: Actorish, entityType: "employee" | "expense" | "em
 
 export async function saveDepartment(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "hr.employees.manage");
-  const v = parse(z.object({ code: text("الكود", 20), name: text("الاسم", 100), active: active().optional() }), input);
+  const v = parse(z.object({ code: text("الكود", 20), name: text("الاسم", 100), active: active().optional(), manager_employee_id: z.string().nullable().optional() }), input);
   const code = v.code.toUpperCase();
   return inTx(async (tx) => {
     if (v.active === false) {
@@ -59,7 +60,9 @@ export async function saveDepartment(input: unknown, actor: ServiceActor) {
       if (dep && (await tx.employee.count({ where: { departmentId: dep.id, active: true } })) > 0) throw new ApiError(409, "القسم فيه موظفين نشطين — انقلهم الأول");
     }
     const before = await tx.department.findUnique({ where: { code } });
-    const d = await tx.department.upsert({ where: { code }, update: { name: v.name, ...(v.active !== undefined ? { active: v.active } : {}) }, create: { code, name: v.name, ...(v.active !== undefined ? { active: v.active } : {}) } });
+    if (v.manager_employee_id && !(await tx.employee.findFirst({ where: { id: v.manager_employee_id, active: true } }))) throw new ApiError(400, "المدير مش موجود أو موقوف");
+    const manager = v.manager_employee_id !== undefined ? { managerEmployeeId: v.manager_employee_id } : {};
+    const d = await tx.department.upsert({ where: { code }, update: { name: v.name, ...manager, ...(v.active !== undefined ? { active: v.active } : {}) }, create: { code, name: v.name, ...manager, ...(v.active !== undefined ? { active: v.active } : {}) } });
     await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: before ? "department_updated" : "department_created", entityType: "department", entityId: d.id, oldValue: before ? `${before.name}${before.active ? "" : " · موقوف"}` : undefined, newValue: `${d.code} · ${d.name}${d.active ? "" : " · موقوف"}`, source: "user", deviceId: actor.deviceId }, tx);
     return d;
   });
@@ -71,9 +74,12 @@ const employeeInput = z.object({
   job_title: optText("الوظيفة", 100).optional(),
   phone: optText("التليفون", 30).optional(),
   user_id: z.string().nullable().optional(),
-  hire_date: date,
+  // Long-serving staff were hired before 2000: a person's date, not a business-document date.
+  hire_date: z.string().refine(isValidCalendarDate, "التاريخ لازم يكون YYYY-MM-DD").optional(),
   active: active().optional(),
   expected_version: z.number().int().positive().optional(),
+  /** Why the placement changed (department, job title, active) — recorded in the employment history. */
+  change_reason: optText("سبب التغيير", 500).optional(),
 });
 
 export async function saveEmployee(id: string | null, input: unknown, actor: ServiceActor) {
@@ -82,30 +88,53 @@ export async function saveEmployee(id: string | null, input: unknown, actor: Ser
   return inTx(async (tx) => {
     // On an edit, a field left out of the request keeps its value — an edit form that does
     // not show the linked user must not unlink it. `null` clears a field explicitly.
+    // Department, job title and active are the employee's placement: on an edit they are not
+    // written directly but through the employment history (lib/hr/employment.ts), so the
+    // register and the history can never disagree.
     const data: Prisma.EmployeeUncheckedUpdateInput & { name: string } = { name: v.name };
-    if (v.department_id !== undefined) data.departmentId = v.department_id ?? null;
-    if (v.job_title !== undefined) data.jobTitle = v.job_title ?? null;
     if (v.phone !== undefined) data.phone = v.phone ?? null;
     if (v.user_id !== undefined) data.userId = v.user_id ?? null;
     if (v.hire_date !== undefined) data.hireDate = v.hire_date ?? null;
-    if (v.active !== undefined) data.active = v.active;
-    if (typeof data.departmentId === "string") {
-      // Moving someone into a department needs it to be open; keeping their current one does not.
-      const current = id ? (await tx.employee.findUnique({ where: { id }, select: { departmentId: true } }))?.departmentId : null;
-      if (data.departmentId !== current && !(await tx.department.findFirst({ where: { id: data.departmentId, active: true } }))) throw new ApiError(400, "القسم مش موجود أو مقفول");
+    if (!id) {
+      if (v.department_id !== undefined) data.departmentId = v.department_id ?? null;
+      if (v.job_title !== undefined) data.jobTitle = v.job_title ?? null;
+      if (v.active !== undefined) data.active = v.active;
+      if (typeof data.departmentId === "string" && !(await tx.department.findFirst({ where: { id: data.departmentId, active: true } }))) throw new ApiError(400, "القسم مش موجود أو مقفول");
     }
     let e;
+    let before: { departmentId: string | null; jobTitle: string | null; active: boolean } | null = null;
     try {
-      if (id && v.expected_version !== undefined) {
-        const cur = await tx.employee.findUnique({ where: { id }, select: { version: true } });
+      if (id) {
+        const cur = await tx.employee.findUnique({ where: { id }, select: { version: true, departmentId: true, jobTitle: true, active: true } });
         if (!cur) throw new ApiError(404, "الموظف مش موجود");
-        if (cur.version !== v.expected_version) throw new ApiError(409, "حد تاني عدّل بيانات الموظف — حدّث الصفحة وحاول تاني");
+        if (v.expected_version !== undefined && cur.version !== v.expected_version) throw new ApiError(409, "حد تاني عدّل بيانات الموظف — حدّث الصفحة وحاول تاني");
+        before = cur;
       }
       e = id ? await tx.employee.update({ where: { id }, data: { ...data, version: { increment: 1 } } }) : await tx.employee.create({ data: { ...(data as Prisma.EmployeeUncheckedCreateInput), code: await nextDocumentNumber(tx, "hr.employee", todayLocalISO()) } });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") throw new ApiError(409, "المستخدم ده مربوط بموظف تاني");
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") throw new ApiError(404, "الموظف مش موجود");
       throw err;
+    }
+    if (!id) {
+      await createHireRecord(tx, e, actor);
+    } else if (before) {
+      const dep = v.department_id !== undefined ? v.department_id ?? null : before.departmentId;
+      const title = v.job_title !== undefined ? v.job_title ?? null : before.jobTitle;
+      const act = v.active !== undefined ? v.active : before.active;
+      if (dep !== before.departmentId || title !== before.jobTitle || act !== before.active) {
+        // One history row for the whole edit; the event names the most significant change.
+        const event = act !== before.active ? "status_change" : dep !== before.departmentId ? "transfer" : "promotion";
+        await applyEmploymentChange(tx, e.id, {
+          event,
+          effectiveFrom: todayLocalISO(),
+          departmentId: dep,
+          jobTitle: title,
+          ...(event === "status_change" ? { status: act ? "active" : "suspended" } : {}),
+          reason: v.change_reason ?? "تعديل من سجل الموظفين",
+        }, actor);
+        e = await tx.employee.findUniqueOrThrow({ where: { id: e.id } });
+      }
     }
     await audit(tx, actor, "employee", e.id, id ? "employee_updated" : "employee_created", `${e.code} · ${e.name}${e.active ? "" : " · موقوف"}`);
     return e;
@@ -127,6 +156,13 @@ export async function listEmployees(actor: ServiceActor) {
     prisma.department.findMany({ orderBy: { code: "asc" } }),
     full ? prisma.journalLine.groupBy({ by: ["partyId"], where: { partyType: "employee" }, _sum: { debit: true, credit: true } }) : Promise.resolve([]),
   ]);
+  if (!full && actorCan(actor, "hr.employees.view")) {
+    // The directory: placement and status for everyone, active or not — no money, no contact details.
+    return {
+      departments: deps.map((d) => ({ id: d.id, code: d.code, name: d.name, active: d.active })),
+      employees: emps.map((e) => ({ id: e.id, code: e.code, name: e.name, active: e.active, jobTitle: e.jobTitle, hireDate: e.hireDate, department: e.department })),
+    };
+  }
   if (!full) {
     return {
       departments: deps.filter((d) => d.active).map((d) => ({ id: d.id, code: d.code, name: d.name, active: d.active })),
@@ -229,20 +265,26 @@ export async function listExpenses(actor: ServiceActor, filters: { status?: stri
 
 export async function createEmployeeTransaction(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "hr.advances.manage");
-  const v = parse(z.object({ employee_id: text("الموظف"), type: z.enum(["advance", "reimbursement", "advance_return"]), amount, cash_account_id: text("الخزينة"), date, notes: optText("ملاحظات", 500).optional(), idempotency_key: idempotencyKeyField }), input);
+  const v = parse(z.object({ employee_id: text("الموظف"), type: z.enum(["advance", "reimbursement", "advance_return", "salary_on_account"]), amount, cash_account_id: text("الخزينة"), date, payroll_period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "شهر المرتب لازم يكون YYYY-MM").optional(), notes: optText("ملاحظات", 500).optional(), idempotency_key: idempotencyKeyField }), input);
   const d = v.date ?? todayLocalISO();
-  const requestHash = requestFingerprint({ employeeId: v.employee_id, type: v.type, amount: v.amount, cashAccountId: v.cash_account_id, date: d, notes: v.notes ?? null });
+  // Part of a month's salary paid early: an advance that month's payroll recovers in full.
+  const payrollPeriod = v.type === "salary_on_account" ? v.payroll_period ?? null : null;
+  if (v.type === "salary_on_account" && !payrollPeriod) throw new ApiError(400, "حدد شهر المرتب اللي هيتخصم منه");
+  if (payrollPeriod && (await prisma.payrollRun.findFirst({ where: { period: payrollPeriod, runType: "regular", status: { in: ["pending_approval", "approved"] } } }))) {
+    throw new ApiError(409, `مسير ${payrollPeriod} اتبعت للاعتماد — الصرف تحت الحساب يتسجل على شهر تاني`);
+  }
+  const requestHash = requestFingerprint({ employeeId: v.employee_id, type: v.type, amount: v.amount, cashAccountId: v.cash_account_id, date: d, notes: v.notes ?? null, ...(payrollPeriod ? { payrollPeriod } : {}) });
   return inTx(async (tx) => {
     await lockKey(tx, v.idempotency_key);
     if (v.idempotency_key) {
       const prev = await tx.employeeTransaction.findUnique({ where: { idempotencyKey: v.idempotency_key } });
-      if (prev) return replayRequest(prev, requestHash, prev.employeeId === v.employee_id && prev.type === v.type && D(prev.amount).equals(v.amount) && prev.cashAccountId === v.cash_account_id && prev.date === d && prev.notes === (v.notes ?? null));
+      if (prev) return replayRequest(prev, requestHash, prev.employeeId === v.employee_id && prev.type === v.type && D(prev.amount).equals(v.amount) && prev.cashAccountId === v.cash_account_id && prev.date === d && prev.notes === (v.notes ?? null) && prev.payrollPeriod === payrollPeriod);
     }
     const emp = await tx.employee.findUnique({ where: { id: v.employee_id } });
     if (!emp) throw new ApiError(404, "الموظف مش موجود");
     // A deactivated employee can still be settled with (paid what is owed, return an
     // advance) but cannot be given new money — the same rule expenses already apply.
-    if (v.type === "advance" && !emp.active) throw new ApiError(400, "الموظف مش موجود أو موقوف");
+    if ((v.type === "advance" || v.type === "salary_on_account") && !emp.active) throw new ApiError(400, "الموظف مش موجود أو موقوف");
     const cash = await tx.cashAccount.findFirst({ where: { id: v.cash_account_id, active: true } });
     if (!cash) throw new ApiError(400, "الخزينة مش موجودة");
     const party = { type: "employee" as const, id: emp.id };
@@ -256,10 +298,10 @@ export async function createEmployeeTransaction(input: unknown, actor: ServiceAc
       const open = D(held._sum.debit ?? 0).minus(held._sum.credit ?? 0);
       if (v.amount.greaterThan(open)) throw new ApiError(400, `السلفة المفتوحة ${open.toFixed(2)} بس`);
     }
-    const t = await tx.employeeTransaction.create({ data: { employeeId: emp.id, type: v.type, date: d, amount: v.amount, cashAccountId: cash.id, notes: v.notes ?? null, idempotencyKey: v.idempotency_key ?? null, requestHash, createdById: actor.id, createdBy: actor.name } });
-    const label = { advance: "سلفة", reimbursement: "صرف مستحقات", advance_return: "رد سلفة" }[v.type];
+    const t = await tx.employeeTransaction.create({ data: { employeeId: emp.id, type: v.type, date: d, amount: v.amount, cashAccountId: cash.id, notes: v.notes ?? null, payrollPeriod, idempotencyKey: v.idempotency_key ?? null, requestHash, createdById: actor.id, createdBy: actor.name } });
+    const label = { advance: "سلفة", reimbursement: "صرف مستحقات", advance_return: "رد سلفة", salary_on_account: `صرف تحت حساب مرتب ${payrollPeriod}` }[v.type];
     const lines: PostLine[] =
-      v.type === "advance" ? [{ key: "employee_advances", amount: v.amount, party }, { accountId: cash.accountId, amount: v.amount.negated() }]
+      v.type === "advance" || v.type === "salary_on_account" ? [{ key: "employee_advances", amount: v.amount, party }, { accountId: cash.accountId, amount: v.amount.negated() }]
       : v.type === "reimbursement" ? [{ key: "employee_payable", amount: v.amount, party }, { accountId: cash.accountId, amount: v.amount.negated() }]
       : [{ accountId: cash.accountId, amount: v.amount }, { key: "employee_advances", amount: v.amount.negated(), party }];
     await postJournal(tx, { date: d, description: `${label} — ${emp.name}`, sourceType: "employee_transaction", sourceId: t.id, lines }, actor);

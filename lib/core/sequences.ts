@@ -55,6 +55,11 @@ export const SEQUENCE_DEFS = {
   "accounting.supplier_refund": { prefix: "SRF", padding: 5, reset: "yearly", label: "استرداد مبلغ من مورد" },
   "hr.employee": { prefix: "EMP", padding: 5, reset: "never", label: "كود موظف" },
   "hr.expense": { prefix: "EXP", padding: 5, reset: "yearly", label: "مصروف" },
+  "hr.attendance_correction": { prefix: "ATC", padding: 5, reset: "yearly", label: "تصحيح حضور" },
+  "hr.leave_request": { prefix: "LVR", padding: 5, reset: "yearly", label: "طلب إجازة" },
+  "hr.compensation": { prefix: "CMP", padding: 5, reset: "yearly", label: "مرتب مقترح" },
+  "hr.payroll_run": { prefix: "PRL", padding: 5, reset: "yearly", label: "مسير مرتبات" },
+  "hr.payroll_adjustment": { prefix: "PAD", padding: 5, reset: "yearly", label: "تسوية مرتب" },
 } as const satisfies Record<string, SequenceDef>;
 
 export type SequenceKey = keyof typeof SEQUENCE_DEFS;

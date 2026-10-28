@@ -45,6 +45,19 @@ export const ATTACHMENT_ENTITIES: Record<string, EntityDef> = {
     manage: ["core.masterdata.manage"],
     exists: (db, id) => db.warehouse.findUnique({ where: { id }, select: { id: true } }).then(found),
   },
+  // An employee's file (ID copy, contract, insurance forms…) is private data: the same
+  // permissions as the national ID and bank account, not the directory's.
+  employee: {
+    view: ["hr.private.view"],
+    manage: ["hr.private.manage"],
+    exists: (db, id) => db.employee.findUnique({ where: { id }, select: { id: true } }).then(found),
+  },
+  // A medical certificate or other proof for a leave request: seen by whoever handles leave.
+  leave_request: {
+    view: ["hr.leave.request", "hr.leave.approve"],
+    manage: ["hr.leave.request"],
+    exists: (db, id) => db.leaveRequest.findUnique({ where: { id }, select: { id: true } }).then(found),
+  },
 };
 
 export const ATTACHMENT_CATEGORIES = [
@@ -56,6 +69,12 @@ export const ATTACHMENT_CATEGORIES = [
   "receipt",
   "tax_document",
   "other",
+  // Employee files (HR phase 1).
+  "id_document",
+  "employment_contract",
+  "insurance_form",
+  "certificate",
+  "medical",
 ] as const;
 export type AttachmentCategory = (typeof ATTACHMENT_CATEGORIES)[number];
 
@@ -68,4 +87,15 @@ export const ATTACHMENT_CATEGORY_LABEL: Record<AttachmentCategory, string> = {
   receipt: "إيصال",
   tax_document: "مستند ضريبي",
   other: "أخرى",
+  id_document: "إثبات شخصية",
+  employment_contract: "عقد عمل",
+  insurance_form: "استمارة تأمينات",
+  certificate: "شهادة",
+  medical: "مستند طبي",
+};
+
+/** The categories offered when filing on a given record type (all others keep the original list). */
+export const ATTACHMENT_CATEGORIES_FOR: Partial<Record<string, readonly AttachmentCategory[]>> = {
+  leave_request: ["medical", "certificate", "other"],
+  employee: ["id_document", "employment_contract", "insurance_form", "certificate", "medical", "other"],
 };

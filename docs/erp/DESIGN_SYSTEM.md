@@ -145,7 +145,10 @@ Guard added: `tests/unit/ui-dictionary-keys.test.ts` fails when a component refe
 - Remaining hand-built `<table>`s (sales invoices, price lists, inventory, management, admin import) are not yet on `.data-table`.
 - Trial balance shows credit balances in a red tint; accounting convention would keep them neutral (left unchanged pending the accounting office's view).
 
-## 8. HR & Payroll UI roadmap (PROPOSED — not implemented)
+## 8. HR & Payroll UI roadmap
+
+**Implemented (phases 1–5, local, not committed):** `/hr/employees/:id` (overview, employment history, personal & bank, documents, statement), `/hr/attendance` (daily register — one row per employee with status, in/out; month grid with status letters and totals; corrections inbox with inline approve/reject; schedules, holidays and devices), `/hr/leave` (requests with documents and inline decisions; balances with the ledger behind each; types, policies with tiers, verification and allocation), `/hr/payroll` (runs workspace — totals, blocking issues, payslips with the formula of every line, holds, recoveries, adjustments, calculation history, submit / approve / return / withdraw / reopen / cancel; packages; components; statutory rule sets). Not yet built: payslip print, payment screens, reports (phases 6–7). Where a built screen differs from the table below: the attendance register is a daily list rather than an editable month grid (the grid is read-only and opens the day), and statutory rules are edited as JSON from a key-only template.
+
 
 Companion to `docs/erp/HR_PAYROLL_GAP_AUDIT.md` (schema §3, lifecycles §4, permissions §6, phases §9). Screens are listed in the phase that makes them possible. All of them use the components above: `PageHeader`, `Tabs`, `Segmented`, `.data-table`/`.num`, `StatusPill`, `Modal`/`useDialogs`, the `.page-*` containers, and the bilingual rules in §6.
 

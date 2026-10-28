@@ -50,12 +50,15 @@ export const NAV_LINKS: NavLink[] = [
   { href: "/supervisor/audit", labelKey: "nav.link.audit-log", label: "سجل المراجعة", permission: "audit.view", group: "control", primary: false },
   // Every permission that can decide some approval type — see lib/core/approvals.ts.
   // The page lists what you may decide AND what you raised, so anyone may open it.
-  { href: "/approvals", labelKey: "nav.link.approvals", label: "الموافقات", permission: ["orders.approve", "stock.approve_adjustments", "sales.credit.manage", "purchasing.orders.approve", "purchasing.bills.approve", "hr.expenses.approve"], group: "control", primary: true, pageOpenToAll: true },
+  { href: "/approvals", labelKey: "nav.link.approvals", label: "الموافقات", permission: ["orders.approve", "stock.approve_adjustments", "sales.credit.manage", "purchasing.orders.approve", "purchasing.bills.approve", "hr.expenses.approve", "hr.attendance.approve", "hr.leave.approve", "hr.payroll.approve"], group: "control", primary: true, pageOpenToAll: true },
   { href: "/sales", labelKey: "nav.link.sales", label: "العملاء", permission: "sales.customers.view", group: "sales", primary: true },
   { href: "/purchasing", labelKey: "nav.link.purchasing", label: "المشتريات", permission: "purchasing.orders.view", group: "purchasing", primary: true },
   { href: "/accounting", labelKey: "nav.link.accounting", label: "الحسابات", permission: "accounting.view", group: "finance", primary: true },
   { href: "/eta", labelKey: "nav.link.eta", label: "الفاتورة الإلكترونية", permission: "accounting.eta.view", group: "finance", primary: true },
   { href: "/hr", labelKey: "nav.link.hr", label: "الموظفين والمصروفات", permission: "hr.expenses.submit", group: "admin", primary: true },
+  { href: "/hr/attendance", labelKey: "nav.link.attendance", label: "الحضور والانصراف", permission: ["hr.attendance.record", "hr.attendance.approve", "hr.employees.manage"], group: "admin", primary: true },
+  { href: "/hr/leave", labelKey: "nav.link.leave", label: "الإجازات", permission: ["hr.leave.request", "hr.leave.approve", "hr.leave.configure"], group: "admin", primary: true },
+  { href: "/hr/payroll", labelKey: "nav.link.payroll", label: "المرتبات", permission: ["hr.compensation.view", "hr.compensation.manage", "hr.payroll.prepare", "hr.payroll.view", "hr.payroll.approve", "hr.statutory.manage"], group: "admin", primary: true },
   { href: "/management", labelKey: "nav.link.management", label: "تقارير الإدارة", permission: "reports.finance", group: "finance", primary: true },
   { href: "/management/operations", labelKey: "nav.link.ops-report", label: "أداء التشغيل", permission: "reports.view", group: "control", primary: true },
   { href: "/stock", labelKey: "nav.link.stock", label: "المخزون", permission: "stock.view", group: "stock", primary: true },

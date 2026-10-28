@@ -20,7 +20,7 @@ import type { ServiceActor } from "@/lib/core/actor";
  * running n8n flow does not break on deploy; its calls are logged as "legacy".
  */
 
-export const SCOPES = ["orders.create", "orders.status"] as const;
+export const SCOPES = ["orders.create", "orders.status", "attendance.ingest"] as const;
 export type Scope = (typeof SCOPES)[number];
 export type Caller = { integrationId: string | null; code: string; name: string; scopes: readonly Scope[] };
 

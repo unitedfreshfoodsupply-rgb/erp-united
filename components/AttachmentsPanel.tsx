@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, ApiClientError, errorMessage } from "@/lib/api-client";
 import { useToast } from "@/components/ui/Toast";
-import { ATTACHMENT_CATEGORIES, ATTACHMENT_CATEGORY_LABEL, type AttachmentCategory } from "@/lib/core/attachment-entities";
+import { ATTACHMENT_CATEGORIES, ATTACHMENT_CATEGORIES_FOR, type AttachmentCategory } from "@/lib/core/attachment-entities";
 import { useLocale } from "@/lib/locale/useLocale";
 import { useDialogs } from "@/components/ui/Dialog";
 
@@ -32,7 +32,15 @@ export function AttachmentsPanel({ entityType, entityId, canManage }: { entityTy
   const qc = useQueryClient();
   const toast = useToast();
   const input = useRef<HTMLInputElement>(null);
-  const [category, setCategory] = useState<AttachmentCategory>("other");
+  // Record types with their own filing categories offer only those (an employee file has no
+  // "delivery note"); the rest keep the original eight.
+  const offered = ATTACHMENT_CATEGORIES_FOR[entityType] ?? ATTACHMENT_CATEGORIES.slice(0, 8);
+  const [category, setCategory] = useState<AttachmentCategory>(offered[0] ?? "other");
+  const catLabel = (c: string) => {
+    const k = `attach.category.${c}`;
+    const v = t(k);
+    return v === k ? c : v;
+  };
   const [busy, setBusy] = useState(false);
   const key = ["attachments", entityType, entityId];
 
@@ -101,7 +109,7 @@ export function AttachmentsPanel({ entityType, entityId, canManage }: { entityTy
             >
               <span className="block font-bold text-united-dark truncate">{a.fileName}</span>
               <span className="block text-xs font-bold text-united-muted">
-                {ATTACHMENT_CATEGORY_LABEL[a.category] ?? a.category} · {size(a.sizeBytes)} · {a.uploadedBy}
+                {catLabel(a.category)} · {size(a.sizeBytes)} · {a.uploadedBy}
               </span>
             </a>
             {canManage && (
@@ -115,9 +123,9 @@ export function AttachmentsPanel({ entityType, entityId, canManage }: { entityTy
       {canManage && (
         <div className="mt-3 flex gap-2 flex-wrap">
           <select className="field !w-auto" value={category} onChange={(e) => setCategory(e.target.value as AttachmentCategory)}>
-            {ATTACHMENT_CATEGORIES.map((c) => (
+            {offered.map((c) => (
               <option key={c} value={c}>
-                {ATTACHMENT_CATEGORY_LABEL[c]}
+                {catLabel(c)}
               </option>
             ))}
           </select>

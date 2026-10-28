@@ -67,6 +67,20 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `hr.expenses.submit` — تسجيل المصروفات | ✓ | ✓ |  |  |  |  | ✓ |  |
 | `hr.expenses.approve` — اعتماد المصروفات | ✓ |  |  |  |  |  |  |  |
 | `hr.advances.manage` — سلف ومستحقات الموظفين | ✓ |  |  |  |  |  | ✓ |  |
+| `hr.employees.view` — عرض ملفات الموظفين | ✓ |  |  |  |  |  | ✓ |  |
+| `hr.private.view` — عرض البيانات الشخصية للموظفين | ✓ |  |  |  |  |  |  |  |
+| `hr.private.manage` — تعديل البيانات الشخصية للموظفين | ✓ |  |  |  |  |  |  |  |
+| `hr.attendance.record` — تسجيل الحضور | ✓ | ✓ |  |  |  |  |  |  |
+| `hr.attendance.approve` — اعتماد تصحيح الحضور | ✓ |  |  |  |  |  |  |  |
+| `hr.leave.request` — تسجيل طلبات الإجازة | ✓ |  |  |  |  |  | ✓ |  |
+| `hr.leave.approve` — اعتماد الإجازات | ✓ |  |  |  |  |  |  |  |
+| `hr.leave.configure` — إعداد أنواع وسياسات الإجازات | ✓ |  |  |  |  |  |  |  |
+| `hr.compensation.view` — عرض المرتبات | ✓ |  |  |  |  |  | ✓ |  |
+| `hr.compensation.manage` — اقتراح تعديل المرتبات | ✓ |  |  |  |  |  | ✓ |  |
+| `hr.payroll.prepare` — تجهيز المرتبات | ✓ |  |  |  |  |  | ✓ |  |
+| `hr.payroll.approve` — اعتماد المرتبات | ✓ |  |  |  |  |  |  |  |
+| `hr.payroll.view` — عرض المرتبات المحسوبة | ✓ |  |  |  |  |  | ✓ |  |
+| `hr.statutory.manage` — القواعد القانونية للمرتبات | ✓ |  |  |  |  |  | ✓ |  |
 | `integrations.manage` — إدارة التكاملات | ✓ |  |  |  |  |  |  |  |
 | `operations.trips.manage` — تخطيط الرحلات والأسطول | ✓ | ✓ |  |  |  |  |  |  |
 | `purchasing.bills.approve` — اعتماد فروق فواتير الموردين | ✓ |  |  |  |  |  |  |  |
@@ -84,12 +98,15 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `/supervisor/exceptions` نواقص التجهيز (`reports.view`) | ✓ | ✓ |  |  |  |  |  |  |
 | `/supervisor/report` تقرير اليوم (`reports.view`) | ✓ | ✓ |  |  |  |  |  |  |
 | `/supervisor/audit` سجل المراجعة (`audit.view`) | ✓ | ✓ |  |  |  |  | ✓ |  |
-| `/approvals` الموافقات (`orders.approve` / `stock.approve_adjustments` / `sales.credit.manage` / `purchasing.orders.approve` / `purchasing.bills.approve` / `hr.expenses.approve`; page open to all, filters itself) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `/approvals` الموافقات (`orders.approve` / `stock.approve_adjustments` / `sales.credit.manage` / `purchasing.orders.approve` / `purchasing.bills.approve` / `hr.expenses.approve` / `hr.attendance.approve` / `hr.leave.approve` / `hr.payroll.approve`; page open to all, filters itself) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `/sales` العملاء (`sales.customers.view`) | ✓ | ✓ |  |  |  | ✓ | ✓ |  |
 | `/purchasing` المشتريات (`purchasing.orders.view`) | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |
 | `/accounting` الحسابات (`accounting.view`) | ✓ |  |  |  |  |  | ✓ |  |
 | `/eta` الفاتورة الإلكترونية (`accounting.eta.view`) | ✓ | ✓ |  |  |  |  | ✓ |  |
 | `/hr` الموظفين والمصروفات (`hr.expenses.submit`) | ✓ | ✓ |  |  |  |  | ✓ |  |
+| `/hr/attendance` الحضور والانصراف (`hr.attendance.record` / `hr.attendance.approve` / `hr.employees.manage`) | ✓ | ✓ |  |  |  |  | ✓ |  |
+| `/hr/leave` الإجازات (`hr.leave.request` / `hr.leave.approve` / `hr.leave.configure`) | ✓ |  |  |  |  |  | ✓ |  |
+| `/hr/payroll` المرتبات (`hr.compensation.view` / `hr.compensation.manage` / `hr.payroll.prepare` / `hr.payroll.view` / `hr.payroll.approve` / `hr.statutory.manage`) | ✓ |  |  |  |  |  | ✓ |  |
 | `/management` تقارير الإدارة (`reports.finance`) | ✓ |  |  |  |  |  | ✓ |  |
 | `/management/operations` أداء التشغيل (`reports.view`) | ✓ | ✓ |  |  |  |  |  |  |
 | `/stock` المخزون (`stock.view`) | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |
@@ -188,15 +205,84 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/eta` | `accounting.eta.view` | ✓ | ✓ |  |  |  |  | ✓ |  |
 | PUT | `/api/eta/units/[code]` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |
 | GET | `/api/health` | public | · | · | · | · | · | · | · | · |
+| POST | `/api/hr/attendance/compile` | `hr.attendance.record` | ✓ | ✓ |  |  |  |  |  |  |
+| POST | `/api/hr/attendance/confirm` | `hr.attendance.record` | ✓ | ✓ |  |  |  |  |  |  |
+| POST | `/api/hr/attendance/corrections/[id]/cancel` | any of `hr.attendance.record`, `hr.attendance.approve` | ✓ | ✓ |  |  |  |  |  |  |
+| GET | `/api/hr/attendance/corrections` | any of `hr.attendance.record`, `hr.attendance.approve`, `hr.employees.manage` | ✓ | ✓ |  |  |  |  | ✓ |  |
+| POST | `/api/hr/attendance/corrections` | `hr.attendance.record` | ✓ | ✓ |  |  |  |  |  |  |
+| POST | `/api/hr/attendance/days/[id]/reopen` | `hr.attendance.approve` | ✓ |  |  |  |  |  |  |  |
+| GET | `/api/hr/attendance/days/[id]` | any of `hr.attendance.record`, `hr.attendance.approve`, `hr.employees.manage` | ✓ | ✓ |  |  |  |  | ✓ |  |
+| POST | `/api/hr/attendance/days` | `hr.attendance.record` | ✓ | ✓ |  |  |  |  |  |  |
+| DELETE | `/api/hr/attendance/identities/[id]` | any of `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/attendance/identities` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/attendance/month` | any of `hr.attendance.record`, `hr.attendance.approve`, `hr.employees.manage` | ✓ | ✓ |  |  |  |  | ✓ |  |
+| GET | `/api/hr/attendance` | any of `hr.attendance.record`, `hr.attendance.approve`, `hr.employees.manage` | ✓ | ✓ |  |  |  |  | ✓ |  |
+| GET | `/api/hr/attendance/sources` | any of `hr.attendance.record`, `hr.attendance.approve`, `hr.employees.manage` | ✓ | ✓ |  |  |  |  | ✓ |  |
+| POST | `/api/hr/attendance/sources` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/compensation/[id]/cancel` | any of `hr.compensation.manage`, `hr.payroll.approve` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/compensation` | any of `hr.compensation.view` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/compensation` | `hr.compensation.manage` | ✓ |  |  |  |  |  | ✓ |  |
 | POST | `/api/hr/departments` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/documents/expiring` | `hr.private.view` | ✓ |  |  |  |  |  |  |  |
+| POST | `/api/hr/employees/[id]/bank-accounts/[accountId]/deactivate` | `hr.private.manage` | ✓ |  |  |  |  |  |  |  |
+| POST | `/api/hr/employees/[id]/bank-accounts/[accountId]/reveal` | `hr.private.view` | ✓ |  |  |  |  |  |  |  |
+| POST | `/api/hr/employees/[id]/bank-accounts` | `hr.private.manage` | ✓ |  |  |  |  |  |  |  |
+| POST | `/api/hr/employees/[id]/documents` | `hr.private.manage` | ✓ |  |  |  |  |  |  |  |
+| POST | `/api/hr/employees/[id]/employment` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/employees/[id]/private` | `hr.private.view` | ✓ |  |  |  |  |  |  |  |
+| PATCH | `/api/hr/employees/[id]/private` | `hr.private.manage` | ✓ |  |  |  |  |  |  |  |
+| GET | `/api/hr/employees/[id]` | any of `hr.employees.view`, `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |
 | PATCH | `/api/hr/employees/[id]` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |
 | GET | `/api/hr/employees/[id]/statement` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |
-| GET | `/api/hr/employees` | `hr.expenses.submit` | ✓ | ✓ |  |  |  |  | ✓ |  |
+| GET | `/api/hr/employees` | any of `hr.expenses.submit`, `hr.employees.view` | ✓ | ✓ |  |  |  |  | ✓ |  |
 | POST | `/api/hr/employees` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |
 | GET | `/api/hr/expense-accounts` | `hr.expenses.submit` | ✓ | ✓ |  |  |  |  | ✓ |  |
 | GET | `/api/hr/expenses` | `hr.expenses.submit` | ✓ | ✓ |  |  |  |  | ✓ |  |
 | POST | `/api/hr/expenses` | `hr.expenses.submit` | ✓ | ✓ |  |  |  |  | ✓ |  |
+| DELETE | `/api/hr/holidays/[id]` | any of `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/holidays` | any of `hr.attendance.record`, `hr.attendance.approve`, `hr.employees.manage` | ✓ | ✓ |  |  |  |  | ✓ |  |
+| POST | `/api/hr/holidays` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/leave/adjustments` | `hr.leave.configure` | ✓ |  |  |  |  |  |  |  |
+| POST | `/api/hr/leave/allocate` | `hr.leave.configure` | ✓ |  |  |  |  |  |  |  |
+| GET | `/api/hr/leave/balances` | any of `hr.leave.request`, `hr.leave.approve`, `hr.leave.configure` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/leave/ledger` | any of `hr.leave.request`, `hr.leave.approve`, `hr.leave.configure` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/leave/policies/[id]/retire` | `hr.leave.configure` | ✓ |  |  |  |  |  |  |  |
+| PATCH | `/api/hr/leave/policies/[id]` | `hr.leave.configure` | ✓ |  |  |  |  |  |  |  |
+| POST | `/api/hr/leave/policies/[id]/verify` | `hr.leave.configure` | ✓ |  |  |  |  |  |  |  |
+| GET | `/api/hr/leave/policies` | any of `hr.leave.request`, `hr.leave.approve`, `hr.leave.configure` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/leave/policies` | `hr.leave.configure` | ✓ |  |  |  |  |  |  |  |
+| POST | `/api/hr/leave/preview` | `hr.leave.request` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/leave/requests/[id]/cancel` | any of `hr.leave.request`, `hr.leave.approve` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/leave/requests` | any of `hr.leave.request`, `hr.leave.approve`, `hr.leave.configure` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/leave/requests` | `hr.leave.request` | ✓ |  |  |  |  |  | ✓ |  |
+| PATCH | `/api/hr/leave/types/[id]` | `hr.leave.configure` | ✓ |  |  |  |  |  |  |  |
+| GET | `/api/hr/leave/types` | any of `hr.leave.request`, `hr.leave.approve`, `hr.leave.configure` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/leave/types` | `hr.leave.configure` | ✓ |  |  |  |  |  |  |  |
+| POST | `/api/hr/payroll/adjustments/[id]/cancel` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/payroll/adjustments` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/payroll/adjustments` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |
+| PATCH | `/api/hr/payroll/components/[id]` | `hr.compensation.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/payroll/components` | any of `hr.compensation.view`, `hr.compensation.manage`, `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/payroll/components` | `hr.compensation.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/payroll/runs/[id]/calculate` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/payroll/runs/[id]/cancel` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |
+| PATCH | `/api/hr/payroll/runs/[id]/employees/[employeeId]` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/payroll/runs/[id]/reopen` | `hr.payroll.approve` | ✓ |  |  |  |  |  |  |  |
+| GET | `/api/hr/payroll/runs/[id]` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/payroll/runs/[id]/submit` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/payroll/runs/[id]/withdraw` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/payroll/runs` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/payroll/runs` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |
+| PATCH | `/api/hr/schedules/[id]` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/schedules` | any of `hr.attendance.record`, `hr.attendance.approve`, `hr.employees.manage` | ✓ | ✓ |  |  |  |  | ✓ |  |
+| POST | `/api/hr/schedules` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/statutory/[id]/retire` | `hr.statutory.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| PATCH | `/api/hr/statutory/[id]` | `hr.statutory.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/statutory/[id]/verify` | `hr.statutory.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| GET | `/api/hr/statutory` | any of `hr.statutory.manage`, `hr.payroll.prepare`, `hr.payroll.approve`, `hr.payroll.view` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/hr/statutory` | `hr.statutory.manage` | ✓ |  |  |  |  |  | ✓ |  |
 | POST | `/api/hr/transactions` | `hr.advances.manage` | ✓ |  |  |  |  |  | ✓ |  |
+| POST | `/api/integrations/attendance/events` | integration key with scope `attendance.ingest` only | · | · | · | · | · | · | · | · |
 | GET | `/api/integrations/orders/[externalId]` | integration key with scope `orders.status` only | · | · | · | · | · | · | · | · |
 | POST | `/api/inventory/adjustments` | `stock.adjust` | ✓ | ✓ | ✓ |  |  |  |  |  |
 | POST | `/api/inventory/documents/[id]/reverse` | `stock.adjust` | ✓ | ✓ | ✓ |  |  |  |  |  |

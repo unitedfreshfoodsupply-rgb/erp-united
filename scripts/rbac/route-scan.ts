@@ -44,7 +44,7 @@ export function scanRoutes(root = process.cwd()): RouteHandler[] {
       const body = parts[i + 1];
       let gate: Gate;
       const all = [...body.matchAll(/(requirePermission|requireStockActor|requireServiceActor|requireOrderActor|postHandler)\(\s*(?:req\s*,\s*)?(\[[^\]]*\]|"[^"]*")/g)];
-      const any = /requireAnyPermission\(\s*req\s*,\s*(\[[^\]]*\])/.exec(body);
+      const any = /requireAnyPermission\(\s*req\s*,\s*(\[[^\]]*\])/.exec(body) ?? /\banyOf\(\s*(\[[^\]]*\])/.exec(body);
       if (PUBLIC.has(path)) gate = { kind: "public" };
       else if (path === "/api/admin/users/[id]" && method === "PATCH") gate = { kind: "per-field" };
       else if (path === "/api/admin/data-import") gate = { kind: "per-import-kind", basePermission: "users.view", permissions: ["accounting.manage", "purchasing.prices.manage", "purchasing.suppliers.manage", "sales.credit.manage", "sales.customers.manage", "sales.pricing.manage", "sales.tax.manage", "stock.manage_products"] };

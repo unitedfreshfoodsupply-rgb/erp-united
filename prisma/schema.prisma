@@ -384,12 +384,12 @@ model StockProduct {
   supplierPrices  SupplierPrice[]
   purchaseLines   PurchaseOrderLine[]
   rfqLines        RfqLine[]
-  intakes         StockIntake[]      @relation("StockProductIntakes")
+  intakes         StockIntake[]         @relation("StockProductIntakes")
   movements       StockMovement[]
   lots            StockLot[]
   packagings      ProductPackaging[]
   reservations    StockReservation[]
-  gradeBIntakes   StockIntake[]      @relation("GradeB")
+  gradeBIntakes   StockIntake[]         @relation("GradeB")
   valuationLayers StockValuationLayer[]
 
   supplierBillLines SupplierBillLine[]
@@ -864,6 +864,8 @@ model Attachment {
   deletedBy       String?
   deleteReason    String?
 
+  employeeDocument EmployeeDocument?
+
   @@index([entityType, entityId])
   @@index([sha256])
 }
@@ -1116,7 +1118,7 @@ model Customer {
   /// hotel's OWN legalName/legalNameAr and taxRegistrationNo are authoritative for
   /// invoices and ETA, so a link never overrides them.
   legalEntityId String?
-  legalEntity   CustomerLegalEntity? @relation(fields: [legalEntityId], references: [id], onDelete: Restrict)
+  legalEntity   CustomerLegalEntity?  @relation(fields: [legalEntityId], references: [id], onDelete: Restrict)
   groupMembers  CustomerGroupMember[]
 
   @@index([active, name])
@@ -1126,17 +1128,17 @@ model Customer {
 /// A searchable commercial brand/group (JAZ, Four Seasons, ...). Purely commercial:
 /// it has no legal identity and no tax registration number of its own.
 model CustomerGroup {
-  id        String   @id @default(cuid())
+  id          String   @id @default(cuid())
   /// Stable uppercase code ("JAZ") — the import reference key.
-  code      String   @unique
-  name      String
-  nameAr    String?
-  active    Boolean  @default(true)
-  version   Int      @default(1)
+  code        String   @unique
+  name        String
+  nameAr      String?
+  active      Boolean  @default(true)
+  version     Int      @default(1)
   createdById String?
-  createdBy String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   members CustomerGroupMember[]
 
@@ -1145,12 +1147,12 @@ model CustomerGroup {
 
 /// Many-to-many between customers and commercial groups.
 model CustomerGroupMember {
-  id         String   @id @default(cuid())
-  groupId    String
-  customerId String
+  id          String   @id @default(cuid())
+  groupId     String
+  customerId  String
   createdById String?
-  createdBy  String
-  createdAt  DateTime @default(now())
+  createdBy   String
+  createdAt   DateTime @default(now())
 
   group    CustomerGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
   customer Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
@@ -1163,43 +1165,43 @@ model CustomerGroupMember {
 /// number (unique here — one tax number can never belong to two legal entities) and
 /// the billing/E-invoice receiver details. Several Customer rows may link to it.
 model CustomerLegalEntity {
-  id        String   @id @default(cuid())
+  id                    String   @id @default(cuid())
   /// Stable uppercase code ("JAZ-EG") — the import reference key.
-  code      String   @unique
+  code                  String   @unique
   /// Legal company name as it must appear on invoices.
-  name      String
-  nameAr    String?
+  name                  String
+  nameAr                String?
   /// 9 digits; unique across legal entities (not across hotels — hotels link here).
-  taxRegistrationNo String?  @unique
-  commercialRegNo   String?
-  phone     String?
-  email     String?
+  taxRegistrationNo     String?  @unique
+  commercialRegNo       String?
+  phone                 String?
+  email                 String?
   /// Billing address (display / printed invoice).
-  address   String?
-  area      String?
-  city      String?
+  address               String?
+  area                  String?
+  city                  String?
   /// ETA receiver address — the structured fields the e-invoice validator needs.
-  country             String?
-  governate           String?
-  regionCity          String?
-  street              String?
-  buildingNumber      String?
-  postalCode          String?
-  floor               String?
-  room                String?
-  landmark            String?
+  country               String?
+  governate             String?
+  regionCity            String?
+  street                String?
+  buildingNumber        String?
+  postalCode            String?
+  floor                 String?
+  room                  String?
+  landmark              String?
   additionalInformation String?
   /// B (business in Egypt) | P (person) | F (foreigner); NULL = derive (B with tax, P without).
-  receiverType        String?
+  receiverType          String?
   /// National ID (P) or passport/foreign id (F).
-  receiverId          String?
-  notes     String?
-  active    Boolean  @default(true)
-  version   Int      @default(1)
-  createdById String?
-  createdBy String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  receiverId            String?
+  notes                 String?
+  active                Boolean  @default(true)
+  version               Int      @default(1)
+  createdById           String?
+  createdBy             String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   customers Customer[]
 
@@ -2002,6 +2004,9 @@ model Account {
   receiptDeductions ReceiptDeduction[]
   paymentDeductions PaymentDeduction[]
   billServiceLines  SupplierBillServiceLine[]
+
+  payComponentsExpense   PayComponent[] @relation("PayComponentExpense")
+  payComponentsLiability PayComponent[] @relation("PayComponentLiability")
 }
 
 model AccountingPeriod {
@@ -2230,12 +2235,17 @@ model BankReconciliation {
 // ---------------------------------------------------------------------------
 
 model Department {
-  id        String     @id @default(cuid())
-  code      String     @unique
-  name      String
-  active    Boolean    @default(true)
-  createdAt DateTime   @default(now())
-  employees Employee[]
+  id                String     @id @default(cuid())
+  code              String     @unique
+  name              String
+  active            Boolean    @default(true)
+  /// Head of the department (routing of leave / attendance approvals when enabled).
+  managerEmployeeId String?
+  createdAt         DateTime   @default(now())
+  employees         Employee[]
+
+  manager     Employee?            @relation("DepartmentManager", fields: [managerEmployeeId], references: [id], onDelete: Restrict)
+  employments EmployeeEmployment[]
 }
 
 model Employee {
@@ -2256,6 +2266,727 @@ model Employee {
   department   Department?           @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   expenses     Expense[]
   transactions EmployeeTransaction[]
+
+  employments        EmployeeEmployment[]   @relation("EmploymentEmployee")
+  reportsInHistory   EmployeeEmployment[]   @relation("EmploymentManager")
+  managedDepartments Department[]           @relation("DepartmentManager")
+  privateInfo        EmployeePrivateInfo?
+  bankAccounts       EmployeeBankAccount[]
+  documents          EmployeeDocument[]
+  attendanceDays     AttendanceDay[]
+  attendanceFixes    AttendanceCorrection[]
+  attendanceIds      AttendanceIdentity[]
+  leaveLedger        LeaveLedgerEntry[]
+  leaveRequests      LeaveRequest[]
+  compensations      EmployeeCompensation[]
+  payslips           PayrollRunEmployee[]
+  payrollAdjustments PayrollAdjustment[]
+}
+
+/// Effective-dated employment record (docs/erp/HR_PAYROLL_GAP_AUDIT.md §3.2). Append-only:
+/// a change closes the open row (effectiveTo — the only permitted update) and opens a new
+/// one in the same transaction. Employee.departmentId / jobTitle / active mirror the open row.
+model EmployeeEmployment {
+  id                String   @id @default(cuid())
+  employeeId        String
+  /// YYYY-MM-DD, inclusive.
+  effectiveFrom     String
+  /// YYYY-MM-DD, inclusive; null = still in force.
+  effectiveTo       String?
+  /// hire | transfer | promotion | status_change | contract_change | termination | rehire
+  event             String
+  departmentId      String?
+  jobTitle          String?
+  managerEmployeeId String?
+  /// Company-defined list (HR decision H3); free text until approved.
+  employmentType    String?
+  contractStart     String?
+  contractEnd       String?
+  probationEnd      String?
+  workScheduleId    String?
+  /// active | suspended | terminated
+  status            String
+  terminationReason String?
+  reason            String
+  createdById       String?
+  createdBy         String
+  createdAt         DateTime @default(now())
+
+  employee   Employee      @relation("EmploymentEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  department Department?   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  manager    Employee?     @relation("EmploymentManager", fields: [managerEmployeeId], references: [id], onDelete: Restrict)
+  schedule   WorkSchedule? @relation(fields: [workScheduleId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, effectiveFrom])
+  @@index([departmentId])
+}
+
+/// Confidential personal and statutory identifiers, 1:1 with Employee and kept apart so an
+/// ordinary employee query can never carry them. Read: hr.private.view; write: hr.private.manage.
+model EmployeePrivateInfo {
+  employeeId            String   @id
+  nationalId            String?  @unique
+  birthDate             String?
+  nationality           String?
+  insuranceNumber       String?
+  insuranceStartDate    String?
+  taxRegistrationNo     String?
+  address               String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  version               Int      @default(1)
+  updatedById           String?
+  updatedBy             String
+  updatedAt             DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+}
+
+/// Salary bank account. Changes deactivate the old row and add a new one (history kept).
+model EmployeeBankAccount {
+  id            String    @id @default(cuid())
+  employeeId    String
+  bankName      String
+  accountNumber String
+  iban          String?
+  holderName    String
+  isPrimary     Boolean   @default(true)
+  active        Boolean   @default(true)
+  verifiedById  String?
+  verifiedBy    String?
+  verifiedAt    DateTime?
+  createdById   String?
+  createdBy     String
+  createdAt     DateTime  @default(now())
+  deactivatedAt DateTime?
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
+}
+
+/// What an attachment cannot hold: document type, number and expiry, for an employee file.
+model EmployeeDocument {
+  id             String   @id @default(cuid())
+  attachmentId   String   @unique
+  employeeId     String
+  /// id_document | employment_contract | insurance_form | certificate | medical | other
+  docType        String
+  documentNumber String?
+  issueDate      String?
+  expiryDate     String?
+  createdById    String?
+  createdBy      String
+  createdAt      DateTime @default(now())
+
+  employee   Employee   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  attachment Attachment @relation(fields: [attachmentId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
+  @@index([expiryDate])
+}
+
+/// A weekly working pattern (docs/erp/HR_PAYROLL_GAP_AUDIT.md §3.4). Times are Cairo local
+/// "HH:MM". Assigned through EmployeeEmployment.workScheduleId; the default one applies to
+/// anyone without an assignment.
+model WorkSchedule {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  nameAr      String
+  nameEn      String?
+  weeklyHours Decimal  @db.Decimal(6, 2)
+  isDefault   Boolean  @default(false)
+  active      Boolean  @default(true)
+  version     Int      @default(1)
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  days        WorkScheduleDay[]
+  employments EmployeeEmployment[]
+}
+
+model WorkScheduleDay {
+  id           String  @id @default(cuid())
+  scheduleId   String
+  /// 0 = Sunday … 6 = Saturday
+  weekday      Int
+  isWorkingDay Boolean
+  start        String?
+  end          String?
+  breakMinutes Int     @default(0)
+  /// The night-work window, when the company defines one (statutory value OPEN, §7).
+  nightStart   String?
+  nightEnd     String?
+
+  schedule WorkSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, weekday])
+}
+
+/// Official holidays, entered by HR with the decree or announcement they come from.
+model PublicHoliday {
+  id          String   @id @default(cuid())
+  /// YYYY-MM-DD
+  date        String   @unique
+  nameAr      String
+  nameEn      String?
+  paid        Boolean  @default(true)
+  reference   String?
+  createdById String?
+  createdBy   String
+  createdAt   DateTime @default(now())
+}
+
+/// One row per employee per day — payroll's source of truth for attendance. Every change
+/// bumps `version` and writes the matching AttendanceDayRevision (enforced in the database);
+/// a locked day changes only through an approved AttendanceCorrection.
+model AttendanceDay {
+  id                     String    @id @default(cuid())
+  employeeId             String
+  /// YYYY-MM-DD (Cairo)
+  date                   String
+  /// present | absent | absent_unpaid | leave | holiday | rest_day | suspended
+  status                 String
+  firstIn                DateTime?
+  lastOut                DateTime?
+  workedMinutes          Int       @default(0)
+  lateMinutes            Int       @default(0)
+  earlyLeaveMinutes      Int       @default(0)
+  /// Minutes worked outside the schedule, per class. Pay multipliers are statutory/policy inputs, not stored here.
+  overtimeDayMinutes     Int       @default(0)
+  overtimeNightMinutes   Int       @default(0)
+  overtimeRestDayMinutes Int       @default(0)
+  overtimeHolidayMinutes Int       @default(0)
+  leaveRequestId         String?
+  /// manual | device | correction | leave | system
+  source                 String
+  /// draft | confirmed | locked
+  state                  String    @default("draft")
+  /// The payroll run holding this day (FK added with payroll runs).
+  lockedRunId            String?
+  notes                  String?
+  version                Int       @default(1)
+  enteredById            String?
+  enteredBy              String
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  employee     Employee                @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  revisions    AttendanceDayRevision[]
+  leaveRequest LeaveRequest?           @relation(fields: [leaveRequestId], references: [id], onDelete: Restrict)
+  lockedRun    PayrollRun?             @relation(fields: [lockedRunId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, date])
+  @@index([date])
+  @@index([state])
+}
+
+/// Append-only history of an attendance day: revision n is the change that produced version n.
+model AttendanceDayRevision {
+  id              String   @id @default(cuid())
+  attendanceDayId String
+  revision        Int
+  /// confirmed | reopened | corrected | entered | compiled | locked | unlocked
+  action          String
+  before          Json?
+  after           Json
+  reason          String?
+  correctionId    String?
+  changedById     String?
+  changedBy       String
+  changedAt       DateTime @default(now())
+
+  day        AttendanceDay         @relation(fields: [attendanceDayId], references: [id], onDelete: Restrict)
+  correction AttendanceCorrection? @relation(fields: [correctionId], references: [id], onDelete: Restrict)
+
+  @@unique([attendanceDayId, revision])
+}
+
+/// A request to change a confirmed or locked day; applied only on approval by someone else.
+model AttendanceCorrection {
+  id                String    @id @default(cuid())
+  /// ATC-YYYY-#####
+  number            String    @unique
+  employeeId        String
+  date              String
+  requested         Json
+  reason            String
+  /// pending | approved | rejected | cancelled
+  status            String    @default("pending")
+  approvalRequestId String?
+  /// The day was locked by a payroll run when applied: its pay effect goes to the next run (Phase 5).
+  /// none | pending | applied
+  retroStatus       String    @default("none")
+  retroAdjustmentId String?
+  appliedRevision   Int?
+  requestedById     String?
+  requestedBy       String
+  decidedById       String?
+  decidedBy         String?
+  decidedAt         DateTime?
+  decisionComment   String?
+  version           Int       @default(1)
+  createdAt         DateTime  @default(now())
+
+  employee  Employee                @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  revisions AttendanceDayRevision[]
+
+  @@index([employeeId, date])
+  @@index([status])
+}
+
+/// Where attendance comes from. Devices authenticate as an Integration (keys, logs and
+/// revocation are reused); nothing device-specific enters the core model.
+model AttendanceSource {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  name          String
+  /// manual | device | import_file
+  kind          String
+  integrationId String?  @unique
+  active        Boolean  @default(true)
+  createdBy     String
+  createdAt     DateTime @default(now())
+
+  integration Integration?            @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+  identities  AttendanceIdentity[]
+  events      AttendanceEvent[]
+  batches     AttendanceImportBatch[]
+}
+
+/// A device's badge or user number → an employee.
+model AttendanceIdentity {
+  id             String   @id @default(cuid())
+  sourceId       String
+  externalUserId String
+  employeeId     String
+  createdBy      String
+  createdAt      DateTime @default(now())
+
+  source   AttendanceSource @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  employee Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([sourceId, externalUserId])
+  @@index([employeeId])
+}
+
+/// Raw punches, append-only. (sourceId, externalEventId) makes re-delivery idempotent.
+model AttendanceEvent {
+  id              String   @id @default(cuid())
+  sourceId        String
+  externalEventId String
+  externalUserId  String
+  occurredAt      DateTime
+  /// in | out | unknown
+  direction       String
+  payload         Json?
+  batchId         String
+  receivedAt      DateTime @default(now())
+
+  source AttendanceSource      @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  batch  AttendanceImportBatch @relation(fields: [batchId], references: [id], onDelete: Restrict)
+
+  @@unique([sourceId, externalEventId])
+  @@index([sourceId, externalUserId, occurredAt])
+}
+
+model AttendanceImportBatch {
+  id         String   @id @default(cuid())
+  sourceId   String
+  receivedAt DateTime @default(now())
+  eventCount Int
+  accepted   Int
+  duplicates Int
+  unmatched  Int
+
+  source AttendanceSource  @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  events AttendanceEvent[]
+}
+
+/// A kind of leave (docs/erp/HR_PAYROLL_GAP_AUDIT.md §3.5). How it is paid and counted is a
+/// company / statutory input entered by HR; nothing is seeded.
+model LeaveType {
+  id                   String   @id @default(cuid())
+  code                 String   @unique
+  nameAr               String
+  nameEn               String?
+  /// paid | unpaid | partially_paid
+  payMode              String
+  /// Share of pay kept during the leave, for partially_paid (statutory input, §7 S3).
+  paidPercent          Decimal? @db.Decimal(5, 2)
+  /// working (schedule working days, holidays excluded) | calendar
+  countsDays           String
+  requiresAttachment   Boolean  @default(false)
+  /// No balance limit (e.g. unpaid leave): requests are not checked against a balance.
+  allowNegativeBalance Boolean  @default(false)
+  active               Boolean  @default(true)
+  version              Int      @default(1)
+  createdBy            String
+  createdAt            DateTime @default(now())
+
+  policies LeavePolicy[]
+  ledger   LeaveLedgerEntry[]
+  requests LeaveRequest[]
+}
+
+/// How much leave a type gives, effective-dated. Used only once verified by someone other than
+/// its author; a verified policy is never edited (retire it and enter a new one).
+model LeavePolicy {
+  id                    String    @id @default(cuid())
+  leaveTypeId           String
+  effectiveFrom         String
+  effectiveTo           String?
+  /// none | annual_upfront | monthly
+  accrualMethod         String
+  carryOverMaxDays      Decimal?  @db.Decimal(6, 2)
+  carryOverExpiryMonths Int?
+  /// draft | verified | retired
+  status                String    @default("draft")
+  /// Law article, decree or internal policy the values come from.
+  sourceReference       String
+  createdById           String?
+  createdBy             String
+  createdAt             DateTime  @default(now())
+  verifiedById          String?
+  verifiedBy            String?
+  verifiedAt            DateTime?
+  version               Int       @default(1)
+
+  leaveType LeaveType         @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+  tiers     LeavePolicyTier[]
+
+  @@index([leaveTypeId, status])
+}
+
+/// Days per year by length of service (and age, where the rule depends on it). The highest
+/// tier an employee qualifies for applies.
+model LeavePolicyTier {
+  id               String  @id @default(cuid())
+  policyId         String
+  minServiceMonths Int
+  minAge           Int?
+  daysPerYear      Decimal @db.Decimal(6, 2)
+
+  policy LeavePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@index([policyId])
+}
+
+/// Append-only. The balance is the sum of an employee's entries for a type, never a stored number.
+model LeaveLedgerEntry {
+  id          String   @id @default(cuid())
+  employeeId  String
+  leaveTypeId String
+  date        String
+  /// allocation | accrual | taken | taken_reversal | carry_over | expiry | adjustment | encashment
+  kind        String
+  days        Decimal  @db.Decimal(6, 2)
+  sourceType  String
+  sourceId    String
+  note        String?
+  createdById String?
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  employee  Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+
+  @@unique([sourceType, sourceId, kind])
+  @@index([employeeId, leaveTypeId])
+}
+
+model LeaveRequest {
+  id                String    @id @default(cuid())
+  /// LVR-YYYY-#####
+  number            String    @unique
+  employeeId        String
+  leaveTypeId       String
+  startDate         String
+  endDate           String
+  /// Counted when requested, with the schedule and holidays in force.
+  days              Decimal   @db.Decimal(6, 2)
+  reason            String?
+  /// pending | approved | rejected | cancelled
+  status            String    @default("pending")
+  approvalRequestId String?
+  requestedById     String?
+  requestedBy       String
+  decidedById       String?
+  decidedBy         String?
+  decidedAt         DateTime?
+  decisionComment   String?
+  cancelledBy       String?
+  cancelReason      String?
+  version           Int       @default(1)
+  createdAt         DateTime  @default(now())
+
+  employee       Employee        @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  leaveType      LeaveType       @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+  attendanceDays AttendanceDay[]
+
+  @@index([employeeId, startDate])
+  @@index([status])
+}
+
+/// The pay-component catalogue (docs/erp/HR_PAYROLL_GAP_AUDIT.md §3.6). Nothing is seeded: codes,
+/// tax and insurance treatment and accounts are entered by HR and the accountant. A component
+/// cannot be activated until both its taxable and insurable flags are set (§7 S8, S13).
+/// Lines the engine computes find their component by `systemRole`.
+model PayComponent {
+  id                 String   @id @default(cuid())
+  code               String   @unique
+  nameAr             String
+  nameEn             String?
+  /// earning | deduction | employer_contribution | information
+  kind               String
+  /// fixed (monthly amount on a package) | input (one-off adjustment) | system (computed by payroll)
+  method             String
+  /// For method = system: overtime_day | overtime_night | overtime_rest_day | overtime_holiday |
+  /// unpaid_absence | partial_leave | social_insurance_employee | social_insurance_employer |
+  /// income_tax | other_levy_employee | other_levy_employer | advance_recovery | rounding
+  systemRole         String?  @unique
+  taxable            Boolean?
+  insurable          Boolean?
+  expenseAccountId   String?
+  liabilityAccountId String?
+  payslipOrder       Int      @default(100)
+  active             Boolean  @default(false)
+  version            Int      @default(1)
+  createdBy          String
+  createdAt          DateTime @default(now())
+
+  expenseAccount   Account?                   @relation("PayComponentExpense", fields: [expenseAccountId], references: [id], onDelete: Restrict)
+  liabilityAccount Account?                   @relation("PayComponentLiability", fields: [liabilityAccountId], references: [id], onDelete: Restrict)
+  packageLines     EmployeeCompensationLine[]
+  adjustments      PayrollAdjustment[]
+}
+
+/// An employee's pay package, effective-dated. Proposed by hr.compensation.manage, approved by
+/// someone else (hr.payroll.approve). Approved packages never overlap and are never edited:
+/// a new package closes the previous one the day before it starts.
+model EmployeeCompensation {
+  id                String    @id @default(cuid())
+  /// CMP-YYYY-#####
+  number            String    @unique
+  employeeId        String
+  effectiveFrom     String
+  effectiveTo       String?
+  /// Entered, not derived (what counts as insurable wage is open — §7 S8).
+  insurableWage     Decimal?  @db.Decimal(18, 2)
+  reason            String
+  /// pending | approved | rejected | cancelled | superseded
+  status            String    @default("pending")
+  approvalRequestId String?
+  createdById       String?
+  createdBy         String
+  decidedById       String?
+  decidedBy         String?
+  decidedAt         DateTime?
+  decisionComment   String?
+  version           Int       @default(1)
+  createdAt         DateTime  @default(now())
+
+  employee Employee                   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  lines    EmployeeCompensationLine[]
+
+  @@index([employeeId, effectiveFrom])
+  @@index([status])
+}
+
+model EmployeeCompensationLine {
+  id             String  @id @default(cuid())
+  compensationId String
+  payComponentId String
+  /// Monthly amount.
+  amount         Decimal @db.Decimal(18, 2)
+
+  compensation EmployeeCompensation @relation(fields: [compensationId], references: [id], onDelete: Restrict)
+  payComponent PayComponent         @relation(fields: [payComponentId], references: [id], onDelete: Restrict)
+
+  @@unique([compensationId, payComponentId])
+}
+
+/// Statutory and policy parameters (rates, caps, brackets, divisors), effective-dated, with
+/// their source. Used by payroll only once verified by someone other than their author; a
+/// payroll calculation refuses to run for a period no verified set covers (§3.10).
+model StatutoryRuleSet {
+  id              String    @id @default(cuid())
+  /// eg_social_insurance | eg_salary_income_tax | eg_other_levies | eg_overtime | pay_proration
+  code            String
+  effectiveFrom   String
+  effectiveTo     String?
+  parameters      Json
+  sourceReference String
+  notes           String?
+  /// draft | verified | retired
+  status          String    @default("draft")
+  createdById     String?
+  createdBy       String
+  createdAt       DateTime  @default(now())
+  verifiedById    String?
+  verifiedBy      String?
+  verifiedAt      DateTime?
+  version         Int       @default(1)
+
+  @@index([code, status])
+}
+
+/// A monthly payroll run (docs/erp/HR_PAYROLL_GAP_AUDIT.md §3.8, §4.1). This phase covers
+/// draft → calculated → pending_approval → approved (and cancelled); posting and payments are a
+/// later phase that needs the accountant's account decisions (§12 A1).
+model PayrollRun {
+  id                    String    @id @default(cuid())
+  /// PRL-YYYY-#####
+  number                String    @unique
+  /// YYYY-MM
+  period                String
+  /// regular | off_cycle | correction
+  runType               String    @default("regular")
+  correctionOfRunId     String?
+  /// draft | calculated | pending_approval | approved | cancelled
+  status                String    @default("draft")
+  attendanceFrom        String
+  attendanceTo          String
+  preparedById          String?
+  preparedBy            String
+  submittedById         String?
+  submittedBy           String?
+  submittedAt           DateTime?
+  approvalRequestId     String?
+  approvedById          String?
+  approvedBy            String?
+  approvedAt            DateTime?
+  calculatedAt          DateTime?
+  calculationHash       String?
+  engineVersion         String?
+  gross                 Decimal   @default(0) @db.Decimal(18, 2)
+  employeeDeductions    Decimal   @default(0) @db.Decimal(18, 2)
+  employerContributions Decimal   @default(0) @db.Decimal(18, 2)
+  advanceRecovery       Decimal   @default(0) @db.Decimal(18, 2)
+  netPayable            Decimal   @default(0) @db.Decimal(18, 2)
+  headcount             Int       @default(0)
+  /// Run-level validation messages of the last calculation.
+  exceptions            Json?
+  cancelledReason       String?
+  idempotencyKey        String?   @unique
+  requestHash           String?
+  version               Int       @default(1)
+  createdAt             DateTime  @default(now())
+
+  correctionOf PayrollRun?                  @relation("PayrollCorrection", fields: [correctionOfRunId], references: [id], onDelete: Restrict)
+  corrections  PayrollRun[]                 @relation("PayrollCorrection")
+  employees    PayrollRunEmployee[]
+  snapshots    PayrollCalculationSnapshot[]
+  lockedDays   AttendanceDay[]
+
+  @@index([period])
+}
+
+/// One payslip.
+model PayrollRunEmployee {
+  id                       String   @id @default(cuid())
+  runId                    String
+  employeeId               String
+  /// included | on_hold
+  inclusion                String   @default("included")
+  holdReason               String?
+  /// Entered by the preparer: recovery of ordinary advances this month (the rule is open — §12 P5).
+  advanceRecoveryRequested Decimal  @default(0) @db.Decimal(18, 2)
+  employmentSnapshot       Json?
+  compensationIds          String[]
+  inputsSnapshot           Json?
+  gross                    Decimal  @default(0) @db.Decimal(18, 2)
+  employeeDeductions       Decimal  @default(0) @db.Decimal(18, 2)
+  employerContributions    Decimal  @default(0) @db.Decimal(18, 2)
+  netEntitlement           Decimal  @default(0) @db.Decimal(18, 2)
+  advanceRecovery          Decimal  @default(0) @db.Decimal(18, 2)
+  netPayable               Decimal  @default(0) @db.Decimal(18, 2)
+  /// [{ severity: error | warning, code, params }]
+  exceptions               Json?
+  inputsHash               String?
+  version                  Int      @default(1)
+
+  run         PayrollRun          @relation(fields: [runId], references: [id], onDelete: Restrict)
+  employee    Employee            @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  lines       PayrollRunLine[]
+  adjustments PayrollAdjustment[]
+
+  @@unique([runId, employeeId])
+}
+
+model PayrollRunLine {
+  id             String   @id @default(cuid())
+  runEmployeeId  String
+  payComponentId String?
+  code           String
+  nameAr         String
+  nameEn         String?
+  /// earning | deduction | employer_contribution | recovery
+  kind           String
+  quantity       Decimal? @db.Decimal(18, 4)
+  rate           Decimal? @db.Decimal(18, 6)
+  base           Decimal? @db.Decimal(18, 2)
+  amount         Decimal  @db.Decimal(18, 2)
+  /// compensation | attendance | leave | adjustment | advance_recovery | statutory
+  sourceType     String
+  sourceId       String?
+  ruleSetId      String?
+  ruleSetVersion Int?
+  explanation    String?
+  sortOrder      Int      @default(0)
+
+  runEmployee PayrollRunEmployee @relation(fields: [runEmployeeId], references: [id], onDelete: Cascade)
+
+  @@index([runEmployeeId])
+}
+
+/// Every calculation of a run, kept: the approved figures can be compared with earlier drafts.
+model PayrollCalculationSnapshot {
+  id              String   @id @default(cuid())
+  runId           String
+  sequence        Int
+  calculationHash String
+  totals          Json
+  payslips        Json
+  calculatedById  String?
+  calculatedBy    String
+  calculatedAt    DateTime @default(now())
+
+  run PayrollRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+
+  @@unique([runId, sequence])
+}
+
+/// A one-off input for a month (bonus, allowance, deduction, correction). Reserved by the run that
+/// calculates it — so it sits on one payslip at most — and released if that run is cancelled.
+model PayrollAdjustment {
+  id                    String   @id @default(cuid())
+  /// PAD-YYYY-#####
+  number                String   @unique
+  employeeId            String
+  /// YYYY-MM
+  targetPeriod          String
+  payComponentId        String
+  amount                Decimal  @db.Decimal(18, 2)
+  reason                String
+  /// manual | attendance_correction | leave_change | prior_run_correction
+  origin                String   @default("manual")
+  originId              String?
+  /// open | reserved | applied | cancelled
+  status                String   @default("open")
+  reservedRunEmployeeId String?
+  createdById           String?
+  createdBy             String
+  cancelledBy           String?
+  version               Int      @default(1)
+  createdAt             DateTime @default(now())
+
+  employee     Employee            @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  payComponent PayComponent        @relation(fields: [payComponentId], references: [id], onDelete: Restrict)
+  reservedOn   PayrollRunEmployee? @relation(fields: [reservedRunEmployeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, targetPeriod])
+  @@index([status])
 }
 
 /// A business expense. Paid from a cash/bank account, owed back to the employee who
@@ -2300,8 +3031,10 @@ model EmployeeTransaction {
   /// One key per submitted form: a retried or double-tapped submit returns the first document instead of posting twice.
   idempotencyKey String?  @unique
   requestHash    String?
-  /// advance | reimbursement | advance_return
+  /// advance | reimbursement | advance_return | salary_on_account
   type           String
+  /// YYYY-MM — for salary_on_account: the month whose payroll must recover it in full.
+  payrollPeriod  String?
   date           String
   amount         Decimal  @db.Decimal(18, 2)
   cashAccountId  String
@@ -2330,7 +3063,7 @@ model Integration {
   keyHash    String    @unique
   /// First characters of the key, to recognise it in logs and screens.
   keyPrefix  String
-  /// orders.create | orders.status
+  /// orders.create | orders.status | attendance.ingest
   scopes     String[]
   active     Boolean   @default(true)
   lastUsedAt DateTime?
@@ -2339,7 +3072,8 @@ model Integration {
   revokedAt  DateTime?
   revokedBy  String?
 
-  logs IntegrationLog[]
+  logs             IntegrationLog[]
+  attendanceSource AttendanceSource?
 }
 
 model IntegrationLog {

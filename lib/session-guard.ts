@@ -32,6 +32,14 @@ export async function requirePagePermission(
   return { ok: true, user };
 }
 
+/** Like requirePagePermission, but any one of the permissions opens the page. */
+export async function requireAnyPagePermission(permissions: Permission[]): Promise<PageGate> {
+  const user = await getAuthContext();
+  if (!user) redirect("/login");
+  if (permissions.some((p) => user.can(p))) return { ok: true, user };
+  return { ok: false, user, missing: permissions };
+}
+
 /** Landing page for the signed-in user, derived from what they can actually reach. */
 export async function resolveHomePath() {
   const user = await getAuthContext();
