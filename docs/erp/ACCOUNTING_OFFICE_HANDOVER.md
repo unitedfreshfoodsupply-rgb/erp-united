@@ -136,7 +136,8 @@ Rent, utilities, transport, maintenance, services and equipment bought on credit
 
 - Each line names an expense or asset account, a description, the amount before tax and its tax code. Header, control (AR/AP/inventory/GRNI/employee), cash/bank, input-VAT and revenue accounts are refused.
 - Posting: **Dr each line's account / Dr VAT input (1500) / Cr suppliers (2100)**. The bill is then paid, aged, stated and appears in the VAT summary exactly like a goods bill.
-- Approval: a service bill whose total is above `purchasing.service_bill_approval_threshold` waits for approval by someone with `purchasing.bills.approve` (never the person who booked it). The shipped value is **0 — every service bill needs approval** until management sets a threshold (DEC-05).
+- Approval: a service bill whose total is above `purchasing.service_bill_approval_threshold` waits for approval by someone with `purchasing.bills.approve`. The shipped value is **0 — every service bill needs approval** until management sets a threshold (DEC-05).
+- **Self-approval is prevented only when `approvals.require_different_approver` is enabled.** That setting ships **off** (`false`). With it off, the only separation is by role: in the shipped role bundles the accountant can book bills but not approve them, while SUPER_ADMIN holds both permissions and could approve a bill they booked. The same applies to every approval type (goods-bill variances, expenses, stock adjustments, shortages, purchase orders, credit). Enabling it is a management decision; it is not changed by this release.
 - Corrections after posting: a debit note per line, by amount before tax, at the line's tax rate (Dr suppliers / Cr the line's account / Cr VAT input), never more than what is left of the line.
 - A fixed asset bought on credit is a service bill line on the asset account; depreciation stays a monthly manual journal from the accountant's register until a register is justified (WP-8).
 

@@ -31,10 +31,24 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      # An empty database Prisma replays the migrations into for the drift check. A
+      # service of its own, so the step needs no Postgres client on the runner.
+      shadow:
+        image: postgres:16
+        env:
+          POSTGRES_USER: united
+          POSTGRES_PASSWORD: united
+          POSTGRES_DB: united_shadow
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U united"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       DATABASE_URL: postgresql://united:united@localhost:5432/united_test
       DIRECT_URL: postgresql://united:united@localhost:5432/united_test
-      SHADOW_DATABASE_URL: postgresql://united:united@localhost:5432/united_shadow
+      SHADOW_DATABASE_URL: postgresql://united:united@localhost:5433/united_shadow
       JWT_SECRET: ci-disposable-test-secret-0123456789abcdef
       N8N_API_KEY: ci-test-key
       STORAGE_PROVIDER: local
@@ -63,9 +77,9 @@ jobs:
       - name: Migrations apply to an empty database
         run: npx prisma migrate deploy
 
+      # Fails the job (exit 2) when schema.prisma and the migrations differ.
       - name: Schema drift (schema.prisma must equal the migrations)
         run: |
-          PGPASSWORD=united psql -h localhost -U united -d united_test -c "CREATE DATABASE united_shadow"
           npx prisma migrate diff \
             --from-migrations prisma/migrations \
             --to-schema-datamodel prisma/schema.prisma \

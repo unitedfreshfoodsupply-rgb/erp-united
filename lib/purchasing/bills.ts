@@ -19,7 +19,8 @@ import { effectiveSupplierPrice } from "@/lib/purchasing/suppliers";
 import { poLineUnitCost } from "@/lib/purchasing/receiving";
 import { isoDate, money, qty } from "@/lib/purchasing/orders";
 import { matchBill, type MatchLine } from "@/lib/purchasing/match";
-import { controlAccountMovedBy, postDebitNote, postSupplierBill } from "@/lib/accounting/ledger";
+import { postDebitNote, postSupplierBill } from "@/lib/accounting/ledger";
+import { isServiceBillAccount } from "@/lib/purchasing/service-accounts";
 import { postReturnToSupplierInTx } from "@/lib/inventory/documents";
 import { idempotencyKeyField, lockKey, replayRequest, requestFingerprint } from "@/lib/core/idempotency";
 
@@ -325,14 +326,14 @@ const serviceInput = z.object({
 });
 const isServiceInput = (input: unknown) => !!input && typeof input === "object" && (input as { kind?: unknown }).kind === "service";
 
-/** The account a service line may be charged to: an active, postable expense or asset account that no document ledger owns. */
+/** The account a service line may be charged to — the shared rule in lib/purchasing/service-accounts.ts. */
 async function serviceAccount(tx: Tx, accountId: string) {
   const a = await tx.account.findUnique({ where: { id: accountId } });
   if (!a) throw new ApiError(404, "حساب مش موجود");
   if (!a.active || !a.postable) throw new ApiError(400, `الحساب ${a.code} حساب رئيسي أو موقوف — مينفعش الترحيل عليه`);
   if (a.type !== "expense" && a.type !== "asset") throw new ApiError(400, `الحساب ${a.code} مش حساب مصروفات أو أصول`);
-  const via = controlAccountMovedBy(a.systemKey);
-  if (via || a.systemKey === "vat_input" || (await tx.cashAccount.findFirst({ where: { accountId: a.id } }))) throw new ApiError(400, `الحساب ${a.code} (${a.nameAr}) مينفعش يتحمل على فاتورة خدمة`);
+  // Control, input-VAT, stock-cost and cash/bank accounts (lib/purchasing/service-accounts.ts).
+  if (!isServiceBillAccount(a, !!(await tx.cashAccount.findFirst({ where: { accountId: a.id } })))) throw new ApiError(400, `الحساب ${a.code} (${a.nameAr}) مينفعش يتحمل على فاتورة خدمة`);
   return a;
 }
 

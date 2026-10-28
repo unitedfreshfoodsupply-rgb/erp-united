@@ -40,6 +40,12 @@ async function main() {
   check("a line on a header account -> 400", (await call("karim", "POST", "/api/purchasing/bills", { ...draft, supplier_invoice_no: `${TAG}-X3`, lines: [{ ...draft.lines[0], account_id: "acc_6000" }] })).status === 400);
   check("a line on a revenue account -> 400", (await call("karim", "POST", "/api/purchasing/bills", { ...draft, supplier_invoice_no: `${TAG}-X4`, lines: [{ ...draft.lines[0], account_id: "acc_4100" }] })).status === 400);
   check("a line on the cash account -> 400", (await call("karim", "POST", "/api/purchasing/bills", { ...draft, supplier_invoice_no: `${TAG}-X5`, lines: [{ ...draft.lines[0], account_id: "acc_1100" }] })).status === 400);
+  for (const [id, label] of [["acc_5100", "COGS"], ["acc_5200", "inventory adjustments"], ["acc_5300", "purchase price variance"]]) {
+    check(`a line on ${label} -> 400`, (await call("karim", "POST", "/api/purchasing/bills", { ...draft, supplier_invoice_no: `${TAG}-K${id}`, lines: [{ ...draft.lines[0], account_id: id }] })).status === 400);
+  }
+  const general = await call("karim", "POST", "/api/purchasing/bills", { ...draft, supplier_invoice_no: `${TAG}-G1`, lines: [{ ...draft.lines[0], account_id: "acc_6100" }] });
+  check("a line on general expenses (6100, a system account) -> 201", general.status === 201, general.body);
+  check("…cancelled again", (await call("karim", "POST", `/api/purchasing/bills/${general.body.bill?.id}/cancel`, { reason: "اختبار" })).body.bill?.status === "cancelled");
   check("an unknown tax code -> 400", (await call("karim", "POST", "/api/purchasing/bills", { ...draft, supplier_invoice_no: `${TAG}-X6`, lines: [{ ...draft.lines[0], tax_code: "NOPE" }] })).status === 400);
   check("a zero amount -> 400", (await call("karim", "POST", "/api/purchasing/bills", { ...draft, supplier_invoice_no: `${TAG}-X7`, lines: [{ ...draft.lines[0], amount: "0" }] })).status === 400);
   check("the floor cannot book bills -> 403", (await call("ahmed", "POST", "/api/purchasing/bills", { ...draft, supplier_invoice_no: `${TAG}-X8` })).status === 403);

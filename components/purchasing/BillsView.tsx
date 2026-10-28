@@ -12,6 +12,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
+import { isServiceBillAccount } from "@/lib/purchasing/service-accounts";
 
 /**
  * Supplier bills and payables (finance). A bill is booked from the supplier's invoice
@@ -210,7 +211,9 @@ function NewServiceBill({ onDone, bill }: { onDone: (id?: string) => void; bill?
     staleTime: 300_000,
   });
   const taxes = useQuery({ queryKey: ["sales", "tax-rates"], queryFn: () => apiFetch<{ taxRates: { code: string; name: string; nameAr: string; rate: string }[] }>("/api/sales/tax-rates").then((r) => r.taxRates), staleTime: 300_000 });
-  const chargeable = (accounts.data ?? []).filter((a) => a.postable && a.active && (a.type === "expense" || a.type === "asset") && !a.systemKey);
+  // The server's own rule (lib/purchasing/service-accounts.ts); cash and bank accounts come from the cash list.
+  const cash = useQuery({ queryKey: ["acc", "cash"], queryFn: () => apiFetch<{ cash: { rows: { glCode: string }[] } }>("/api/accounting/cash").then((r) => new Set(r.cash.rows.map((c) => c.glCode))), staleTime: 300_000 });
+  const chargeable = (accounts.data ?? []).filter((a) => isServiceBillAccount(a, !!cash.data?.has(a.code)));
   const [supplierId, setSupplierId] = useState(bill?.supplier.id ?? "");
   const [invoiceNo, setInvoiceNo] = useState(bill?.supplierInvoiceNo ?? "");
   const [billDate, setBillDate] = useState(bill?.billDate ?? todayLocalISO());
