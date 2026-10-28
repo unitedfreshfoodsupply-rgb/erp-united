@@ -50,8 +50,19 @@ const audit = (tx: Tx, actor: Actorish, entityType: "employee" | "expense" | "em
 
 export async function saveDepartment(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "hr.employees.manage");
-  const v = parse(z.object({ code: text("الكود", 20), name: text("الاسم", 100) }), input);
-  return prisma.department.upsert({ where: { code: v.code.toUpperCase() }, update: { name: v.name }, create: { code: v.code.toUpperCase(), name: v.name } });
+  const v = parse(z.object({ code: text("الكود", 20), name: text("الاسم", 100), active: active().optional() }), input);
+  const code = v.code.toUpperCase();
+  return inTx(async (tx) => {
+    if (v.active === false) {
+      // A department still holding active employees cannot be closed — move them first.
+      const dep = await tx.department.findUnique({ where: { code }, select: { id: true } });
+      if (dep && (await tx.employee.count({ where: { departmentId: dep.id, active: true } })) > 0) throw new ApiError(409, "القسم فيه موظفين نشطين — انقلهم الأول");
+    }
+    const before = await tx.department.findUnique({ where: { code } });
+    const d = await tx.department.upsert({ where: { code }, update: { name: v.name, ...(v.active !== undefined ? { active: v.active } : {}) }, create: { code, name: v.name, ...(v.active !== undefined ? { active: v.active } : {}) } });
+    await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: before ? "department_updated" : "department_created", entityType: "department", entityId: d.id, oldValue: before ? `${before.name}${before.active ? "" : " · موقوف"}` : undefined, newValue: `${d.code} · ${d.name}${d.active ? "" : " · موقوف"}`, source: "user", deviceId: actor.deviceId }, tx);
+    return d;
+  });
 }
 
 const employeeInput = z.object({
@@ -62,16 +73,35 @@ const employeeInput = z.object({
   user_id: z.string().nullable().optional(),
   hire_date: date,
   active: active().optional(),
+  expected_version: z.number().int().positive().optional(),
 });
 
 export async function saveEmployee(id: string | null, input: unknown, actor: ServiceActor) {
   assertPermission(actor, "hr.employees.manage");
   const v = parse(employeeInput, input);
   return inTx(async (tx) => {
-    const data = { name: v.name, departmentId: v.department_id ?? null, jobTitle: v.job_title ?? null, phone: v.phone ?? null, userId: v.user_id ?? null, hireDate: v.hire_date ?? null, ...(v.active !== undefined ? { active: v.active } : {}) };
+    // On an edit, a field left out of the request keeps its value — an edit form that does
+    // not show the linked user must not unlink it. `null` clears a field explicitly.
+    const data: Prisma.EmployeeUncheckedUpdateInput & { name: string } = { name: v.name };
+    if (v.department_id !== undefined) data.departmentId = v.department_id ?? null;
+    if (v.job_title !== undefined) data.jobTitle = v.job_title ?? null;
+    if (v.phone !== undefined) data.phone = v.phone ?? null;
+    if (v.user_id !== undefined) data.userId = v.user_id ?? null;
+    if (v.hire_date !== undefined) data.hireDate = v.hire_date ?? null;
+    if (v.active !== undefined) data.active = v.active;
+    if (typeof data.departmentId === "string") {
+      // Moving someone into a department needs it to be open; keeping their current one does not.
+      const current = id ? (await tx.employee.findUnique({ where: { id }, select: { departmentId: true } }))?.departmentId : null;
+      if (data.departmentId !== current && !(await tx.department.findFirst({ where: { id: data.departmentId, active: true } }))) throw new ApiError(400, "القسم مش موجود أو مقفول");
+    }
     let e;
     try {
-      e = id ? await tx.employee.update({ where: { id }, data: { ...data, version: { increment: 1 } } }) : await tx.employee.create({ data: { ...data, code: await nextDocumentNumber(tx, "hr.employee", todayLocalISO()) } });
+      if (id && v.expected_version !== undefined) {
+        const cur = await tx.employee.findUnique({ where: { id }, select: { version: true } });
+        if (!cur) throw new ApiError(404, "الموظف مش موجود");
+        if (cur.version !== v.expected_version) throw new ApiError(409, "حد تاني عدّل بيانات الموظف — حدّث الصفحة وحاول تاني");
+      }
+      e = id ? await tx.employee.update({ where: { id }, data: { ...data, version: { increment: 1 } } }) : await tx.employee.create({ data: { ...(data as Prisma.EmployeeUncheckedCreateInput), code: await nextDocumentNumber(tx, "hr.employee", todayLocalISO()) } });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") throw new ApiError(409, "المستخدم ده مربوط بموظف تاني");
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") throw new ApiError(404, "الموظف مش موجود");
@@ -82,15 +112,34 @@ export async function saveEmployee(id: string | null, input: unknown, actor: Ser
   });
 }
 
-/** Employees with their balance on the journal: advances they hold (+) and what the company owes them (−). */
-export async function listEmployees() {
+/** Who may see an employee's money (advance/payable balance) and contact details. Anyone who
+ * only records expenses (e.g. the supervisor) gets names to pick from — nothing else. */
+export function canSeeEmployeeFinance(actor: ServiceActor) {
+  return actorCan(actor, "hr.employees.manage") || actorCan(actor, "hr.advances.manage") || actorCan(actor, "accounting.view");
+}
+
+/** Employees with their balance on the journal: advances they hold (+) and what the company owes them (−).
+ * Balances, phones and user links are returned only to HR/finance (see canSeeEmployeeFinance). */
+export async function listEmployees(actor: ServiceActor) {
+  const full = canSeeEmployeeFinance(actor);
   const [emps, deps, bal] = await Promise.all([
-    prisma.employee.findMany({ orderBy: [{ active: "desc" }, { code: "asc" }], include: { department: { select: { name: true } } } }),
+    prisma.employee.findMany({ orderBy: [{ active: "desc" }, { code: "asc" }], include: { department: { select: { id: true, name: true } } } }),
     prisma.department.findMany({ orderBy: { code: "asc" } }),
-    prisma.journalLine.groupBy({ by: ["partyId"], where: { partyType: "employee" }, _sum: { debit: true, credit: true } }),
+    full ? prisma.journalLine.groupBy({ by: ["partyId"], where: { partyType: "employee" }, _sum: { debit: true, credit: true } }) : Promise.resolve([]),
   ]);
+  if (!full) {
+    return {
+      departments: deps.filter((d) => d.active).map((d) => ({ id: d.id, code: d.code, name: d.name, active: d.active })),
+      employees: emps.filter((e) => e.active).map((e) => ({ id: e.id, code: e.code, name: e.name, active: e.active, department: e.department })),
+    };
+  }
   const by = new Map(bal.map((b) => [b.partyId!, D(b._sum.debit ?? 0).minus(b._sum.credit ?? 0)]));
-  return { departments: deps, employees: emps.map((e) => ({ ...e, balance: (by.get(e.id) ?? D(0)).toFixed(2) })) };
+  const counts = new Map<string, number>();
+  for (const e of emps) if (e.active && e.departmentId) counts.set(e.departmentId, (counts.get(e.departmentId) ?? 0) + 1);
+  return {
+    departments: deps.map((d) => ({ ...d, activeEmployees: counts.get(d.id) ?? 0 })),
+    employees: emps.map((e) => ({ ...e, balance: (by.get(e.id) ?? D(0)).toFixed(2) })),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +240,9 @@ export async function createEmployeeTransaction(input: unknown, actor: ServiceAc
     }
     const emp = await tx.employee.findUnique({ where: { id: v.employee_id } });
     if (!emp) throw new ApiError(404, "الموظف مش موجود");
+    // A deactivated employee can still be settled with (paid what is owed, return an
+    // advance) but cannot be given new money — the same rule expenses already apply.
+    if (v.type === "advance" && !emp.active) throw new ApiError(400, "الموظف مش موجود أو موقوف");
     const cash = await tx.cashAccount.findFirst({ where: { id: v.cash_account_id, active: true } });
     if (!cash) throw new ApiError(400, "الخزينة مش موجودة");
     const party = { type: "employee" as const, id: emp.id };

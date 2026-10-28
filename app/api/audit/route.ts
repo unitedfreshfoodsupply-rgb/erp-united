@@ -13,7 +13,7 @@ const KNOWN_ENTITY_TYPES = new Set([
   "approval_request", "sales_invoice", "credit_note", "supplier_bill",
   "debit_note", "journal_entry", "customer_receipt", "supplier_payment",
   "accounting_period", "bank_reconciliation", "stock_intake", "inventory_document",
-  "stock_movement", "employee", "expense", "employee_transaction", "rfq",
+  "stock_movement", "employee", "department", "expense", "employee_transaction", "rfq",
   "customer", "supplier", "product", "settings", "user",
 ]);
 

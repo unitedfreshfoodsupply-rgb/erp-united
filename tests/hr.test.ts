@@ -53,6 +53,42 @@ async function main() {
   const st = (await call("karim", "GET", `/api/hr/employees/${emp.id}/statement`)).body.statement;
   check("the employee statement reads from the journal", st.rows.length === 5 && st.advancesHeld === "0.00" && st.owedToEmployee === "0.00", st);
   check("the supervisor cannot pay employees -> 403", (await call("sara", "POST", "/api/hr/transactions", { employee_id: emp.id, type: "advance", amount: 1, cash_account_id: "cash_main" })).status === 403);
+
+  section("4. CONFIDENTIALITY — WHO SEES WHAT");
+  const supList = (await call("sara", "GET", "/api/hr/employees")).body;
+  const supEmp = supList.employees.find((e: any) => e.id === emp.id);
+  check("the supervisor (expenses only) still gets names to pick from", !!supEmp && supEmp.name === emp.name);
+  check("…but no balance, phone, user link or hire date for anyone", supList.employees.every((e: any) => e.balance === undefined && e.phone === undefined && e.userId === undefined && e.hireDate === undefined), supList.employees[0]);
+  check("…and only active employees", supList.employees.every((e: any) => e.active === true));
+  const finList = (await call("karim", "GET", "/api/hr/employees")).body;
+  check("finance sees balances and phones", finList.employees.find((e: any) => e.id === emp.id)?.balance === "0.00");
+
+  section("5. EMPLOYEE EDITS AND DEPARTMENTS");
+  const DEP = `Z${Date.now() % 1_000_000}`;
+  r = await call("karim", "POST", "/api/hr/departments", { code: DEP.toLowerCase(), name: `${TAG} مخزن` });
+  check("finance adds a department (code upper-cased)", r.status === 201 && r.body.department.code === DEP, r.body);
+  const dep = r.body.department;
+  let cur = (await call("karim", "GET", "/api/hr/employees")).body.employees.find((e: any) => e.id === emp.id);
+  r = await call("karim", "PATCH", `/api/hr/employees/${emp.id}`, { name: cur.name, phone: "01000000000", hire_date: "2026-01-15", department_id: dep.id, expected_version: cur.version });
+  check("edit with the current version: 200", r.status === 200, r.body);
+  check("a stale version is refused -> 409", (await call("karim", "PATCH", `/api/hr/employees/${emp.id}`, { name: cur.name, expected_version: cur.version })).status === 409);
+  cur = (await call("karim", "GET", "/api/hr/employees")).body.employees.find((e: any) => e.id === emp.id);
+  r = await call("karim", "PATCH", `/api/hr/employees/${emp.id}`, { name: `${TAG} عم صابر الكبير`, expected_version: cur.version });
+  const after = (await call("karim", "GET", "/api/hr/employees")).body.employees.find((e: any) => e.id === emp.id);
+  check("an edit that sends only the name keeps phone, hire date, job title and department", r.status === 200 && after.phone === "01000000000" && after.hireDate === "2026-01-15" && after.jobTitle === "سواق" && after.departmentId === dep.id, after);
+  check("closing a department with active employees -> 409", (await call("karim", "POST", "/api/hr/departments", { code: DEP, name: `${TAG} مخزن`, active: false })).status === 409);
+  check("deactivate the employee", (await call("karim", "PATCH", `/api/hr/employees/${emp.id}`, { name: after.name, active: false })).status === 200);
+  r = await call("karim", "POST", "/api/hr/departments", { code: DEP, name: `${TAG} مخزن`, active: false });
+  check("…then the department closes", r.status === 201 && r.body.department.active === false, r.body);
+  r = await call("karim", "POST", "/api/hr/employees", { name: `${TAG} جديد`, department_id: dep.id });
+  check("nobody can be added to a closed department -> 400", r.status === 400, r.body);
+  check("an inactive employee cannot be given a new advance -> 400", (await call("karim", "POST", "/api/hr/transactions", { employee_id: emp.id, type: "advance", amount: 50, cash_account_id: "cash_main" })).status === 400);
+  check("…and the record is kept, marked inactive", (await call("karim", "GET", "/api/hr/employees")).body.employees.find((e: any) => e.id === emp.id)?.active === false);
+  check("the supervisor cannot add departments -> 403", (await call("sara", "POST", "/api/hr/departments", { code: "X", name: "x" })).status === 403);
+  const log = await call("admin", "GET", `/api/audit?entity=department&q=${dep.id}`);
+  const acts = (log.body.logs ?? []).filter((l: any) => l.entityId === dep.id).map((l: any) => l.action);
+  check("department changes are audited (created + closed)", log.status === 200 && acts.includes("department_created") && acts.filter((a: string) => a === "department_updated").length >= 1, log.body);
+
   finish("HR / EXPENSES");
 }
 

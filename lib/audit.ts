@@ -60,6 +60,7 @@ export type AuditInput = {
     | "supplier_payment"
     | "bank_reconciliation"
     | "employee"
+    | "department"
     | "eta_document"
     | "eta_setup"
     | "expense"

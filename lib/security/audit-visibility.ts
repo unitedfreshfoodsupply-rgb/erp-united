@@ -20,7 +20,7 @@ const RULES: { applies: (r: Row) => boolean; anyOf: Permission[] }[] = [
   { applies: (r) => ["purchase_order_created", "purchase_order_edited", "purchase_order_submitted"].includes(r.action) || r.action.startsWith("supplier_price_") || r.entityType === "rfq", anyOf: ["purchasing.prices.view"] },
   { applies: (r) => r.entityType === "supplier_bill" || r.entityType === "debit_note", anyOf: ["purchasing.bills.view"] },
   { applies: (r) => r.entityType === "approval_request" && r.fieldChanged === "purchasing.bill", anyOf: ["purchasing.bills.view"] },
-  { applies: (r) => ["employee", "expense", "employee_transaction"].includes(r.entityType) || (r.entityType === "approval_request" && r.fieldChanged === "hr.expense"), anyOf: ["accounting.view", "hr.employees.manage", "hr.expenses.approve"] },
+  { applies: (r) => ["employee", "department", "expense", "employee_transaction"].includes(r.entityType) || (r.entityType === "approval_request" && r.fieldChanged === "hr.expense"), anyOf: ["accounting.view", "hr.employees.manage", "hr.expenses.approve"] },
   { applies: (r) => ["journal_entry", "accounting_period", "customer_receipt", "supplier_payment", "bank_reconciliation"].includes(r.entityType), anyOf: ["accounting.view"] },
 ];
 

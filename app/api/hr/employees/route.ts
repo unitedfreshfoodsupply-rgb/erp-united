@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleApiError } from "@/lib/rbac";
-import { requirePermission } from "@/lib/authz";
+import { requireServiceActor } from "@/lib/core/actor";
 import { listEmployees, saveEmployee } from "@/lib/hr/service";
 import { postHandler } from "@/lib/route-handlers";
 
-/** Employees and departments — for anyone recording expenses (to pick who) and HR. */
+/** Employees and departments — names for anyone recording expenses (to pick who); balances and contact details for HR/finance only. */
 export async function GET(req: NextRequest) {
   try {
-    await requirePermission(req, "hr.expenses.submit");
-    return NextResponse.json(await listEmployees());
+    const actor = await requireServiceActor(req, "hr.expenses.submit");
+    return NextResponse.json(await listEmployees(actor));
   } catch (err) {
     return handleApiError(err, req);
   }
