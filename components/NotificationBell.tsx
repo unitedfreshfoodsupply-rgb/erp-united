@@ -1,5 +1,6 @@
 "use client";
 
+import { Bell } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -72,17 +73,17 @@ export function NotificationBell() {
         onClick={() => setOpen((x) => !x)}
         aria-label={unread > 0 ? t("ui.notifications.count", { n: unread }) : t("ui.notifications")}
         dir={dir}
-        className="relative w-11 h-11 rounded-lg bg-united-dark/5 hover:bg-united-dark/10 grid place-items-center"
+        className="relative w-10 h-10 rounded-xl text-united-dark hover:bg-united-subtle grid place-items-center"
       >
-        <span aria-hidden className="text-xl leading-none">🔔</span>
+        <Bell size={20} strokeWidth={1.75} aria-hidden />
         {unread > 0 && (
-          <span className="absolute -top-1 -left-1 min-w-[1.25rem] h-5 px-1 rounded-full bg-united-danger text-white text-[11px] font-extrabold grid place-items-center tabular-nums">
+          <span className="absolute -top-0.5 -end-0.5 min-w-[1.25rem] h-5 px-1 rounded-full bg-united-danger text-white text-[11px] font-bold grid place-items-center tabular-nums ring-2 ring-white">
             {unread > 99 ? "99+" : unread}
           </span>
         )}
       </button>
       {open && (
-        <div className={`absolute ${isRTL ? "right-0" : "left-0"} mt-2 w-[min(22rem,calc(100vw-2rem))] card p-2 z-30`}>
+        <div className="absolute end-0 mt-2 w-[min(22rem,calc(100vw-2rem))] card shadow-pop p-2 z-40">
           <div className="flex items-center justify-between px-2 py-1">
             <span className="font-extrabold text-united-dark">{t("ui.notifications")}</span>
             {unread > 0 && (

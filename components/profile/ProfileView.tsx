@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Check, Lock } from "lucide-react";
 import { useLocale } from "@/lib/locale";
 import { PERMISSION_DEFS } from "@/lib/permissions";
 import { ROLE_LABEL, ROLE_DESC, ROLE_LABEL_EN, ROLE_DESC_EN, type Role } from "@/lib/types";
@@ -54,9 +55,9 @@ export function ProfileView({ user }: { user: ProfileUser }) {
           <Link href="/" className="btn-secondary text-sm font-bold">{t("ui.profile.back-home")}</Link>
         </header>
 
-        <section className="card p-4 bg-united-warning/10 border-united-warning/30 flex flex-col gap-2" role="note">
-          <p className="font-extrabold text-united-dark">
-            🔒 {t("ui.profile.readonly-notice-title")}
+        <section className="card flex flex-col gap-2 border-[#F3D9AE] bg-[#FFFBF3] p-4" role="note">
+          <p className="inline-flex items-center gap-1.5 font-semibold text-united-dark">
+            <Lock size={16} aria-hidden /> {t("ui.profile.readonly-notice-title")}
           </p>
           <p className="text-sm font-bold text-united-muted">
             {t("ui.profile.readonly-notice-body")}
@@ -73,7 +74,7 @@ export function ProfileView({ user }: { user: ProfileUser }) {
             <div className="flex flex-col gap-1 sm:col-span-2"><dt className="text-xs text-united-muted">{t("ui.profile.role-desc")}</dt><dd className="text-united-dark">{displayRoleDesc}</dd></div>
           </dl>
           {user.mustChangePassword && (
-            <p className="text-sm font-extrabold text-united-warning bg-united-warning/10 rounded-lg p-2">
+            <p className="rounded-lg border border-[#F3D9AE] bg-[#FFFBF3] p-2 text-sm font-semibold text-united-warn">
               {t("ui.profile.must-change-pw")}
             </p>
           )}
@@ -88,7 +89,7 @@ export function ProfileView({ user }: { user: ProfileUser }) {
               <ul className="flex flex-col gap-1">
                 {(byGroup[group] ?? []).map((p) => (
                   <li key={p.key} className="text-sm font-bold text-united-dark flex items-center gap-2">
-                    <span className="text-united-green">✓</span>
+                    <Check size={15} className="shrink-0 text-united-green" aria-hidden />
                     <span title={p.key}>{p.label}</span>
                     <span className="text-xs font-normal text-united-muted">— {p.description}</span>
                   </li>

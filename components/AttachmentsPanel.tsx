@@ -6,6 +6,7 @@ import { apiFetch, ApiClientError, errorMessage } from "@/lib/api-client";
 import { useToast } from "@/components/ui/Toast";
 import { ATTACHMENT_CATEGORIES, ATTACHMENT_CATEGORY_LABEL, type AttachmentCategory } from "@/lib/core/attachment-entities";
 import { useLocale } from "@/lib/locale/useLocale";
+import { useDialogs } from "@/components/ui/Dialog";
 
 type AttachmentDTO = {
   id: string;
@@ -26,6 +27,7 @@ const size = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)}
  * server; `canManage` only decides whether the buttons are shown.
  */
 export function AttachmentsPanel({ entityType, entityId, canManage }: { entityType: string; entityId: string; canManage: boolean }) {
+  const dialogs = useDialogs();
   const { t } = useLocale();
   const qc = useQueryClient();
   const toast = useToast();
@@ -73,8 +75,8 @@ export function AttachmentsPanel({ entityType, entityId, canManage }: { entityTy
   }
 
   async function remove(a: AttachmentDTO) {
-    const reason = window.prompt(t("ui.attachment-delete-prompt", { name: a.fileName }));
-    if (!reason?.trim()) return;
+    const reason = await dialogs.prompt({ title: t("ui.attachment-delete-prompt", { name: a.fileName }), label: t("ui.reason-label"), required: true, tone: "danger", confirmLabel: t("ui.delete") });
+    if (!reason) return;
     try {
       await apiFetch(`/api/attachments/${a.id}`, { method: "DELETE", body: JSON.stringify({ reason }) });
       await qc.invalidateQueries({ queryKey: key });

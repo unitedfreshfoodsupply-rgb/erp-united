@@ -11,6 +11,9 @@ import { buildTimeline, timeLabel, SOURCE_LABEL, SOURCE_LABEL_EN, type TimelineL
 import { ROLE_LABEL, ROLE_LABEL_EN, isRole } from "@/lib/types";
 import { CardSkeleton } from "@/components/Skeleton";
 import { useLocale } from "@/lib/locale";
+import { DICTIONARY } from "@/lib/locale/dictionary";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { EventIcon } from "@/components/ui/EventIcon";
 
 type DecisionFilter = "all" | "approvals" | "overrides" | "cancel_reopen" | "edits";
 
@@ -22,7 +25,7 @@ const DECISION_FILTER_KEYS: { key: DecisionFilter; dictKey: string; actions?: st
   { key: "edits", dictKey: "audit.filter.edits", actions: ["order_edited", "required_quantity_edited"] },
 ];
 
-const AUDIT_ENTITIES = ["sales_invoice", "credit_note", "supplier_bill", "debit_note", "journal_entry", "customer_receipt", "supplier_payment", "order", "purchase_order", "stock_intake", "inventory_document", "approval_request", "employee", "expense", "user", "settings"];
+const AUDIT_ENTITIES = ["sales_invoice", "credit_note", "supplier_bill", "debit_note", "journal_entry", "customer_receipt", "supplier_payment", "order", "purchase_order", "stock_intake", "inventory_document", "approval_request", "employee", "department", "expense", "user", "settings"];
 
 export function AuditLogView() {
   const { t, locale } = useLocale();
@@ -58,15 +61,13 @@ export function AuditLogView() {
     );
 
   return (
-    <div className="p-4 max-w-2xl mx-auto pb-10">
-      <Link href="/supervisor" className="inline-flex items-center gap-1 text-united-muted font-bold mb-3">
-        <span>→</span>{t("audit.back-supervisor")}
-      </Link>
-      <div className="flex items-center justify-between mb-1">
-        <h1 className="text-2xl font-extrabold text-united-dark">{t("audit.page-title")}</h1>
-        <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
-      </div>
-      <p className="text-united-muted text-sm mb-4">{t("audit.subtitle")}</p>
+    <div className="page-narrow">
+      <PageHeader
+        back={{ href: "/supervisor", label: t("audit.back-supervisor") }}
+        title={t("audit.page-title")}
+        description={t("audit.subtitle")}
+        actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />}
+      />
 
       <input
         value={search}
@@ -79,44 +80,37 @@ export function AuditLogView() {
         {DECISION_FILTER_KEYS.map((f) => (
           <button
             key={f.key}
+            type="button"
+            aria-pressed={decisionFilter === f.key}
             onClick={() => setDecisionFilter(f.key)}
-            className={`px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition ${
-              decisionFilter === f.key
-                ? "bg-united-dark text-white"
-                : "bg-white text-united-dark border border-united-border"
-            }`}
+            className={decisionFilter === f.key ? "filter-pill-active" : "filter-pill-inactive"}
           >
             {t(f.dictKey)}
           </button>
         ))}
       </div>
 
-      <div className="flex gap-2 flex-wrap items-end mb-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex min-w-[12rem] flex-1 flex-col gap-1">
+        <span className="field-label">{t("audit.entity-filter-label")}</span>
         <select
           value={entityFilter}
           onChange={(e) => setEntityFilter(e.target.value)}
-          className="field text-sm"
+          className="field field-sm"
         >
           <option value="all">{t("audit.entity-label")}</option>
           {AUDIT_ENTITIES.map((entity) => <option key={entity} value={entity}>{t(`audit.entity.${entity}`)}</option>)}
         </select>
+        </label>
 
-        <input
-          type="date"
-          value={from}
-          onChange={(e) => setFrom(e.target.value)}
-          placeholder={t("audit.from-date-placeholder")}
-          className="field text-sm"
-          style={{ maxWidth: 140 }}
-        />
-        <input
-          type="date"
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-          placeholder={t("audit.to-date-placeholder")}
-          className="field text-sm"
-          style={{ maxWidth: 140 }}
-        />
+        <label className="flex flex-col gap-1">
+          <span className="field-label">{t("audit.from-date-placeholder")}</span>
+          <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className="field field-sm w-auto" />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="field-label">{t("audit.to-date-placeholder")}</span>
+          <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className="field field-sm w-auto" />
+        </label>
       </div>
 
       {isLoading && (
@@ -142,7 +136,7 @@ export function AuditLogView() {
               {l.order && (
                 <Link
                   href={`/orders/${l.orderId}`}
-                  className="inline-flex items-center gap-1 text-xs font-bold text-united-green bg-united-green/10 px-2 py-1 rounded-full mb-2"
+                  className="mb-2 inline-flex items-center gap-1 rounded-full bg-united-green/10 px-2 py-1 text-xs font-semibold text-united-green"
                 >
                   {l.order.orderNumber} · {l.order.customerName}
                 </Link>
@@ -153,10 +147,10 @@ export function AuditLogView() {
                 </span>
                 <span className="text-united-muted">{timeLabel(l.timestamp, locale)}</span>
               </div>
-              <p className="font-bold text-united-dark flex items-center gap-1.5">
-                <span>{icon}</span> {headline}
+              <p className="flex items-center gap-1.5 font-medium text-united-dark">
+                <EventIcon symbol={icon} className="shrink-0 text-united-muted" /> {headline}
               </p>
-              {detail && <p className="text-sm font-bold text-united-dark/70">{detail}</p>}
+              {detail && <p className="text-sm text-united-dark/80">{detail}</p>}
               {l.reason && <p className="text-sm text-united-muted">{t("audit.reason-prefix")} {l.reason}</p>}
               <div className="flex items-center justify-between mt-2">
                 <span className="text-xs font-bold text-united-muted bg-united-dark/5 px-2 py-0.5 rounded-full">
@@ -176,8 +170,35 @@ export function AuditLogView() {
   );
 }
 
-/** Same operational wording as the order timeline, for one standalone row. */
+/** Same operational wording as the order timeline, for one standalone row. The timeline's
+ * catch-all says "updated the order"; for a row about anything else (an employee, a journal
+ * entry, a bill) say what it is and what happened to it instead. */
 function describeOne(l: AuditLogDTO, locale: TimelineLocale) {
   const [event] = buildTimeline([l], locale);
-  return event ?? { icon: "•", headline: l.action, detail: undefined };
+  const isOrder = !l.entityType || l.entityType === "order" || l.entityType === "order_item";
+  if (event && (isOrder || event.icon !== "•")) return event;
+  const en = locale === "en";
+  const entity = DICTIONARY[`audit.entity.${l.entityType}` as keyof typeof DICTIONARY];
+  const what = entity ? (en ? entity.en : entity.ar) : l.entityType;
+  const verb = Object.entries(VERBS).find(([suffix]) => l.action.endsWith(suffix))?.[1];
+  return {
+    icon: "•",
+    headline: verb ? `${what} — ${en ? verb.en : verb.ar}` : `${what} — ${l.action.replace(/_/g, " ")}`,
+    detail: event?.detail ?? l.newValue ?? undefined,
+  };
 }
+
+const VERBS: Record<string, { ar: string; en: string }> = {
+  _created: { ar: "اتضاف", en: "created" },
+  _updated: { ar: "اتعدّل", en: "updated" },
+  _approved: { ar: "اتعتمد", en: "approved" },
+  _rejected: { ar: "اترفض", en: "rejected" },
+  _posted: { ar: "اترحّل", en: "posted" },
+  _recorded: { ar: "اتسجل", en: "recorded" },
+  _cancelled: { ar: "اتلغى", en: "cancelled" },
+  _reversed: { ar: "اتعكس", en: "reversed" },
+  _deleted: { ar: "اتمسح", en: "deleted" },
+  _advance: { ar: "سلفة", en: "advance paid" },
+  _reimbursement: { ar: "صرف مستحقات", en: "reimbursement paid" },
+  _advance_return: { ar: "رد سلفة", en: "advance returned" },
+};

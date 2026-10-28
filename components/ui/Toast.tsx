@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 import Link from "next/link";
+import { AlertTriangle, CheckCircle2, Info, type LucideIcon } from "lucide-react";
 
 type ToastKind = "success" | "error" | "info";
 type ToastItem = { id: number; kind: ToastKind; text: string; href?: string; time: string };
@@ -14,13 +15,13 @@ const ToastContext = createContext<{ show: (text: string, opts?: ToastKind | Sho
 const KIND_STYLE: Record<ToastKind, string> = {
   success: "bg-united-dark text-white",
   error: "bg-united-danger text-white",
-  info: "bg-white text-united-dark border border-united-dark/10",
+  info: "bg-white text-united-dark border border-united-border",
 };
 
-const KIND_ICON: Record<ToastKind, string> = {
-  success: "✓",
-  error: "⚠️",
-  info: "ℹ️",
+const KIND_ICON: Record<ToastKind, LucideIcon> = {
+  success: CheckCircle2,
+  error: AlertTriangle,
+  info: Info,
 };
 
 function nowLabel() {
@@ -47,16 +48,17 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={{ show }}>
       {children}
-      <div className="fixed bottom-20 sm:bottom-6 inset-x-0 z-50 flex flex-col items-center gap-2 pointer-events-none px-4">
+      <div role="status" aria-live="polite" className="fixed bottom-20 sm:bottom-6 inset-x-0 z-50 flex flex-col items-center gap-2 pointer-events-none px-4">
         {toasts.map((t) => {
+          const Icon = KIND_ICON[t.kind];
           const body = (
             <>
-              <span>{KIND_ICON[t.kind]}</span>
+              <Icon size={18} className="shrink-0" aria-hidden />
               <span className="flex-1">{t.text}</span>
               <span className="text-xs font-normal opacity-60 shrink-0">{t.time}</span>
             </>
           );
-          const cls = `pointer-events-auto flex items-center gap-2 px-4 py-3 rounded-2xl shadow-lg font-bold text-sm max-w-sm animate-[toast-in_0.15s_ease-out] ${KIND_STYLE[t.kind]}`;
+          const cls = `pointer-events-auto flex items-center gap-2 px-4 py-3 rounded-xl shadow-pop font-semibold text-sm max-w-sm animate-[toast-in_0.15s_ease-out] ${KIND_STYLE[t.kind]}`;
           return t.href ? (
             <Link key={t.id} href={t.href} className={`${cls} hover:opacity-90`}>
               {body}

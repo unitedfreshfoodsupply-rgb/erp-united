@@ -7,6 +7,10 @@ import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-clien
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { useLocale } from "@/lib/locale";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { StatusPill, type Tone } from "@/components/ui/StatusPill";
+import { Check, X } from "lucide-react";
+import { Segmented } from "@/components/ui/Segmented";
 
 type Decision = { id: string; level: number; decision: "approve" | "reject"; decider: string; comment: string | null; createdAt: string };
 type ApprovalDTO = {
@@ -30,11 +34,11 @@ type ApprovalDTO = {
   decisions: Decision[];
 };
 
-const STATUS: Record<ApprovalDTO["status"], { label: string; cls: string }> = {
-  pending: { label: "approvals.status.pending", cls: "bg-united-warn/10 text-united-warn" },
-  approved: { label: "approvals.status.approved", cls: "bg-united-green/10 text-united-green" },
-  rejected: { label: "approvals.status.rejected", cls: "bg-united-danger/10 text-united-danger" },
-  cancelled: { label: "approvals.status.cancelled", cls: "bg-united-dark/5 text-united-muted" },
+const STATUS: Record<ApprovalDTO["status"], { label: string; tone: Tone }> = {
+  pending: { label: "approvals.status.pending", tone: "warn" },
+  approved: { label: "approvals.status.approved", tone: "success" },
+  rejected: { label: "approvals.status.rejected", tone: "danger" },
+  cancelled: { label: "approvals.status.cancelled", tone: "neutral" },
 };
 
 const when = (iso: string, locale: string) => new Date(iso).toLocaleString(locale === "en" ? "en-GB" : "ar-EG", { dateStyle: "short", timeStyle: "short" });
@@ -51,20 +55,12 @@ export function ApprovalsInbox() {
   });
 
   return (
-    <div className="p-4 max-w-3xl mx-auto pb-10 flex flex-col gap-4">
-      <h1 className="text-2xl font-extrabold text-united-dark">{tr("approvals.title")}</h1>
-      <div className="flex gap-2">
-        {(["pending", "all"] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={`tap-target flex-1 rounded-xl font-extrabold text-sm ${tab === t ? "bg-united-green text-white" : "bg-united-dark/5 text-united-dark"}`}
-          >
-            {tr(`approvals.tab.${t}`)}
-          </button>
-        ))}
-      </div>
+    <div className="page-narrow">
+      <PageHeader
+        title={tr("approvals.title")}
+        description={tr("approvals.description")}
+        actions={<Segmented label={tr("approvals.title")} value={tab} onChange={setTab} items={[{ key: "pending", label: tr("approvals.tab.pending"), ...(tab === "pending" && q.data ? { count: q.data.approvals.length } : {}) }, { key: "all", label: tr("approvals.tab.all") }]} />}
+      />
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
       {q.data && q.data.approvals.length === 0 && <EmptyState icon="✅" title={tab === "pending" ? tr("approvals.empty.pending") : tr("approvals.empty.all")} />}
@@ -115,33 +111,33 @@ function ApprovalCard({ a }: { a: ApprovalDTO }) {
     <li className="card p-4">
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div className="min-w-0">
-          <div className="text-xs font-bold text-united-muted">
+          <div className="text-xs font-medium text-united-muted">
             {typeLabel(a)} · <bdi dir="ltr">{a.number}</bdi>
           </div>
-          <div className="font-extrabold text-united-dark text-lg">{a.title}</div>
-          {a.summary && <p className="text-sm font-bold text-united-dark/80 mt-0.5">{a.summary}</p>}
-          <p className="text-xs font-bold text-united-muted mt-1">
+          <div className="mt-0.5 text-base font-semibold text-united-dark">{a.title}</div>
+          {a.summary && <p className="mt-0.5 text-sm text-united-dark">{a.summary}</p>}
+          <p className="mt-1 text-xs text-united-muted">
             {t("approvals.requested-by", { name: a.requestedBy })} · <bdi dir="ltr">{when(a.createdAt, locale)}</bdi>
             {a.requiredLevels > 1 && t("approvals.level", { done: a.approvedLevels, required: a.requiredLevels })}
           </p>
-          {a.requestReason && <p className="text-xs font-bold text-united-dark/70">{t("approvals.reason-line", { reason: a.requestReason })}</p>}
-          {a.closedReason && <p className="text-xs font-bold text-united-muted">{a.closedReason}</p>}
+          {a.requestReason && <p className="text-xs text-united-dark/80">{t("approvals.reason-line", { reason: a.requestReason })}</p>}
+          {a.closedReason && <p className="text-xs text-united-muted">{a.closedReason}</p>}
         </div>
-        <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-full ${STATUS[a.status].cls}`}>{t(STATUS[a.status].label)}</span>
+        <StatusPill tone={STATUS[a.status].tone}>{t(STATUS[a.status].label)}</StatusPill>
       </div>
 
       {a.decisions.length > 0 && (
-        <ul className="mt-2 text-xs font-bold text-united-muted">
+        <ul className="mt-2 flex flex-col gap-0.5 text-xs text-united-muted">
           {a.decisions.map((d) => (
-            <li key={d.id}>
-              {d.decision === "approve" ? "✓" : "✗"} {d.decider}
+            <li key={d.id} className="flex items-center gap-1.5">
+              {d.decision === "approve" ? <Check size={14} className="text-united-green" aria-label={t("approvals.status.approved")} /> : <X size={14} className="text-united-danger" aria-label={t("approvals.status.rejected")} />} {d.decider}
               {d.comment && ` — ${d.comment}`} · <bdi dir="ltr">{when(d.createdAt, locale)}</bdi>
             </li>
           ))}
         </ul>
       )}
 
-      <div className="mt-3 flex flex-wrap gap-2 items-end">
+      <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-united-border pt-3">
         {a.link && (
           <Link href={a.link} className="btn-secondary text-sm">
             {t("approvals.open")}
@@ -152,6 +148,7 @@ function ApprovalCard({ a }: { a: ApprovalDTO }) {
             <input
               className="field flex-1 min-w-[12rem]"
               placeholder={t("approvals.comment")}
+              aria-label={t("approvals.comment")}
               value={comment}
               onChange={(e) => setComment(e.target.value)}
             />
@@ -164,7 +161,7 @@ function ApprovalCard({ a }: { a: ApprovalDTO }) {
           </>
         )}
       </div>
-      {error && <p className="mt-2 text-sm font-bold text-united-danger">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-sm font-medium text-united-danger">{error}</p>}
     </li>
   );
 }

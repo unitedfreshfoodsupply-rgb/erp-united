@@ -6,26 +6,38 @@ import { apiFetch, errorMessage } from "@/lib/api-client";
 import { ErrorState, LoadingState } from "@/components/States";
 import { todayLocalISO } from "@/lib/localDate";
 import { fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
+import Link from "next/link";
 import { useLocale } from "@/lib/locale";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { localName } from "@/lib/locale/names";
 
 /** Management reports: finance (sales, margin, balances, stock value, cash, P&L) or operations (fulfilment, prep, loading, delivery, exceptions, stock age). */
 
+/** A figure. Colour is reserved for a figure that is wrong-way (a loss, a negative balance):
+ * a healthy number stays ink, so red is never diluted by decorative green. */
 const Tile = ({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) => (
-  <div className="card p-3">
-    <div className="text-xs font-bold text-united-muted">{label}</div>
-    <div dir="ltr" className={`text-xl font-extrabold ${tone === "good" ? "text-united-green" : tone === "bad" ? "text-united-danger" : ""}`}>{value}</div>
+  <div className="card px-4 py-3">
+    <div className="text-xs font-medium text-united-muted">{label}</div>
+    <div className={`mt-1 text-xl font-bold ${tone === "bad" ? "text-united-danger" : "text-united-dark"}`}><span dir="ltr">{value}</span></div>
   </div>
 );
-const Table = ({ head, rows }: { head: string[]; rows: (string | number | null)[][] }) => (
-  <div className="card p-3 overflow-x-auto">
-    <table className="w-full text-sm font-bold">
-      <thead><tr className="text-xs text-united-muted">{head.map((h, i) => <th key={i} className={`p-1 ${i ? "text-end" : "text-start"}`}>{h}</th>)}</tr></thead>
-      <tbody>{rows.map((r, i) => <tr key={i} className="border-t border-united-dark/5">{r.map((c, j) => <td key={j} className={`p-1 ${j ? "text-end" : ""}`} dir={j ? "ltr" : undefined}>{c ?? "—"}</td>)}</tr>)}</tbody>
-    </table>
-  </div>
-);
-const H = ({ children }: { children: React.ReactNode }) => <h2 className="text-lg font-extrabold mt-2">{children}</h2>;
+/** First column is the label; every other column is a figure (tabular, aligned to the page's end).
+ * `total` styles the last row as the table's total. */
+const Table = ({ head, rows, total }: { head: string[]; rows: (string | number | null)[][]; total?: boolean }) => {
+  const body = total ? rows.slice(0, -1) : rows;
+  const foot = total ? rows[rows.length - 1] : null;
+  const cells = (r: (string | number | null)[]) => r.map((c, j) => (j ? <td key={j} className="num" dir="ltr">{c ?? "—"}</td> : <td key={j} className="font-medium">{c ?? "—"}</td>));
+  return (
+    <div className="card overflow-x-auto">
+      <table className="data-table">
+        <thead><tr>{head.map((h, i) => <th key={i} className={i ? "num" : undefined}>{h}</th>)}</tr></thead>
+        <tbody>{body.map((r, i) => <tr key={i}>{cells(r)}</tr>)}</tbody>
+        {foot && <tfoot><tr>{cells(foot)}</tr></tfoot>}
+      </table>
+    </div>
+  );
+};
+const H = ({ children }: { children: React.ReactNode }) => <h2 className="section-title mt-3">{children}</h2>;
 
 export function ManagementView({ kind }: { kind: "finance" | "operations" | "cash-flow" }) {
   const { t } = useLocale();
@@ -57,13 +69,24 @@ export function ManagementView({ kind }: { kind: "finance" | "operations" | "cas
   const q = useQuery({ queryKey: ["management", kind, from, to], queryFn: () => apiFetch<{ report: any }>(`/api/management/${apiKind}?from=${from}&to=${to}`) });
   return (
     <div className="page-container">
-      <h1 className="page-title">
-        {kind === "finance" ? t("management.title.finance") : kind === "cash-flow" ? t("management.title.cashflow") : t("management.title.operations")}
-      </h1>
-      <div className="flex gap-2"><input type="date" className="field" value={from} onChange={(e) => setFrom(e.target.value)} /><input type="date" className="field" value={to} onChange={(e) => setTo(e.target.value)} /></div>
-      <div className="flex gap-2 mb-2 flex-wrap">
-        <a href="/management/finance" className={`btn-sm ${kind === "finance" ? "btn-primary" : "btn-ghost"}`}>{t("mgmt.finance.tab.finance")}</a>
-        <a href="/management/cash-flow" className={`btn-sm ${kind === "cash-flow" ? "btn-primary" : "btn-ghost"}`}>{t("mgmt.finance.tab.cashflow")}</a>
+      <PageHeader
+        title={kind === "finance" ? t("management.title.finance") : kind === "cash-flow" ? t("management.title.cashflow") : t("management.title.operations")}
+        actions={
+          kind !== "operations" && (
+            <nav aria-label={t("management.title.finance")} className="inline-flex rounded-lg border border-united-border bg-united-subtle p-0.5">
+              {([["finance", "/management", t("mgmt.finance.tab.finance")], ["cash-flow", "/management/cash-flow", t("mgmt.finance.tab.cashflow")]] as const).map(([k, href, label]) => (
+                <Link key={k} href={href} aria-current={kind === k ? "page" : undefined} className={`inline-flex min-h-[36px] items-center rounded-md px-3 text-sm ${kind === k ? "bg-white font-semibold text-united-dark shadow-card" : "font-medium text-united-muted hover:text-united-dark"}`}>
+                  {label}
+                </Link>
+              ))}
+            </nav>
+          )
+        }
+      />
+      {/* The period every figure below covers. */}
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1"><span className="field-label">{t("accounting.date-from")}</span><input type="date" className="field w-auto" value={from} max={to} onChange={(e) => setFrom(e.target.value || from)} /></label>
+        <label className="flex flex-col gap-1"><span className="field-label">{t("accounting.date-to")}</span><input type="date" className="field w-auto" value={to} min={from} onChange={(e) => setTo(e.target.value || to)} /></label>
       </div>
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
@@ -79,11 +102,11 @@ function Finance({ r, t, kinds }: { r: any; t: (k: string) => string; kinds: Rec
     p.productNameEn || p.productNameAr ? localName({ name: p.productNameEn, nameAr: p.productNameAr }, locale) : p.product;
   return (
     <>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Tile label={t("mgmt.finance.tile.net_sales")} value={fmtMoney(r.sales.revenue)} />
         <Tile label={t("mgmt.finance.tile.cost_of_sales")} value={fmtMoney(r.sales.cost)} />
         <Tile label={r.sales.grossMarginPct ? `${t("mgmt.finance.tile.gross_margin")} (${r.sales.grossMarginPct}%)` : t("mgmt.finance.tile.gross_margin")} value={fmtMoney(r.sales.grossMargin)} tone={Number(r.sales.grossMargin) >= 0 ? "good" : "bad"} />
-        <Tile label={t("mgmt.finance.tile.cash_banks")} value={fmtMoney(r.cash.total)} />
+        <Tile label={t("mgmt.finance.tile.cash_banks")} value={fmtMoney(r.cash.total)} tone={Number(r.cash.total) < 0 ? "bad" : undefined} />
         <Tile label={t("mgmt.finance.tile.receivables")} value={fmtMoney(r.receivables.totals.total)} />
         <Tile label={t("mgmt.finance.tile.payables")} value={fmtMoney(r.payables.totals.total)} />
         <Tile label={t("mgmt.finance.tile.inventory_value")} value={fmtMoney(r.inventory.value)} />
@@ -91,13 +114,13 @@ function Finance({ r, t, kinds }: { r: any; t: (k: string) => string; kinds: Rec
       </div>
       <H>{t("mgmt.finance.heading.margin_by_product")}</H>
       <Table head={[t("mgmt.finance.table.product.item"), t("mgmt.finance.table.product.quantity"), t("mgmt.finance.table.product.sales"), t("mgmt.finance.table.product.cost"), t("mgmt.finance.table.product.margin"), t("mgmt.finance.table.product.pct"), t("mgmt.finance.table.product.cost_unknown")]} rows={r.sales.byProduct.map((p: any) => [productLabel(p), fmtQty(p.quantity), p.revenue, p.cost, p.margin, p.marginPct, Number(p.costUnknownQty ?? 0) > 0 ? fmtQty(p.costUnknownQty) : "—"])} />
-      <p className="text-xs font-bold text-united-muted">{t("mgmt.finance.footnote.cost_unknown")}</p>
+      <p className="text-xs text-united-muted">{t("mgmt.finance.footnote.cost_unknown")}</p>
       <H>{t("mgmt.finance.heading.top_customers")}</H>
       <Table head={[t("mgmt.finance.head.customer"), t("mgmt.finance.head.invoices"), t("mgmt.finance.tile.net_sales")]} rows={r.sales.byCustomer.map((c: any) => [localName(c, locale), c.invoices, c.net])} />
       <H>{t("mgmt.finance.heading.debts_aging")}</H>
       <Table head={["", t("mgmt.finance.table.debts.bucket_current"), "1–30", "31–60", "61–90", "+90", t("mgmt.finance.table.debts.total")]} rows={[[t("mgmt.finance.table.debts.labels.customers"), r.receivables.totals.current, r.receivables.totals.d1_30, r.receivables.totals.d31_60, r.receivables.totals.d61_90, r.receivables.totals.d90_plus, r.receivables.totals.total], [t("mgmt.finance.table.debts.labels.suppliers"), r.payables.totals.current, r.payables.totals.d1_30, r.payables.totals.d31_60, r.payables.totals.d61_90, r.payables.totals.d90_plus, r.payables.totals.total]]} />
       <H>{t("mgmt.finance.heading.income_statement")}</H>
-      <Table head={[t("mgmt.is.head.account"), t("mgmt.is.head.amount")]} rows={[...r.profitAndLoss.lines.map((l: any) => [`${l.code} · ${localName(l, locale)}`, l.amount]), [t("mgmt.finance.tile.net_profit"), r.profitAndLoss.net]]} />
+      <Table head={[t("mgmt.is.head.account"), t("mgmt.is.head.amount")]} rows={[...r.profitAndLoss.lines.map((l: any) => [`${l.code} · ${localName(l, locale)}`, l.amount]), [t("mgmt.finance.tile.net_profit"), r.profitAndLoss.net]]} total />
       <H>{t("mgmt.finance.heading.stock_movement")}</H>
       <Table head={[t("mgmt.stock_move.head.type"), t("mgmt.stock_move.head.quantity"), t("mgmt.stock_move.head.value")]} rows={r.stockMovement.map((m: any) => [kinds[m.kind] ?? m.kind, fmtQty(m.quantity), m.value])} />
       <H>{t("mgmt.finance.heading.top_inventory_items")}</H>
@@ -110,7 +133,7 @@ function CashFlow({ r, t }: { r: any; t: (k: string) => string }) {
   const sectionLabels: Record<string, string> = { operating: t("mgmt.cf.section.operating"), investing: t("mgmt.cf.section.investing"), financing: t("mgmt.cf.section.financing") };
   return (
     <>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Tile label={t("mgmt.cf.tile.op_total")} value={fmtMoney(r.sections.operating.total)} tone={Number(r.sections.operating.total) >= 0 ? "good" : "bad"} />
         <Tile label={t("mgmt.cf.tile.inv_total")} value={fmtMoney(r.sections.investing.total)} tone={Number(r.sections.investing.total) >= 0 ? "good" : "bad"} />
         <Tile label={t("mgmt.cf.tile.fin_total")} value={fmtMoney(r.sections.financing.total)} tone={Number(r.sections.financing.total) >= 0 ? "good" : "bad"} />
@@ -121,7 +144,7 @@ function CashFlow({ r, t }: { r: any; t: (k: string) => string }) {
           <Table head={[t("mgmt.cf.table.head.description"), t("mgmt.cf.table.head.amount")]} rows={[
             ...r.sections[key].lines.map((l: any) => [l.label, fmtMoney(l.amount)]),
             [t("mgmt.cf.table.row.total"), fmtMoney(r.sections[key].total)],
-          ]} />
+          ]} total />
         </div>
       ))}
       <H>{t("mgmt.cf.heading.cash_change")}</H>
@@ -142,7 +165,7 @@ function Operations({ r, t, exCodes }: { r: any; t: (k: string) => string; exCod
   const f = r.fulfilment;
   return (
     <>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Tile label={t("mgmt.ops.tile.orders")} value={String(f.orders)} />
         <Tile label={t("mgmt.ops.tile.dispatched")} value={String(f.dispatched)} />
         <Tile label={t("mgmt.ops.tile.prepared_pct")} value={f.preparedPct ? `${f.preparedPct}%` : "—"} />

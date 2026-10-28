@@ -7,7 +7,8 @@ import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-clien
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
-import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
+import { Field, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
+import { Segmented } from "@/components/ui/Segmented";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 
@@ -46,7 +47,7 @@ export function QuotationsView() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2 items-center">
-        <div className="flex-1"><Tabs value={status} onChange={setStatus} items={[{ key: "", label: t("sales.quotation.tab.all") }, { key: "draft", label: t("sales.quotation.tab.drafts") }, { key: "sent", label: t("sales.quotation.tab.sent") }, { key: "accepted", label: t("sales.quotation.tab.accepted") }, { key: "expired", label: t("sales.quotation.tab.expired") }]} /></div>
+        <div className="flex-1"><Segmented value={status} onChange={setStatus} items={[{ key: "", label: t("sales.quotation.tab.all") }, { key: "draft", label: t("sales.quotation.tab.drafts") }, { key: "sent", label: t("sales.quotation.tab.sent") }, { key: "accepted", label: t("sales.quotation.tab.accepted") }, { key: "expired", label: t("sales.quotation.tab.expired") }]} /></div>
         {can("sales.quotations.manage") && <button type="button" className="btn-primary shrink-0" onClick={() => setCreating(true)}>{t("sales.quotation.new-btn")}</button>}
       </div>
       {q.isLoading && <LoadingState />}

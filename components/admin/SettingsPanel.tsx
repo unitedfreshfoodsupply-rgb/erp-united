@@ -126,7 +126,7 @@ function SettingRow({ setting }: { setting: SettingDTO }) {
             {setting.key}
           </code>
         </div>
-        <div className="text-left shrink-0">
+        <div className="text-end shrink-0">
           <div className="text-2xl font-extrabold text-united-dark tabular-nums">
             <bdi>{show(setting.value)}</bdi>{" "}
             <span className="text-sm text-united-muted">{setting.unit}</span>

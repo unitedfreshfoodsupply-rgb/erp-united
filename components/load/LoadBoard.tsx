@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CheckCircle2, Truck } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import type { OrderDTO } from "@/lib/client-types";
@@ -15,10 +16,12 @@ import { applyOrderToCache } from "@/lib/orderCache";
 import { useReadyForLoadingAlert } from "@/lib/liveAlerts";
 import { useOperationalSettings } from "@/lib/use-operational-settings";
 import { useLocale } from "@/lib/locale/useLocale";
+import { useDialogs } from "@/components/ui/Dialog";
 
 const URGENCY_RANK = { late: 0, soon: 1, ok: 2, none: 3 } as const;
 
 export function LoadBoard() {
+  const dialogs = useDialogs();
   const ops = useOperationalSettings();
   const qc = useQueryClient();
   const toast = useToast();
@@ -61,17 +64,14 @@ export function LoadBoard() {
 
   async function dispatchAll() {
     if (busy) return;
-    if (
-      !window.confirm(
-        t("orders.load-board.confirm-text", {
-          vehicle: vehicle.trim(),
-          driver: driverName.trim(),
-          count: String(readyToDispatch.length),
-        })
-      )
-    ) {
-      return;
-    }
+    const ok = await dialogs.confirm({
+      title: t("orders.load-board.confirm-text", {
+        vehicle: vehicle.trim(),
+        driver: driverName.trim(),
+        count: String(readyToDispatch.length),
+      }),
+    });
+    if (!ok) return;
     setError(null);
     setBusy(true);
     try {
@@ -102,7 +102,7 @@ export function LoadBoard() {
   }
 
   return (
-    <div className="p-4 max-w-2xl mx-auto pb-10">
+    <div className="page-floor">
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-2xl font-extrabold text-united-dark">{t("orders.load-board-title")}</h1>
         <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
@@ -118,7 +118,7 @@ export function LoadBoard() {
 
       {active.length > 0 && (
         <div className="mt-3">
-          <h2 className="text-sm font-extrabold text-united-muted mb-2">{t("orders.load-board.active-header")}</h2>
+          <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-united-muted"><span aria-hidden className="h-2 w-2 rounded-full bg-united-green" />{t("orders.load-board.active-header")} <span className="font-normal">({active.length})</span></h2>
           <div className="flex flex-col gap-3">
             {active.map((o) => (
               <OrderCard key={o.id} order={o} />
@@ -140,11 +140,11 @@ export function LoadBoard() {
 
       {readyToDispatch.length > 0 && (
         <div className="mt-8 card p-5">
-          <h2 className="text-xl font-extrabold mb-3 text-united-dark">{t("orders.load-board.vehicle-section")}</h2>
+          <h2 className="section-title mb-3 flex items-center gap-2"><Truck size={20} className="text-united-green" aria-hidden />{t("orders.load-board.vehicle-section")}</h2>
           <ul className="flex flex-col gap-2 mb-4">
             {readyToDispatch.map((o) => (
               <li key={o.id} className="flex items-center gap-2">
-                <span className="text-united-green text-xl shrink-0">✓</span>
+                <CheckCircle2 size={20} className="shrink-0 text-united-green" aria-hidden />
                 <span className="font-bold flex-1 min-w-0 truncate">{o.customerName}</span>
                 <input
                   type="number"

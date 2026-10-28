@@ -9,7 +9,8 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
-import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
+import { Field, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
+import { Segmented } from "@/components/ui/Segmented";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { isServiceBillAccount } from "@/lib/purchasing/service-accounts";
@@ -52,7 +53,7 @@ export function BillsView({ initialBillId }: { initialBillId?: string | null }) 
   if (billId) return <BillDetail id={billId} onClose={() => setBillId(null)} />;
   return (
     <div className="flex flex-col gap-3">
-      <Tabs value={view} onChange={setView} items={[{ key: "bills", label: t("purchasing.bill.tabs.bills") }, { key: "payables", label: t("purchasing.bill.tabs.payables") }]} />
+      <Segmented value={view} onChange={setView} items={[{ key: "bills", label: t("purchasing.bill.tabs.bills") }, { key: "payables", label: t("purchasing.bill.tabs.payables") }]} />
       {view === "bills" ? <Bills onOpen={setBillId} /> : <Payables />}
     </div>
   );
@@ -70,7 +71,7 @@ function Bills({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2 items-center">
-        <div className="flex-1"><Tabs value={status} onChange={setStatus} items={[{ key: "", label: t("purchasing.bill.filter.all") }, { key: "draft", label: t("purchasing.bill.filter.drafts") }, { key: "pending_approval", label: t("purchasing.bill.filter.pending_approval") }, { key: "posted", label: t("purchasing.bill.filter.posted") }]} /></div>
+        <div className="flex-1"><Segmented value={status} onChange={setStatus} items={[{ key: "", label: t("purchasing.bill.filter.all") }, { key: "draft", label: t("purchasing.bill.filter.drafts") }, { key: "pending_approval", label: t("purchasing.bill.filter.pending_approval") }, { key: "posted", label: t("purchasing.bill.filter.posted") }]} /></div>
         {can("purchasing.bills.manage") && <button type="button" className="btn-primary shrink-0" onClick={() => setCreating("goods")}>{t("purchasing.bill.new_supplier")}</button>}
         {can("purchasing.bills.manage") && <button type="button" className="btn-secondary shrink-0" onClick={() => setCreating("service")}>{t("purchasing.bill.new_service")}</button>}
       </div>
@@ -427,10 +428,10 @@ function Payables() {
           {a.rows.map((r) => (
             <tr key={r.supplier.id} className="border-t border-united-dark/5">
               <td className="p-1"><button type="button" className="font-extrabold text-united-green underline text-start" onClick={() => setSupplier(r.supplier)}>{localName(r.supplier, locale)}</button></td>
-              {buckets.map(([k]) => <td key={k} dir="ltr" className={`p-1 text-end font-bold ${k === "total" ? "font-extrabold" : ""} ${k.startsWith("d") && Number(r[k]) > 0 ? "text-united-danger" : ""}`}>{Number(r[k]) ? Number(r[k]).toLocaleString("en-US", { minimumFractionDigits: 2 }) : "—"}</td>)}
+              {buckets.map(([k]) => <td key={k} dir="ltr" className={`p-1 num font-bold ${k === "total" ? "font-extrabold" : ""} ${k.startsWith("d") && Number(r[k]) > 0 ? "text-united-danger" : ""}`}>{Number(r[k]) ? Number(r[k]).toLocaleString("en-US", { minimumFractionDigits: 2 }) : "—"}</td>)}
             </tr>
           ))}
-          <tr className="border-t-2 border-united-dark/20 font-extrabold"><td className="p-1">{t("purchasing.bill.total_bucket")}</td>{buckets.map(([k]) => <td key={k} dir="ltr" className="p-1 text-end">{Number(a.totals[k]).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>)}</tr>
+          <tr className="border-t-2 border-united-dark/20 font-extrabold"><td className="p-1">{t("purchasing.bill.total_bucket")}</td>{buckets.map(([k]) => <td key={k} dir="ltr" className="p-1 num">{Number(a.totals[k]).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>)}</tr>
         </tbody>
       </table>
     </section>
@@ -456,17 +457,17 @@ function Statement({ supplier, onClose }: { supplier: { id: string; name: string
           <table className="w-full text-sm">
             <thead><tr className="text-xs text-united-muted"><th className="p-1 text-start">{t("purchasing.bill.col.date")}</th><th className="p-1 text-start">{t("purchasing.bill.col.document")}</th><th className="p-1 text-end">{t("purchasing.bill.col.credit")}</th><th className="p-1 text-end">{t("purchasing.bill.col.debit")}</th><th className="p-1 text-end">{t("purchasing.bill.col.balance")}</th></tr></thead>
             <tbody>
-              <tr className="font-bold text-united-muted"><td className="p-1" colSpan={4}>{t("purchasing.bill.opening_balance")}</td><td className="p-1 text-end" dir="ltr">{q.data.statement.opening}</td></tr>
+              <tr className="font-bold text-united-muted"><td className="p-1" colSpan={4}>{t("purchasing.bill.opening_balance")}</td><td className="p-1 num" dir="ltr">{q.data.statement.opening}</td></tr>
               {q.data.statement.rows.map((r) => (
                 <tr key={r.id} className="border-t border-united-dark/5 font-bold">
                   <td className="p-1">{r.date}</td>
                   <td className="p-1"><span dir="ltr">{r.number}</span><div className="text-xs text-united-muted">{r.ref}</div></td>
-                  <td className="p-1 text-end" dir="ltr">{Number(r.credit) ? r.credit : ""}</td>
-                  <td className="p-1 text-end" dir="ltr">{Number(r.debit) ? r.debit : ""}</td>
-                  <td className="p-1 text-end font-extrabold" dir="ltr">{r.balance}</td>
+                  <td className="p-1 num" dir="ltr">{Number(r.credit) ? r.credit : ""}</td>
+                  <td className="p-1 num" dir="ltr">{Number(r.debit) ? r.debit : ""}</td>
+                  <td className="p-1 num font-bold" dir="ltr">{r.balance}</td>
                 </tr>
               ))}
-              <tr className="border-t-2 border-united-dark/20 font-extrabold"><td className="p-1" colSpan={4}>{t("purchasing.bill.amount_due_to_supplier")}</td><td className="p-1 text-end" dir="ltr">{q.data.statement.closing}</td></tr>
+              <tr className="border-t-2 border-united-dark/20 font-extrabold"><td className="p-1" colSpan={4}>{t("purchasing.bill.amount_due_to_supplier")}</td><td className="p-1 num" dir="ltr">{q.data.statement.closing}</td></tr>
             </tbody>
           </table>
         </section>

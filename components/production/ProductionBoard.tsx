@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CheckCircle2, CircleDashed } from "lucide-react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
@@ -65,7 +66,7 @@ export function ProductionBoard() {
   for (const p of products) totalsByUnit.set(p.unit, (totalsByUnit.get(p.unit) ?? 0) + p.required);
 
   return (
-    <div className="p-4 max-w-2xl mx-auto">
+    <div className="page-floor">
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-2xl font-extrabold text-united-dark">{t("production.title")}</h1>
         <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
@@ -113,7 +114,7 @@ export function ProductionBoard() {
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xl font-extrabold text-united-dark flex items-center gap-2">
                     {p.productName}
-                    <span>{complete ? "✓" : "🟡"}</span>
+                    {complete ? <CheckCircle2 size={20} className="text-united-green" aria-label={t("ui.done")} /> : <CircleDashed size={20} className="text-united-warn" aria-hidden />}
                   </span>
                   <span className="text-lg font-extrabold text-united-dark">
                     <span dir="ltr">

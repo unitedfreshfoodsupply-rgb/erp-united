@@ -20,16 +20,17 @@ import {
 import type { OrderStatus } from "@/lib/types";
 import { useNewOrderAlert, useAttentionAlert, useStalledAlert } from "@/lib/liveAlerts";
 import { useOperationalSettings } from "@/lib/use-operational-settings";
+import { Search } from "lucide-react";
 import { useLocale } from "@/lib/locale";
 
 type QuickFilter = "all" | "attention" | "waiting" | "stalled" | "cancelled";
 
-const QUICK_FILTER_KEYS: { key: QuickFilter; dictKey: string; emoji: string }[] = [
-  { key: "all", dictKey: "supervisor.quick.all", emoji: "" },
-  { key: "attention", dictKey: "supervisor.quick.attention", emoji: "🔴" },
-  { key: "waiting", dictKey: "supervisor.quick.waiting", emoji: "⏳" },
-  { key: "stalled", dictKey: "supervisor.quick.stalled", emoji: "⏸️" },
-  { key: "cancelled", dictKey: "supervisor.quick.cancelled", emoji: "" },
+const QUICK_FILTER_KEYS: { key: QuickFilter; dictKey: string }[] = [
+  { key: "all", dictKey: "supervisor.quick.all" },
+  { key: "attention", dictKey: "supervisor.quick.attention" },
+  { key: "waiting", dictKey: "supervisor.quick.waiting" },
+  { key: "stalled", dictKey: "supervisor.quick.stalled" },
+  { key: "cancelled", dictKey: "supervisor.quick.cancelled" },
 ];
 
 const SORT_KEYS = [
@@ -162,9 +163,11 @@ export function SupervisorBoard() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("supervisor.search-placeholder")}
-            className="field field-sm pl-9"
+            aria-label={t("supervisor.search-placeholder")}
+            type="search"
+            className="field field-sm ps-9"
           />
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-united-muted text-sm">🔍</span>
+          <Search size={16} aria-hidden className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-united-muted" />
         </div>
         <select
           value={sort}
@@ -187,17 +190,22 @@ export function SupervisorBoard() {
           return (
           <button
             key={fk.key}
+            type="button"
+            aria-pressed={isActive}
             onClick={() => {
               setQuickFilter(fk.key);
               setStatusFilter(null);
             }}
             className={isActive ? "filter-pill-active" : "filter-pill-inactive"}
           >
-            {count > 0 ? `${fk.emoji} ${t(fk.dictKey)} (${count})` : t(fk.dictKey)}
+            {t(fk.dictKey)}
+            {count > 0 && (
+              <span className={`ms-1.5 rounded-full px-1.5 text-xs font-semibold ${fk.key === "attention" ? "bg-united-danger text-white" : isActive ? "bg-white text-united-dark" : "bg-[#FDF3E3] text-united-warn"}`}>{count}</span>
+            )}
           </button>
         );
         })}
-        <span className="px-3 py-2 text-sm font-bold text-united-muted whitespace-nowrap border-r border-united-border">
+        <span className="ms-auto whitespace-nowrap px-3 py-2 text-sm text-united-muted">
           {activeCount} {t("supervisor.active-orders")}
         </span>
       </div>

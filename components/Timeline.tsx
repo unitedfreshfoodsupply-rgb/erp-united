@@ -7,6 +7,7 @@ import { buildTimeline, SOURCE_LABEL, SOURCE_LABEL_EN } from "@/lib/auditLabels"
 import { agoLabel, clockLabel } from "@/lib/format";
 import { TimelineSkeleton } from "@/components/Skeleton";
 import { useLocale } from "@/lib/locale";
+import { EventIcon } from "@/components/ui/EventIcon";
 
 /**
  * The order's story, oldest first: WHO did WHAT, to WHICH item, with WHAT result, WHEN.
@@ -50,24 +51,24 @@ export function Timeline({ orderId }: { orderId: string }) {
             <span className="absolute top-7 start-[13px] bottom-0 w-px bg-united-border" aria-hidden />
           )}
           <span
-            className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm z-10 ${
-              e.milestone ? "bg-united-green/15" : "bg-united-dark/5"
+            className={`z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+              e.milestone ? "bg-united-green/15 text-united-green" : "bg-united-subtle text-united-muted"
             }`}
           >
-            {e.icon}
+            <EventIcon symbol={e.icon} size={14} />
           </span>
           <div className="min-w-0 flex-1">
-            <div className={`${e.milestone ? "font-extrabold" : "font-bold"} text-united-dark`}>
+            <div className={`${e.milestone ? "font-semibold" : "font-medium"} text-united-dark`}>
               <span className="text-united-green">{e.actor}</span> {e.headline}
             </div>
-            {e.detail && <div className="text-sm font-bold text-united-dark/70">{e.detail}</div>}
+            {e.detail && <div className="text-sm text-united-dark/80">{e.detail}</div>}
             {e.reason && <div className="text-sm text-united-muted">{t("audit.reason-prefix")} {e.reason}</div>}
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-united-muted mt-0.5">
               <span dir="ltr">{clockLabel(e.at, locale)}</span>
               <span>·</span>
               <span>{agoLabel(e.at, undefined, locale)}</span>
               {e.source !== "user" && (
-                <span className="bg-united-dark/5 px-1.5 py-0.5 rounded-full">
+                <span className="rounded-full bg-united-subtle px-1.5 py-0.5">
                   {(locale === "en" ? SOURCE_LABEL_EN : SOURCE_LABEL)[e.source] ?? e.source}
                 </span>
               )}

@@ -12,9 +12,11 @@ import { CreateOrderForm } from "@/components/supervisor/CreateOrderForm";
 import { PriceListsView } from "@/components/sales/PriceListsView";
 import { QuotationsView } from "@/components/sales/QuotationsView";
 import { CustomerStatement, InvoicesView } from "@/components/sales/InvoicesView";
+import { Landmark, Star } from "lucide-react";
 import { useLocale } from "@/lib/locale";
 import { intlLocale } from "@/lib/format";
 import { codedLocalName, localName, otherLocalName } from "@/lib/locale/names";
+import { useDialogs } from "@/components/ui/Dialog";
 
 /**
  * Customer accounts for sales and finance: find a customer, see and edit who they
@@ -103,7 +105,7 @@ function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
     <div className="flex flex-col gap-3">
       <div className="flex gap-2">
         <input className="field" placeholder={t("sales.placeholder.customer-search")} value={q} onChange={(e) => setQ(e.target.value)} />
-        <button type="button" onClick={() => setInactive(!inactive)} className={`tap-target shrink-0 rounded-xl px-4 font-extrabold text-sm ${inactive ? "bg-united-dark text-white" : "bg-united-dark/5"}`}>{t("ui.inactive")}</button>
+        <button type="button" onClick={() => setInactive(!inactive)} aria-pressed={inactive} className="chip">{t("ui.inactive")}</button>
       </div>
       {query.isLoading && <LoadingState />}
       {query.isError && <ErrorState message={errorMessage(query.error)} onRetry={() => query.refetch()} />}
@@ -127,7 +129,7 @@ function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
               {(c.groups.length > 0 || c.legalEntity) && (
                 <div className="flex flex-wrap gap-1.5">
                   {c.groups.map((g) => <span key={g.id} className="rounded-lg bg-united-dark/5 px-2 py-0.5 text-[11px] font-extrabold text-united-dark" dir="ltr">{g.code}</span>)}
-                  {c.legalEntity && <span className="rounded-lg bg-united-green/10 px-2 py-0.5 text-[11px] font-extrabold text-united-green" title={t("sales.customer.legal-entity")} >🏛 {localName(c.legalEntity, locale)}</span>}
+                  {c.legalEntity && <span className="rounded-lg bg-united-green/10 px-2 py-0.5 text-[11px] font-extrabold text-united-green" title={t("sales.customer.legal-entity")}><Landmark size={12} className="me-1 inline" aria-hidden />{localName(c.legalEntity, locale)}</span>}
                 </div>
               )}
             </button>
@@ -367,7 +369,7 @@ function GroupLegalSection({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit
         </div>
         {c.legalEntity ? (
           <div className="text-sm font-bold flex flex-col gap-0.5">
-            <span className="text-united-green">🏛 {localName(c.legalEntity, locale)}{otherLocalName(c.legalEntity, locale) ? ` · ${otherLocalName(c.legalEntity, locale)}` : ""}</span>
+            <span className="text-united-green"><Landmark size={14} className="me-1 inline" aria-label={t("sales.customer.legal-entity")} />{localName(c.legalEntity, locale)}{otherLocalName(c.legalEntity, locale) ? ` · ${otherLocalName(c.legalEntity, locale)}` : ""}</span>
             <span className="text-united-muted text-xs" dir="ltr">{c.legalEntity.code}{c.legalEntity.taxRegistrationNo ? ` · TAX ${c.legalEntity.taxRegistrationNo}` : ` · ${t("sales.legal-no-tax")}`}</span>
           </div>
         ) : (
@@ -463,6 +465,7 @@ function CreditSection({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit: bo
 }
 
 function CustomerPriceList({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit: boolean; onSaved: () => void }) {
+  const dialogs = useDialogs();
   const { t } = useLocale();
   const toast = useToast();
   const lists = useQuery({ queryKey: ["sales", "price-lists"], queryFn: () => apiFetch<{ priceLists: { id: string; name: string; isDefault: boolean; active: boolean }[] }>("/api/sales/price-lists") });
@@ -475,10 +478,11 @@ function CustomerPriceList({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit
           className="field font-bold"
           value={c.priceListId ?? ""}
           onChange={async (e) => {
-            const reason = window.prompt(t("sales.placeholder.price-list-reason"));
+            const value = e.target.value;
+            const reason = await dialogs.prompt({ title: t("sales.placeholder.price-list-reason"), label: t("ui.reason-label"), required: true, multiline: true });
             if (!reason) return;
             try {
-              await apiPatch(`/api/sales/customers/${c.id}/price-list`, { price_list_id: e.target.value || null, reason });
+              await apiPatch(`/api/sales/customers/${c.id}/price-list`, { price_list_id: value || null, reason });
               onSaved();
             } catch (err) { fail(toast, err); }
           }}
@@ -533,7 +537,7 @@ function Contacts({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit: boolean
       <h3 className="font-extrabold">{t("contacts-heading")}</h3>
       {c.contacts.filter((x) => x.active).map((x) => (
         <div key={x.id} className="flex justify-between text-sm font-bold border-b border-united-dark/5 py-1">
-          <span>{x.name}{x.role ? ` · ${x.role}` : ""}{x.isPrimary ? " ⭐" : ""}</span>
+          <span>{x.name}{x.role ? ` · ${x.role}` : ""}{x.isPrimary && <Star size={14} className="ms-1 inline fill-current text-[#E2A33B]" aria-hidden />}</span>
           <a dir="ltr" href={x.phone ? `tel:${x.phone}` : undefined} className="text-united-green">{x.phone ?? ""}</a>
         </div>
       ))}

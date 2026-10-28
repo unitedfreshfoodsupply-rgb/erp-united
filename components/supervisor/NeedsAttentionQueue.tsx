@@ -3,27 +3,21 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { ClassifiedOrderDTO, PriorityReason } from "@/lib/client-types";
+import { ArrowRight, CheckCircle2, Clock, Hourglass, OctagonAlert, PauseCircle, Truck, type LucideIcon } from "lucide-react";
 import { useLocale } from "@/lib/locale";
 
-const REASON_ICON: Record<PriorityReason, string> = {
-  blocked_approval: "🔴",
-  stalled: "⏸️",
-  delivery_risk: "⏰",
-  waiting_to_start: "⏳",
-  ready_for_loading: "🟢",
-  loading: "🟠",
-  on_track: "✓",
+/** Each reason: an icon and a severity colour (bar + icon), never colour alone. */
+const REASON: Record<PriorityReason, { icon: LucideIcon; tone: "danger" | "warn" | "neutral" }> = {
+  blocked_approval: { icon: OctagonAlert, tone: "danger" },
+  stalled: { icon: PauseCircle, tone: "warn" },
+  delivery_risk: { icon: Clock, tone: "warn" },
+  waiting_to_start: { icon: Hourglass, tone: "warn" },
+  ready_for_loading: { icon: Truck, tone: "neutral" },
+  loading: { icon: Truck, tone: "neutral" },
+  on_track: { icon: CheckCircle2, tone: "neutral" },
 };
-
-const REASON_TONE: Record<PriorityReason, string> = {
-  blocked_approval: "border-united-danger/30 bg-red-50/50",
-  stalled: "border-united-warn/30 bg-amber-50/50",
-  delivery_risk: "border-united-warn/30 bg-amber-50/50",
-  waiting_to_start: "border-united-warn/20 bg-amber-50/30",
-  ready_for_loading: "border-united-border",
-  loading: "border-united-border",
-  on_track: "border-united-border",
-};
+const BAR = { danger: "bg-united-danger", warn: "bg-[#E2A33B]", neutral: "bg-united-border-strong" };
+const ICON = { danger: "text-united-danger", warn: "text-united-warn", neutral: "text-united-muted" };
 
 function minutesLabel(min: number, t: (key: string, params?: Record<string, string | number>) => string) {
   if (min < 60) return t("attention.minutes", { m: min });
@@ -47,8 +41,9 @@ export function NeedsAttentionQueue({ items }: { items: ClassifiedOrderDTO[] }) 
   const [expanded, setExpanded] = useState(false);
   if (items.length === 0) {
     return (
-      <div className="card p-4 border-united-green/30 bg-united-green/5 text-center">
-        <span className="font-extrabold text-united-dark">{t("attention.none")}</span>
+      <div className="card flex items-center justify-center gap-2 p-4 text-united-green">
+        <CheckCircle2 size={18} aria-hidden />
+        <span className="font-semibold">{t("attention.none")}</span>
       </div>
     );
   }
@@ -56,40 +51,45 @@ export function NeedsAttentionQueue({ items }: { items: ClassifiedOrderDTO[] }) 
   const shown = expanded ? items : items.slice(0, 4);
 
   return (
-    <div className="card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="font-extrabold text-united-dark">{t("attention.heading", { count: items.length })}</h2>
+    <section className="card overflow-hidden" aria-labelledby="attention-heading">
+      <div className="card-header">
+        <h2 id="attention-heading" className="section-title">{t("attention.heading", { count: items.length })}</h2>
       </div>
-      <div className="flex flex-col gap-2">
-        {shown.map((o) => (
-          <Link
-            key={o.id}
-            href={`/orders/${o.id}`}
-            className={`block rounded-xl border-2 p-3 transition hover:border-united-green/50 ${REASON_TONE[o.reason]}`}
-          >
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <span className="font-extrabold text-united-dark">
-                {REASON_ICON[o.reason]} {o.customerName}{" "}
-                <span className="text-united-muted font-bold text-sm">· {o.orderNumber}</span>
-              </span>
-              <span className="text-xs font-bold text-united-dark/60 whitespace-nowrap">
-                {t("attention.since", { duration: minutesLabel(o.minutesInStage, t) })}
-              </span>
-            </div>
-            <p className="text-sm font-bold text-united-dark mt-1">{byCode("reason", o.reason, o.reasonLabel)}</p>
-            <p className="text-xs text-united-dark/60 mt-0.5">{byCode("why", o.reason, o.whyItMatters)}</p>
-            <p className="text-sm font-bold text-united-green mt-1">← {byCode("action", o.reason, o.recommendedAction)}</p>
-          </Link>
-        ))}
-      </div>
+      <ul className="divide-y divide-united-border">
+        {shown.map((o) => {
+          const r = REASON[o.reason];
+          const Icon = r.icon;
+          return (
+            <li key={o.id}>
+              <Link href={`/orders/${o.id}`} className="relative flex gap-3 px-5 py-3.5 transition-colors hover:bg-united-bg">
+                <span aria-hidden className={`absolute inset-y-2 start-0 w-1 rounded-e ${BAR[r.tone]}`} />
+                <Icon size={20} className={`mt-0.5 shrink-0 ${ICON[r.tone]}`} aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                    <span className="font-semibold text-united-dark">
+                      {o.customerName} <span className="text-sm font-normal text-united-muted">· <span dir="ltr">{o.orderNumber}</span></span>
+                    </span>
+                    <span className="whitespace-nowrap text-xs text-united-muted">{t("attention.since", { duration: minutesLabel(o.minutesInStage, t) })}</span>
+                  </div>
+                  <p className="mt-0.5 text-sm font-medium text-united-dark">{byCode("reason", o.reason, o.reasonLabel)}</p>
+                  <p className="mt-0.5 text-xs text-united-muted">{byCode("why", o.reason, o.whyItMatters)}</p>
+                  <p className="mt-1.5 inline-flex items-center gap-1.5 text-sm font-semibold text-united-green">
+                    <ArrowRight size={15} className="rtl:rotate-180" aria-hidden />
+                    {byCode("action", o.reason, o.recommendedAction)}
+                  </p>
+                </div>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
       {items.length > 4 && (
-        <button
-          onClick={() => setExpanded((e) => !e)}
-          className="text-sm font-bold text-united-muted underline mt-3"
-        >
-          {expanded ? t("attention.show-less") : t("attention.show-all", { count: items.length })}
-        </button>
+        <div className="border-t border-united-border px-5 py-2.5">
+          <button type="button" onClick={() => setExpanded((e) => !e)} aria-expanded={expanded} className="text-sm font-semibold text-united-green hover:underline">
+            {expanded ? t("attention.show-less") : t("attention.show-all", { count: items.length })}
+          </button>
+        </div>
       )}
-    </div>
+    </section>
   );
 }

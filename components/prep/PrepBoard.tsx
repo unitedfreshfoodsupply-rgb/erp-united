@@ -40,7 +40,7 @@ export function PrepBoard() {
   const late = orders.filter((o) => orderUrgency(o.status, o.deliveryDate, o.deliveryTime, ops.deliverySoonMinutes) === "late").length;
 
   return (
-    <div className="p-4 max-w-2xl mx-auto pb-10">
+    <div className="page-floor">
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-2xl font-extrabold text-united-dark">{t("orders.board-title")}</h1>
         <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
@@ -61,7 +61,7 @@ export function PrepBoard() {
 
       {inProgress.length > 0 && (
         <div className="mb-5">
-          <h2 className="text-sm font-extrabold text-united-muted mb-2">{t("orders.section.preparing-header")}</h2>
+          <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-united-muted"><span aria-hidden className="h-2 w-2 rounded-full bg-[#E2A33B]" />{t("orders.section.preparing-header")} <span className="font-normal">({inProgress.length})</span></h2>
           <div className="flex flex-col gap-3">
             {inProgress.map((o) => (
               <OrderCard key={o.id} order={o} />
@@ -72,7 +72,7 @@ export function PrepBoard() {
 
       {notStarted.length > 0 && (
         <div>
-          <h2 className="text-sm font-extrabold text-united-muted mb-2">{t("orders.section.not-started-header")}</h2>
+          <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-united-muted"><span aria-hidden className="h-2 w-2 rounded-full bg-united-info" />{t("orders.section.not-started-header")} <span className="font-normal">({notStarted.length})</span></h2>
           <div className="flex flex-col gap-3">
             {notStarted.map((o) => (
               <OrderCard key={o.id} order={o} />

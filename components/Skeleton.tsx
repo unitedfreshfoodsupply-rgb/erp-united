@@ -11,12 +11,12 @@ import { useLocale } from "@/lib/locale";
  * where it was and the wait reads as "loading this row" rather than "the app reset".
  */
 export function SkeletonLine({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse rounded bg-united-dark/10 ${className}`} />;
+  return <div className={`animate-pulse rounded bg-united-subtle motion-reduce:animate-none ${className}`} />;
 }
 
 export function OrderCardSkeleton() {
   return (
-    <div className="card p-4 sm:p-5 border-2 !border-united-border">
+    <div className="card p-4 sm:p-5">
       <div className="flex items-start justify-between gap-2 mb-3">
         <div className="flex-1">
           <SkeletonLine className="h-6 w-2/3 mb-2" />

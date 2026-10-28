@@ -9,7 +9,8 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
-import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
+import { Field, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
+import { Segmented } from "@/components/ui/Segmented";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 
@@ -33,7 +34,7 @@ export function InvoicesView() {
   if (open) return <InvoiceDetail id={open} onClose={() => setOpen(null)} />;
   return (
     <div className="flex flex-col gap-3">
-      <Tabs value={tab} onChange={setTab} items={[{ key: "todo", label: t("sales.invoice.tab.todo") }, { key: "draft", label: t("sales.invoice.tab.drafts") }, { key: "issued", label: t("sales.invoice.tab.issued") }, { key: "aging", label: t("sales.invoice.tab.aging") }]} />
+      <Segmented value={tab} onChange={setTab} items={[{ key: "todo", label: t("sales.invoice.tab.todo") }, { key: "draft", label: t("sales.invoice.tab.drafts") }, { key: "issued", label: t("sales.invoice.tab.issued") }, { key: "aging", label: t("sales.invoice.tab.aging") }]} />
       {tab === "todo" && <ToInvoice onOpen={setOpen} />}
       {(tab === "draft" || tab === "issued") && <InvoiceList status={tab} onOpen={setOpen} />}
       {tab === "aging" && <Aging />}
@@ -156,10 +157,10 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
           </div>
         ))}
         <div className="pt-2 grid grid-cols-2 gap-1 text-sm font-bold">
-          <span>{t("sales.invoice.net")}</span><span dir="ltr" className="text-end">{fmtMoney(inv.net)}</span>
-          <span>{t("sales.invoice.tax")}</span><span dir="ltr" className="text-end">{fmtMoney(inv.taxTotal)}</span>
-          <span className="font-extrabold">{t("sales.invoice.gross")}</span><span dir="ltr" className="text-end font-extrabold">{fmtMoney(inv.total)}</span>
-          {inv.status === "issued" && <><span>{t("sales.invoice.credited_notifications")}</span><span dir="ltr" className="text-end">−{fmtMoney(inv.credited)}</span><span className="font-extrabold">{t("sales.invoice.open_amount_label")}</span><span dir="ltr" className="text-end font-extrabold">{fmtMoney(inv.open)}</span></>}
+          <span>{t("sales.invoice.net")}</span><span dir="ltr" className="num">{fmtMoney(inv.net)}</span>
+          <span>{t("sales.invoice.tax")}</span><span dir="ltr" className="num">{fmtMoney(inv.taxTotal)}</span>
+          <span className="font-extrabold">{t("sales.invoice.gross")}</span><span dir="ltr" className="num font-bold">{fmtMoney(inv.total)}</span>
+          {inv.status === "issued" && <><span>{t("sales.invoice.credited_notifications")}</span><span dir="ltr" className="num">−{fmtMoney(inv.credited)}</span><span className="font-extrabold">{t("sales.invoice.open_amount_label")}</span><span dir="ltr" className="num font-bold">{fmtMoney(inv.open)}</span></>}
         </div>
       </section>
       {inv.creditNotes.length > 0 && (

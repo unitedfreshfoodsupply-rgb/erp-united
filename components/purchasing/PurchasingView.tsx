@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
+import { Segmented } from "@/components/ui/Segmented";
 import { BillsView } from "@/components/purchasing/BillsView";
 import { useLocale, type Locale } from "@/lib/locale/useLocale";
 import { localName, otherLocalName } from "@/lib/locale/names";
@@ -111,7 +112,7 @@ function Orders({ onOpen, locale, t, poStatus }: { onOpen: (id: string) => void;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2 items-center">
-        <div className="flex-1"><Tabs value={status} onChange={setStatus} items={[
+        <div className="flex-1"><Segmented value={status} onChange={setStatus} items={[
           { key: "open", label: t("purchasing.orders.filter.open") },
           { key: "draft", label: t("purchasing.orders.filter.drafts") },
           { key: "pending_approval", label: t("purchasing.orders.filter.pending_approval") },
@@ -390,8 +391,8 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
                 <span className="flex items-center gap-2">
                   {r.status === "sent" && <input type="radio" name={c.line.id} checked={award[c.line.id] === x.supplier.id} onChange={() => setAward({ ...award, [c.line.id]: x.supplier.id })} />}
                   {localName(x.supplier, locale)}
-                  {x.supplier.id === c.cheapestSupplierId ? ` ⭐ ${t("purchasing.rfq.cheapest")}` : ""}
-                  {x.awarded ? ` ✓ ${t("purchasing.rfq.awarded_text")}` : ""}
+                  {x.supplier.id === c.cheapestSupplierId ? ` · ${t("purchasing.rfq.cheapest")}` : ""}
+                  {x.awarded ? ` · ${t("purchasing.rfq.awarded_text")}` : ""}
                   {x.leadTimeDays != null ? ` · ${x.leadTimeDays} ${t("purchasing.rfq.days_label")}` : ""}
                 </span>
                 <span dir="ltr">{x.unitPrice} / {c.line.uomCode}</span>

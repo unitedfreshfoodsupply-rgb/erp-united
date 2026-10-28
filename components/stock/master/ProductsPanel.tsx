@@ -10,6 +10,7 @@ import { invalidateStockData } from "@/lib/stockInvalidation";
 import { useLocale } from "@/lib/locale";
 import { localName, otherLocalName } from "@/lib/locale/names";
 import type { StockProductDTO } from "@/lib/stock-client-types";
+import { useDialogs } from "@/components/ui/Dialog";
 
 /** Product Master entries: canonical identity plus every name that resolves to it. */
 export function ProductsPanel({
@@ -139,6 +140,7 @@ function ProductForm({ onDone }: { onDone: () => void }) {
 }
 
 function ProductCard({ product, canManage }: { product: StockProductDTO; canManage: boolean }) {
+  const dialogs = useDialogs();
   const qc = useQueryClient();
   const toast = useToast();
   const { t, locale } = useLocale();
@@ -204,11 +206,11 @@ function ProductCard({ product, canManage }: { product: StockProductDTO; canMana
       {canManage && (
         <div className="flex gap-2 mt-3">
           <button
-            onClick={() => {
+            onClick={async () => {
               const question = product.active
                 ? t("stock.deactivate-confirm", { name: product.name })
                 : t("stock.activate-confirm", { name: product.name });
-              if (!window.confirm(question)) return;
+              if (!(await dialogs.confirm({ title: question, tone: product.active ? "danger" : "primary" }))) return;
               run(
                 () =>
                   apiPatch(`/api/stock/products/${product.id}`, {
@@ -237,7 +239,7 @@ function ProductCard({ product, canManage }: { product: StockProductDTO; canMana
                 <div className="min-w-0">
                   <span className="font-bold text-united-dark">{a.alias}</span>
                   {a.kind !== "manual" && (
-                    <span className="text-[10px] font-extrabold bg-united-green/10 text-united-green px-1.5 py-0.5 rounded mr-2">
+                    <span className="text-[10px] font-extrabold bg-united-green/10 text-united-green px-1.5 py-0.5 rounded ms-2">
                       {t("stock.alias-kind-primary")}
                     </span>
                   )}

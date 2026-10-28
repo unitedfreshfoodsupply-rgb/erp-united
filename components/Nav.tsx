@@ -1,28 +1,134 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, Gauge, Landmark, Languages, LogOut, Menu, Settings, ShoppingCart, Truck, UserRound, Users, Warehouse, X, type LucideIcon } from "lucide-react";
 import { useSession, usePermissions } from "@/lib/use-session";
 import { apiPost } from "@/lib/api-client";
-import { useQueryClient } from "@tanstack/react-query";
 import { ROLE_LABEL, ROLE_LABEL_EN } from "@/lib/types";
-import { visibleNavLinks, homePathFor, NAV_GROUPS, type NavGroup } from "@/lib/nav";
+import { visibleNavLinks, homePathFor, NAV_GROUPS, type NavGroup, type NavLink } from "@/lib/nav";
 import { NotificationBell } from "@/components/NotificationBell";
+import { Modal } from "@/components/ui/Dialog";
 import { useLocale } from "@/lib/locale";
+
+/**
+ * The application shell.
+ *
+ *  - Roles that span several departments (office: admin, finance, supervision) get a
+ *    sidebar on desktop — every module one click away, grouped by department — and the
+ *    same list in a drawer below 1024px.
+ *  - Roles with a handful of screens (the floor: preparation, loading) keep a single row
+ *    of large tabs under the top bar on every screen size: no menu to open on a tablet.
+ *
+ * Links still come only from visibleNavLinks(permissions), so the shell can never offer
+ * a module the server would refuse. The page offset for the sidebar is pure CSS
+ * (main:has(.u-shell-sidebar) in app/globals.css), so nothing shifts after hydration.
+ */
+
+const GROUP_ICON: Record<NavGroup, LucideIcon> = {
+  ops: Truck,
+  control: Gauge,
+  sales: Users,
+  purchasing: ShoppingCart,
+  stock: Warehouse,
+  finance: Landmark,
+  admin: Settings,
+};
+
+/** Only the most specific link is "here": on /stock/inventory, the /stock/inventory link — not /stock as well. */
+function activeHrefFor(links: NavLink[], pathname: string | null) {
+  const matches = (href: string) => pathname === href || (href !== "/" && !!pathname?.startsWith(href + "/"));
+  return links.filter((l) => matches(l.href)).sort((a, b) => b.href.length - a.href.length)[0]?.href;
+}
+
+function Brand({ href, compact = false }: { href: string; compact?: boolean }) {
+  return (
+    <Link href={href} className="flex items-center gap-2.5 shrink-0 rounded-lg" aria-label="UNITED">
+      <Image src="/brand/united-mark.png" alt="" width={32} height={32} className="rounded-lg" priority />
+      {!compact && (
+        <span className="flex flex-col leading-none" dir="ltr">
+          <span className="font-bold tracking-wide text-united-dark">UNITED</span>
+          <span className="text-[10px] font-medium text-united-muted">Fruits &amp; Vegetables</span>
+        </span>
+      )}
+    </Link>
+  );
+}
+
+function GroupedLinks({ links, activeHref, onNavigate }: { links: NavLink[]; activeHref?: string; onNavigate?: () => void }) {
+  const { t } = useLocale();
+  const groups = NAV_GROUPS.filter((g) => links.some((l) => l.group === g.key));
+  return (
+    <div className="flex flex-col gap-5">
+      {groups.map((g) => {
+        const Icon = GROUP_ICON[g.key];
+        return (
+          <section key={g.key} aria-label={t(g.labelKey)}>
+            <h3 className="flex items-center gap-2 px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-united-muted">
+              <Icon size={14} strokeWidth={2} aria-hidden />
+              {t(g.labelKey)}
+            </h3>
+            <ul className="flex flex-col gap-0.5">
+              {links.filter((l) => l.group === g.key).map((l) => {
+                const active = l.href === activeHref;
+                return (
+                  <li key={l.href}>
+                    <Link
+                      href={l.href}
+                      onClick={onNavigate}
+                      aria-current={active ? "page" : undefined}
+                      className={`relative flex items-center min-h-[38px] rounded-lg px-3 text-sm transition-colors ${
+                        active ? "bg-united-green/10 text-united-green font-semibold" : "text-united-dark hover:bg-united-subtle"
+                      }`}
+                    >
+                      {active && <span aria-hidden className="absolute inset-y-1.5 start-0 w-[3px] rounded-full bg-united-green" />}
+                      {t(l.labelKey)}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
 
 export function Nav() {
   const { data } = useSession();
   const { permissions } = usePermissions();
-  const { t, locale, toggleLocale, isRTL } = useLocale();
+  const { t, locale, toggleLocale } = useLocale();
   const pathname = usePathname();
   const router = useRouter();
   const qc = useQueryClient();
   const user = data?.user;
-  const [openGroup, setOpenGroup] = useState<NavGroup | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingLogout, setConfirmingLogout] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const menuBox = useRef<HTMLDivElement>(null);
+
+  // Leaving the page closes the drawer and the account menu.
+  useEffect(() => {
+    setDrawerOpen(false);
+    setMenuOpen(false);
+  }, [pathname]);
+
+  // The account menu closes on a click elsewhere or on Esc (focus back on its button).
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => { if (!menuBox.current?.contains(e.target as Node)) setMenuOpen(false); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setMenuOpen(false); menuBox.current?.querySelector<HTMLButtonElement>("button")?.focus(); }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [menuOpen]);
 
   async function logout() {
     setLoggingOut(true);
@@ -45,115 +151,172 @@ export function Nav() {
   if (!user) return null;
 
   // Links come from the shared NAV_LINKS definition filtered by effective permissions,
-  // so the header can never offer a module the server would refuse.
+  // so the shell can never offer a module the server would refuse.
   const links = visibleNavLinks(permissions);
+  const home = homePathFor(permissions, user.role);
   const roleLabel = locale === "en" ? ROLE_LABEL_EN[user.role] : ROLE_LABEL[user.role];
+  const activeHref = activeHrefFor(links, pathname);
+  const groups = NAV_GROUPS.filter((g) => links.some((l) => l.group === g.key));
+  // A role with a handful of screens sees them all as tabs; a role spanning departments
+  // gets the grouped sidebar — never a wall of twenty pills.
+  const grouped = links.length > 7 && groups.length > 1;
+  const activeLink = links.find((l) => l.href === activeHref);
+  const activeGroup = activeLink ? NAV_GROUPS.find((g) => g.key === activeLink.group) : undefined;
+  const initials = user.name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("");
 
   return (
-    <header className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-united-border shadow-sm">
-      <div className="flex items-center justify-between px-4 py-2 gap-3">
-        <Link href={homePathFor(permissions, user.role)} className="flex items-center gap-2 shrink-0">
-          <Image src="/logo-united.png" alt="UNITED" width={36} height={36} className="rounded" />
-          <span className="font-extrabold text-lg text-united-dark hidden sm:inline">UNITED</span>
-        </Link>
-        <div className="flex items-center gap-2 shrink-0">
+    <>
+      {grouped && (
+        <aside className="u-shell-sidebar hidden lg:flex fixed inset-y-0 start-0 z-30 w-[var(--u-sidebar)] flex-col border-e border-united-border bg-white">
+          <div className="flex h-14 items-center border-b border-united-border px-4">
+            <Brand href={home} />
+          </div>
+          <nav aria-label={t("ui.nav.main")} className="flex-1 overflow-y-auto px-2 py-4">
+            <GroupedLinks links={links} activeHref={activeHref} />
+          </nav>
+        </aside>
+      )}
+
+      <header className="sticky top-0 z-20 border-b border-united-border bg-white/95 backdrop-blur-sm">
+        <div className="flex h-14 items-center gap-2 px-3 sm:px-4">
+          {grouped && (
+            <button type="button" onClick={() => setDrawerOpen(true)} className="lg:hidden grid h-10 w-10 place-items-center rounded-xl hover:bg-united-subtle" aria-label={t("ui.nav.open-menu")}>
+              <Menu size={20} aria-hidden />
+            </button>
+          )}
+          <div className={grouped ? "lg:hidden" : ""}>
+            <Brand href={home} compact={grouped} />
+          </div>
+          {/* Where am I: department › module, on the desktop shell. */}
+          {grouped && activeLink && (
+            <p className="hidden lg:flex items-center gap-1.5 text-sm text-united-muted min-w-0">
+              {activeGroup && <span>{t(activeGroup.labelKey)}</span>}
+              {activeGroup && <span aria-hidden>/</span>}
+              <span className="font-semibold text-united-dark truncate">{t(activeLink.labelKey)}</span>
+            </p>
+          )}
+          <div className="flex-1" />
           <button
             type="button"
             onClick={toggleLocale}
-            className="px-2.5 py-1.5 rounded-lg bg-united-dark/5 hover:bg-united-dark/10 text-xs font-extrabold shrink-0"
+            className="inline-flex h-10 items-center gap-1.5 rounded-xl px-2.5 text-sm font-medium text-united-dark hover:bg-united-subtle"
             title={t("ui.lang.switch")}
+            lang={locale === "ar" ? "en" : "ar"}
           >
-            {t("ui.lang.switch")}
+            <Languages size={18} strokeWidth={1.75} aria-hidden />
+            <span>{t("ui.lang.switch")}</span>
           </button>
-          <Link
-            href="/profile"
-            className={`text-sm ${isRTL ? "text-right" : "text-left"} hidden sm:block`}
-            title={t("ui.profile")}
-          >
-            <div className="font-bold">{user.name}</div>
-            <div className="text-united-green text-xs font-bold">{t("ui.role")} {roleLabel}</div>
-          </Link>
           <NotificationBell />
-          <button
-            onClick={() => setConfirmingLogout(true)}
-            className="px-3 py-2 rounded-lg bg-united-dark/5 hover:bg-united-dark/10 text-sm font-bold shrink-0"
-          >
-            {t("ui.logout")}
-          </button>
-        </div>
-        {confirmingLogout && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t("confirm.logout")}
-            onClick={() => { if (!loggingOut) setConfirmingLogout(false); }}
-          >
-            <div className="card p-5 w-full max-w-sm flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
-              <h2 className="text-lg font-extrabold text-united-dark">{t("confirm.logout")}</h2>
-              <p className="text-sm font-bold text-united-muted">{t("confirm.logout-body-tab")}</p>
-              <div className="flex gap-2 justify-end">
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-lg bg-united-dark/5 hover:bg-united-dark/10 text-sm font-bold"
-                  disabled={loggingOut}
-                  onClick={() => setConfirmingLogout(false)}
-                >
-                  {t("ui.cancel")}
-                </button>
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-lg bg-united-danger text-white text-sm font-bold"
-                  disabled={loggingOut}
-                  onClick={logout}
-                >
-                  {loggingOut ? t("ui.saving") : t("confirm.logout")}
+          <div className="relative" ref={menuBox}>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              className="flex h-10 items-center gap-2 rounded-xl ps-1 pe-2 hover:bg-united-subtle"
+            >
+              <span aria-hidden className="grid h-8 w-8 place-items-center rounded-full bg-united-dark text-xs font-semibold text-white">{initials}</span>
+              <span className="hidden sm:flex flex-col items-start leading-tight">
+                <span className="text-sm font-semibold text-united-dark">{user.name}</span>
+                <span className="text-[11px] text-united-muted">{roleLabel}</span>
+              </span>
+              <ChevronDown size={16} className="text-united-muted" aria-hidden />
+            </button>
+            {menuOpen && (
+              <div role="menu" className="absolute end-0 mt-2 w-56 card shadow-pop p-1.5 z-40">
+                <div className="px-3 py-2 sm:hidden">
+                  <div className="text-sm font-semibold">{user.name}</div>
+                  <div className="text-xs text-united-muted">{t("ui.role")} {roleLabel}</div>
+                </div>
+                <Link role="menuitem" href="/profile" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-united-subtle">
+                  <UserRound size={16} aria-hidden /> {t("ui.profile")}
+                </Link>
+                <button role="menuitem" type="button" onClick={() => { setMenuOpen(false); setConfirmingLogout(true); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-united-danger hover:bg-red-50">
+                  <LogOut size={16} aria-hidden /> {t("ui.logout")}
                 </button>
               </div>
-            </div>
+            )}
           </div>
-        )}
-      </div>
-      {links.length > 0 && (() => {
-        // Only the most specific link is "here": on /stock/inventory, the
-        // /stock/inventory tab — not /stock as well.
-        const matches = (href: string) => pathname === href || (href !== "/" && !!pathname?.startsWith(href + "/"));
-        const activeHref = links.filter((l) => matches(l.href)).sort((a, b) => b.href.length - a.href.length)[0]?.href;
-        const pill = (active: boolean) => `px-4 py-2 rounded-full text-base font-bold whitespace-nowrap shrink-0 transition ${active ? "bg-united-green text-white" : "text-united-dark hover:bg-united-green/10"}`;
-        // A role with a handful of screens sees them all; a role spanning departments
-        // picks the department first, then its screens — never a wall of twenty links.
-        const groups = NAV_GROUPS.filter((g) => links.some((l) => l.group === g.key));
-        if (links.length <= 7 || groups.length <= 1) {
-          return (
-            <nav className="flex items-center gap-1 overflow-x-auto no-scrollbar px-4 pb-2">
-              {links.map((l) => (
-                <Link key={l.href} href={l.href} className={pill(l.href === activeHref)}>
+        </div>
+
+        {/* Floor roles: every screen one tap away, on every device. */}
+        {!grouped && links.length > 0 && (
+          <nav aria-label={t("ui.nav.main")} className="flex items-end gap-1 overflow-x-auto no-scrollbar px-3 sm:px-4">
+            {links.map((l) => {
+              const active = l.href === activeHref;
+              return (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  aria-current={active ? "page" : undefined}
+                  className={`relative inline-flex min-h-[44px] items-center whitespace-nowrap px-3.5 text-[15px] transition-colors ${
+                    active ? "font-semibold text-united-green" : "text-united-dark hover:text-united-green"
+                  }`}
+                >
                   {t(l.labelKey)}
+                  {active && <span aria-hidden className="absolute inset-x-2 bottom-0 h-[3px] rounded-t-full bg-united-green" />}
                 </Link>
-              ))}
-            </nav>
-          );
-        }
-        const current = openGroup ?? links.find((l) => l.href === activeHref)?.group ?? groups[0].key;
-        return (
-          <nav className="flex flex-col gap-1 px-4 pb-2">
-            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-              {groups.map((g) => (
-                <button key={g.key} type="button" onClick={() => setOpenGroup(g.key)} className={`px-3 py-1.5 rounded-lg text-sm font-extrabold whitespace-nowrap shrink-0 ${g.key === current ? "bg-united-dark text-white" : "bg-united-dark/5 text-united-dark"}`}>
-                  {t(g.labelKey)}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-              {links.filter((l) => l.group === current).map((l) => (
-                <Link key={l.href} href={l.href} className={pill(l.href === activeHref)}>
-                  {t(l.labelKey)}
-                </Link>
-              ))}
-            </div>
+              );
+            })}
           </nav>
-        );
-      })()}
-    </header>
+        )}
+      </header>
+
+      {/* Below 1024px the grouped navigation lives in a drawer (a native modal dialog). */}
+      {grouped && <NavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} links={links} activeHref={activeHref} home={home} />}
+
+      <Modal
+        open={confirmingLogout}
+        onClose={() => { if (!loggingOut) setConfirmingLogout(false); }}
+        title={t("confirm.logout")}
+        description={t("confirm.logout-body-tab")}
+        size="sm"
+        initialFocus="[data-cancel]"
+        footer={
+          <>
+            <button type="button" data-cancel className="btn-secondary btn-sm" disabled={loggingOut} onClick={() => setConfirmingLogout(false)}>
+              {t("ui.cancel")}
+            </button>
+            <button type="button" className="btn-danger-solid btn-sm" disabled={loggingOut} onClick={logout}>
+              {loggingOut ? t("ui.saving") : t("confirm.logout")}
+            </button>
+          </>
+        }
+      />
+    </>
+  );
+}
+
+function NavDrawer({ open, onClose, links, activeHref, home }: { open: boolean; onClose: () => void; links: NavLink[]; activeHref?: string; home: string }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const { t } = useLocale();
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (open && !d.open) d.showModal();
+    else if (!open && d.open) d.close();
+  }, [open]);
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    d.addEventListener("close", onClose);
+    return () => d.removeEventListener("close", onClose);
+  }, [onClose]);
+  return (
+    <dialog
+      ref={ref}
+      aria-label={t("ui.nav.main")}
+      className="m-0 h-[100dvh] max-h-none w-[min(19rem,88vw)] p-0 fixed inset-y-0 start-0 end-auto border-e border-united-border bg-white text-united-dark"
+    >
+      <div className="flex h-14 items-center justify-between border-b border-united-border px-4">
+        <Brand href={home} />
+        <button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-xl hover:bg-united-subtle" aria-label={t("ui.close")}>
+          <X size={20} aria-hidden />
+        </button>
+      </div>
+      <nav className="overflow-y-auto px-2 py-4">
+        <GroupedLinks links={links} activeHref={activeHref} onNavigate={onClose} />
+      </nav>
+    </dialog>
   );
 }

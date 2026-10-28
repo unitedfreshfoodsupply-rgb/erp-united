@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { invalidateStockData } from "@/lib/stockInvalidation";
 import { Field, Tabs, fmtMoney, fmtQty, locationTypeLabel, useLocations, type StockRow } from "./shared";
+import { Segmented } from "@/components/ui/Segmented";
 import { MoveForms } from "./MoveForms";
 import { Pagination } from "@/components/ui/Pagination";
 import { useLocale } from "@/lib/locale";
@@ -109,12 +110,12 @@ function StockList({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2">
-        <input className="field" placeholder={t("stock.search-placeholder")} value={filter} onChange={(e) => setFilter(e.target.value)} />
-        <button type="button" onClick={() => setOnlyLow(!onlyLow)} className={`tap-target shrink-0 rounded-xl px-4 font-extrabold text-sm ${onlyLow ? "bg-united-warn text-white" : "bg-united-dark/5 text-united-dark"}`}>
+        <input className="field" type="search" aria-label={t("stock.search-placeholder")} placeholder={t("stock.search-placeholder")} value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <button type="button" onClick={() => setOnlyLow(!onlyLow)} aria-pressed={onlyLow} className="chip chip-warn">
           {t("stock.low-stock-btn")}
         </button>
       </div>
-      <p className="text-xs font-bold text-united-muted">{q.data ? localName(q.data.warehouse, locale) : ""} · {t("stock.warehouse-available-desc")}</p>
+      <p className="text-xs text-united-muted">{q.data ? localName(q.data.warehouse, locale) : ""} · {t("stock.warehouse-available-desc")}</p>
       {rows.length === 0 && <EmptyState icon="📦" title={t("stock.empty-products")} />}
       <ul className="grid gap-2 sm:grid-cols-2">
         {rows.map((r) => (
@@ -440,7 +441,7 @@ function Expiring({ onOpen }: { onOpen: (id: string) => void }) {
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   return (
     <div className="flex flex-col gap-3">
-      <Tabs
+      <Segmented
         value={String(days ?? "default")}
         onChange={(v) => setDays(v === "default" ? null : Number(v))}
         items={[{ key: "default", label: t("stock.tab.default") }, { key: "0", label: t("stock.tab.today") }, { key: "3", label: `3 ${t("stock.tab.days-days")}` }, { key: "7", label: t("stock.tab.week") }]}
@@ -489,7 +490,7 @@ function Exceptions() {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm font-bold text-united-muted">{t("stock.variance-explain")}</p>
-      <Tabs value={status} onChange={setStatus} items={[{ key: "open", label: t("stock.variance-open") }, { key: "resolved", label: t("stock.variance-resolved") }, { key: "voided", label: t("stock.variance-voided") }]} />
+      <Segmented value={status} onChange={setStatus} items={[{ key: "open", label: t("stock.variance-open") }, { key: "resolved", label: t("stock.variance-resolved") }, { key: "voided", label: t("stock.variance-voided") }]} />
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
       {q.data && q.data.exceptions.length === 0 && <EmptyState icon="✅" title={t("stock.empty-variance")} />}
@@ -585,7 +586,7 @@ function Documents() {
   });
   return (
     <div className="flex flex-col gap-3">
-      <Tabs value={type} onChange={onTypeChange} items={[{ key: "", label: t("stock.doc-all") }, ...Object.entries(dm).map(([k, v]) => ({ key: k, label: v }))]} />
+      <Segmented value={type} onChange={onTypeChange} items={[{ key: "", label: t("stock.doc-all") }, ...Object.entries(dm).map(([k, v]) => ({ key: k, label: v }))]} />
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
       {q.data && q.data.documents.length === 0 && <EmptyState icon="🗂️" title={t("stock.empty-documents")} />}

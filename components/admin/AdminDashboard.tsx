@@ -15,6 +15,7 @@ import { StatTile } from "@/components/stock/StatTile";
 import { DataImportPanel } from "@/components/admin/DataImportPanel";
 import { useLocale } from "@/lib/locale";
 import { intlLocale } from "@/lib/format";
+import { Tabs } from "@/components/stock/inventory/shared";
 
 type Tab = "users" | "matrix" | "overview" | "settings" | "master" | "integrations" | "import";
 
@@ -71,28 +72,26 @@ export function AdminDashboard() {
       )}
 
       {overviewQ.data && !overviewQ.data.matrix.catalogueInSync && (
-        <div className="card p-4 border-r-4 border-united-warn">
+        <div className="card p-4 border-s-4 !border-s-united-warn">
           <p className="font-extrabold text-united-warn">{t("admin.warning.permissions-mismatch-title")}</p>
           <p className="text-sm font-bold text-united-muted mt-1" dangerouslySetInnerHTML={{ __html: t("admin.warning.permissions-mismatch-body") }} />
         </div>
       )}
 
       {/* Scrolls sideways inside itself on a phone, so the page never does. */}
-      <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4">
-        <TabButton active={tab === "users"} onClick={() => setTab("users")} label={t("admin.tab.users")} />
-        <TabButton active={tab === "matrix"} onClick={() => setTab("matrix")} label={t("admin.tab.roles-permissions")} />
-        <TabButton active={tab === "overview"} onClick={() => setTab("overview")} label={t("admin.tab.access-overview")} />
-        {can("core.masterdata.view") && (
-          <TabButton active={tab === "master"} onClick={() => setTab("master")} label={t("admin.tab.company-stores")} />
-        )}
-        {can("integrations.manage") && (
-          <TabButton active={tab === "integrations"} onClick={() => setTab("integrations")} label={t("admin.tab.integrations")} />
-        )}
-        {can("settings.manage") && (
-          <TabButton active={tab === "settings"} onClick={() => setTab("settings")} label={t("admin.tab.operational-settings")} />
-        )}
-        {canImport && <TabButton active={tab === "import"} onClick={() => setTab("import")} label={t("admin.tab.initial-data-load")} />}
-      </div>
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        items={[
+          { key: "users" as Tab, label: t("admin.tab.users") },
+          { key: "matrix" as Tab, label: t("admin.tab.roles-permissions") },
+          { key: "overview" as Tab, label: t("admin.tab.access-overview") },
+          ...(can("core.masterdata.view") ? [{ key: "master" as Tab, label: t("admin.tab.company-stores") }] : []),
+          ...(can("integrations.manage") ? [{ key: "integrations" as Tab, label: t("admin.tab.integrations") }] : []),
+          ...(can("settings.manage") ? [{ key: "settings" as Tab, label: t("admin.tab.operational-settings") }] : []),
+          ...(canImport ? [{ key: "import" as Tab, label: t("admin.tab.initial-data-load") }] : []),
+        ]}
+      />
 
       {tab === "settings" && can("settings.manage") && <SettingsPanel />}
       {tab === "integrations" && can("integrations.manage") && <IntegrationsPanel />}
@@ -126,20 +125,6 @@ export function AdminDashboard() {
   );
 }
 
-function TabButton({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`tap-target flex-1 shrink-0 whitespace-nowrap px-4 rounded-xl font-extrabold text-sm transition ${
-        active ? "bg-united-green text-white" : "bg-united-dark/5 text-united-dark"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
 
 function PermissionMatrix({ data }: { data: AdminOverview }) {
   const { permissions, roles } = data.matrix;
@@ -155,7 +140,7 @@ function PermissionMatrix({ data }: { data: AdminOverview }) {
         <table className="w-full text-sm border-collapse min-w-[640px]">
           <thead>
             <tr>
-              <th className="text-right p-2 font-extrabold text-united-muted sticky right-0 bg-white">{t("admin.matrix.col.permission")}</th>
+              <th className="text-start p-2 font-semibold text-united-muted sticky start-0 bg-white">{t("admin.matrix.col.permission")}</th>
               {roles.map((r) => (
                 <th key={r.role} className="p-2 font-extrabold text-united-dark whitespace-nowrap">
                   <div>{ROLE_LABEL[r.role]}</div>
@@ -178,7 +163,7 @@ function PermissionMatrix({ data }: { data: AdminOverview }) {
                   .filter((p) => p.group === group)
                   .map((p) => (
                     <tr key={p.key} className="border-t border-united-border">
-                      <td className="p-2 sticky right-0 bg-white">
+                      <td className="p-2 sticky start-0 bg-white">
                         <div className="font-bold text-united-dark">{p.label}</div>
                         <code dir="ltr" className="text-[10px] text-united-muted">
                           {p.key}

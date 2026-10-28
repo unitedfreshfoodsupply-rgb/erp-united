@@ -10,6 +10,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { Field } from "@/components/stock/inventory/shared";
 import { localName } from "@/lib/locale/names";
 import { useLocale } from "@/lib/locale";
+import { useDialogs } from "@/components/ui/Dialog";
 
 /**
  * Price lists and the daily price update. Prices are dated: entering today's prices
@@ -75,6 +76,7 @@ export function PriceListsView() {
 }
 
 function ListDetail({ id }: { id: string }) {
+  const dialogs = useDialogs();
   const { locale, t } = useLocale();
   const { can } = usePermissions();
   const qc = useQueryClient();
@@ -136,9 +138,10 @@ function ListDetail({ id }: { id: string }) {
                     <td className="p-2 text-center">
                       {idx === 0 && (can("sales.tax.manage") ? (
                         <select className="field text-xs" value={p.salesTaxCode} onChange={async (e) => {
-                          const reason = window.prompt(t("pricelists.tax-reason"));
+                          const taxCode = e.target.value;
+                          const reason = await dialogs.prompt({ title: t("pricelists.tax-reason"), label: t("ui.reason-label"), required: true, multiline: true });
                           if (!reason) return;
-                          try { await apiPatch(`/api/sales/products/${p.id}/tax`, { tax_code: e.target.value, reason }); refresh(); } catch (err) { fail(toast, err, t); }
+                          try { await apiPatch(`/api/sales/products/${p.id}/tax`, { tax_code: taxCode, reason }); refresh(); } catch (err) { fail(toast, err, t); }
                         }}>
                           {(taxes.data?.taxRates ?? []).map((t) => <option key={t.code} value={t.code}>{localName(t, locale)}</option>)}
                         </select>

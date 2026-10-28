@@ -9,7 +9,8 @@ import { usePermissions } from "@/lib/use-session";
 import { newClientKey } from "@/lib/clientKey";
 import { invalidateStockData } from "@/lib/stockInvalidation";
 import type { SupplierDTO } from "@/lib/stock-client-types";
-import { Field, LocationSelect, ProductSelect, Tabs } from "./shared";
+import { Field, LocationSelect, ProductSelect } from "./shared";
+import { Segmented } from "@/components/ui/Segmented";
 
 /**
  * Stock movements, one form each, built for a tablet on the warehouse floor:
@@ -37,7 +38,7 @@ export function MoveForms({ initial }: { initial?: Kind }) {
   if (allowed.length === 0) return <p className="card p-4 font-bold text-united-muted">{t("stock.move-no-access")}</p>;
   return (
     <div className="flex flex-col gap-3">
-      <Tabs value={kind} onChange={setKind} items={allowed.map((k) => ({ key: k.key, label: k.label }))} />
+      <Segmented value={kind} onChange={setKind} items={allowed.map((k) => ({ key: k.key, label: k.label }))} />
       {kind === "transfer" && <TransferForm />}
       {kind === "count" && <CountForm />}
       {kind === "scrap" && <ScrapForm />}
@@ -141,7 +142,7 @@ function CountForm() {
       }}
     >
       {s.error && <p className="text-united-danger font-bold text-sm">{s.error}</p>}
-      <Tabs value={mode} onChange={setMode} items={[{ key: "counted", label: t("stock.move-adjustment-counted") }, { key: "delta", label: t("stock.move-adjustment-delta") }]} />
+      <Segmented value={mode} onChange={setMode} items={[{ key: "counted", label: t("stock.move-adjustment-counted") }, { key: "delta", label: t("stock.move-adjustment-delta") }]} />
       <Field label={t("stock.move-field-product")}><ProductSelect value={productId} onChange={setProductId} /></Field>
       <Field label={t("stock.move-field-location")}><LocationSelect value={location} onChange={setLocation} allowAny={mode === "delta"} anyLabel={t("stock.move-field-any")} /></Field>
       <QtyInput value={qty} onChange={setQty} label={mode === "counted" ? t("stock.move-qty-counted") : t("stock.move-qty-delta")} />

@@ -13,6 +13,7 @@ import { Pagination } from "@/components/ui/Pagination";
 import { useLocale } from "@/lib/locale";
 import { intlLocale } from "@/lib/format";
 import { localName, type LocalizedNameSource } from "@/lib/locale/names";
+import { useDialogs } from "@/components/ui/Dialog";
 
 /**
  * Finance: cash position, customer receipts, supplier payments, journals, trial
@@ -105,6 +106,7 @@ function Cash() {
 
 /** Receipts from customers or payments to suppliers: the form allocates to open documents (or oldest-first). */
 function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
+  const dialogs = useDialogs();
   const { can } = usePermissions();
   const toast = useToast();
   const qc = useQueryClient();
@@ -220,8 +222,8 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
               <span dir="ltr" className={`font-extrabold ${r.reversal ? "line-through" : ""}`}>{fmtMoney(r.amount)}</span>
               {!r.reversal && can("accounting.manage") && (
                 <button type="button" className="text-xs text-united-danger underline" onClick={async () => {
-                  const reason = window.prompt(isReceipt ? t("accounting.prompt-reverse-receipt", { number: r.number }) : t("accounting.prompt-reverse-payment", { number: r.number }));
-                  if (!reason?.trim()) return;
+                  const reason = await dialogs.prompt({ title: isReceipt ? t("accounting.prompt-reverse-receipt", { number: r.number }) : t("accounting.prompt-reverse-payment", { number: r.number }), label: t("ui.reason-label"), required: true, multiline: true, tone: "danger", confirmLabel: t("accounting.button.reverse") });
+                  if (!reason) return;
                   try { await apiPost(`/api/accounting/${kind}/${r.id}/reverse`, { reason }); toast.show(t("accounting.toast-reversed", { n: r.number }), "success"); void qc.invalidateQueries({ queryKey: ["acc"] }); } catch (err) { /* handled inline */ }
                 }}>{t("accounting.button.reverse")}</button>
               )}
@@ -389,8 +391,8 @@ function Journals() {
           {detail.data.journal.lines?.map((l) => (
             <div key={l.id} className="grid grid-cols-[1fr_6rem_6rem] gap-2">
               <span>{l.account.code} · {localName(l.account, locale)}{l.description ? ` — ${l.description}` : ""}</span>
-              <span dir="ltr" className="text-end">{Number(l.debit) ? l.debit : ""}</span>
-              <span dir="ltr" className="text-end">{Number(l.credit) ? l.credit : ""}</span>
+              <span dir="ltr" className="num">{Number(l.debit) ? l.debit : ""}</span>
+              <span dir="ltr" className="num">{Number(l.credit) ? l.credit : ""}</span>
             </div>
           ))}
           {detail.data.journal.reversedBy && <p className="text-united-danger">{t("accounting.reversed-by", { n: detail.data.journal.reversedBy.number })}</p>}
@@ -428,28 +430,35 @@ function Trial() {
       <div className="flex flex-wrap gap-2"><label className="text-xs font-bold">{t("accounting.date-from")} <input type="date" className="field ms-1" value={from} onChange={(e) => setFrom(e.target.value)} /></label><label className="text-xs font-bold">{t("accounting.date-to")} <input type="date" className="field ms-1" value={to} onChange={(e) => setTo(e.target.value)} /></label></div>
       {q.isLoading && <LoadingState />}
       {q.data && (
-        <section className="card p-3 overflow-x-auto">
+        <section className="card overflow-x-auto">
           {/* All shown amounts are formatted identically (2 decimals); a negative
               opening/closing balance means the account stands at credit — shown
               explicitly as creditor label so the sign is never misread. */}
           {(() => { const fmt = (v: string) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 }); return (
-          <table className="w-full text-sm font-bold">
-            <thead><tr className="text-xs text-united-muted"><th className="p-1 text-start">{t("accounting.tb.account")}</th><th className="p-1 text-end">{t("accounting.tb-opening")}</th><th className="p-1 text-end">{t("accounting.tb-debit")}</th><th className="p-1 text-end">{t("accounting.tb-credit")}</th><th className="p-1 text-end">{t("accounting.tb-closing")}</th></tr></thead>
+          <table className="data-table">
+            <thead><tr><th>{t("accounting.tb.account")}</th><th className="num">{t("accounting.tb-opening")}</th><th className="num">{t("accounting.tb-debit")}</th><th className="num">{t("accounting.tb-credit")}</th><th className="num">{t("accounting.tb-closing")}</th></tr></thead>
             <tbody>
               {q.data.trialBalance.lines.map((l) => (
-                <tr key={l.account.code} className="border-t border-united-dark/5 cursor-pointer hover:bg-united-dark/5" onClick={() => setActiveAccount(activeAccount === l.account.id ? null : l.account.id)}>
-                  <td className="p-1">{l.account.code} · {localName(l.account, locale)}</td>
+                <tr key={l.account.code} className={activeAccount === l.account.id ? "bg-united-green/5" : undefined}>
+                  <td>
+                    {/* A real button, so the drill-down to the account ledger works from the keyboard too. */}
+                    <button type="button" aria-expanded={activeAccount === l.account.id} onClick={() => setActiveAccount(activeAccount === l.account.id ? null : l.account.id)} className="text-start font-medium text-united-dark hover:text-united-green hover:underline">
+                      <span dir="ltr" className="text-united-muted">{l.account.code}</span> · {localName(l.account, locale)}
+                    </button>
+                  </td>
                   {[l.opening, l.debit, l.credit, l.closing].map((v, i) => {
                     const n = Number(v);
                     const formatted = fmt(v);
                     const isBalanceColumn = i === 0 || i === 3;
                     const label = n < 0 && isBalanceColumn ? `${t("accounting.creditor-label")}${formatted.replace("-", "")}` : formatted;
-                    return <td key={i} className={`p-1 text-end ${n < 0 && isBalanceColumn ? "text-united-danger/70" : ""}`} dir="ltr">{label}</td>;
+                    return <td key={i} className={`num ${n < 0 && isBalanceColumn ? "text-united-danger/80" : ""}`} dir="ltr">{label}</td>;
                   })}
                 </tr>
               ))}
-              <tr className="border-t-2 border-united-dark/20 font-extrabold"><td className="p-1">{t("accounting.tb-total")} {q.data.trialBalance.balanced ? t("accounting.tb-balanced-ok") : t("accounting.tb-balanced-no")}</td><td /><td className="p-1 text-end" dir="ltr">{fmt(q.data.trialBalance.totals.debit)}</td><td className="p-1 text-end" dir="ltr">{fmt(q.data.trialBalance.totals.credit)}</td><td /></tr>
             </tbody>
+            <tfoot>
+              <tr><td>{t("accounting.tb-total")} <span className={q.data.trialBalance.balanced ? "text-united-green" : "text-united-danger"}>{q.data.trialBalance.balanced ? t("accounting.tb-balanced-ok") : t("accounting.tb-balanced-no")}</span></td><td /><td className="num" dir="ltr">{fmt(q.data.trialBalance.totals.debit)}</td><td className="num" dir="ltr">{fmt(q.data.trialBalance.totals.credit)}</td><td /></tr>
+            </tfoot>
           </table>
           ); })()}
         </section>
@@ -466,8 +475,8 @@ function Trial() {
             {ledger.data.ledger.lines.map((l) => (
               <div key={l.date + l.number + l.description} className="grid grid-cols-[1fr_6rem_6rem] gap-2">
                 <span>{l.date} · <span dir="ltr">{l.number}</span> · {l.description}</span>
-                <span dir="ltr" className="text-end">{Number(l.debit) ? fmtMoney(l.debit) : ""}</span>
-                <span dir="ltr" className="text-end">{Number(l.credit) ? fmtMoney(l.credit) : ""}</span>
+                <span dir="ltr" className="num">{Number(l.debit) ? fmtMoney(l.debit) : ""}</span>
+                <span dir="ltr" className="num">{Number(l.credit) ? fmtMoney(l.credit) : ""}</span>
               </div>
             ))}
           </div>
@@ -492,12 +501,14 @@ function VatSummary() {
         <section className={`card p-3 text-sm font-extrabold ${q.data.summary.ledger.reconciled ? "text-united-green" : "text-united-danger"}`}>
           {q.data.summary.ledger.reconciled ? t("accounting.status.matched") : t("accounting.status.difference", { output: fmtMoney(q.data.summary.ledger.outputDifference), input: fmtMoney(q.data.summary.ledger.inputDifference) })}
         </section>
-        <section className="card p-3 overflow-x-auto">
-          <table className="w-full text-sm font-bold">
-            <thead><tr className="text-xs text-united-muted text-end"><th className="p-2 text-start">{t("accounting.vat-classification")}</th><th className="p-2">{t("accounting.vat-rate")}</th><th className="p-2">{t("accounting.vat-taxable-sales")}</th><th className="p-2">{t("accounting.vat-output-tax")}</th><th className="p-2">{t("accounting.vat-taxable-purchases")}</th><th className="p-2">{t("accounting.vat-input-tax")}</th></tr></thead>
-            <tbody>{q.data.summary.lines.map((line) => <tr key={`${line.taxCode}-${line.rate}`} className="border-t border-united-border"><td className="p-2 text-start">{line.taxName} · {line.taxCode}</td><td className="p-2 text-end" dir="ltr">{line.rate}%</td><td className="p-2 text-end" dir="ltr">{fmtMoney(line.outputBase)}</td><td className="p-2 text-end" dir="ltr">{fmtMoney(line.outputTax)}</td><td className="p-2 text-end" dir="ltr">{fmtMoney(line.inputBase)}</td><td className="p-2 text-end" dir="ltr">{fmtMoney(line.inputTax)}</td></tr>)}
-              <tr className="border-t-2 border-united-dark/20 font-extrabold"><td className="p-2 text-start">{t("accounting.tb-total")}</td><td /><td className="p-2 text-end" dir="ltr">{fmtMoney(q.data.summary.totals.outputBase)}</td><td className="p-2 text-end" dir="ltr">{fmtMoney(q.data.summary.totals.outputTax)}</td><td className="p-2 text-end" dir="ltr">{fmtMoney(q.data.summary.totals.inputBase)}</td><td className="p-2 text-end" dir="ltr">{fmtMoney(q.data.summary.totals.inputTax)}</td></tr>
+        <section className="card overflow-x-auto">
+          <table className="data-table">
+            <thead><tr><th>{t("accounting.vat-classification")}</th><th className="num">{t("accounting.vat-rate")}</th><th className="num">{t("accounting.vat-taxable-sales")}</th><th className="num">{t("accounting.vat-output-tax")}</th><th className="num">{t("accounting.vat-taxable-purchases")}</th><th className="num">{t("accounting.vat-input-tax")}</th></tr></thead>
+            <tbody>{q.data.summary.lines.map((line) => <tr key={`${line.taxCode}-${line.rate}`} ><td>{line.taxName} · <span dir="ltr">{line.taxCode}</span></td><td className="num" dir="ltr">{line.rate}%</td><td className="num" dir="ltr">{fmtMoney(line.outputBase)}</td><td className="num" dir="ltr">{fmtMoney(line.outputTax)}</td><td className="num" dir="ltr">{fmtMoney(line.inputBase)}</td><td className="num" dir="ltr">{fmtMoney(line.inputTax)}</td></tr>)}
             </tbody>
+            <tfoot>
+              <tr><td>{t("accounting.tb-total")}</td><td /><td className="num" dir="ltr">{fmtMoney(q.data.summary.totals.outputBase)}</td><td className="num" dir="ltr">{fmtMoney(q.data.summary.totals.outputTax)}</td><td className="num" dir="ltr">{fmtMoney(q.data.summary.totals.inputBase)}</td><td className="num" dir="ltr">{fmtMoney(q.data.summary.totals.inputTax)}</td></tr>
+            </tfoot>
           </table>
         </section>
         <section className="card p-3 flex flex-wrap justify-between gap-2 text-sm font-extrabold"><span>{t("accounting.net-payable")}</span><span dir="ltr">{fmtMoney(q.data.summary.totals.netPayable)}</span></section>

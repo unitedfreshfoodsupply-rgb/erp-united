@@ -71,7 +71,8 @@ async function main() {
   section("5. /profile PAGE — ACCESSIBLE + READ-ONLY NOTICE + BACK LINK");
   const p = await page("ahmed", "/profile");
   check("profile page renders for an authenticated user (200)", p.status === 200, p.status);
-  check("…shows the read-only Arabic notice", p.html.includes("مش بتتعدل منك") && p.html.includes("🔒"), p.status);
+  // The lock indicator is a line icon (lucide "lock"), not an emoji, since the UI design-system pass.
+  check("…shows the read-only Arabic notice", p.html.includes("مش بتتعدل منك") && p.html.includes("lucide-lock"), p.status);
   check("…shows the user's name", p.html.includes("أحمد"), p.status);
   check("…offers a route back to the application", p.html.includes("الرجوع للتطبيق") && p.html.includes('href="/"'), p.status);
   const anon = await page(null, "/profile");

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useLocale } from "@/lib/locale";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
 import { LoadingState, ErrorState } from "@/components/States";
@@ -41,13 +42,8 @@ export function ProductMasterView() {
   const products = productsQ.data?.products ?? [];
 
   return (
-    <div className="p-4 max-w-4xl mx-auto pb-10 flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-extrabold text-united-dark">{t("master.title")}</h1>
-        <p className="text-sm font-bold text-united-muted mt-0.5">
-          {t("master.description")}
-        </p>
-      </div>
+    <div className="page-narrow max-w-4xl">
+      <PageHeader title={t("master.title")} description={t("master.description")} />
 
       {summary && (
         <section className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -102,9 +98,7 @@ function TabButton({ active, onClick, label }: { active: boolean; onClick: () =>
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`tap-target flex-1 rounded-xl font-extrabold text-sm transition ${
-        active ? "bg-united-green text-white" : "bg-united-dark/5 text-united-dark"
-      }`}
+      className="chip flex-1"
     >
       {label}
     </button>

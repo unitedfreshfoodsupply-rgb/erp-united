@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { CheckCircle2, OctagonAlert, TriangleAlert } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
 import type { OrderDTO } from "@/lib/client-types";
@@ -11,6 +11,7 @@ import { LiveIndicator } from "@/components/ui/LiveIndicator";
 import { exceptionCategory } from "@/lib/orderPresentation";
 import { useAttentionAlert } from "@/lib/liveAlerts";
 import { useLocale } from "@/lib/locale";
+import { PageHeader } from "@/components/ui/PageHeader";
 
 /** "What needs me right now" — split cleanly into three buckets so an
  * already-approved shortage never masquerades as something still blocking the
@@ -34,15 +35,13 @@ export function ExceptionsView() {
   const totalExceptions = active.length + informational.length + resolved.length;
 
   return (
-    <div className="p-4 max-w-3xl mx-auto pb-10">
-      <Link href="/supervisor" className="inline-flex items-center gap-1 text-united-muted font-bold mb-3">
-        <span>→</span>{t("audit.back-dashboard")}
-      </Link>
-      <div className="flex items-center justify-between mb-1">
-        <h1 className="text-2xl font-extrabold text-united-dark">{t("exceptions.page-title")}</h1>
-        <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
-      </div>
-      <p className="text-united-muted text-sm mb-4">{t("exceptions.subtitle")}</p>
+    <div className="page-narrow">
+      <PageHeader
+        back={{ href: "/supervisor", label: t("audit.back-dashboard") }}
+        title={t("exceptions.page-title")}
+        description={t("exceptions.subtitle")}
+        actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />}
+      />
 
       {isLoading && !data && <BoardSkeleton />}
       {isError && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
@@ -58,8 +57,8 @@ export function ExceptionsView() {
         <div className="flex flex-col gap-6">
           {active.length > 0 && (
             <section>
-              <h2 className="font-extrabold text-united-danger mb-2 flex items-center gap-2">
-                🔴 {t("exceptions.active-heading")}
+              <h2 className="mb-2 flex items-center gap-2 text-base font-semibold text-united-danger">
+                <OctagonAlert size={18} aria-hidden /> {t("exceptions.active-heading")}
                 <span className="text-sm font-bold bg-united-danger/10 px-2 py-0.5 rounded-full">
                   {active.length}
                 </span>
@@ -74,8 +73,8 @@ export function ExceptionsView() {
 
           {informational.length > 0 && (
             <section>
-              <h2 className="font-extrabold text-united-warn mb-2 flex items-center gap-2">
-                ⚠️ {t("exceptions.informational-heading")}
+              <h2 className="mb-2 flex items-center gap-2 text-base font-semibold text-united-warn">
+                <TriangleAlert size={18} aria-hidden /> {t("exceptions.informational-heading")}
                 <span className="text-sm font-bold bg-united-warn/10 px-2 py-0.5 rounded-full">
                   {informational.length}
                 </span>
@@ -93,8 +92,8 @@ export function ExceptionsView() {
 
           {resolved.length > 0 && (
             <section>
-              <h2 className="font-extrabold text-united-muted mb-2 flex items-center gap-2">
-                ⚪ {t("exceptions.resolved-heading")}
+              <h2 className="mb-2 flex items-center gap-2 text-base font-semibold text-united-muted">
+                <CheckCircle2 size={18} aria-hidden /> {t("exceptions.resolved-heading")}
                 <span className="text-sm font-bold bg-united-dark/5 px-2 py-0.5 rounded-full">
                   {resolved.length}
                 </span>

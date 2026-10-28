@@ -1,4 +1,9 @@
 import type { Metadata } from "next";
+// IBM Plex Sans Arabic (Arabic + Latin), served from the app itself — no font CDN.
+import "@fontsource/ibm-plex-sans-arabic/400.css";
+import "@fontsource/ibm-plex-sans-arabic/500.css";
+import "@fontsource/ibm-plex-sans-arabic/600.css";
+import "@fontsource/ibm-plex-sans-arabic/700.css";
 import "./globals.css";
 import { Providers } from "./providers";
 

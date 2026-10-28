@@ -20,22 +20,26 @@ function todayISO(now = new Date()) {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
-/** "النهارده" / "بكرة" / "امبارح" / "الخميس ١١ سبتمبر" — a date an operator reads at a glance. */
-export function friendlyDate(iso: string | null | undefined, now = new Date()): string {
-  if (!iso) return "من غير تاريخ";
+/** "النهارده" / "بكرة" / "امبارح" / "الخميس ١١ سبتمبر" — a date an operator reads at a glance.
+ * English: "Today" / "Tomorrow" / "Yesterday" / "Thu 11 Sep". */
+export function friendlyDate(iso: string | null | undefined, now = new Date(), locale: "ar" | "en" = "ar"): string {
+  const en = locale === "en";
+  if (!iso) return en ? "No date" : "من غير تاريخ";
   const today = todayISO(now);
-  if (iso === today) return "النهارده";
+  if (iso === today) return en ? "Today" : "النهارده";
   const t = parseISODate(today);
   const d = parseISODate(iso);
   const diffDays = Math.round((d.getTime() - t.getTime()) / 86_400_000);
-  if (diffDays === 1) return "بكرة";
-  if (diffDays === -1) return "امبارح";
+  if (diffDays === 1) return en ? "Tomorrow" : "بكرة";
+  if (diffDays === -1) return en ? "Yesterday" : "امبارح";
+  if (en) return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
   return `${AR_WEEKDAY[d.getDay()]} ${d.getDate()} ${AR_MONTH[d.getMonth()]}`;
 }
 
-/** Delivery slot as one phrase: "النهارده ٠٨:٠٠" or "النهارده — من غير ميعاد". */
-export function deliverySlot(dateISO: string, time: string | null | undefined) {
-  return time ? `${friendlyDate(dateISO)} · ${time}` : `${friendlyDate(dateISO)} · من غير ميعاد محدد`;
+/** Delivery slot as one phrase: "النهارده ٠٨:٠٠" or "النهارده — من غير ميعاد" ("Today · 08:00"). */
+export function deliverySlot(dateISO: string, time: string | null | undefined, locale: "ar" | "en" = "ar") {
+  const day = friendlyDate(dateISO, undefined, locale);
+  return time ? `${day} · ${time}` : `${day} · ${locale === "en" ? "no set time" : "من غير ميعاد محدد"}`;
 }
 
 /** Quantities: trim trailing zeros, never render "10.00 kg" or a bare "0.30000000004". */

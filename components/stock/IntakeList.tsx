@@ -14,6 +14,8 @@ import { GradingForm } from "@/components/stock/GradingForm";
 import type { IntakeDTO } from "@/lib/stock-client-types";
 import { localName } from "@/lib/locale/names";
 import { useLocale } from "@/lib/locale";
+import { StatusPill } from "@/components/ui/StatusPill";
+import { PageHeader } from "@/components/ui/PageHeader";
 
 export function IntakeList() {
   const { t } = useLocale();
@@ -35,27 +37,22 @@ export function IntakeList() {
   const good = posted.reduce((s, i) => s + i.goodKg, 0);
 
   return (
-    <div className="p-4 max-w-3xl mx-auto pb-10">
-      <div className="flex items-center justify-between mb-3">
-        <h1 className="text-2xl font-extrabold text-united-dark">{t("intake.title")}</h1>
-        <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
-      </div>
+    <div className="page-narrow">
+      <PageHeader title={t("intake.title")} actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />} />
 
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2">
         <input
           type="date"
           value={date}
           onChange={(e) => setDate(e.target.value || todayLocalISO())}
-          className="tap-target border-2 border-united-dark/10 rounded-xl px-3 font-bold bg-white focus:border-united-green outline-none"
+          className="field w-auto"
           aria-label={t("intake.date")}
         />
         <button
           type="button"
           onClick={() => setShowVoided((v) => !v)}
           aria-pressed={showVoided}
-          className={`tap-target px-4 rounded-xl font-extrabold text-sm ${
-            showVoided ? "bg-united-dark text-white" : "bg-united-dark/5 text-united-dark"
-          }`}
+          className="chip"
         >
           {t("intake.include-voided")}
         </button>
@@ -143,13 +140,11 @@ function IntakeCard({ intake }: { intake: IntakeDTO }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-extrabold text-united-dark">{localName(intake.product, locale)}</span>
             {voided && (
-              <span className="text-[11px] font-extrabold bg-united-danger/10 text-united-danger px-2 py-0.5 rounded-full">
-                {t("intake.voided")}
-              </span>
+              <StatusPill tone="danger">{t("intake.voided")}</StatusPill>
             )}
           </div>
           <div className="text-xs font-bold text-united-muted">
-            {localName(intake.supplier, locale)} · {intake.receiptNumber}{intake.purchaseOrderLine ? ` · ${intake.purchaseOrderLine.po.number}` : ""} · {intake.recordedBy}
+            {localName(intake.supplier, locale)} · <span dir="ltr">{intake.receiptNumber}</span>{intake.purchaseOrderLine ? ` · ${intake.purchaseOrderLine.po.number}` : ""} · {intake.recordedBy}
           </div>
         </div>
         <span dir="ltr" className={`text-xl font-extrabold shrink-0 ${YIELD_TONE_CLASS[yieldTone(pct)]}`}>
@@ -179,16 +174,18 @@ function IntakeCard({ intake }: { intake: IntakeDTO }) {
       {error && <p className="text-united-danger font-bold text-sm mt-2">{error}</p>}
 
       {!voided && mode === "view" && (
-        <div className="flex gap-2 mt-3">
-          <button onClick={() => setMode("edit")} className="btn-secondary flex-1 text-sm">
-            {t("intake.edit")}
-          </button>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {/* The everyday action leads; voiding a receipt is rare and destructive, so it
+           * is a quiet text action at the end (it still asks for a reason before it acts). */}
           {can("stock.adjust") && (
-            <button onClick={() => setMode("sort")} className="btn-primary flex-1 text-sm">
+            <button type="button" onClick={() => setMode("sort")} className="btn-primary flex-1 text-sm">
               {t("intake.sort")}
             </button>
           )}
-          <button onClick={() => setMode("void")} className="btn-danger flex-1 text-sm">
+          <button type="button" onClick={() => setMode("edit")} className="btn-secondary flex-1 text-sm">
+            {t("intake.edit")}
+          </button>
+          <button type="button" onClick={() => setMode("void")} className="btn-ghost text-sm text-united-danger hover:bg-[#FDECEA]">
             {t("intake.void")}
           </button>
         </div>
@@ -251,7 +248,7 @@ function IntakeCard({ intake }: { intake: IntakeDTO }) {
             {t("intake.void-note")}
           </p>
           <div className="flex gap-2">
-            <button onClick={doVoid} disabled={busy || !reason.trim()} className="btn-danger flex-1 text-sm">
+            <button type="button" onClick={doVoid} disabled={busy || !reason.trim()} className="btn-danger-solid flex-1 text-sm">
               {t("intake.void-confirm")}
             </button>
             <button onClick={() => setMode("view")} className="btn-secondary flex-1 text-sm">

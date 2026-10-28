@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, ApiClientError } from "@/lib/api-client";
@@ -166,8 +167,8 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
                 </>;
               })()}
             </select>
-            <button type="button" onClick={() => setRows((r) => r.filter((_, idx) => idx !== i))} className="btn-danger px-3">
-              ✕
+            <button type="button" onClick={() => setRows((r) => r.filter((_, idx) => idx !== i))} className="btn-danger px-3" aria-label={t("ui.delete")}>
+              <X size={18} aria-hidden />
             </button>
           </div>
         ))}

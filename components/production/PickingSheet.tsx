@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Ban, Check } from "lucide-react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
@@ -238,13 +239,13 @@ export function PickingSheet() {
                   {/* Mini quantity summary */}
                   <div className="flex gap-3 text-xs font-bold print:hidden">
                     {line.totalPrepared > 0 && (
-                      <span className="text-emerald-600">
-                        ✓ {qty(line.totalPrepared)}
+                      <span className="inline-flex items-center gap-1 text-united-green">
+                        <Check size={13} aria-hidden /> {qty(line.totalPrepared)}
                       </span>
                     )}
                     {line.totalRejected > 0 && (
-                      <span className="text-red-600">
-                        🚫 {qty(line.totalRejected)}
+                      <span className="inline-flex items-center gap-1 text-united-danger">
+                        <Ban size={13} aria-hidden /> {qty(line.totalRejected)}
                       </span>
                     )}
                     <span className={remaining > 0 ? "text-amber-600" : "text-emerald-600"}>

@@ -399,10 +399,10 @@ function UomSection({ uoms, canManage }: { uoms: UomDTO[]; canManage: boolean })
         <table className="w-full text-sm min-w-[560px]">
           <thead>
             <tr className="text-united-muted text-xs">
-              <th className="text-right p-2">{t("admin.table.col.unit")}</th>
-              <th className="text-right p-2">{t("admin.table.col.type")}</th>
-              <th className="text-right p-2">{t("admin.table.col.conversion")}</th>
-              <th className="text-right p-2">{t("admin.table.col.decimals")}</th>
+              <th className="text-start p-2">{t("admin.table.col.unit")}</th>
+              <th className="text-start p-2">{t("admin.table.col.type")}</th>
+              <th className="text-start p-2">{t("admin.table.col.conversion")}</th>
+              <th className="text-start p-2">{t("admin.table.col.decimals")}</th>
               <th className="p-2" />
             </tr>
           </thead>

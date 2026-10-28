@@ -2,17 +2,86 @@
 @tailwind components;
 @tailwind utilities;
 
+/* UNITED design tokens. The Tailwind palette (tailwind.config.js) holds the same values;
+   these variables are for plain CSS (dialogs, focus) and future components.
+   Rationale and usage: docs/erp/DESIGN_SYSTEM.md. */
+:root {
+  --u-ink: #1f3d24;
+  --u-primary: #227c43;
+  --u-accent: #9fce5c;
+  --u-bg: #f5f7f4;
+  --u-surface: #ffffff;
+  --u-subtle: #eef2ed;
+  --u-border: #dfe5de;
+  --u-field: #879687;
+  --u-muted: #5b6b5d;
+  --u-focus: #227c43;
+  --u-radius: 0.75rem;
+  --u-sidebar: 15.5rem;
+}
+
 html,
 body {
-  background: #f4f8f2;
+  background: var(--u-bg);
+}
+
+body {
+  color: var(--u-ink);
+  -webkit-font-smoothing: antialiased;
+  /* Figures in an ERP are compared, totalled and scanned in columns: every digit the
+     same width, everywhere (IBM Plex Sans Arabic carries tabular figures). */
+  font-variant-numeric: tabular-nums;
 }
 
 * {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* One visible focus ring for every interactive element reached by keyboard (WCAG 2.4.7):
+   2px primary green, 4.8:1 against the page. Fields keep their own border + ring. */
+:where(a, button, [role="button"], [role="tab"], summary, select, input[type="checkbox"], input[type="radio"]):focus-visible {
+  outline: 2px solid var(--u-focus);
+  outline-offset: 2px;
+}
+
+/* Tabs: which physical side is the inline end, for the overflow fade. */
+.u-tabs { --u-tabs-end: right; }
+[dir="rtl"] .u-tabs { --u-tabs-end: left; }
+
+/* Touch screens on the floor: never a target below 44px (Primer's coarse minimum). */
 .tap-target {
-  min-height: 56px;
+  min-height: 44px;
+}
+
+/* Desktop shell: the grouped sidebar (components/Nav.tsx) is fixed at the inline start;
+   the page it sits in makes room for it. Pure CSS, so nothing shifts after hydration. */
+@media (min-width: 1024px) {
+  main:has(.u-shell-sidebar) {
+    padding-inline-start: var(--u-sidebar);
+  }
+  main:has(.u-shell-sidebar) .page-narrow,
+  main:has(.u-shell-sidebar) .page-floor,
+  main:has(.u-shell-sidebar) .page-container {
+    margin-inline-start: 0;
+  }
+}
+
+/* Native modal dialogs (components/ui/Dialog.tsx): no scroll chaining to the page. */
+dialog:modal {
+  overscroll-behavior: contain;
+  max-height: calc(100dvh - 2rem);
+}
+dialog::backdrop {
+  background: rgb(15 31 18 / 0.45);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -71,74 +140,107 @@ body {
 }
 
 @layer components {
-  /* Page layout */
+  /* Page layout — wide enough for data-dense screens, still a readable measure. */
   .page-container {
-    @apply p-4 sm:p-6 max-w-5xl mx-auto pb-10 flex flex-col gap-5;
+    @apply p-4 sm:p-6 max-w-7xl mx-auto pb-12 flex flex-col gap-5;
   }
   .page-header {
     @apply flex items-start justify-between gap-3 flex-wrap;
   }
+  /* Single-column pages (lists, reports, floor boards): a readable width. Centred when the
+   * page has no sidebar (floor tablets); aligned with the breadcrumb and title when it does. */
+  .page-narrow {
+    @apply p-4 sm:p-6 max-w-3xl mx-auto pb-12 flex flex-col gap-5;
+  }
+  /* Floor boards (prep, load, production): one tablet-width column of cards. */
+  .page-floor {
+    @apply p-4 max-w-2xl mx-auto pb-10;
+  }
   .page-title {
-    @apply text-2xl font-extrabold text-united-dark;
+    @apply text-xl sm:text-2xl font-bold text-united-dark leading-tight;
   }
   .page-subtitle {
-    @apply text-united-muted text-sm font-bold;
+    @apply text-united-muted text-sm font-medium;
   }
 
-  /* Section styling */
+  /* Sections */
   .section-header {
     @apply flex items-center justify-between gap-2;
   }
   .section-title {
-    @apply text-lg font-extrabold text-united-dark;
+    @apply text-base font-bold text-united-dark;
   }
 
-  /* KPI grid */
+  /* KPI tiles: the number leads, the label explains. */
   .kpi-grid {
-    @apply grid grid-cols-2 sm:grid-cols-4 gap-2;
+    @apply grid grid-cols-2 sm:grid-cols-4 gap-3;
   }
   .kpi-card {
-    @apply card p-3 sm:p-4 flex flex-col gap-1;
+    @apply card p-4 flex flex-col gap-1;
   }
   .kpi-value {
-    @apply text-xl sm:text-2xl font-extrabold text-united-dark;
+    @apply text-2xl font-bold text-united-dark;
   }
   .kpi-label {
-    @apply text-xs font-bold text-united-muted;
+    @apply text-xs font-medium text-united-muted;
   }
   .kpi-trend-up {
-    @apply text-united-green font-bold text-xs;
+    @apply text-united-green font-semibold text-xs;
   }
   .kpi-trend-down {
-    @apply text-united-danger font-bold text-xs;
+    @apply text-united-danger font-semibold text-xs;
   }
 
-  /* Data table */
+  /* Data table: quiet head, hairline rows, numbers end-aligned (use .num on the cell). */
   .data-table {
-    @apply w-full text-sm;
+    @apply w-full text-sm border-collapse;
   }
   .data-table th {
-    @apply text-xs font-extrabold text-united-muted uppercase tracking-wider py-2 px-3 text-start;
+    @apply text-xs font-semibold text-united-muted py-2.5 px-3 text-start bg-united-subtle border-b border-united-border whitespace-nowrap;
   }
   .data-table td {
-    @apply py-2.5 px-3 border-t border-united-border;
+    @apply py-2.5 px-3 border-b border-united-border align-middle;
   }
-  .data-table tr:hover td {
-    @apply bg-united-dark/[0.02];
+  .data-table tbody tr:hover td {
+    @apply bg-united-bg;
+  }
+  .data-table tfoot td {
+    @apply font-semibold border-t-2 border-united-border-strong;
+  }
+  /* Amount cells carry dir="ltr" so "-1,234.50" never reorders, but they must still align
+   * with their header at the *page's* inline end — text-end would follow the cell's own ltr. */
+  .num {
+    @apply tabular-nums whitespace-nowrap;
+    text-align: right;
+  }
+  html[dir="rtl"] .num {
+    text-align: left;
   }
 
-  /* Filter bar */
+  /* A toggle beside a search box or a list ("Low stock", "Inactive"): outlined when off,
+   * filled when on. State comes from aria-pressed, so the look can never disagree with it. */
+  .chip {
+    @apply inline-flex shrink-0 items-center justify-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-united-border bg-white text-sm font-medium text-united-dark whitespace-nowrap transition-colors hover:bg-united-subtle;
+  }
+  .chip[aria-pressed="true"] {
+    @apply border-united-dark bg-united-dark text-white hover:bg-united-dark;
+  }
+  .chip-warn[aria-pressed="true"] {
+    @apply border-united-warn bg-united-warn hover:bg-united-warn;
+  }
+
+  /* Filter chips (quick filters) */
   .filter-bar {
-    @apply flex gap-2 overflow-x-auto no-scrollbar pb-1;
+    @apply flex gap-2 overflow-x-auto no-scrollbar pb-1 items-center;
   }
   .filter-pill {
-    @apply px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all duration-150;
+    @apply inline-flex items-center gap-1.5 px-3.5 min-h-[36px] rounded-full text-sm font-medium whitespace-nowrap border transition-colors duration-150;
   }
   .filter-pill-active {
-    @apply filter-pill bg-united-dark text-white shadow-sm;
+    @apply filter-pill bg-united-dark text-white border-united-dark;
   }
   .filter-pill-inactive {
-    @apply filter-pill bg-white text-united-dark border border-united-border hover:border-united-green/30 hover:bg-united-green/5;
+    @apply filter-pill bg-white text-united-dark border-united-border hover:border-united-border-strong hover:bg-united-subtle;
   }
 
   /* Toolbar (search + actions) */
@@ -146,50 +248,82 @@ body {
     @apply card p-3 flex flex-col sm:flex-row gap-2;
   }
 
-  /* Card variants */
+  /* Surfaces */
   .card {
     @apply bg-white rounded-2xl shadow-card border border-united-border;
   }
   .card-hoverable {
-    @apply card transition-shadow duration-200 hover:shadow-card-hover hover:border-united-green/20;
+    @apply card transition-shadow duration-150 hover:shadow-card-hover hover:border-united-border-strong;
   }
   .card-flat {
     @apply bg-white rounded-xl border border-united-border;
   }
   .card-header {
-    @apply px-5 py-4 border-b border-united-border flex items-center justify-between gap-2;
+    @apply px-5 py-3.5 border-b border-united-border flex items-center justify-between gap-2;
   }
   .card-body {
     @apply px-5 py-4;
   }
 
+  /* Buttons: one primary per view; secondary for the rest; danger only for what destroys
+     or reverses. 44px minimum (touch), 36px for the small size on desktop toolbars. */
   .btn {
-    @apply tap-target inline-flex items-center justify-center gap-2 rounded-xl font-bold px-5 min-h-[44px] transition-all duration-150 active:scale-[0.98] disabled:opacity-40 disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-united-green/40;
+    @apply tap-target inline-flex items-center justify-center gap-2 rounded-xl font-semibold px-4 min-h-[44px] transition-colors duration-150 disabled:opacity-45 disabled:cursor-not-allowed select-none;
   }
   .btn-sm {
     @apply btn text-sm px-3 min-h-[36px] rounded-lg;
   }
   .btn-primary {
-    @apply btn bg-united-green text-white shadow-sm hover:bg-united-green/90;
+    @apply btn bg-united-green text-white shadow-sm hover:bg-[#1b6637] active:bg-[#175a30];
   }
   .btn-dark {
-    @apply btn bg-united-dark text-white shadow-sm hover:bg-united-dark/90;
+    @apply btn bg-united-dark text-white shadow-sm hover:bg-[#173019];
   }
   .btn-secondary {
-    @apply btn bg-united-dark/5 text-united-dark hover:bg-united-dark/10;
+    @apply btn bg-white text-united-dark border border-united-border-strong hover:bg-united-subtle;
   }
   .btn-danger {
-    @apply btn bg-red-50 text-united-danger hover:bg-red-100;
+    @apply btn bg-white text-united-danger border border-united-danger/40 hover:bg-red-50;
+  }
+  .btn-danger-solid {
+    @apply btn bg-united-danger text-white hover:bg-[#981d14];
   }
   .btn-ghost {
-    @apply btn bg-transparent text-united-muted hover:bg-united-dark/5;
+    @apply btn bg-transparent text-united-dark hover:bg-united-subtle;
   }
 
+  /* Form controls: a 3:1 outline, a clear focus ring, never a placeholder as the label. */
   .field {
-    @apply tap-target w-full border-2 border-united-dark/10 rounded-xl px-4 bg-white text-united-dark font-bold placeholder:text-united-muted/50 focus:border-united-green focus:ring-2 focus:ring-united-green/20 outline-none transition-all duration-150;
+    @apply tap-target w-full border border-united-field rounded-xl px-3.5 bg-white text-united-dark font-medium placeholder:text-united-muted/70 focus:border-united-green focus:ring-2 focus:ring-united-green/25 outline-none transition-colors duration-150 disabled:bg-united-subtle disabled:text-united-muted aria-[invalid=true]:border-united-danger;
   }
   .field-sm {
-    @apply field py-2 text-sm;
+    @apply field min-h-[36px] py-1.5 text-sm rounded-lg;
+  }
+  .field-label {
+    @apply text-xs font-semibold text-united-muted;
+  }
+
+  /* Status pills — one vocabulary for every document state (components/ui/StatusPill.tsx). */
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap border;
+  }
+  .pill-neutral {
+    @apply pill bg-united-subtle text-united-muted border-united-border;
+  }
+  .pill-info {
+    @apply pill bg-[#E8F0F9] text-united-info border-[#C9DBEF];
+  }
+  .pill-success {
+    @apply pill bg-[#E7F3EA] text-united-green border-[#C3E2CC];
+  }
+  .pill-warn {
+    @apply pill bg-[#FDF3E2] text-united-warn border-[#F3D9AE];
+  }
+  .pill-danger {
+    @apply pill bg-[#FDECEA] text-united-danger border-[#F5C6C1];
+  }
+  .pill-dot {
+    @apply inline-block w-1.5 h-1.5 rounded-full bg-current shrink-0;
   }
 
   .live-dot {

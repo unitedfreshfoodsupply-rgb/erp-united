@@ -8,6 +8,8 @@ import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtQty } from "@/components/stock/inventory/shared";
+import { Segmented } from "@/components/ui/Segmented";
+import { Snowflake } from "lucide-react";
 import { useLocale } from "@/lib/locale";
 
 /**
@@ -80,7 +82,7 @@ function Trips() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2 items-center">
-        <div className="flex-1"><Tabs value={all ? "all" : "open"} onChange={(v) => setAll(v === "all")} items={[{ key: "open", label: t("ops.tab.open") }, { key: "all", label: t("ops.tab.all") }]} /></div>
+        <div className="flex-1"><Segmented value={all ? "all" : "open"} onChange={(v) => setAll(v === "all")} items={[{ key: "open", label: t("ops.tab.open") }, { key: "all", label: t("ops.tab.all") }]} /></div>
         {can("operations.trips.manage") && <button type="button" className="btn-primary shrink-0" onClick={() => setCreating(true)}>{t("ops.btn.new-trip")}</button>}
       </div>
       {q.isLoading && <LoadingState />}
@@ -91,7 +93,7 @@ function Trips() {
           <li key={t2.id}>
             <button type="button" className="card p-3 w-full text-start flex justify-between gap-2" onClick={() => setOpen(t2.id)}>
               <div>
-                <div className="font-extrabold"><span dir="ltr">{t2.number}</span> · {t2.vehicle.code}{t2.vehicle.refrigerated ? " ❄️" : ""} · {t2.driver.name}</div>
+                <div className="font-extrabold"><span dir="ltr">{t2.number}</span> · {t2.vehicle.code}{t2.vehicle.refrigerated && <Snowflake size={14} className="ms-1 inline text-united-info" aria-label={t("ops.fleet.refrigerated")} />} · {t2.driver.name}</div>
                 <div className="text-xs font-bold text-united-muted">{t2.tripDate} · {t2.stops} {t("ops.trips.orders-label")} · {t("ops.trips.delivered-count")} {t2.delivered}</div>
               </div>
               <span className={`self-start rounded-full px-2 text-xs font-extrabold ${TRIP_STATUS[t2.status]?.cls}`}>{TRIP_STATUS[t2.status] ? t(TRIP_STATUS[t2.status].label) : t2.status}</span>
@@ -122,7 +124,7 @@ function NewTrip({ onDone }: { onDone: (id?: string) => void }) {
         <Field label={t("ops.new.vehicle-label")}>
           <select className="field font-bold" value={vehicleId} onChange={(e) => setVehicleId(e.target.value)}>
             <option value="">{t("ops.new.select-option")}</option>
-            {fleet.data?.vehicles.filter((v) => v.active).map((v) => <option key={v.id} value={v.id}>{v.code} · {v.plate}{v.refrigerated ? " ❄️" : ""}{v.capacityKg ? ` · ${Number(v.capacityKg)} ${t("ops.new.capacity-unit")}` : ""}</option>)}
+            {fleet.data?.vehicles.filter((v) => v.active).map((v) => <option key={v.id} value={v.id}>{v.code} · {v.plate}{v.refrigerated ? ` · ${t("ops.fleet.refrigerated")}` : ""}{v.capacityKg ? ` · ${Number(v.capacityKg)} ${t("ops.new.capacity-unit")}` : ""}</option>)}
           </select>
         </Field>
         <Field label={t("ops.new.driver-label")}>
@@ -179,7 +181,7 @@ function TripView({ id, onClose }: { id: string; onClose: () => void }) {
       <div className="flex justify-between items-center gap-2">
         <div>
           <h2 className="text-xl font-extrabold" dir="ltr">{trip.number}</h2>
-          <p className="text-sm font-bold text-united-muted">{trip.tripDate} · {trip.vehicle.code} · <span dir="ltr">{trip.vehicle.plate}</span>{trip.vehicle.refrigerated ? " ❄️" : ""} · {trip.driver.name}{trip.driver.phone ? <> · <span dir="ltr">{trip.driver.phone}</span></> : null}</p>
+          <p className="text-sm font-bold text-united-muted">{trip.tripDate} · {trip.vehicle.code} · <span dir="ltr">{trip.vehicle.plate}</span>{trip.vehicle.refrigerated && <Snowflake size={14} className="ms-1 inline text-united-info" aria-label={t("ops.fleet.refrigerated")} />} · {trip.driver.name}{trip.driver.phone ? <> · <span dir="ltr">{trip.driver.phone}</span></> : null}</p>
         </div>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("ops.detail.back")}</button>
       </div>
@@ -246,7 +248,7 @@ function DeliveryForm({ stop, onDone }: { stop: Stop; onDone: () => void }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex justify-between items-center"><h2 className="text-xl font-extrabold">{t("ops.dlv.title-format", { orderNumber: stop.order.orderNumber, customerName: stop.order.customerName })}</h2><button type="button" className="btn-secondary" onClick={() => onDone()}>{t("ops.new.back")}</button></div>
-      <Tabs value={failed ? "failed" : "ok"} onChange={(v) => setFailed(v === "failed")} items={[{ key: "ok", label: t("ops.dlv.delivered-tab") }, { key: "failed", label: t("ops.dlv.failed-tab") }]} />
+      <Segmented value={failed ? "failed" : "ok"} onChange={(v) => setFailed(v === "failed")} items={[{ key: "ok", label: t("ops.dlv.delivered-tab") }, { key: "failed", label: t("ops.dlv.failed-tab") }]} />
       {failed ? (
         <section className="card p-4"><Field label={t("ops.dlv.failure-reason-label")}><input className="field" value={failure} onChange={(e) => setFailure(e.target.value)} /></Field></section>
       ) : (
@@ -306,7 +308,7 @@ function Exceptions() {
   const q = useQuery({ queryKey: ["ops", "exceptions", status], queryFn: () => apiFetch<{ exceptions: Ex[] }>(`/api/operations/exceptions${status ? `?status=${status}` : ""}`) });
   return (
     <div className="flex flex-col gap-3">
-      <Tabs value={status} onChange={setStatus} items={[{ key: "open", label: t("ops.exc.open-tab") }, { key: "resolved", label: t("ops.exc.resolved-tab") }, { key: "", label: t("ops.tab.all") }]} />
+      <Segmented value={status} onChange={setStatus} items={[{ key: "open", label: t("ops.exc.open-tab") }, { key: "resolved", label: t("ops.exc.resolved-tab") }, { key: "", label: t("ops.tab.all") }]} />
       {q.isLoading && <LoadingState />}
       {q.data && q.data.exceptions.length === 0 && <EmptyState icon="✅" title={t("ops.exc.none")} />}
       <ul className="flex flex-col gap-2">
@@ -372,7 +374,7 @@ function FleetView() {
         <ul className="text-sm font-bold divide-y divide-united-dark/5">
           {q.data?.vehicles.map((x) => (
             <li key={x.id} className={`py-1 flex justify-between ${x.active ? "" : "text-united-muted line-through"}`}>
-              <span>{x.code} · <span dir="ltr">{x.plate}</span>{x.refrigerated ? " ❄️" : ""}{x.capacityKg ? ` · ${Number(x.capacityKg)} ${t("ops.veh.weight-unit")}` : ""}</span>
+              <span>{x.code} · <span dir="ltr">{x.plate}</span>{x.refrigerated && <Snowflake size={14} className="ms-1 inline text-united-info" aria-label={t("ops.fleet.refrigerated")} />}{x.capacityKg ? ` · ${Number(x.capacityKg)} ${t("ops.veh.weight-unit")}` : ""}</span>
               <button type="button" className="text-xs underline" onClick={() => toggle("vehicles", x)}>{x.active ? t("ops.fleet.disable") : t("ops.fleet.enable")}</button>
             </li>
           ))}

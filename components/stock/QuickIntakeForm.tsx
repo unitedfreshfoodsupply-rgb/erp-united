@@ -231,9 +231,9 @@ export function QuickIntakeForm({ date }: { date: string }) {
       <ChipPicker label={t("stock.supplier")} items={suppliers} value={supplierId} onChange={pickSupplier} />
       {supplierId && openLines.length > 0 && (
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-extrabold text-united-muted">{t("stock.on-order")}</span>
+          <span className="field-label">{t("stock.on-order")}</span>
           <div className="flex flex-wrap gap-2">
-            <button type="button" aria-pressed={!poLineId} onClick={() => pickPoLine(null)} className={`tap-target px-4 rounded-xl font-extrabold text-sm ${!poLineId ? "bg-united-dark text-white" : "bg-united-dark/5 text-united-dark"}`}>
+            <button type="button" aria-pressed={!poLineId} onClick={() => pickPoLine(null)} className="chip">
               {t("stock.no-order")}
             </button>
             {openLines.map((l) => (
@@ -242,7 +242,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
                 type="button"
                 aria-pressed={poLineId === l.lineId}
                 onClick={() => pickPoLine(l)}
-                className={`tap-target px-4 rounded-xl font-extrabold text-sm text-start ${poLineId === l.lineId ? "bg-united-green text-white" : "bg-united-dark/5 text-united-dark"}`}
+                className="chip h-auto whitespace-normal py-2 text-start"
               >
                 {l.poNumber} · {l.product.name} · {t("stock.remaining")} <span dir="ltr">{fmtKg(Number(l.remaining))}</span> {l.product.unit}
               </button>
@@ -260,7 +260,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
               type="button"
               aria-pressed={countUom === o.code}
               onClick={() => setCountUom(o.code)}
-              className={`tap-target px-4 rounded-xl font-extrabold text-sm ${countUom === o.code ? "bg-united-dark text-white" : "bg-united-dark/5 text-united-dark"}`}
+              className="chip"
             >
               {o.label}
             </button>
@@ -417,11 +417,7 @@ function ChipPicker({
             type="button"
             onClick={() => onChange(i.id)}
             aria-pressed={value === i.id}
-            className={`tap-target px-4 rounded-xl font-extrabold text-sm transition active:scale-[0.98] ${
-              value === i.id
-                ? "bg-united-green text-white shadow-sm"
-                : "bg-united-dark/5 text-united-dark hover:bg-united-dark/10"
-            }`}
+            className="chip"
           >
             {i.name}
           </button>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AlertTriangle, Check } from "lucide-react";
 import type { OrderItemDTO } from "@/lib/client-types";
 import { QuantityInput } from "@/components/QuantityInput";
 import { qty as qtyLabel } from "@/lib/format";
@@ -114,12 +115,12 @@ export function ItemRow({
   }
 
   return (
-    <div className={`card p-4 sm:p-5 border-2 ${short ? "!border-united-danger/30" : "!border-united-border"}`}>
+    <div className={`card p-4 sm:p-5 ${short ? "!border-united-danger/40 border-s-4 !border-s-united-danger" : ""}`}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-lg sm:text-xl font-extrabold text-united-dark">{item.productName}</span>
+        <span className="text-lg sm:text-xl font-semibold text-united-dark">{item.productName}</span>
         {done && (
-          <span className="w-8 h-8 rounded-full bg-united-green text-white flex items-center justify-center text-lg">
-            ✓
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-united-green text-white" aria-label={t("ui.done")}>
+            <Check size={18} strokeWidth={2.5} aria-hidden />
           </span>
         )}
       </div>
@@ -196,8 +197,8 @@ export function ItemRow({
       )}
 
       {short && (
-        <p className="text-united-danger font-bold mt-2">
-          ⚠️ {t("orders.item.shortage_text", { qty: qtyLabel(item.requiredQuantity - (mode === "load" ? item.loadedQuantity! : item.preparedQuantity!)), unit: item.unit })}
+        <p className="mt-2 flex items-start gap-1.5 font-semibold text-united-danger">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" aria-hidden /> {t("orders.item.shortage_text", { qty: qtyLabel(item.requiredQuantity - (mode === "load" ? item.loadedQuantity! : item.preparedQuantity!)), unit: item.unit })}
         </p>
       )}
       {!short && mismatch && (

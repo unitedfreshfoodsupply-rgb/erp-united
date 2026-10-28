@@ -32,6 +32,16 @@ export const STATUS_MEANING: Record<OrderStatus, string> = {
   cancelled: "اتلغى",
 };
 
+export const STATUS_MEANING_EN: Record<OrderStatus, string> = {
+  new: "Received — nobody has started it yet",
+  preparing: "Being prepared on the floor now",
+  ready_for_loading: "Prepared and waiting to be loaded",
+  loading: "Being loaded onto the vehicle now",
+  loaded: "Fully loaded — waiting for dispatch confirmation",
+  dispatched: "Left with the vehicle",
+  cancelled: "Cancelled",
+};
+
 export type QuantityRoll = {
   required: number;
   prepared: number;
@@ -89,35 +99,38 @@ export type NextAction = {
  * "What needs to happen NOW" — the question every board exists to answer, and the one
  * the UI previously left the operator to infer from a status badge.
  */
-export function nextAction(order: OrderDTO): NextAction {
-  if (order.status === "cancelled") return { label: "اتلغى", owner: "—", tone: "done" };
-  if (order.status === "dispatched") return { label: "خلص وخرج", owner: "—", tone: "done" };
+export function nextAction(order: OrderDTO, locale: "ar" | "en" = "ar"): NextAction {
+  const en = locale === "en";
+  const PREP = en ? "Preparation" : "التجهيز";
+  const LOAD = en ? "Loading" : "التحميل";
+  if (order.status === "cancelled") return { label: en ? "Cancelled" : "اتلغى", owner: "—", tone: "done" };
+  if (order.status === "dispatched") return { label: en ? "Done — dispatched" : "خلص وخرج", owner: "—", tone: "done" };
   if (order.needsReview) {
-    return { label: "محتاج اعتماد المشرف", owner: "المشرف", tone: "blocked" };
+    return { label: en ? "Needs supervisor approval" : "محتاج اعتماد المشرف", owner: en ? "Supervisor" : "المشرف", tone: "blocked" };
   }
   const roll = rollUpQuantities(order.items);
   switch (order.status) {
     case "new":
-      return { label: "ابدأ التجهيز", owner: "التجهيز", tone: "action" };
+      return { label: en ? "Start preparation" : "ابدأ التجهيز", owner: PREP, tone: "action" };
     case "preparing":
       return roll.itemsPrepared < roll.itemsTotal
-        ? { label: `جهّز باقي ${roll.itemsTotal - roll.itemsPrepared} صنف`, owner: "التجهيز", tone: "action" }
-        : { label: "أكّد إن التجهيز خلص", owner: "التجهيز", tone: "action" };
+        ? { label: en ? `Prepare the remaining ${roll.itemsTotal - roll.itemsPrepared} item(s)` : `جهّز باقي ${roll.itemsTotal - roll.itemsPrepared} صنف`, owner: PREP, tone: "action" }
+        : { label: en ? "Confirm preparation is finished" : "أكّد إن التجهيز خلص", owner: PREP, tone: "action" };
     case "ready_for_loading":
-      return { label: "ابدأ التحميل", owner: "التحميل", tone: "action" };
+      return { label: en ? "Start loading" : "ابدأ التحميل", owner: LOAD, tone: "action" };
     case "loading":
       return roll.itemsLoaded < roll.itemsTotal
-        ? { label: `حمّل باقي ${roll.itemsTotal - roll.itemsLoaded} صنف`, owner: "التحميل", tone: "action" }
-        : { label: "أكّد إن التحميل خلص", owner: "التحميل", tone: "action" };
+        ? { label: en ? `Load the remaining ${roll.itemsTotal - roll.itemsLoaded} item(s)` : `حمّل باقي ${roll.itemsTotal - roll.itemsLoaded} صنف`, owner: LOAD, tone: "action" }
+        : { label: en ? "Confirm loading is finished" : "أكّد إن التحميل خلص", owner: LOAD, tone: "action" };
     case "loaded":
-      return { label: "أكّد خروج العربية", owner: "التحميل", tone: "action" };
+      return { label: en ? "Confirm the vehicle left" : "أكّد خروج العربية", owner: LOAD, tone: "action" };
     default:
       return { label: "—", owner: "—", tone: "waiting" };
   }
 }
 
 /** One-line shortage summary for a card: "ناقص ٣ كجم في صنفين". */
-export function shortageSummary(order: OrderDTO): string | null {
+export function shortageSummary(order: OrderDTO, locale: "ar" | "en" = "ar"): string | null {
   const stage = stageOf(order.status);
   if (stage === "cancelled") return null;
   const shorts = order.items
@@ -126,6 +139,12 @@ export function shortageSummary(order: OrderDTO): string | null {
   if (shorts.length === 0) return null;
   const units = new Set(shorts.map((s) => s.item.unit));
   const total = shorts.reduce((s, x) => s + x.missing, 0);
+  if (locale === "en") {
+    const amountEn = units.size === 1 ? `${qty(total)} ${[...units][0]}` : `${shorts.length} items`;
+    return shorts.length === 1
+      ? `Short ${qty(shorts[0].missing)} ${shorts[0].item.unit} — ${shorts[0].item.productName}`
+      : `Short ${amountEn} across ${shorts.length} items`;
+  }
   const amount = units.size === 1 ? `${qty(total)} ${[...units][0]}` : `${shorts.length} صنف`;
   return shorts.length === 1
     ? `ناقص ${qty(shorts[0].missing)} ${shorts[0].item.unit} — ${shorts[0].item.productName}`

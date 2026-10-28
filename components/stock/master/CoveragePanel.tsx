@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AlertTriangle, Link2 } from "lucide-react";
 import { useLocale } from "@/lib/locale";
 import { localName, otherLocalName } from "@/lib/locale/names";
 import { useQueryClient } from "@tanstack/react-query";
@@ -9,6 +10,7 @@ import { useToast } from "@/components/ui/Toast";
 import { EmptyState } from "@/components/States";
 import { invalidateStockData } from "@/lib/stockInvalidation";
 import type { CoverageDTO, CoverageRowDTO, StockProductDTO } from "@/lib/stock-client-types";
+import { useDialogs } from "@/components/ui/Dialog";
 
 /**
  * Mapping coverage: every distinct product name orders actually use, and whether the
@@ -74,10 +76,10 @@ export function CoveragePanel({
         ] as const).map(([key, label]) => (
           <button
             key={key}
+            type="button"
             onClick={() => setFilter(key)}
-            className={`px-4 py-2 rounded-full text-sm font-extrabold whitespace-nowrap shrink-0 transition ${
-              filter === key ? "bg-united-green text-white" : "bg-united-dark/5 text-united-dark"
-            }`}
+            aria-pressed={filter === key}
+            className={filter === key ? "filter-pill-active" : "filter-pill-inactive"}
           >
             {label}
           </button>
@@ -121,6 +123,7 @@ function CoverageRow({
   products: StockProductDTO[];
   canManage: boolean;
 }) {
+  const dialogs = useDialogs();
   const qc = useQueryClient();
   const toast = useToast();
   const { t, locale } = useLocale();
@@ -173,8 +176,8 @@ function CoverageRow({
             {t("stock.row.line_info").replace("{linesCount}", String(row.lineCount)).replace("{ordersCount}", String(row.orderCount))}
           </div>
           {row.product && (
-            <div className="text-sm font-bold text-united-green mt-1">
-              ← {localName(row.product, locale)}
+            <div className="mt-1 flex items-center gap-1 text-sm font-semibold text-united-green">
+              <Link2 size={14} className="shrink-0" aria-hidden /> {localName(row.product, locale)}
               {otherLocalName(row.product, locale) ? ` · ${otherLocalName(row.product, locale)}` : ""}
             </div>
           )}
@@ -190,8 +193,8 @@ function CoverageRow({
         </p>
       )}
       {row.status === "ambiguous" && (
-        <p className="text-united-danger font-bold text-sm mt-2">
-          ⚠️ {t("stock.row.needs_resolution")} — {row.candidates.map((c) => localName(c, locale)).join(locale === "en" ? ", " : "، ")}
+        <p className="mt-2 flex items-start gap-1.5 text-sm font-semibold text-united-danger">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" aria-hidden /> {t("stock.row.needs_resolution")} — {row.candidates.map((c) => localName(c, locale)).join(locale === "en" ? ", " : "، ")}
         </p>
       )}
 
@@ -212,8 +215,8 @@ function CoverageRow({
                     {t("coverage.relink")}
                   </button>
                   <button
-                    onClick={() => {
-                      if (!window.confirm(t("coverage.unlink-confirm", { name: row.productName, product: row.product ? localName(row.product, locale) : "" }))) return;
+                    onClick={async () => {
+                      if (!(await dialogs.confirm({ title: t("coverage.unlink-confirm", { name: row.productName, product: row.product ? localName(row.product, locale) : "" }), tone: "danger" }))) return;
                       run(
                         () =>
                           apiFetchDelete("/api/stock/products/mapping", {

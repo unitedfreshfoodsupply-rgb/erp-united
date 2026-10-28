@@ -9,6 +9,7 @@ import { ROLES, ROLE_LABEL, ROLE_LABEL_EN, type Role } from "@/lib/types";
 import { LoadingState, EmptyState } from "@/components/States";
 import { GROUP_LABEL, GROUP_LABEL_EN, type AdminUser, type UserPermissionDetail } from "@/lib/admin-client-types";
 import { useLocale } from "@/lib/locale";
+import { useDialogs } from "@/components/ui/Dialog";
 
 export function UsersPanel({ users }: { users: AdminUser[] }) {
   const { t } = useLocale();
@@ -135,6 +136,7 @@ function UserCard({
   onToggle: () => void;
   isLastActiveSuperAdmin: boolean;
 }) {
+  const dialogs = useDialogs();
   const qc = useQueryClient();
   const toast = useToast();
   const { can } = usePermissions();
@@ -213,17 +215,11 @@ function UserCard({
           <select
             value={user.role}
             disabled={busy || isLastActiveSuperAdmin}
-            onChange={(e) => {
+            onChange={async (e) => {
               const next = e.target.value as Role;
               if (next === user.role) return;
-              if (!window.confirm(t("admin.users.role-confirm", {
-                name: user.name,
-                fromRole: rl[user.role],
-                toRole: rl[next],
-              }))) {
-                e.target.value = user.role;
-                return;
-              }
+              // The select stays on the current role (it is controlled) until this is confirmed.
+              if (!(await dialogs.confirm({ title: t("admin.users.role-confirm", { name: user.name, fromRole: rl[user.role], toRole: rl[next] }) }))) return;
               patch({ role: next }, t("admin.users.role-changed-toast"));
             }}
             className="tap-target rounded-xl border-2 border-united-dark/10 px-3 font-bold text-sm bg-white disabled:opacity-40"
@@ -239,7 +235,7 @@ function UserCard({
         {can("users.disable") && mayManage && (
           <button
             onClick={async () => {
-              if (!window.confirm(t("admin.users.revoke-sessions-confirm", { name: user.name }))) return;
+              if (!(await dialogs.confirm({ title: t("admin.users.revoke-sessions-confirm", { name: user.name }), tone: "danger" }))) return;
               try {
                 await apiPost(`/api/admin/users/${user.id}/sessions/revoke`);
                 await qc.invalidateQueries({ queryKey: ["admin"] });
@@ -256,11 +252,11 @@ function UserCard({
         )}
         {can("users.disable") && mayManage && (
           <button
-            onClick={() => {
+            onClick={async () => {
               const question = user.active
                 ? t("admin.users.deactivate-confirm", { name: user.name })
                 : t("admin.users.activate-confirm", { name: user.name });
-              if (!window.confirm(question)) return;
+              if (!(await dialogs.confirm({ title: question, tone: user.active ? "danger" : "primary" }))) return;
               patch(
                 { active: !user.active },
                 user.active ? t("admin.users.deactivated-toast") : t("admin.users.activated-toast")
@@ -325,6 +321,7 @@ function UserCard({
 /** The whole catalogue for one user: what the role gives, what an override changes,
  * and the resulting effective answer — the same resolution the server performs. */
 function EffectivePermissions({ userId, isSelf, locale }: { userId: string; isSelf: boolean; locale: "ar" | "en" }) {
+  const dialogs = useDialogs();
   const qc = useQueryClient();
   const toast = useToast();
   const { can } = usePermissions();
@@ -387,7 +384,7 @@ function EffectivePermissions({ userId, isSelf, locale }: { userId: string; isSe
                       {p.label}
                       {p.override && (
                         <span
-                          className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded mr-2 ${
+                          className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ms-2 ${
                             p.override === "grant"
                               ? "bg-united-green/10 text-united-green"
                               : "bg-united-danger/10 text-united-danger"
@@ -410,7 +407,7 @@ function EffectivePermissions({ userId, isSelf, locale }: { userId: string; isSe
                       <select
                         value={p.override ?? "role"}
                         disabled={busyKey === p.key}
-                        onChange={(e) => {
+                        onChange={async (e) => {
                           const next = e.target.value === "role" ? null : (e.target.value as "grant" | "revoke");
                           const question =
                             next === null
@@ -418,10 +415,7 @@ function EffectivePermissions({ userId, isSelf, locale }: { userId: string; isSe
                               : next === "grant"
                               ? t("admin.users.grant-override-confirm", { label: p.label })
                               : t("admin.users.revoke-override-confirm", { label: p.label });
-                          if (!window.confirm(question)) {
-                            e.target.value = p.override ?? "role";
-                            return;
-                          }
+                          if (!(await dialogs.confirm({ title: question, tone: next === "revoke" ? "danger" : "primary" }))) return;
                           setOverride(p.key, next);
                         }}
                         className="rounded-lg border-2 border-united-dark/10 px-2 py-1 text-xs font-bold bg-white disabled:opacity-40"

@@ -44,7 +44,7 @@ export function StockDashboard() {
           <Link
             key={l.href}
             href={l.href}
-            className="px-4 py-2 rounded-full text-sm font-extrabold whitespace-nowrap shrink-0 bg-united-dark/5 text-united-dark hover:bg-united-dark/10"
+            className="filter-pill-inactive"
           >
             {l.label}
           </Link>

@@ -5,12 +5,23 @@ import { useToast } from "@/components/ui/Toast";
 import { playChime } from "@/lib/sound";
 import type { OrderDTO } from "@/lib/client-types";
 import { isStalledInProgress } from "@/lib/orderPresentation";
+import { useLocale } from "@/lib/locale";
+
+/** The toast text in the operator's language; read through a ref so the polling effects
+ * below keep their [orders] dependency and still use the current locale. */
+function useAlertText() {
+  const { t } = useLocale();
+  const ref = useRef(t);
+  ref.current = t;
+  return (key: string, o: OrderDTO) => ref.current(key, { customer: o.customerName, number: o.orderNumber });
+}
 
 /** Notify (toast + chime) when an order this board didn't know about shows up —
  * e.g. a brand-new order arriving from n8n while the tablet just sits there. The
  * first snapshot after mount never alerts (nothing is "new" on page load). */
 export function useNewOrderAlert(orders: OrderDTO[] | undefined) {
   const toast = useToast();
+  const text = useAlertText();
   const seenIds = useRef<Set<string> | null>(null);
 
   useEffect(() => {
@@ -19,7 +30,7 @@ export function useNewOrderAlert(orders: OrderDTO[] | undefined) {
     if (seenIds.current) {
       for (const o of orders) {
         if (!seenIds.current.has(o.id)) {
-          toast.show(`📦 أوردر جديد: ${o.customerName} (${o.orderNumber})`, {
+          toast.show(text("alerts.new-order", o), {
             kind: "info",
             href: `/orders/${o.id}`,
           });
@@ -36,6 +47,7 @@ export function useNewOrderAlert(orders: OrderDTO[] | undefined) {
  * the loader's key cue that something new needs their attention. */
 export function useReadyForLoadingAlert(orders: OrderDTO[] | undefined) {
   const toast = useToast();
+  const text = useAlertText();
   const prevStatus = useRef<Map<string, string> | null>(null);
 
   useEffect(() => {
@@ -45,7 +57,7 @@ export function useReadyForLoadingAlert(orders: OrderDTO[] | undefined) {
       for (const o of orders) {
         const before = prevStatus.current.get(o.id);
         if (before && before !== "ready_for_loading" && o.status === "ready_for_loading") {
-          toast.show(`🟢 جاهز للتحميل: ${o.customerName} (${o.orderNumber})`, {
+          toast.show(text("alerts.ready-for-loading", o), {
             kind: "info",
             href: `/orders/${o.id}`,
           });
@@ -62,6 +74,7 @@ export function useReadyForLoadingAlert(orders: OrderDTO[] | undefined) {
  * just got flagged and someone has to approve it before work can continue. */
 export function useAttentionAlert(orders: OrderDTO[] | undefined) {
   const toast = useToast();
+  const text = useAlertText();
   const prevFlag = useRef<Map<string, boolean> | null>(null);
 
   useEffect(() => {
@@ -71,7 +84,7 @@ export function useAttentionAlert(orders: OrderDTO[] | undefined) {
       for (const o of orders) {
         const before = prevFlag.current.get(o.id);
         if (o.needsReview && before === false) {
-          toast.show(`🔴 محتاج مراجعتك: ${o.customerName} (${o.orderNumber})`, {
+          toast.show(text("alerts.needs-review", o), {
             kind: "error",
             href: `/orders/${o.id}`,
           });
@@ -90,6 +103,7 @@ export function useAttentionAlert(orders: OrderDTO[] | undefined) {
  * on every poll tick while it stays stalled. */
 export function useStalledAlert(orders: OrderDTO[] | undefined, stalledMinutes?: number) {
   const toast = useToast();
+  const text = useAlertText();
   const prevFlag = useRef<Map<string, boolean> | null>(null);
 
   useEffect(() => {
@@ -100,7 +114,7 @@ export function useStalledAlert(orders: OrderDTO[] | undefined, stalledMinutes?:
         const isStalled = current.get(o.id) ?? false;
         const before = prevFlag.current.get(o.id);
         if (isStalled && before === false) {
-          toast.show(`⏸️ متوقف من فترة: ${o.customerName} (${o.orderNumber})`, {
+          toast.show(text("alerts.stalled", o), {
             kind: "error",
             href: `/orders/${o.id}`,
           });

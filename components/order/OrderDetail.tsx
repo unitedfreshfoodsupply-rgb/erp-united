@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AlertTriangle, ArrowLeft, Clock, OctagonAlert, StickyNote } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,8 +21,8 @@ import { ErrorState } from "@/components/States";
 import { LiveIndicator } from "@/components/ui/LiveIndicator";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useToast } from "@/components/ui/Toast";
-import { orderUrgency, URGENCY_LABEL, STATUS_LABEL } from "@/lib/orderPresentation";
-import { nextAction, rollUpQuantities, stageOf, STATUS_MEANING } from "@/lib/orderSummary";
+import { orderUrgency, STATUS_LABEL } from "@/lib/orderPresentation";
+import { nextAction, rollUpQuantities, stageOf, STATUS_MEANING, STATUS_MEANING_EN } from "@/lib/orderSummary";
 import { deliverySlot, qty as qtyLabel, orDash } from "@/lib/format";
 import { ORDER_STATUSES } from "@/lib/types";
 import type { OrderStatus } from "@/lib/types";
@@ -150,7 +151,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
 
   const roll = rollUpQuantities(order.items);
   const stage = stageOf(order.status);
-  const action = nextAction(order);
+  const action = nextAction(order, locale === "en" ? "en" : "ar");
   const preparedCount = order.items.filter((i) => i.preparationStatus === "done").length;
   const loadedCount = order.items.filter((i) => i.loadingStatus === "done").length;
   const allPrepared = preparedCount === order.items.length;
@@ -348,17 +349,17 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         <Link
           href={backHref}
           dir="auto"
-          className="inline-flex items-center gap-1 text-united-muted font-bold hover:text-united-dark"
+          className="inline-flex min-h-[44px] items-center gap-1.5 font-medium text-united-muted hover:text-united-dark"
         >
-          <span>→</span> {t("orders.back")}
+          <ArrowLeft size={16} className="rtl:rotate-180" aria-hidden /> {t("orders.back")}
         </Link>
         <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
       </div>
 
       {isError && (
-        <div className="card p-3 mb-3 border-r-4 border-united-warn flex items-center justify-between gap-2">
-          <p className="text-sm font-bold text-united-warn">
-            ⚠️ {t("orders.error.refresh")}
+        <div className="card p-3 mb-3 border-s-4 !border-s-united-warn flex items-center justify-between gap-2" role="alert">
+          <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-united-warn">
+            <AlertTriangle size={16} aria-hidden /> {t("orders.error.refresh")}
           </p>
           <button onClick={() => refetch()} className="btn-secondary text-xs px-3 shrink-0">
             {t("orders.action.retry")}
@@ -373,10 +374,10 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           <StatusBadge status={order.status} />
         </div>
         {/* What the stage actually means, not just its name. */}
-        <p className="text-sm font-bold text-united-muted mb-2">{STATUS_MEANING[order.status]}</p>
+        <p className="text-sm font-bold text-united-muted mb-2">{(locale === "en" ? STATUS_MEANING_EN : STATUS_MEANING)[order.status]}</p>
 
         <p className="text-united-green font-bold mb-2">
-          {t("orders.delivery_slot")} {deliverySlot(order.deliveryDate, order.deliveryTime)}
+          {t("orders.delivery_slot")} {deliverySlot(order.deliveryDate, order.deliveryTime, locale === "en" ? "en" : "ar")}
         </p>
 
         {/* Reference data: identifiers are secondary to the operational facts above. */}
@@ -422,7 +423,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           </div>
         </div>
 
-        {order.notes && <p className="text-united-dark/70 text-sm mb-1">📝 {order.notes}</p>}
+        {order.notes && <p className="mb-1 flex items-start gap-1.5 text-sm text-united-dark/80"><StickyNote size={15} className="mt-0.5 shrink-0 text-united-muted" aria-hidden />{order.notes}</p>}
         {order.vehicle && (
           <p className="text-united-dark/70 text-sm mb-1">
             {t("orders.vehicle_label")} {order.vehicle}
@@ -474,16 +475,18 @@ export function OrderDetail({ orderId }: { orderId: string }) {
 
       {(urgency === "late" || urgency === "soon") && (
         <p
-          className={`font-bold rounded-xl p-3 mt-3 ${
-            urgency === "late" ? "bg-red-50 text-united-danger" : "bg-amber-50 text-united-warn"
+          className={`mt-3 flex items-center gap-2 rounded-lg border p-3 font-semibold ${
+            urgency === "late" ? "border-[#F5C6C1] bg-[#FFF7F6] text-united-danger" : "border-[#F3D9AE] bg-[#FFFBF3] text-united-warn"
           }`}
         >
-          {URGENCY_LABEL[urgency]}
+          <Clock size={18} aria-hidden />
+          {urgency === "late" ? t("order.past-due") : t("order.due-soon")}
         </p>
       )}
 
       {order.needsReview && (
-        <p className="bg-red-50 text-united-danger font-bold rounded-xl p-3 mt-3">
+        <p className="mt-3 flex items-start gap-2 rounded-lg border border-[#F5C6C1] bg-[#FFF7F6] p-3 font-semibold text-united-danger" role="alert">
+          <OctagonAlert size={18} className="mt-0.5 shrink-0" aria-hidden />
           {t("orders.review_needed")}
         </p>
       )}

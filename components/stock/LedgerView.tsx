@@ -12,6 +12,7 @@ import { fmtKg } from "@/lib/stockPresentation";
 import { todayLocalISO } from "@/lib/localDate";
 import type { MovementDTO, StockBalanceDTO } from "@/lib/stock-client-types";
 import { useLocale } from "@/lib/locale";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { localName } from "@/lib/locale/names";
 
 export function LedgerView() {
@@ -30,34 +31,30 @@ export function LedgerView() {
   const selected = stock.find((s) => s.productId === productId);
 
   return (
-    <div className="p-4 max-w-3xl mx-auto pb-10 flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-extrabold text-united-dark">{t("ledger.title")}</h1>
-        <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
-      </div>
+    <div className="page-narrow">
+      <PageHeader title={t("ledger.title")} description={t("ledger.note")} actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />} />
 
-      <p className="text-xs font-bold text-united-muted -mt-2">
-        {t("ledger.note")}
-      </p>
-
+      {/* One labelled picker instead of a chip per product: the list grows with the catalogue. */}
       {stock.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 pb-1">
-          <FilterChip active={productId === ""} onClick={() => setProductId("")} label={t("ledger.all")} />
-          {stock.map((s) => (
-            <FilterChip
-              key={s.productId}
-              active={productId === s.productId}
-              onClick={() => setProductId(s.productId)}
-              label={`${localName({ name: s.productName, nameAr: s.productNameAr }, locale)} · ${fmtKg(s.balanceKg)}`}
-            />
-          ))}
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex min-w-[14rem] flex-1 flex-col gap-1">
+            <span className="field-label">{t("ledger.filter-product")}</span>
+            <select className="field" value={productId} onChange={(e) => setProductId(e.target.value)}>
+              <option value="">{t("ledger.all")}</option>
+              {stock.map((s) => (
+                <option key={s.productId} value={s.productId}>
+                  {localName({ name: s.productName, nameAr: s.productNameAr }, locale)} · {fmtKg(s.balanceKg)}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       )}
 
       {selected && (
         <div className="card p-4 flex items-center justify-between">
-          <span className="font-extrabold text-united-dark">{t("ledger.balance-of", { name: localName({ name: selected.productName, nameAr: selected.productNameAr }, locale) })}</span>
-          <span dir="ltr" className="text-2xl font-extrabold text-united-green">
+          <span className="font-semibold text-united-dark">{t("ledger.balance-of", { name: localName({ name: selected.productName, nameAr: selected.productNameAr }, locale) })}</span>
+          <span dir="ltr" className="text-2xl font-bold text-united-green">
             {fmtKg(selected.balanceKg)} {selected.unit}
           </span>
         </div>
@@ -65,7 +62,7 @@ export function LedgerView() {
 
       <AdjustmentForm products={stock} />
 
-      <section className="card p-4">
+      <section className="card px-4 py-1">
         {isLoading && <LoadingState />}
         {isError && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
         {!isLoading && !isError && (data?.movements.length ?? 0) === 0 && (
@@ -81,20 +78,6 @@ export function LedgerView() {
   );
 }
 
-function FilterChip({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`px-4 py-2 rounded-full text-sm font-extrabold whitespace-nowrap shrink-0 transition ${
-        active ? "bg-united-green text-white" : "bg-united-dark/5 text-united-dark hover:bg-united-dark/10"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
 
 /**
  * Manual stock correction — a stock count that disagrees with the ledger, spoilage, a

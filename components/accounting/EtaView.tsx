@@ -8,9 +8,11 @@ import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { intlLocale } from "@/lib/format";
 import type { TranslationKey } from "@/lib/locale/dictionary";
 import { localName } from "@/lib/locale/names";
+import { useDialogs } from "@/components/ui/Dialog";
 
 /**
  * E-invoicing (ETA): which invoices went to the Tax Authority and what came back, what
@@ -48,8 +50,8 @@ export function EtaView() {
   const [tab, setTab] = useState<"invoices" | "credit-notes" | "setup">("invoices");
   const q = useQuery({ queryKey: ["eta"], queryFn: () => apiFetch<{ eta: Overview }>("/api/eta").then((r) => r.eta) });
   return (
-    <div className="p-4 max-w-5xl mx-auto pb-10 flex flex-col gap-4">
-      <h1 className="text-2xl font-extrabold text-united-dark">{t("eta.title")}</h1>
+    <div className="page-container">
+      <PageHeader title={t("eta.title")} />
       {q.isLoading ? <LoadingState /> : q.isError || !q.data ? <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} /> : (
         <>
           <section className={`card p-3 text-sm font-bold ${q.data.config.configured ? "text-united-green" : "text-united-warn"}`}>
@@ -106,6 +108,7 @@ function CreditNotes({ data }: { data: Overview }) {
 }
 
 function InvoiceEta({ id, base = "invoices" }: { id: string; base?: "invoices" | "credit-notes" }) {
+  const dialogs = useDialogs();
   const { t, locale } = useLocale();
   const { can } = usePermissions();
   const toast = useToast();
@@ -146,12 +149,13 @@ function InvoiceEta({ id, base = "invoices" }: { id: string; base?: "invoices" |
         {canSend && <button type="button" className="btn-primary" disabled={busy || errors.length > 0} onClick={() => act("submit")}>{status === "pending" ? t("eta.submit-btn-send") : t("eta.submit-btn-resend")}</button>}
         {can("accounting.eta.manage") && eta?.uuid && <button type="button" className="btn-secondary" disabled={busy} onClick={() => act("refresh")}>{t("eta.refresh-btn")}</button>}
         {can("accounting.eta.manage") && (status === "unknown" || status === "submitting") && (
-          <button type="button" className="btn-secondary" disabled={busy} onClick={() => {
-            const uuid = window.prompt(t("eta.uuid-prompt"));
+          <button type="button" className="btn-secondary" disabled={busy} onClick={async () => {
+            // Step 1: the UUID found on the ETA portal, or nothing if the portal has no such document.
+            const uuid = await dialogs.prompt({ title: t("eta.uuid-prompt"), label: "UUID", inputDir: "ltr" });
             if (uuid === null) return;
-            if (uuid.trim()) return void act("reconcile", { uuid: uuid.trim() });
-            const reason = window.prompt(t("eta.not-found-confirm-prompt"));
-            if (reason?.trim()) void act("reconcile", { not_received: true, reason: reason.trim() });
+            if (uuid) return void act("reconcile", { uuid });
+            const reason = await dialogs.prompt({ title: t("eta.not-found-confirm-prompt"), label: t("ui.reason-label"), required: true, multiline: true });
+            if (reason) void act("reconcile", { not_received: true, reason });
           }}>{t("eta.manual-reconcile-btn")}</button>
         )}
       </div>
