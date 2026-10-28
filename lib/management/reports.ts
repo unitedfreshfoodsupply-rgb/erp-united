@@ -214,8 +214,6 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
     financing: { lines: [], total: "0.00" },
   };
 
-  let netCashClasses: Prisma.Decimal[] = [];
-
   for (const [accountId, delta] of changes) {
     const a = accounts.get(accountId);
     if (!a) continue;

@@ -44,7 +44,6 @@ type ServiceLine = { id: string; lineNo: number; accountId: string; account: { c
 type Bill = Omit<BillRow, "lineCount"> & { currencyCode: string; notes: string | null; cancelReason: string | null; expectedNet: string; net: string; taxTotal: string; debited: string; approvalId: string | null; createdBy: string; postedBy: string | null; approvedBy: string | null; version: number; lines: BillLine[]; serviceLines: ServiceLine[]; debitNotes: { id: string; number: string; issueDate: string; reason: string; total: string; createdBy: string }[] };
 type Billable = { intakeId: string; receiptNumber: string; receivedDate: string; product: { id: string; name: string; unit: string }; poNumber: string | null; goodQty: string; expectedUnitPrice: string | null; priceSource: string | null; expectedNet: string | null; taxCode: string; taxRate: string };
 
-const emptyT = () => "";
 
 export function BillsView({ initialBillId }: { initialBillId?: string | null }) {
   const { t } = useLocale();

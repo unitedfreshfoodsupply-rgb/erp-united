@@ -294,7 +294,7 @@ async function refreshEta(kind: EtaKind, id: string, actor: ServiceActor, deps: 
       longId: remote.longId ?? cur.longId,
       lastResponse: remote.raw as Prisma.InputJsonValue,
       ...(to === "valid" ? { acceptedAt: cur.acceptedAt ?? now, lastError: Prisma.DbNull } : {}),
-      ...(to === "invalid" || to === "rejected" ? { rejectedAt: now, lastError: ((remote.raw as any)?.validationResults ?? remote.raw) as Prisma.InputJsonValue } : {}),
+      ...(to === "invalid" || to === "rejected" ? { rejectedAt: now, lastError: ((remote.raw as { validationResults?: unknown } | null)?.validationResults ?? remote.raw) as Prisma.InputJsonValue } : {}),
       ...(to === "cancelled" ? { cancelledAt: now } : {}),
     }, "refresh", { remoteStatus: remote.status }, actor);
   });
@@ -355,7 +355,7 @@ export async function saveIssuerProfile(input: unknown, actor: ServiceActor) {
   return inTx(async (tx) => {
     const company = await tx.company.findFirst({ where: { active: true }, orderBy: { createdAt: "asc" } });
     if (!company) throw new ApiError(409, "بيانات الشركة مش متسجلة");
-    const data = { etaBranchId: v.eta_branch_id ?? null, activityCode: v.activity_code ?? null, ...Object.fromEntries(Object.keys(addressInput).map((k) => [k, (v as any)[k] ?? null])), updatedById: actor.id, updatedBy: actor.name };
+    const data = { etaBranchId: v.eta_branch_id ?? null, activityCode: v.activity_code ?? null, ...Object.fromEntries(Object.keys(addressInput).map((k) => [k, (v as Record<string, unknown>)[k] ?? null])), updatedById: actor.id, updatedBy: actor.name };
     const row = await tx.etaIssuerProfile.upsert({ where: { companyId: company.id }, create: { companyId: company.id, ...data }, update: { ...data, version: { increment: 1 } } });
     await auditSetup(tx, actor, row.id, "issuer", `${data.etaBranchId ?? "—"} · ${data.activityCode ?? "—"}`);
     return row;
@@ -368,7 +368,7 @@ export async function saveReceiverProfile(customerId: string, input: unknown, ac
   return inTx(async (tx) => {
     const c = await tx.customer.findUnique({ where: { id: customerId }, select: { id: true, code: true } });
     if (!c) throw new ApiError(404, "العميل مش موجود");
-    const data = { receiverType: v.receiver_type ?? null, receiverId: v.receiver_id ?? null, ...Object.fromEntries(Object.keys(addressInput).map((k) => [k, (v as any)[k] ?? null])), updatedById: actor.id, updatedBy: actor.name };
+    const data = { receiverType: v.receiver_type ?? null, receiverId: v.receiver_id ?? null, ...Object.fromEntries(Object.keys(addressInput).map((k) => [k, (v as Record<string, unknown>)[k] ?? null])), updatedById: actor.id, updatedBy: actor.name };
     const row = await tx.etaReceiverProfile.upsert({ where: { customerId }, create: { customerId, ...data }, update: { ...data, version: { increment: 1 } } });
     await auditSetup(tx, actor, row.id, "receiver", `${c.code} · ${data.receiverType ?? "تلقائي"}`);
     return row;

@@ -43,7 +43,7 @@ type CustomerDetail = CustomerRow & {
 const fail = (toast: ReturnType<typeof useToast>, err: unknown) => toast.show(err instanceof ApiClientError ? err.message : "An error occurred", "error");
 
 export function CustomersView() {
-  const { locale, t } = useLocale();
+  const { t } = useLocale();
   const [tab, setTab] = useState<"list" | "unmapped" | "new" | "order" | "prices" | "quotations" | "invoices">("list");
   const [openId, setOpenId] = useState<string | null>(null);
   const { can } = usePermissions();
@@ -119,7 +119,7 @@ function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
                 <span className="text-xs font-bold text-united-muted" dir="ltr">{c.code}</span>
               </div>
               <div className="flex flex-wrap gap-2 text-xs font-bold text-united-muted">
-                <span>{t(`sales.type.${c.type}` as any) ?? c.type}</span>
+                <span>{t(`sales.type.${c.type}`) ?? c.type}</span>
                 {c.area || c.city ? <span>· {[c.area, c.city].filter(Boolean).join(locale === "en" ? ", " : "، ")}</span> : null}
                 <span>· {c.paymentTermsDays ? `${t("sales.label.payment-terms-prefix")}${c.paymentTermsDays} ${t("sales.label.day")}` : t("sales.label.payment-cash")}</span>
                 <span>· {c._count.orders} {t("sales.label.orders")}</span>

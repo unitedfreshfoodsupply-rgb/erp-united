@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import type { Prisma } from "@prisma/client";
 import { asText } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
@@ -99,7 +100,7 @@ function assertMayManage(actor: AuthContext, target: { role: string }) {
  * done before the write could be raced by a second administrator doing the same thing.
  */
 async function assertSuperAdminSurvives(tx: {
-  user: { count: (args: any) => Promise<number> };
+  user: { count: (args: { where: Prisma.UserWhereInput }) => Promise<number> };
 }) {
   const remaining = await tx.user.count({ where: { role: ABSOLUTE_ROLE, active: true } });
   if (remaining === 0) {

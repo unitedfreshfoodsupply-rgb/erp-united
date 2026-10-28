@@ -19,8 +19,8 @@ const key = (u: string) => u.trim().toLowerCase();
 
 // IP-wide lockout: same window/lockout shape, different threshold. It stops
 // credential stuffing that spreads guesses over many usernames — no single
-// username trips MAX_ATTEMPTS, but the address still fires. Threshold 0 = off.
-const IP_LOCKOUT_THRESHOLD = 20;
+// username trips MAX_ATTEMPTS, but the address still fires. The threshold is the
+// auth.login_ip_lockout_threshold setting (0 = off).
 const IP_LOCKOUT_WINDOW_MS = 15 * 60_000;
 const IP_LOCKOUT_MS = 15 * 60_000;
 const ipKey = (ip: string | null | undefined) => (ip ? ip.trim() : "");

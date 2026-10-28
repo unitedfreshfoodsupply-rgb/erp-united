@@ -293,7 +293,6 @@ export async function calculatePayroll(tx: Tx, run: { id: string; period: string
 
     // ── Net, and recovery of what was paid ahead ──
     const employeeDeductions = sum("deduction");
-    const employerContributions = sum("employer_contribution");
     const netEntitlement = gross.minus(employeeDeductions);
     const onAcc = onAccountBy.get(empId) ?? ZERO;
     const recovery = onAcc.plus(slip.advanceRecoveryRequested);

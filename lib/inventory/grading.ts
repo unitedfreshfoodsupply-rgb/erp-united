@@ -133,7 +133,6 @@ export function computeGradingCosts(input: GradingCostsInput): GradingCostsResul
   const nrvGood = nonZeroQty(input.goodQty) ? input.goodQty.times(input.goodPrice!) : ZERO;
   const nrvGb   = nonZeroQty(input.gradeBQty) ? input.gradeBQty.times(input.gradeBPrice!) : ZERO;
   const nrvDenom = nrvGood.plus(nrvGb);
-  const nrvDenomNonZero = nrvDenom.gt(0) ? nrvDenom : D(1); // safeguard: both zero → proportional
 
   // Allocate k-1 outputs exactly; the k-th (Good, the largest) gets the residual.
   // The residual rule guarantees exact conservation to 4 dp.

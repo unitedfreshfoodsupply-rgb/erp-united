@@ -258,8 +258,8 @@ export async function createOrder(
         timeout: 20_000,
       });
       break;
-    } catch (err: any) {
-      if (err?.code === "P2002" && attempt < 2) continue; // orderNumber collision, retry
+    } catch (err) {
+      if (isPrismaCode(err, "P2002") && attempt < 2) continue; // orderNumber collision, retry
       throw err;
     }
   }
@@ -288,8 +288,12 @@ function assertVersion(current: number, expected: number | undefined, what: stri
  * turns it into a real compare-and-swap: the second writer matches no row and gets the
  * same 409 the caller already handles, so the API contract is unchanged.
  */
-function isNoRowMatched(err: any) {
-  return err?.code === "P2025";
+function isNoRowMatched(err: unknown) {
+  return isPrismaCode(err, "P2025");
+}
+
+function isPrismaCode(err: unknown, code: string) {
+  return typeof err === "object" && err !== null && (err as { code?: unknown }).code === code;
 }
 
 async function casOrderUpdate<T>(
@@ -841,7 +845,7 @@ export async function editOrder(
   const changes: [string, unknown, unknown][] = [];
   (Object.keys(fields) as (keyof typeof fields)[]).forEach((key) => {
     const val = fields[key];
-    const prev = (order as any)[key];
+    const prev = (order as Record<string, unknown>)[key];
     // Treat empty string and null/undefined as equivalent "blank" so clearing an
     // already-blank field (e.g. notes) doesn't create a no-op audit entry.
     if (val !== undefined && (val || "") !== (prev || "")) {
@@ -1556,7 +1560,7 @@ export async function dailyOperationsSummary() {
   let exceptionsActive = 0;
   let exceptionsInformational = 0;
   for (const o of allOpenOrCancelledOrders) {
-    const cat = exceptionCategory(o as any);
+    const cat = exceptionCategory({ ...o, status: o.status as OrderStatus });
     if (cat === "active") exceptionsActive++;
     else if (cat === "informational") exceptionsInformational++;
   }

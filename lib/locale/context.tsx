@@ -37,7 +37,7 @@ export const LocaleContext = createContext<LocaleContextValue>({
   setLocale: () => {},
   toggleLocale: () => {},
   t: (key) => {
-    const dict = DICTIONARY as any;
+    const dict: Record<string, { ar: string; en: string } | undefined> = DICTIONARY;
     return dict[key]?.ar ?? key;
   },
   dir: "rtl",
@@ -82,7 +82,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
 
   const t = useCallback(
     (key: string, params?: Record<string, string | number>): string => {
-      const entry = (DICTIONARY as any)[key];
+      const entry = (DICTIONARY as Record<string, { ar: string; en: string } | undefined>)[key];
       if (!entry) return key;
       const arText = entry.ar;
       const enText = entry.en;

@@ -1,7 +1,5 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
-const D = (v: Prisma.Decimal.Value) => new Prisma.Decimal(v);
 
 /**
  * Order item statuses that are "in play" for the daily sheet.

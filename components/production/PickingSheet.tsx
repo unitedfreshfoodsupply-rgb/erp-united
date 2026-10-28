@@ -32,9 +32,6 @@ export function PickingSheet() {
   const today = todayLocalISO();
   const [date, setDate] = useState(today);
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
-  const [expandedAllocations, setExpandedAllocations] = useState<Set<string>>(
-    new Set()
-  );
   const [filterPrepStatus, setFilterPrepStatus] = useState<string>("all");
 
   const { data, isLoading, isError, error, refetch, dataUpdatedAt } =
@@ -74,15 +71,6 @@ export function PickingSheet() {
       };
     })
     .filter((l): l is NonNullable<typeof l> => l !== null);
-
-  const toggleAllocation = (id: string) => {
-    setExpandedAllocations((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
 
   return (
     <div className="p-4 max-w-4xl mx-auto pb-16 print:pb-0">
@@ -203,11 +191,6 @@ export function PickingSheet() {
           const allocationSet = new Set(
             line.allocations.map((a) => a.orderId)
           );
-          const allExpanded =
-            isExpanded &&
-            Array.from(line.allocations).every((a) =>
-              expandedAllocations.has(a.orderId)
-            );
 
           return (
             <div

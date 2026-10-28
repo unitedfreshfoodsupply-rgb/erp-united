@@ -215,7 +215,6 @@ async function previewRows(kind: ImportKind, rows: CsvRecord[], body: Record<str
         const ref = r.values.external_ref.trim();
         const refCustomer = refToCustomer.get(ref);
         if (refCustomer) {
-          const refNorm = normalizeProductName(refCustomer.name);
           if (!existing || nameOwner.get(existing)?.id !== refCustomer.id) {
             results[i].errors.push(`external_ref "${ref}" مستخدم لعميل آخر (${refCustomer.code})`);
           }

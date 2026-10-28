@@ -46,7 +46,6 @@ export type ValidatedItem = {
  * left unmapped for a human, never resolved by picking a candidate.
  */
 export async function validateProducts(items: RawIncomingItem[]): Promise<ValidatedItem[]> {
-  const canonicalIds = [...new Set(items.map((i) => i.stock_product_id).filter((id): id is string => Boolean(id)))];
   const namesToResolve = items.filter((i) => !i.stock_product_id).map((i) => i.product_name ?? "");
   const resolutions = await resolveProductNames(namesToResolve);
   const matchedIds = items.flatMap((item) => {

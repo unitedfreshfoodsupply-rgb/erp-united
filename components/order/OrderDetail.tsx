@@ -26,7 +26,7 @@ import { nextAction, rollUpQuantities, stageOf, STATUS_MEANING, STATUS_MEANING_E
 import { deliverySlot, qty as qtyLabel, orDash } from "@/lib/format";
 import { ORDER_STATUSES } from "@/lib/types";
 import type { OrderStatus } from "@/lib/types";
-import { invalidateOrderData, invalidateDerivedOrderData } from "@/lib/queryInvalidation";
+import { invalidateDerivedOrderData } from "@/lib/queryInvalidation";
 import { applyOrderToCache, applyOrderItemToCache, cachedOrderFromLists } from "@/lib/orderCache";
 import { OrderDetailSkeleton } from "@/components/order/OrderDetailSkeleton";
 import { useOperationalSettings } from "@/lib/use-operational-settings";

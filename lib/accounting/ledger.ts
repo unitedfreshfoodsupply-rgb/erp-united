@@ -523,21 +523,22 @@ export async function balanceSheet(asOf: string, openingFrom?: string) {
     WHERE e."date" <= ${asOf}
     GROUP BY l."accountId"`;
   const accounts = new Map((await prisma.account.findMany()).map((a) => [a.id, a]));
-  const groups: Record<string, any[]> = { asset: [], liability: [], equity: [], revenue: [], expense: [] };
+  type StatementLine = { code: string; name: string; nameAr: string; nameEn?: string; type: string; amount: string };
+  const groups: Record<string, StatementLine[]> = { asset: [], liability: [], equity: [], revenue: [], expense: [] };
   const signedSums = { asset: D(0), liability: D(0), equity: D(0), revenue: D(0), expense: D(0) };
 
   for (const r of rows) {
     const a = accounts.get(r.accountId);
     if (!a) continue;
     const signed = D(r.closing);
-    const line: Record<string, any> = { code: a.code, name: a.nameAr, nameAr: a.nameAr, nameEn: a.name, type: a.type, amount: signed.abs().toFixed(2) };
+    const line: StatementLine = { code: a.code, name: a.nameAr, nameAr: a.nameAr, nameEn: a.name, type: a.type, amount: signed.abs().toFixed(2) };
     if (groups[a.type]) {
       groups[a.type].push(line);
       signedSums[a.type as "asset" | "liability" | "equity" | "revenue" | "expense"] = signedSums[a.type as "asset" | "liability" | "equity" | "revenue" | "expense"].plus(signed);
     }
   }
   for (const key of Object.keys(groups)) {
-    groups[key].sort((a: any, b: any) => a.code.localeCompare(b.code));
+    groups[key].sort((a, b) => a.code.localeCompare(b.code));
   }
 
   // Balance sheet totals from signed sums (not from group amounts, which are abs).

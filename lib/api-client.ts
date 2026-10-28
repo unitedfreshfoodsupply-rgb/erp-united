@@ -10,7 +10,15 @@ function storedLocale(): string | null {
   }
 }
 
-export async function apiFetch<T = any>(path: string, init?: RequestInit): Promise<T> {
+/**
+ * Response type when a call site does not name one. Kept as `any` deliberately: the
+ * server is the source of truth for response shapes and most screens read them through
+ * React Query without a local type. Call sites that need checking pass `T` explicitly.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Untyped = any;
+
+export async function apiFetch<T = Untyped>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     const headers = new Headers(init?.headers);
@@ -54,16 +62,16 @@ export async function apiFetch<T = any>(path: string, init?: RequestInit): Promi
   return data as T;
 }
 
-export const apiPost = <T = any>(path: string, body?: unknown) =>
+export const apiPost = <T = Untyped>(path: string, body?: unknown) =>
   apiFetch<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined });
 
-export const apiPostForm = <T = any>(path: string, body: FormData) =>
+export const apiPostForm = <T = Untyped>(path: string, body: FormData) =>
   apiFetch<T>(path, { method: "POST", body });
 
-export const apiPatch = <T = any>(path: string, body?: unknown) =>
+export const apiPatch = <T = Untyped>(path: string, body?: unknown) =>
   apiFetch<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined });
 
-export const apiPut = <T = any>(path: string, body?: unknown) =>
+export const apiPut = <T = Untyped>(path: string, body?: unknown) =>
   apiFetch<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined });
 
 /**

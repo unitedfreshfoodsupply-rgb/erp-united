@@ -8,7 +8,6 @@
 import { type NextRequest } from "next/server";
 import { type Locale } from "./context";
 
-const STORAGE_KEY = "united_locale";
 
 export function getLocale(req: NextRequest): Locale {
   const header = req.headers.get("accept-language");

@@ -5,7 +5,6 @@ import { todayLocalISO } from "@/lib/localDate";
 import { customerStatement } from "@/lib/sales/invoicing";
 import { toCsv, csvResponse } from "@/lib/core/csv-export";
 
-const COLS = ["date", "kind", "number", "reference", "debit", "credit", "balance"] as const;
 
 /** Excel-safe CSV export of a customer statement — same data as the JSON view. */
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {

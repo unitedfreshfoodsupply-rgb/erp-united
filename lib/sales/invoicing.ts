@@ -626,8 +626,8 @@ export async function agingReport(asOf = todayLocalISO()) {
     select: { id: true, number: true, customerId: true, dueDate: true, total: true, customer: { select: { code: true, name: true, nameAr: true } } },
   });
   const credits = await openAmounts(prisma, invs.map((i) => i.id));
-  const buckets = ["current", "d1_30", "d31_60", "d61_90", "d90_plus"] as const;
-  const byCustomer = new Map<string, { customer: { id: string; code: string; name: string; nameAr?: string | null; nameEn?: string | null }; total: Prisma.Decimal } & Record<(typeof buckets)[number], Prisma.Decimal>>();
+  type Bucket = "current" | "d1_30" | "d31_60" | "d61_90" | "d90_plus";
+  const byCustomer = new Map<string, { customer: { id: string; code: string; name: string; nameAr?: string | null; nameEn?: string | null }; total: Prisma.Decimal } & Record<Bucket, Prisma.Decimal>>();
   const day = (iso: string) => Date.parse(`${iso}T00:00:00Z`) / 86_400_000;
   // A credit note on an invoice that was already paid leaves it below zero: that is credit
   // the customer holds, on account like unapplied money — never dropped from the aging.
@@ -699,7 +699,7 @@ export async function agingReport(asOf = todayLocalISO()) {
   }
   for (const [id, u] of unapplied) byCustomer.get(id)!.total = byCustomer.get(id)!.total.minus(u);
   const rows = [...byCustomer.values()].sort((a, b) => Number(b.total.minus(a.total)));
-  const sum = (k: (typeof buckets)[number] | "total") => rows.reduce((s, r) => s.plus(r[k]), D(0)).toFixed(2);
+  const sum = (k: Bucket | "total") => rows.reduce((s, r) => s.plus(r[k]), D(0)).toFixed(2);
   return {
     asOf,
     rows: rows.map((r) => ({ customer: r.customer, unapplied: (unapplied.get(r.customer.id) ?? D(0)).toFixed(2), total: r.total.toFixed(2), current: r.current.toFixed(2), d1_30: r.d1_30.toFixed(2), d31_60: r.d31_60.toFixed(2), d61_90: r.d61_90.toFixed(2), d90_plus: r.d90_plus.toFixed(2) })),

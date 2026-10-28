@@ -3,7 +3,7 @@ import { jsonFor } from "@/lib/security/redact";
 import { handleApiError } from "@/lib/rbac";
 import { requireStockActor } from "@/lib/stock-auth";
 import { resolveProductName } from "@/lib/product-master-service";
-import { readJson } from "@/lib/http";
+import { readJson, type JsonBody } from "@/lib/http";
 
 /**
  * Product identity lookup — the contract for n8n / Hermes.
@@ -19,7 +19,7 @@ import { readJson } from "@/lib/http";
 export async function POST(req: NextRequest) {
   try {
     const viewer = await requireStockActor(req, "stock.view");
-    const body = await readJson(req).catch((): Record<string, any> => ({}));
+    const body = await readJson(req).catch((): JsonBody => ({}));
     const names: unknown = body.names ?? body.name;
     if (typeof names === "string") {
       return jsonFor(viewer, { result: await resolveProductName(names) });

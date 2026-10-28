@@ -54,6 +54,10 @@ async function call(fetchImpl: Fetch, url: string, init: RequestInit, reachedOnF
   }
 }
 
+/** ETA's per-document entries in a submission response (only the fields read here). */
+type EtaAcceptedDoc = { uuid: unknown; longId?: string | null; internalId: unknown; hashKey?: string | null };
+type EtaRejectedDoc = { internalId: unknown; error?: unknown };
+
 const body = async (res: Response) => {
   const text = await res.text();
   try {
@@ -115,8 +119,8 @@ export function httpGateway(config: Pick<EtaConfig, "apiBaseUrl" | "idServerUrl"
       if (!res.ok) return { submissionId: null, accepted: [], rejected: documents.map((d) => ({ internalId: d.internalID, error: b })), raw: b };
       return {
         submissionId: b?.submissionId ?? null,
-        accepted: (b?.acceptedDocuments ?? []).map((a: any) => ({ uuid: String(a.uuid), longId: a.longId ?? null, internalId: String(a.internalId), hashKey: a.hashKey ?? null })),
-        rejected: (b?.rejectedDocuments ?? []).map((r: any) => ({ internalId: String(r.internalId), error: r.error ?? r })),
+        accepted: (b?.acceptedDocuments ?? []).map((a: EtaAcceptedDoc) => ({ uuid: String(a.uuid), longId: a.longId ?? null, internalId: String(a.internalId), hashKey: a.hashKey ?? null })),
+        rejected: (b?.rejectedDocuments ?? []).map((r: EtaRejectedDoc) => ({ internalId: String(r.internalId), error: r.error ?? r })),
         raw: b,
       };
     },

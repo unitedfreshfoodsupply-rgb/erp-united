@@ -50,7 +50,7 @@ function matchesSearch(o: OrderDTO, q: string) {
 }
 
 export function SupervisorBoard() {
-  const { t, locale } = useLocale();
+  const { t } = useLocale();
   const ops = useOperationalSettings();
   const sortDict: Record<string, string> = {};
   SORT_KEYS.forEach((sk) => { sortDict[sk.key] = t(sk.dictKey); });
@@ -73,7 +73,7 @@ export function SupervisorBoard() {
   useAttentionAlert(data?.orders);
   useStalledAlert(data?.orders, ops.stalledMinutes);
 
-  const all = data?.orders ?? [];
+  const all = useMemo(() => data?.orders ?? [], [data?.orders]);
   const needsAttention = all.filter(needsSupervisorAction);
   const waiting = all.filter((o) => isWaitingTooLong(o.status, o.createdAt, ops.waitingToStartMinutes));
   const stalled = all.filter((o) => isStalledInProgress(o.status, o.updatedAt, ops.stalledMinutes));

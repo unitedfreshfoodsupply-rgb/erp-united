@@ -208,7 +208,7 @@ export function xlsxToCsv(input: Uint8Array): string {
   if (headers.length > MAX_COLUMNS || headers.some((header) => !header)) fail("صف العناوين فاضي أو فيه عمود غير صالح");
   if (new Set(headers).size !== headers.length) fail("فيه عنوان عمود مكرر في الملف");
   const date1904 = /<(?:(?:[A-Za-z_][\w.-]*):)?workbookPr\b[^>]*date1904\s*=\s*"(?:1|true)"/i.test(workbook);
-  const normalized = rows.map((row, rowIndex) => {
+  const normalized = rows.map((row) => {
     const values = headers.map((header, i) => {
       const value = row[i] ?? "";
       return DATE_HEADERS.has(header) && /^\d+(?:\.\d+)?$/.test(value) ? excelDate(value, date1904) : value;

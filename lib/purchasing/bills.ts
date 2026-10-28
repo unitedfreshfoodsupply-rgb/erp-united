@@ -883,8 +883,7 @@ export async function apAgingReport(asOf = todayLocalISO()) {
     select: { id: true, supplierId: true, dueDate: true, total: true, supplier: { select: { code: true, name: true, nameAr: true } } },
   });
   const debited = await debitedByBill(prisma, bills.map((b) => b.id));
-  const buckets = ["current", "d1_30", "d31_60", "d61_90", "d90_plus"] as const;
-  type Bucket = (typeof buckets)[number];
+  type Bucket = "current" | "d1_30" | "d31_60" | "d61_90" | "d90_plus";
   const bySupplier = new Map<string, { supplier: { id: string; code: string; name: string }; total: Prisma.Decimal } & Record<Bucket, Prisma.Decimal>>();
   const day = (iso: string) => Date.parse(`${iso}T00:00:00Z`) / 86_400_000;
   // A debit note on a bill that was already paid leaves it below zero: that is credit the

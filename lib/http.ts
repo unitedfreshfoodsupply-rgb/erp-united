@@ -2,6 +2,14 @@ import { NextRequest } from "next/server";
 import { ApiError } from "@/lib/rbac";
 
 /**
+ * A parsed JSON request body. Values stay loosely typed on purpose: every route reads
+ * fields from it through the validators below (`optionalText`, `parseKg`, …), which do
+ * the runtime checks; typing them as `unknown` would only move casts into 100+ routes.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type JsonBody = Record<string, any>;
+
+/**
  * Reads a JSON request body, or fails with 400.
  *
  * `req.json()` throws a SyntaxError on a malformed or empty body, which the route's
@@ -9,7 +17,7 @@ import { ApiError } from "@/lib/rbac";
  * might help, when the request itself is wrong. A body that is not a JSON object is
  * refused the same way: every endpoint here takes named fields.
  */
-export async function readJson(req: NextRequest): Promise<Record<string, any>> {
+export async function readJson(req: NextRequest): Promise<JsonBody> {
   let body: unknown;
   const loc = req.headers.get("accept-language") === "en" ? "en" : "ar";
   try {
@@ -53,7 +61,7 @@ export async function readLimitedBody(req: NextRequest, maxBytes: number, label?
   return body;
 }
 
-export async function readJsonLimited(req: NextRequest, maxBytes: number): Promise<Record<string, any>> {
+export async function readJsonLimited(req: NextRequest, maxBytes: number): Promise<JsonBody> {
   let body: unknown;
   try {
     const bytes = await readLimitedBody(req, maxBytes, "جسم ملف الاستيراد أكبر من 2 ميجابايت");
@@ -65,12 +73,12 @@ export async function readJsonLimited(req: NextRequest, maxBytes: number): Promi
   return jsonObject(body);
 }
 
-function jsonObject(body: unknown): Record<string, any> {
+function jsonObject(body: unknown): JsonBody {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
     throw new ApiError(400, "جسم الطلب لازم يكون كائن JSON");
   }
   if (hasNul(body)) throw new ApiError(400, "النص فيه حرف غير مسموح (NUL)");
-  return body as Record<string, any>;
+  return body as JsonBody;
 }
 
 /**

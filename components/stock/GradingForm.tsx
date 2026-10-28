@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
+import { apiFetch, apiPost, ApiClientError } from "@/lib/api-client";
 import { useToast } from "@/components/ui/Toast";
 import { todayLocalISO } from "@/lib/localDate";
 import { fmtKg, fmtYield } from "@/lib/stockPresentation";
@@ -271,7 +271,7 @@ export function GradingForm({
           </div>
         </>
       ) : (
-        <SortResult doc={result} intake={intake} canSeeCosts={canSeeCosts} yieldPct={yieldPct} onClose={onClose} />
+        <SortResult doc={result} canSeeCosts={canSeeCosts} yieldPct={yieldPct} onClose={onClose} />
       )}
     </div>
   );
@@ -279,13 +279,11 @@ export function GradingForm({
 
 function SortResult({
   doc,
-  intake,
   canSeeCosts,
   yieldPct,
   onClose,
 }: {
   doc: SortDocumentDTO;
-  intake: IntakeDTO;
   canSeeCosts: boolean;
   yieldPct: number | null;
   onClose: () => void;

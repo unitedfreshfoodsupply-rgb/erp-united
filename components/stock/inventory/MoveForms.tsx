@@ -23,6 +23,9 @@ type Kind = "transfer" | "count" | "scrap" | "return_customer" | "return_supplie
 
 const newKey = newClientKey;
 
+/** What every inventory document endpoint returns (the fields these forms read). */
+type MoveDocumentResponse = { document: { number: string; status: string } };
+
 export function MoveForms({ initial }: { initial?: Kind }) {
   const { can } = usePermissions();
   const { t } = useLocale();
@@ -56,12 +59,12 @@ function useSubmit() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [key, setKey] = useState(newKey);
-  async function run(path: string, body: Record<string, unknown>, onDone: (res: any) => void) {
+  async function run(path: string, body: Record<string, unknown>, onDone: (res: MoveDocumentResponse) => void) {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await apiPost<any>(path, { ...body, idempotency_key: key });
+      const res = await apiPost<MoveDocumentResponse>(path, { ...body, idempotency_key: key });
       invalidateStockData(qc);
       setKey(newKey());
       onDone(res);

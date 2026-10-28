@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     // Movement costs are valuation data.
     const withValue = ctx.can("stock.valuation.view");
     return jsonFor(ctx, {
-      documents: withValue ? result.documents : result.documents.map((d: any) => ({ ...d, movements: d.movements.map((m: any) => ({ ...m, unitCost: null })) })),
+      documents: withValue ? result.documents : result.documents.map((d) => ({ ...d, movements: d.movements.map((m) => ({ ...m, unitCost: null })) })),
       pagination: result.pagination,
     });
   } catch (err) {

@@ -178,7 +178,7 @@ export function StockDashboard() {
 }
 
 function PeriodCard({ title, totals }: { title: string; totals: StockDashboardDTO["week"] }) {
-  const { t, locale } = useLocale();
+  const { t } = useLocale();
   return (
     <div className="card p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between">

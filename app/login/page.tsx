@@ -23,7 +23,7 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const { user, token } = await apiPost<{ user: { role: Role; mustChangePassword?: boolean }; token?: string }>("/api/auth/login", {
+      const { token } = await apiPost<{ user: { role: Role; mustChangePassword?: boolean }; token?: string }>("/api/auth/login", {
         username,
         password,
       });
