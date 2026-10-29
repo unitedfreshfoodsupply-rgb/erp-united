@@ -8,6 +8,7 @@ import { usePermissions, useSession } from "@/lib/use-session";
 import { ROLES, ROLE_LABEL, ROLE_LABEL_EN, type Role } from "@/lib/types";
 import { LoadingState, EmptyState } from "@/components/States";
 import { GROUP_LABEL, GROUP_LABEL_EN, type AdminUser, type UserPermissionDetail } from "@/lib/admin-client-types";
+import { permissionText } from "@/lib/permissions";
 import { useLocale } from "@/lib/locale";
 import { useDialogs } from "@/components/ui/Dialog";
 
@@ -364,7 +365,7 @@ function EffectivePermissions({ userId, isSelf, locale }: { userId: string; isSe
       <div className="rounded-xl bg-united-dark/[0.03] p-3 mb-3 text-sm font-bold flex flex-wrap gap-x-4 gap-y-1">
         <span>{t("admin.users.effective.role-label")}<span className="text-united-green">{rl[data.user.role]}</span></span>
         <span>{t("admin.users.effective.summary-prefix")}{effectiveCount} {locale === "en" ? "of" : "من"} {data.permissions.length}</span>
-        <span>{overrides.length ? t("admin.users.exceptions-summary-prefix") + " " + overrides.map((o) => (o.override === "grant" ? "+" : "\u2212") + o.label).join(locale === "en" ? ", " : "\u066c ") : t("admin.users.effective.no-overrides")}</span>
+        <span>{overrides.length ? t("admin.users.exceptions-summary-prefix") + " " + overrides.map((o) => (o.override === "grant" ? "+" : "\u2212") + permissionText(o.key, locale).label).join(locale === "en" ? ", " : "\u066c ") : t("admin.users.effective.no-overrides")}</span>
       </div>
       {data.absoluteRole && (
         <p className="text-xs font-bold text-united-muted mb-3">
@@ -381,7 +382,7 @@ function EffectivePermissions({ userId, isSelf, locale }: { userId: string; isSe
                 <li key={p.key} className="flex items-center justify-between gap-2 py-1">
                   <div className="min-w-0" title={p.key}>
                     <div className="text-sm font-bold text-united-dark">
-                      {p.label}
+                      {permissionText(p.key, locale).label}
                       {p.override && (
                         <span
                           className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ms-2 ${
@@ -394,7 +395,7 @@ function EffectivePermissions({ userId, isSelf, locale }: { userId: string; isSe
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-united-muted">{p.description}</div>
+                    <div className="text-xs text-united-muted">{permissionText(p.key, locale).description}</div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span
@@ -411,10 +412,10 @@ function EffectivePermissions({ userId, isSelf, locale }: { userId: string; isSe
                           const next = e.target.value === "role" ? null : (e.target.value as "grant" | "revoke");
                           const question =
                             next === null
-                              ? t("admin.users.reset-to-role-confirm", { label: p.label })
+                              ? t("admin.users.reset-to-role-confirm", { label: permissionText(p.key, locale).label })
                               : next === "grant"
-                              ? t("admin.users.grant-override-confirm", { label: p.label })
-                              : t("admin.users.revoke-override-confirm", { label: p.label });
+                              ? t("admin.users.grant-override-confirm", { label: permissionText(p.key, locale).label })
+                              : t("admin.users.revoke-override-confirm", { label: permissionText(p.key, locale).label });
                           if (!(await dialogs.confirm({ title: question, tone: next === "revoke" ? "danger" : "primary" }))) return;
                           setOverride(p.key, next);
                         }}

@@ -40,6 +40,13 @@ export const UOM_CATEGORY_LABEL: Record<UomCategory, string> = {
   package: "تعبئة",
 };
 
+export const UOM_CATEGORY_LABEL_EN: Record<UomCategory, string> = {
+  weight: "Weight",
+  volume: "Volume",
+  count: "Count",
+  package: "Package",
+};
+
 export const UNITS_OF_MEASURE: {
   id: string;
   code: string;

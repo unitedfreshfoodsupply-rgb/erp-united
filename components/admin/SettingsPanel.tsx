@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPatch, ApiClientError, errorMessage } from "@/lib/api-client";
 import { LoadingState, ErrorState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
-import { SETTING_GROUP_LABEL, type SettingGroup } from "@/lib/core/settings-registry";
+import { SETTING_EN, SETTING_GROUP_LABEL, SETTING_GROUP_LABEL_EN, SETTING_UNIT_EN, type SettingGroup, type SettingKey } from "@/lib/core/settings-registry";
 import type { SettingDTO } from "@/lib/admin-client-types";
 import { useLocale } from "@/lib/locale";
 
@@ -16,7 +16,7 @@ import { useLocale } from "@/lib/locale";
  * other.
  */
 export function SettingsPanel() {
-  const { t } = useLocale();
+  const { t, isEN } = useLocale();
   const q = useQuery({
     queryKey: ["admin", "settings"],
     queryFn: () => apiFetch<{ settings: SettingDTO[] }>("/api/admin/settings"),
@@ -32,7 +32,7 @@ export function SettingsPanel() {
       {groups.map((group) => (
         <section key={group} className="card p-4">
           <h2 className="text-lg font-extrabold text-united-dark mb-1">
-            {SETTING_GROUP_LABEL[group as SettingGroup] ?? group}
+            {(isEN ? SETTING_GROUP_LABEL_EN : SETTING_GROUP_LABEL)[group as SettingGroup] ?? group}
           </h2>
           <p className="text-xs font-bold text-united-muted mb-3">
             {t("admin.settings.subtitle")}
@@ -53,7 +53,7 @@ export function SettingsPanel() {
 function SettingRow({ setting }: { setting: SettingDTO }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const { t } = useLocale();
+  const { t, isEN } = useLocale();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(String(setting.value));
   const [reason, setReason] = useState("");
@@ -114,14 +114,19 @@ function SettingRow({ setting }: { setting: SettingDTO }) {
     save(n);
   }
 
-  const unitSuffix = setting.unit ? ` (${setting.unit})` : "";
+  // The registry carries Arabic; English comes from SETTING_EN (complete by type).
+  const en = isEN ? SETTING_EN[setting.key as SettingKey] : undefined;
+  const label = en?.label ?? setting.label;
+  const description = en?.description ?? setting.description;
+  const unit = isEN ? SETTING_UNIT_EN[setting.unit] ?? setting.unit : setting.unit;
+  const unitSuffix = unit ? ` (${unit})` : "";
 
   return (
     <li className="py-3">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0 flex-1">
-          <div className="font-extrabold text-united-dark">{setting.label}</div>
-          <p className="text-xs font-bold text-united-muted mt-0.5">{setting.description}</p>
+          <div className="font-extrabold text-united-dark">{label}</div>
+          <p className="text-xs font-bold text-united-muted mt-0.5">{description}</p>
           <code dir="ltr" className="text-[10px] text-united-muted">
             {setting.key}
           </code>
@@ -129,7 +134,7 @@ function SettingRow({ setting }: { setting: SettingDTO }) {
         <div className="text-end shrink-0">
           <div className="text-2xl font-extrabold text-united-dark tabular-nums">
             <bdi>{show(setting.value)}</bdi>{" "}
-            <span className="text-sm text-united-muted">{setting.unit}</span>
+            <span className="text-sm text-united-muted">{unit}</span>
           </div>
           <div className="text-[11px] font-bold text-united-muted">
             {setting.isDefault ? (

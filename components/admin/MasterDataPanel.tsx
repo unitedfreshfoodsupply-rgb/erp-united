@@ -12,6 +12,7 @@ import {
   storageLocationTypeLabel,
   UOM_CATEGORIES,
   UOM_CATEGORY_LABEL,
+  UOM_CATEGORY_LABEL_EN,
   type UomCategory,
 } from "@/lib/core/reference-data";
 import type {
@@ -386,7 +387,7 @@ function LocationNode({ location, all, canManage, depth }: { location: StorageLo
 // ---------------------------------------------------------------------------
 
 function UomSection({ uoms, canManage }: { uoms: UomDTO[]; canManage: boolean }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [adding, setAdding] = useState(false);
   const refByCategory = new Map(uoms.filter((u) => u.isReference).map((u) => [u.category, u.code]));
   return (
@@ -428,7 +429,7 @@ function UomSection({ uoms, canManage }: { uoms: UomDTO[]; canManage: boolean })
                   kind: "select",
                   required: true,
                   createOnly: true,
-                  options: UOM_CATEGORIES.map((c) => ({ value: c, label: UOM_CATEGORY_LABEL[c] })),
+                  options: UOM_CATEGORIES.map((c) => ({ value: c, label: (locale === "en" ? UOM_CATEGORY_LABEL_EN : UOM_CATEGORY_LABEL)[c] })),
                 },
                 { key: "ratio_to_reference", label: t("admin.uom.form-ratio"), kind: "number", createOnly: true },
                 { key: "precision", label: t("admin.uom.form-precision"), kind: "number" },
@@ -456,7 +457,7 @@ function UomRow({ uom, reference, canManage }: { uom: UomDTO; reference?: string
           <span className="font-bold text-united-dark">{localName(uom, locale)}</span> <Code>{uom.code}</Code>
           {uom.isReference && <span className="ms-1 text-[10px] font-extrabold text-united-green">{t("admin.uom.reference-badge")}</span>}
         </td>
-        <td className="p-2 font-bold text-united-muted">{UOM_CATEGORY_LABEL[uom.category as UomCategory] ?? uom.category}</td>
+        <td className="p-2 font-bold text-united-muted">{(locale === "en" ? UOM_CATEGORY_LABEL_EN : UOM_CATEGORY_LABEL)[uom.category as UomCategory] ?? uom.category}</td>
         <td className="p-2">
           {uom.ratioToReference && reference && !uom.isReference ? (
             <bdi dir="ltr" className="tabular-nums font-bold">

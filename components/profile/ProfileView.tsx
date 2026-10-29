@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { Check, Lock } from "lucide-react";
 import { useLocale } from "@/lib/locale";
-import { PERMISSION_DEFS } from "@/lib/permissions";
+import { PERMISSION_DEFS, permissionText } from "@/lib/permissions";
 import { ROLE_LABEL, ROLE_DESC, ROLE_LABEL_EN, ROLE_DESC_EN, type Role } from "@/lib/types";
-import { GROUP_LABEL } from "@/lib/admin-client-types";
+import { GROUP_LABEL, GROUP_LABEL_EN } from "@/lib/admin-client-types";
 
 export type ProfileUser = {
   id: string;
@@ -24,11 +24,11 @@ export type ProfileUser = {
  * screen on any failure, even a dropped connection.
  */
 export function ProfileView({ user }: { user: ProfileUser }) {
-  const { t, dir, isRTL } = useLocale();
+  const { t, dir, isRTL, locale } = useLocale();
   const permissions = [...user.permissions]
     .map((key) => PERMISSION_DEFS.find((d) => d.key === key))
     .filter((d): d is (typeof PERMISSION_DEFS)[number] => !!d)
-    .sort((a, b) => (a.group === b.group ? a.label.localeCompare(b.label, "ar") : a.group.localeCompare(b.group)));
+    .sort((a, b) => (a.group === b.group ? permissionText(a.key, locale).label.localeCompare(permissionText(b.key, locale).label, locale) : a.group.localeCompare(b.group)));
 
   const permCount = permissions.length;
   const byGroup: Record<string, (typeof PERMISSION_DEFS)[number][]> = {};
@@ -85,13 +85,13 @@ export function ProfileView({ user }: { user: ProfileUser }) {
           {orderedGroups.length === 0 && <p className="text-sm font-bold text-united-muted">{t("ui.profile.no-perms")}</p>}
           {orderedGroups.map((group) => (
             <div key={group} className="flex flex-col gap-1">
-              <h3 className="text-xs font-extrabold text-united-muted">{(GROUP_LABEL as Record<string, string>)[group]}</h3>
+              <h3 className="text-xs font-extrabold text-united-muted">{((locale === "en" ? GROUP_LABEL_EN : GROUP_LABEL) as Record<string, string>)[group]}</h3>
               <ul className="flex flex-col gap-1">
                 {(byGroup[group] ?? []).map((p) => (
                   <li key={p.key} className="text-sm font-bold text-united-dark flex items-center gap-2">
                     <Check size={15} className="shrink-0 text-united-green" aria-hidden />
-                    <span title={p.key}>{p.label}</span>
-                    <span className="text-xs font-normal text-united-muted">— {p.description}</span>
+                    <span title={p.key}>{permissionText(p.key, locale).label}</span>
+                    <span className="text-xs font-normal text-united-muted">— {permissionText(p.key, locale).description}</span>
                   </li>
                 ))}
               </ul>

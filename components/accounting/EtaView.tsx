@@ -8,10 +8,17 @@ import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
+
+/** The document's ETA state in the screen's language; the server's Arabic label covers an unknown state. */
+function statusLabel(t: (k: string) => string, d: { etaStatus: string | null; etaStatusLabel: string }) {
+  const k = `eta.status.${d.etaStatus ?? "pending"}`;
+  const label = t(k);
+  return label === k ? d.etaStatusLabel : label;
+}
 import { PageHeader } from "@/components/ui/PageHeader";
 import { intlLocale } from "@/lib/format";
 import type { TranslationKey } from "@/lib/locale/dictionary";
-import { localName } from "@/lib/locale/names";
 import { useDialogs } from "@/components/ui/Dialog";
 
 /**
@@ -25,7 +32,7 @@ type Address = { country: string | null; governate: string | null; regionCity: s
 type Overview = {
   config: { configured: boolean; missing: string[]; environment: string | null };
   issuer: { name: string | null; registrationNumber: string | null; profile: (Address & { eta_branch_id: string | null; activity_code: string | null }) | null };
-  units: { code: string; name: string; etaUnitType: string | null }[];
+  units: { code: string; name: string; nameAr: string | null; nameEn: string; etaUnitType: string | null }[];
   taxes: { code: string; name: string; nameAr: string; rate: string; etaType: string | null; etaSubtype: string | null }[];
   products: { id: string; name: string; sku: string | null; unit: string; itemType: string | null; itemCode: string | null }[];
   customers: { id: string; code: string; name: string; taxRegistrationNo: string | null; profile: (Address & { receiverType: string | null; receiverId: string | null }) | null }[];
@@ -77,7 +84,7 @@ function Invoices({ data }: { data: Overview }) {
         <li key={i.id} className="card p-3 flex flex-col gap-2">
           <button type="button" className="flex justify-between gap-2 text-sm font-bold text-start" onClick={() => setOpen(open === i.id ? null : i.id)}>
             <span><span dir="ltr">{i.number}</span> · {i.buyerName} · {i.issueDate}</span>
-            <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(i.total)}</span><span className={`rounded-full px-2 py-0.5 text-xs ${TONE[i.etaStatus ?? ""] ?? "bg-united-dark/5 text-united-muted"}`}>{i.etaStatusLabel}</span></span>
+            <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(i.total)}</span><span className={`rounded-full px-2 py-0.5 text-xs ${TONE[i.etaStatus ?? ""] ?? "bg-united-dark/5 text-united-muted"}`}>{statusLabel(t, i)}</span></span>
           </button>
           {open === i.id && <InvoiceEta id={i.id} />}
         </li>
@@ -98,7 +105,7 @@ function CreditNotes({ data }: { data: Overview }) {
         <li key={c.id} className="card p-3 flex flex-col gap-2">
           <button type="button" className="flex justify-between gap-2 text-sm font-bold text-start" onClick={() => setOpen(open === c.id ? null : c.id)}>
             <span><span dir="ltr">{c.number}</span> · {t("eta.credit-note-on")} <span dir="ltr">{c.invoiceNumber}</span> · {c.buyerName} · {c.issueDate}</span>
-            <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(c.total)}</span><span className={`rounded-full px-2 py-0.5 text-xs ${TONE[c.etaStatus ?? ""] ?? "bg-united-dark/5 text-united-muted"}`}>{c.etaStatusLabel}</span></span>
+            <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(c.total)}</span><span className={`rounded-full px-2 py-0.5 text-xs ${TONE[c.etaStatus ?? ""] ?? "bg-united-dark/5 text-united-muted"}`}>{statusLabel(t, c)}</span></span>
           </button>
           {open === c.id && <InvoiceEta id={c.id} base="credit-notes" />}
         </li>
@@ -205,7 +212,7 @@ function Setup({ data }: { data: Overview }) {
 
       <section className="card p-4 flex flex-col gap-2">
         <h3 className="font-extrabold">{t("eta.units-title")}</h3>
-        <ul className="flex flex-col gap-1">{data.units.map((u) => <CodeRow key={u.code} label={`${u.name} (${u.code})`} value={u.etaUnitType} placeholder={t("eta.unit-placeholder")} manage={manage} onSave={(v) => save(`/api/eta/units/${u.code}`, { eta_unit_type: v })} />)}</ul>
+        <ul className="flex flex-col gap-1">{data.units.map((u) => <CodeRow key={u.code} label={`${localName(u, locale)} (${u.code})`} value={u.etaUnitType} placeholder={t("eta.unit-placeholder")} manage={manage} onSave={(v) => save(`/api/eta/units/${u.code}`, { eta_unit_type: v })} />)}</ul>
       </section>
 
       <section className="card p-4 flex flex-col gap-2">

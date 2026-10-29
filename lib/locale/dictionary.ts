@@ -1553,7 +1553,7 @@ const accounting = {
   "accounting.withholding.export": { ar: "تصدير CSV", en: "Export CSV" },
   "accounting.withholding.no-certificate": { ar: "من غير رقم شهادة", en: "No certificate number" },
   // Reversal display line
-  "accounting.reversal-display": { ar: "{by} عكس في {date}", en: "{by} reversed on {date}" },
+  "accounting.reversal-display": { ar: "{by} عكس في {date}: {reason}", en: "{by} reversed on {date}: {reason}" },
   // Refund recording buttons (customer/supplier specific)
   "accounting.button.record-customer-refund": { ar: "سجّل رد المبلغ", en: "Record Customer Refund" },
   "accounting.button.record-supplier-refund": { ar: "سجّل الاسترداد", en: "Record Supplier Refund" },
@@ -2876,6 +2876,15 @@ const eta = {
   "eta.tax-classification": { ar: "التصنيف الضريبي", en: "Tax Classification" },
   "eta.tax-info": { ar: "من إعداد الضرائب الحالي — لازم المحاسب يأكده قبل التشغيل الفعلي (خصوصًا المعفى V003 ولا غير الخاضع V004 للخضار والفاكهة).", en: "From current tax settings — accountant must confirm before go-live (especially Exempt V003 vs. Non-Liable V004 for produce)." },
   // Units
+  "eta.status.pending": { ar: "لسه ما اتبعتتش", en: "Not sent yet" },
+  "eta.status.submitting": { ar: "جاري الإرسال", en: "Sending" },
+  "eta.status.submitted": { ar: "اتبعتت — مستنية التحقق", en: "Sent — awaiting validation" },
+  "eta.status.valid": { ar: "مقبولة", en: "Valid" },
+  "eta.status.invalid": { ar: "مرفوضة بعد التحقق", en: "Invalid after validation" },
+  "eta.status.rejected": { ar: "مرفوضة عند الاستلام", en: "Rejected on receipt" },
+  "eta.status.failed": { ar: "الإرسال فشل قبل ما يوصل", en: "Sending failed before delivery" },
+  "eta.status.unknown": { ar: "مش معروف وصلت ولا لأ — لازم مراجعة", en: "Delivery unknown — needs review" },
+  "eta.status.cancelled": { ar: "ملغية", en: "Cancelled" },
   "eta.units-title": { ar: "الوحدات", en: "Units" },
   "eta.unit-placeholder": { ar: "كود وحدة الضرائب", en: "Tax unit code" },
   // Items

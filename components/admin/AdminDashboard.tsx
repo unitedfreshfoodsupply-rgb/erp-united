@@ -5,8 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
 import { LoadingState, ErrorState, EmptyState } from "@/components/States";
 import { usePermissions } from "@/lib/use-session";
-import { ROLE_LABEL } from "@/lib/types";
-import { GROUP_LABEL, SECURITY_ACTION_LABEL, type AdminOverview, type AdminUser } from "@/lib/admin-client-types";
+import { ROLE_LABEL, ROLE_LABEL_EN } from "@/lib/types";
+import { permissionText } from "@/lib/permissions";
+import { GROUP_LABEL, GROUP_LABEL_EN, SECURITY_ACTION_LABEL, SECURITY_ACTION_LABEL_EN, type AdminOverview, type AdminUser } from "@/lib/admin-client-types";
 import { UsersPanel } from "@/components/admin/UsersPanel";
 import { SettingsPanel } from "@/components/admin/SettingsPanel";
 import { MasterDataPanel } from "@/components/admin/MasterDataPanel";
@@ -129,7 +130,9 @@ export function AdminDashboard() {
 function PermissionMatrix({ data }: { data: AdminOverview }) {
   const { permissions, roles } = data.matrix;
   const groups = [...new Set(permissions.map((p) => p.group))];
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
+  const rl = locale === "en" ? ROLE_LABEL_EN : ROLE_LABEL;
+  const gl = locale === "en" ? GROUP_LABEL_EN : GROUP_LABEL;
 
   return (
     <section className="card p-4">
@@ -143,7 +146,7 @@ function PermissionMatrix({ data }: { data: AdminOverview }) {
               <th className="text-start p-2 font-semibold text-united-muted sticky start-0 bg-white">{t("admin.matrix.col.permission")}</th>
               {roles.map((r) => (
                 <th key={r.role} className="p-2 font-extrabold text-united-dark whitespace-nowrap">
-                  <div>{ROLE_LABEL[r.role]}</div>
+                  <div>{rl[r.role]}</div>
                   <div className="text-[10px] font-bold text-united-muted">
                     {r.activeUsers} {t("admin.matrix.col.active")}{r.disabledUsers > 0 ? ` · ${r.disabledUsers} ${t("admin.matrix.col.suspended")}` : ""}
                   </div>
@@ -156,7 +159,7 @@ function PermissionMatrix({ data }: { data: AdminOverview }) {
               <>
                 <tr key={group}>
                   <td colSpan={roles.length + 1} className="p-2 pt-4 font-extrabold text-united-green text-xs">
-                    {GROUP_LABEL[group]}
+                    {gl[group]}
                   </td>
                 </tr>
                 {permissions
@@ -164,7 +167,7 @@ function PermissionMatrix({ data }: { data: AdminOverview }) {
                   .map((p) => (
                     <tr key={p.key} className="border-t border-united-border">
                       <td className="p-2 sticky start-0 bg-white">
-                        <div className="font-bold text-united-dark">{p.label}</div>
+                        <div className="font-bold text-united-dark">{permissionText(p.key, locale).label}</div>
                         <code dir="ltr" className="text-[10px] text-united-muted">
                           {p.key}
                         </code>
@@ -208,7 +211,7 @@ function SystemOverview({ data, canSeeAudit }: { data: AdminOverview; canSeeAudi
               <li key={`${o.userId}-${o.permissionKey}`} className="py-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <span className="font-extrabold text-united-dark">
-                    {o.userName} <span className="text-xs font-bold text-united-muted">({ROLE_LABEL[o.role]})</span>
+                    {o.userName} <span className="text-xs font-bold text-united-muted">({(locale === "en" ? ROLE_LABEL_EN : ROLE_LABEL)[o.role]})</span>
                   </span>
                   <span
                     className={`text-[11px] font-extrabold px-2 py-0.5 rounded-full ${
@@ -221,7 +224,7 @@ function SystemOverview({ data, canSeeAudit }: { data: AdminOverview; canSeeAudi
                   </span>
                 </div>
                 <div className="text-xs font-bold text-united-muted mt-0.5">
-                  {o.permissionLabel} · <code dir="ltr">{o.permissionKey}</code> · {t("admin.by-label")} {o.grantedBy}
+                  {permissionText(o.permissionKey, locale).label} · <code dir="ltr">{o.permissionKey}</code> · {t("admin.by-label")} {o.grantedBy}
                 </div>
                 {o.reason && <p className="text-xs font-bold text-united-dark/70 mt-0.5">{t("admin.reason")}: {o.reason}</p>}
               </li>
@@ -241,7 +244,7 @@ function SystemOverview({ data, canSeeAudit }: { data: AdminOverview; canSeeAudi
                 <li key={l.id} className="py-2.5">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <span className="font-bold text-united-dark">
-                      {SECURITY_ACTION_LABEL[l.action] ?? l.action}
+                      {(locale === "en" ? SECURITY_ACTION_LABEL_EN : SECURITY_ACTION_LABEL)[l.action] ?? l.action}
                     </span>
                     <span dir="ltr" className="text-[11px] font-bold text-united-muted">
                       {new Date(l.timestamp).toLocaleString(intlLocale(locale), { dateStyle: "short", timeStyle: "short" })}

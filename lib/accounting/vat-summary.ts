@@ -82,7 +82,10 @@ export async function vatSummary(from: string, to: string) {
     inputDebit: (byKey.get("vat_input")?.debit ?? zero).toString(), inputCredit: (byKey.get("vat_input")?.credit ?? zero).toString(),
   });
   const codes = [...new Set(rows.map((r) => r.taxCode))];
-  const taxRates = await prisma.taxRate.findMany({ where: { code: { in: codes } }, select: { code: true, nameAr: true, rate: true } });
-  const names = new Map(taxRates.map((t) => [t.code, t.nameAr]));
-  return { from, to, ...summary, lines: summary.lines.map((line) => ({ ...line, taxName: names.get(line.taxCode) ?? line.taxCode })) };
+  const taxRates = await prisma.taxRate.findMany({ where: { code: { in: codes } }, select: { code: true, name: true, nameAr: true, rate: true } });
+  const names = new Map(taxRates.map((t) => [t.code, t]));
+  return {
+    from, to, ...summary,
+    lines: summary.lines.map((line) => ({ ...line, taxName: names.get(line.taxCode)?.nameAr ?? line.taxCode, taxNameEn: names.get(line.taxCode)?.name ?? line.taxCode })),
+  };
 }

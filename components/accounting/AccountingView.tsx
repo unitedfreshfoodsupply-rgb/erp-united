@@ -233,7 +233,7 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
                   {r.deductions!.map((d) => `${t(`accounting.deductions.kind.${d.kind}`)} ${fmtMoney(d.amount)}${d.reference ? ` (${d.reference})` : ""}`).join(" · ")} · {isReceipt ? t("accounting.deductions.cash-in") : t("accounting.deductions.cash-out")} <span dir="ltr">{fmtMoney(r.cashAmount)}</span>
                 </div>
               )}
-              {r.reversal && <div className="text-xs text-united-danger">{t("accounting.reversal-display", { n: r.reversal.date, reason: r.reversal.reason, by: r.reversal.by })}</div>}
+              {r.reversal && <div className="text-xs text-united-danger">{t("accounting.reversal-display", { date: r.reversal.date, reason: r.reversal.reason, by: r.reversal.by })}</div>}
             </div>
             <div className="flex flex-col items-end gap-1">
               <span dir="ltr" className={`font-extrabold ${r.reversal ? "line-through" : ""}`}>{fmtMoney(r.amount)}</span>
@@ -506,8 +506,8 @@ function Trial() {
 function VatSummary() {
   const [from, setFrom] = useState(yearStart());
   const [to, setTo] = useState(todayLocalISO());
-  const { t } = useLocale();
-  const q = useQuery({ queryKey: ["acc", "vat", from, to], queryFn: () => apiFetch<{ summary: { from: string; to: string; lines: { taxCode: string; taxName: string; rate: string; outputBase: string; outputTax: string; inputBase: string; inputTax: string }[]; totals: { outputBase: string; outputTax: string; inputBase: string; inputTax: string; netPayable: string }; ledger: { outputDebit: string; outputCredit: string; outputExpectedCredit: string; outputDifference: string; inputDebit: string; inputCredit: string; inputExpectedDebit: string; inputDifference: string; reconciled: boolean } } }>(`/api/accounting/vat-summary?from=${from}&to=${to}`) });
+  const { t, locale } = useLocale();
+  const q = useQuery({ queryKey: ["acc", "vat", from, to], queryFn: () => apiFetch<{ summary: { from: string; to: string; lines: { taxCode: string; taxName: string; taxNameEn?: string; rate: string; outputBase: string; outputTax: string; inputBase: string; inputTax: string }[]; totals: { outputBase: string; outputTax: string; inputBase: string; inputTax: string; netPayable: string }; ledger: { outputDebit: string; outputCredit: string; outputExpectedCredit: string; outputDifference: string; inputDebit: string; inputCredit: string; inputExpectedDebit: string; inputDifference: string; reconciled: boolean } } }>(`/api/accounting/vat-summary?from=${from}&to=${to}`) });
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-2"><label className="text-xs font-bold">{t("accounting.date-from")} <input type="date" className="field ms-1" value={from} onChange={(e) => setFrom(e.target.value)} /></label><label className="text-xs font-bold">{t("accounting.date-to")} <input type="date" className="field ms-1" value={to} onChange={(e) => setTo(e.target.value)} /></label></div>
@@ -521,7 +521,7 @@ function VatSummary() {
         <section className="card overflow-x-auto">
           <table className="data-table">
             <thead><tr><th>{t("accounting.vat-classification")}</th><th className="num">{t("accounting.vat-rate")}</th><th className="num">{t("accounting.vat-taxable-sales")}</th><th className="num">{t("accounting.vat-output-tax")}</th><th className="num">{t("accounting.vat-taxable-purchases")}</th><th className="num">{t("accounting.vat-input-tax")}</th></tr></thead>
-            <tbody>{q.data.summary.lines.map((line) => <tr key={`${line.taxCode}-${line.rate}`} ><td>{line.taxName} · <span dir="ltr">{line.taxCode}</span></td><td className="num" dir="ltr">{line.rate}%</td><td className="num" dir="ltr">{fmtMoney(line.outputBase)}</td><td className="num" dir="ltr">{fmtMoney(line.outputTax)}</td><td className="num" dir="ltr">{fmtMoney(line.inputBase)}</td><td className="num" dir="ltr">{fmtMoney(line.inputTax)}</td></tr>)}
+            <tbody>{q.data.summary.lines.map((line) => <tr key={`${line.taxCode}-${line.rate}`} ><td>{locale === "en" ? line.taxNameEn ?? line.taxName : line.taxName} · <span dir="ltr">{line.taxCode}</span></td><td className="num" dir="ltr">{line.rate}%</td><td className="num" dir="ltr">{fmtMoney(line.outputBase)}</td><td className="num" dir="ltr">{fmtMoney(line.outputTax)}</td><td className="num" dir="ltr">{fmtMoney(line.inputBase)}</td><td className="num" dir="ltr">{fmtMoney(line.inputTax)}</td></tr>)}
             </tbody>
             <tfoot>
               <tr><td>{t("accounting.tb-total")}</td><td /><td className="num" dir="ltr">{fmtMoney(q.data.summary.totals.outputBase)}</td><td className="num" dir="ltr">{fmtMoney(q.data.summary.totals.outputTax)}</td><td className="num" dir="ltr">{fmtMoney(q.data.summary.totals.inputBase)}</td><td className="num" dir="ltr">{fmtMoney(q.data.summary.totals.inputTax)}</td></tr>
