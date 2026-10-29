@@ -22,10 +22,10 @@ import { xlsxToCsv } from "@/lib/data-import/xlsx";
 import { localizeServerMessage, requestLocale } from "@/lib/locale/server-messages";
 
 const templates = {
-  customers: { headers: "name,name_ar,legal_name,legal_name_ar,type,tax_registration_no,commercial_reg_no,phone,email,city,area,address,delivery_notes,external_ref,notes,payment_terms_days,credit_limit,credit_hold,credit_hold_reason,credit_reason,price_list_code,price_list_reason,group_code,legal_entity_code", required: ["name"] },
+  customers: { headers: "code,name,name_ar,legal_name,legal_name_ar,type,tax_registration_no,commercial_reg_no,phone,email,city,area,address,delivery_notes,external_ref,notes,payment_terms_days,credit_limit,credit_hold,credit_hold_reason,credit_reason,price_list_code,price_list_reason,group_code,legal_entity_code", required: ["name"] },
   customer_groups: { headers: "code,name,name_ar", required: ["code", "name"] },
   customer_legal_entities: { headers: "code,name,name_ar,tax_registration_no,commercial_reg_no,phone,email,address,area,city,country,governate,region_city,street,building_number,postal_code,floor,room,landmark,additional_information,receiver_type,receiver_id,notes", required: ["code", "name"] },
-  suppliers: { headers: "name,name_ar,phone,notes,type,tax_registration_no,commercial_reg_no,email,city,address,payment_terms_days,lead_time_days,currency_code", required: ["name"] },
+  suppliers: { headers: "code,name,name_ar,phone,notes,type,tax_registration_no,commercial_reg_no,email,city,address,payment_terms_days,lead_time_days,currency_code", required: ["name"] },
   products: { headers: "name,name_ar,sku,category,unit,stock_tracked,sales_tax_code", required: ["name", "unit"] },
   product_settings: { headers: "sku,shelf_life_days,removal_strategy,min_stock_qty,reorder_point_qty,max_stock_qty,cold_chain,costing_method,standard_cost", required: ["sku"] },
   product_packaging: { headers: "sku,uom,qty_in_base_unit,barcode,active", required: ["sku", "uom", "qty_in_base_unit"] },
@@ -65,10 +65,10 @@ function kindOf(raw: unknown): ImportKind {
 
 function inputFor(kind: ImportKind, row: CsvRecord) {
   const v = row.values;
-  if (kind === "customers") return { name: v.name, name_ar: v.name_ar || null, legal_name: v.legal_name || null, legal_name_ar: v.legal_name_ar || null, type: v.type || undefined, tax_registration_no: v.tax_registration_no || null, commercial_reg_no: v.commercial_reg_no || null, phone: v.phone || null, email: v.email || null, city: v.city || null, area: v.area || null, address: v.address || null, delivery_notes: v.delivery_notes || null, external_ref: v.external_ref || null, notes: v.notes || null, payment_terms_days: v.payment_terms_days ? Number(v.payment_terms_days) : undefined, credit_limit: v.credit_limit || undefined, credit_hold: v.credit_hold ? ["true", "1", "نعم"].includes(v.credit_hold.toLowerCase()) : undefined, credit_hold_reason: v.credit_hold_reason || undefined, credit_reason: v.credit_reason || undefined, price_list_reason: v.price_list_reason || undefined };
+  if (kind === "customers") return { code: v.code || undefined, name: v.name, name_ar: v.name_ar || null, legal_name: v.legal_name || null, legal_name_ar: v.legal_name_ar || null, type: v.type || undefined, tax_registration_no: v.tax_registration_no || null, commercial_reg_no: v.commercial_reg_no || null, phone: v.phone || null, email: v.email || null, city: v.city || null, area: v.area || null, address: v.address || null, delivery_notes: v.delivery_notes || null, external_ref: v.external_ref || null, notes: v.notes || null, payment_terms_days: v.payment_terms_days ? Number(v.payment_terms_days) : undefined, credit_limit: v.credit_limit || undefined, credit_hold: v.credit_hold ? ["true", "1", "نعم"].includes(v.credit_hold.toLowerCase()) : undefined, credit_hold_reason: v.credit_hold_reason || undefined, credit_reason: v.credit_reason || undefined, price_list_reason: v.price_list_reason || undefined };
   if (kind === "customer_groups") return { code: v.code, name: v.name, name_ar: v.name_ar || null };
   if (kind === "customer_legal_entities") return { code: v.code, name: v.name, name_ar: v.name_ar || null, tax_registration_no: v.tax_registration_no || null, commercial_reg_no: v.commercial_reg_no || null, phone: v.phone || null, email: v.email || null, address: v.address || null, area: v.area || null, city: v.city || null, country: v.country || null, governate: v.governate || null, region_city: v.region_city || null, street: v.street || null, building_number: v.building_number || null, postal_code: v.postal_code || null, floor: v.floor || null, room: v.room || null, landmark: v.landmark || null, additional_information: v.additional_information || null, receiver_type: v.receiver_type || null, receiver_id: v.receiver_id || null, notes: v.notes || null };
-  if (kind === "suppliers") return { name: v.name, name_ar: v.name_ar || null, phone: v.phone || null, notes: v.notes || null, type: v.type || undefined, tax_registration_no: v.tax_registration_no || null, commercial_reg_no: v.commercial_reg_no || null, email: v.email || null, city: v.city || null, address: v.address || null, payment_terms_days: v.payment_terms_days ? Number(v.payment_terms_days) : undefined, lead_time_days: v.lead_time_days ? Number(v.lead_time_days) : null, currency_code: v.currency_code || "EGP" };
+  if (kind === "suppliers") return { code: v.code || undefined, name: v.name, name_ar: v.name_ar || null, phone: v.phone || null, notes: v.notes || null, type: v.type || undefined, tax_registration_no: v.tax_registration_no || null, commercial_reg_no: v.commercial_reg_no || null, email: v.email || null, city: v.city || null, address: v.address || null, payment_terms_days: v.payment_terms_days ? Number(v.payment_terms_days) : undefined, lead_time_days: v.lead_time_days ? Number(v.lead_time_days) : null, currency_code: v.currency_code || "EGP" };
   if (kind === "products") return { name: v.name, name_ar: v.name_ar || null, sku: v.sku || null, category: v.category || null, unit: v.unit, stock_tracked: v.stock_tracked ? ["true", "1", "نعم"].includes(v.stock_tracked.toLowerCase()) : true, sales_tax_code: v.sales_tax_code || undefined };
   if (kind === "opening_stock") return { ...v };
   return { ...v };
@@ -85,6 +85,22 @@ async function previewRows(kind: ImportKind, rows: CsvRecord[], body: Record<str
     if (unique && seen.has(unique)) results[i].errors.push(`مكرر داخل الملف (صف ${seen.get(unique)})`);
     else if (unique) seen.set(unique, r.rowNumber);
   });
+  // A supplied customer/supplier code must be unique in the file and not already used.
+  if (kind === "customers" || kind === "suppliers") {
+    const codes = new Map<string, number>();
+    rows.forEach((r, i) => {
+      const code = r.values.code?.trim().toUpperCase();
+      if (!code) return;
+      const prior = codes.get(code);
+      if (prior !== undefined) results[i].errors.push(`الكود مكرر داخل الملف (صف ${prior})`);
+      else codes.set(code, r.rowNumber);
+    });
+    const wanted = [...codes.keys()];
+    const taken = wanted.length
+      ? new Set((kind === "customers" ? await prisma.customer.findMany({ where: { code: { in: wanted } }, select: { code: true } }) : await prisma.supplier.findMany({ where: { code: { in: wanted } }, select: { code: true } })).map((x) => x.code))
+      : new Set<string>();
+    rows.forEach((r, i) => { const code = r.values.code?.trim().toUpperCase(); if (code && taken.has(code)) results[i].errors.push(`الكود ${code} مستخدم بالفعل`); });
+  }
   const aliasesInFile = new Map<string, number>();
   const identifiersInFile = new Map<string, number>();
   rows.forEach((r, i) => {

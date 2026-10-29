@@ -32,7 +32,13 @@ export function validateImportRow(kind: string, row: ImportRow, required: readon
   if (BILINGUAL_KINDS.has(kind)) errors.push(...bilingualNameErrors(v));
   // Customer/supplier codes come from the numbering service and are immutable; a code
   // in the file would otherwise be dropped silently while the card gets another one.
-  if ((kind === "customers" || kind === "suppliers") && v.code?.trim()) errors.push("الكود بيتولد تلقائيًا من النظام — سيب عمود code فاضي (الكود الجديد بيظهر في نتيجة الاستيراد)");
+  // A code from the business's own records is kept as the system code; empty = generated.
+  if ((kind === "customers" || kind === "suppliers") && v.code?.trim()) {
+    const code = v.code.trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,39}$/.test(code)) errors.push("الكود حروف إنجليزي وأرقام و . _ - / بحد أقصى 40");
+    // CUS-/SUP- + digits is the generator's own series; a supplied one could collide later.
+    else if (/^(CUS|SUP)-\d+$/i.test(code)) errors.push("أكواد CUS-/SUP- برقم محجوزة للترقيم التلقائي — استخدم كودكم أو سيب العمود فاضي");
+  }
   if (kind === "customers" && v.type && !["hotel", "restaurant", "cafe", "retail", "wholesale", "institution", "other"].includes(v.type)) errors.push("type غير معروف");
   if (kind === "customers") {
     if (v.payment_terms_days && (!/^\d+$/.test(v.payment_terms_days) || Number(v.payment_terms_days) > 365)) errors.push("payment_terms_days لازم يكون من 0 إلى 365");

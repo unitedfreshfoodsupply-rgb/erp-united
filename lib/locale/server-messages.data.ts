@@ -6,6 +6,12 @@
  * message has no entry here.
  */
 export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
+  ["الكود حروف إنجليزي وأرقام و . _ - / بحد أقصى 40", "Code: English letters, digits and . _ - / (at most 40)"],
+  ["كود المورد {} مستخدم لمورد تاني", "Supplier code {0} is already used by another supplier"],
+  ["كود العميل {} مستخدم لعميل تاني", "Customer code {0} is already used by another customer"],
+  ["الكود مكرر داخل الملف (صف {})", "Code duplicated within the file (row {0})"],
+  ["الكود {} مستخدم بالفعل", "Code {0} is already in use"],
+  ["أكواد CUS-/SUP- برقم محجوزة للترقيم التلقائي — استخدم كودكم أو سيب العمود فاضي", "CUS-/SUP- numbered codes are reserved for automatic numbering — use your own code or leave the column empty"],
   ["نوع ملف الاستيراد غير معروف", "Unknown import file type"],
   ["رصيد الافتتاح يقبل 200 سطر كحد أقصى في المستند الواحد", "Opening stock accepts at most 200 lines per document"],
   ["حدد تاريخ الرصيد الافتتاحي بصيغة YYYY-MM-DD", "Set the opening balance date as YYYY-MM-DD"],

@@ -42,9 +42,12 @@ test("bilingual imports refuse a non-Arabic name_ar and say when the columns loo
   assert.deepEqual(validateImportRow("product_packaging", { rowNumber: 2, values: { sku: "A", uom: "BOX", qty_in_base_unit: "5", name_ar: "x" } }, ["sku"]), []);
 });
 
-test("customer and supplier codes are system-assigned: a code in the file is refused, not silently dropped", () => {
-  assert.match(validateImportRow("customers", { rowNumber: 2, values: { name: "Hilton", code: "CUS-9" } }, ["name"]).join(" "), /الكود بيتولد تلقائيًا/);
-  assert.match(validateImportRow("suppliers", { rowNumber: 2, values: { name: "Farm", code: "SUP-9" } }, ["name"]).join(" "), /الكود بيتولد تلقائيًا/);
+test("customer and supplier codes from the business's records are kept; a malformed one is refused, empty = generated", () => {
+  assert.deepEqual(validateImportRow("customers", { rowNumber: 2, values: { name: "Hilton", code: "C-1001" } }, ["name"]), []);
+  assert.deepEqual(validateImportRow("suppliers", { rowNumber: 2, values: { name: "Farm", code: "20045" } }, ["name"]), []);
+  assert.match(validateImportRow("customers", { rowNumber: 2, values: { name: "Hilton", code: "كود 1" } }, ["name"]).join(" "), /الكود حروف إنجليزي/);
+  assert.match(validateImportRow("suppliers", { rowNumber: 2, values: { name: "Farm", code: "-bad code" } }, ["name"]).join(" "), /الكود حروف إنجليزي/);
+  assert.match(validateImportRow("customers", { rowNumber: 2, values: { name: "Hilton", code: "CUS-9" } }, ["name"]).join(" "), /محجوزة للترقيم التلقائي/);
   assert.deepEqual(validateImportRow("suppliers", { rowNumber: 2, values: { name: "Farm", code: "" } }, ["name"]), []);
   assert.deepEqual(validateImportRow("customer_groups", { rowNumber: 2, values: { code: "JAZ", name: "Jaz Hotels", name_ar: "جاز" } }, ["code", "name"]), []);
 });

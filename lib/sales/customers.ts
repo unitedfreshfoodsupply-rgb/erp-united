@@ -60,7 +60,16 @@ const customerFields = {
   /// Commercial group ids this customer belongs to (M:N).
   group_ids: z.array(z.string().trim().min(1)).optional(),
 };
+/** A code supplied on creation (an import from the business's existing records) is kept as
+ * the customer's code; without one the next CUS- number is assigned. Letters are upper-cased
+ * like generated codes so search and opening-balance imports match them. */
+export const partyCode = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,39}$/, "الكود حروف إنجليزي وأرقام و . _ - / بحد أقصى 40")
+  .transform((s) => s.toUpperCase());
 const customerCreateWithCommercialTerms = z.object(customerFields).extend({
+  code: partyCode.optional(),
   payment_terms_days: z.number({ invalid_type_error: "مدة السداد لازم تكون رقم" }).int().min(0).max(365).optional(),
   credit_limit: optDecimal("حد الائتمان").optional(),
   credit_hold: z.boolean().optional(),
@@ -236,7 +245,9 @@ export async function createCustomer(input: unknown, actor: ServiceActor) {
       if (v.legal_entity_id && (!legalEntity || !legalEntity.active)) throw new ApiError(400, "الكيان القانوني غير موجود أو موقوف");
       const groups = v.group_ids?.length ? await tx.customerGroup.findMany({ where: { id: { in: v.group_ids }, active: true }, select: { id: true, code: true } }) : [];
       if (v.group_ids?.length && groups.length !== v.group_ids.length) throw new ApiError(400, "مجموعة من المجموعات المختارة غير موجودة أو موقوفة");
-      const code = await nextDocumentNumber(tx, "sales.customer", todayLocalISO());
+      if (v.code && /^(CUS|SUP)-\d+$/.test(v.code)) throw new ApiError(400, "أكواد CUS-/SUP- برقم محجوزة للترقيم التلقائي — استخدم كودكم أو سيب العمود فاضي");
+      if (v.code && (await tx.customer.findUnique({ where: { code: v.code }, select: { id: true } }))) throw new ApiError(409, `كود العميل ${v.code} مستخدم لعميل تاني`);
+      const code = v.code ?? (await nextDocumentNumber(tx, "sales.customer", todayLocalISO()));
       const c = await tx.customer.create({
         data: {
           code,

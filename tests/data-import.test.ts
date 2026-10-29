@@ -176,7 +176,7 @@ async function main() {
   const clash = await upload("admin", "products", "products-clash.csv", csv(`name,name_en,unit\nA,B,KG\n`), "preview");
   check("a file with both name and name_en is refused instead of one overwriting the other", clash.status === 400, clash.body);
   const codeForCustomer = await upload("admin", "customers", "customers-code.csv", csv(`code,name\nCUS-99999,"${TAG} Coded Hotel"\n`), "preview");
-  check("a customer code in the file is reported (codes are system-assigned), not silently dropped", codeForCustomer.status === 200 && codeForCustomer.body.errorCount === 1, codeForCustomer.body);
+  check("a code in the generator's own CUS- series is refused (it could collide with automatic numbering), not silently dropped", codeForCustomer.status === 200 && codeForCustomer.body.errorCount === 1, codeForCustomer.body);
 
   const biCustomerCsv = csv(`name_en,name_ar,external_ref\n"${TAG} Nile Hotel","فندق النيل ${TAG}",${TAG}-C2\n`);
   const biCustomerCommit = await upload("admin", "customers", "customers-bi.csv", biCustomerCsv, "commit");
@@ -204,6 +204,29 @@ async function main() {
   check("a refused commit says how many rows need fixing, in English", enCommit.status === 400 && enCommit.body.error === "1 row(s) need fixing — nothing was saved", enCommit.body);
   const enService = await call("omar", "POST", "/api/purchasing/suppliers", { name: biSupplier.name }, { "accept-language": "en" });
   check("a service error (duplicate supplier) is English and keeps the supplier's name", enService.status === 409 && enService.body.error === `Supplier "${biSupplier.name}" already exists`, enService.body);
+
+  section("9. AUTHORITATIVE CODES, BOTH NAMES AND TAX/LEGAL FIELDS ARE KEPT");
+  const stamp = String(Date.now() % 1_000_000_000);
+  const custCode = `C-${stamp}`, supCode = `S-${stamp}`;
+  const custCsv = csv(`code,name,name_ar,legal_name,legal_name_ar,tax_registration_no,commercial_reg_no,type,city\n${custCode},Nile Hotel ${stamp},فندق النيل ${stamp},Nile Hotels Co ${stamp},شركة فنادق النيل ${stamp},${String(100000000 + Number(stamp) % 899999999).slice(0, 9)},CR-${stamp},hotel,Cairo\n`);
+  const custPreview = await upload("admin", "customers", "customers-coded.csv", custCsv, "preview");
+  check("customer file with a code previews clean", custPreview.status === 200 && custPreview.body.rows.every((r: any) => r.errors.length === 0), custPreview.body);
+  const custCommit = await upload("admin", "customers", "customers-coded.csv", custCsv, "commit");
+  check("…and commits (1 created, 0 failed)", (custCommit.status === 200 || custCommit.status === 201) && custCommit.body.created === 1 && custCommit.body.failed === 0, custCommit.body);
+  const imported = (await call("admin", "GET", `/api/sales/customers?q=${encodeURIComponent(custCode)}`)).body.customers?.find((c: any) => c.code === custCode);
+  check("the customer keeps the supplied code", !!imported, custCode);
+  const full = imported ? (await call("admin", "GET", `/api/sales/customers/${imported.id}`)).body.customer : null;
+  check("English and Arabic names stored separately", full?.name === `Nile Hotel ${stamp}` && full?.nameAr === `فندق النيل ${stamp}`, [full?.name, full?.nameAr]);
+  check("legal names, tax registration and commercial registry kept", full?.legalName === `Nile Hotels Co ${stamp}` && full?.legalNameAr === `شركة فنادق النيل ${stamp}` && /^\d{9}$/.test(full?.taxRegistrationNo ?? "") && full?.commercialRegNo === `CR-${stamp}`, [full?.legalName, full?.taxRegistrationNo, full?.commercialRegNo]);
+  const again = await upload("admin", "customers", "customers-coded.csv", csv(`code,name\n${custCode},Another ${stamp}\n`), "preview");
+  check("a code already in use is refused in the preview", again.status === 200 && again.body.rows[0].errors.join(" ").includes(custCode), again.body);
+  const dupInFile = await upload("admin", "suppliers", "suppliers-dup.csv", csv(`code,name\n${supCode},Farm A ${stamp}\n${supCode.toLowerCase()},Farm B ${stamp}\n`), "preview");
+  check("the same code twice in one file is refused (case-insensitive)", dupInFile.status === 200 && dupInFile.body.rows[1].errors.length > 0, dupInFile.body);
+  const supCommit = await upload("admin", "suppliers", "suppliers-coded.csv", csv(`code,name,name_ar,tax_registration_no\n${supCode},Green Farm ${stamp},مزرعة خضراء ${stamp},\n`), "commit");
+  const sup = (await call("admin", "GET", `/api/purchasing/suppliers?q=${encodeURIComponent(supCode)}`)).body.suppliers?.find((x: any) => x.code === supCode);
+  check("a supplier keeps the supplied code and both names", supCommit.body?.created === 1 && sup?.name === `Green Farm ${stamp}` && sup?.nameAr === `مزرعة خضراء ${stamp}`, [supCommit.status, sup]);
+  const generated = await upload("admin", "suppliers", "suppliers-nocode.csv", csv(`code,name\n,Plain Farm ${stamp}\n`), "commit");
+  check("an empty code still gets a generated one", generated.body?.created === 1 && /^SUP-\d+$/.test(generated.body?.results?.[0]?.code ?? ""), generated.body);
 
   finish("DATA IMPORT");
 }

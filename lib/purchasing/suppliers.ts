@@ -1,4 +1,5 @@
 import { Prisma, type Supplier } from "@prisma/client";
+import { partyCode } from "@/lib/sales/customers";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
@@ -95,12 +96,14 @@ export async function listSuppliersFull(opts: { q?: string; includeInactive?: bo
  * their quick name-only creation for a farmer arriving unannounced). */
 export async function createSupplierFull(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "purchasing.suppliers.manage");
-  const v = parse(termsInput.extend({ name: text("اسم المورد"), phone: optText("التليفون", 40).optional(), notes: optText("ملاحظات", 1000).optional() }), input);
+  const v = parse(termsInput.extend({ code: partyCode.optional(), name: text("اسم المورد"), phone: optText("التليفون", 40).optional(), notes: optText("ملاحظات", 1000).optional() }), input);
   try {
     return await inTx(async (tx) => {
+      if (v.code && /^(CUS|SUP)-\d+$/.test(v.code)) throw new ApiError(400, "أكواد CUS-/SUP- برقم محجوزة للترقيم التلقائي — استخدم كودكم أو سيب العمود فاضي");
+      if (v.code && (await tx.supplier.findUnique({ where: { code: v.code }, select: { id: true } }))) throw new ApiError(409, `كود المورد ${v.code} مستخدم لمورد تاني`);
       const s = await tx.supplier.create({
         data: {
-          code: await nextDocumentNumber(tx, "purchasing.supplier", todayLocalISO()),
+          code: v.code ?? (await nextDocumentNumber(tx, "purchasing.supplier", todayLocalISO())),
           name: v.name,
           nameAr: v.name_ar ?? null,
           phone: v.phone ?? null,
