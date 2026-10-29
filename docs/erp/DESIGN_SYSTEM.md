@@ -118,6 +118,28 @@ Caution bars use `#E2A33B` (a non-text accent, always paired with an icon + word
 - Every new visible string is a dictionary key with `ar` and `en` (`scripts/check-dict-integrity.py`).
 - Helpers that produce text take a `locale` argument (`friendlyDate`, `deliverySlot`, `nextAction`, `shortageSummary`) — Arabic stays the default so existing server-side callers are unchanged.
 
+### 6.1 One language per screen (Oct 2026)
+
+Arabic mode is Arabic, English mode is English. What still shows in the other script is
+business data as entered (a product with only an Arabic name, a note typed in Arabic), the
+language switch itself, the brand, and dedicated code fields. The rules that get there:
+
+| Source of text | Rule | Where |
+|---|---|---|
+| UI strings | dictionary key with both sides; `t("…")` literal keys are checked by a unit test, dotted or not | `lib/locale/dictionary.ts`, `tests/unit/ui-dictionary-keys.test.ts` |
+| Server errors | thrown in Arabic, translated at the response boundary from the catalog | `lib/locale/server-messages*.ts` |
+| Stored system text (journal descriptions, document reasons, approval/notification titles, audit values) | stored once as written; read in the UI language at render with `systemText(text, locale)` — templates both ways, `{}` values carried over, " · " parts read one by one, unknown text shown as stored. New generated text gets a pair in the catalog. | `lib/locale/system-text.ts` |
+| Names of customers, suppliers, products, employees, departments, cash accounts, locations, accounts | `localName(entity, locale)`. Fallback: Arabic → English → code → «بدون اسم»; English → Arabic → code → "Unnamed". No code appended to a name in pickers, tables or headers; codes live in their own column or field. | `lib/locale/names.ts` |
+| Stored identifiers (statuses, kinds, methods, roles, setting choices) | a label map per value, never the identifier. Setting choices: `SETTING_CHOICES`; audit setting rows: `settingLabel` / `settingValueText`. | per module; `lib/core/settings-registry.ts` |
+| Units | stored as codes (KG, BOX); shown with `unitLabel()` (كجم / kg) — `fmtQty`, `qtyUnit` and `systemText` already do | `lib/format.ts` |
+| Dates and numbers | `intlLocale(locale)`: Arabic month names with Western digits (`ar-EG-u-nu-latn`), the same digits as amounts and document numbers | `lib/format.ts` |
+| Prints | the sheet's language only (`?lang=en` from the link); no second-language subtitle | `lib/locale/print.ts` |
+| Typed data inside a sentence | wrap it in `<bdi>` so an Arabic value does not reorder an English line (and the reverse) | — |
+
+Lists show an error with a retry when a request fails; an empty-state message appears only after
+a successful empty answer (a failure must never read as "nothing here"). Irreversible or
+destructive actions go through `useDialogs().confirm` / `prompt` in danger tone.
+
 ## 6a. Second pass (screens re-inspected)
 
 Evidence came from 28 additional screenshots (HR, ledger, management, inventory, operations, approvals, daily report, ETA, profile — Arabic and English, desktop and tablet) and a scripted scan of 25 routes × 2 languages (every tab clicked) for text that is a raw dictionary key.
