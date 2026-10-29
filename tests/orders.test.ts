@@ -2,6 +2,8 @@
    the full lifecycle, optimistic concurrency, supervisor actions, audit, reports,
    live sync and print views. */
 import { call, login, page, cookieFor, BASE, makeChecker } from "./_harness";
+import { PrismaClient } from "@prisma/client";
+import { assertTestDatabase } from "./_guard";
 
 const { check, section, finish } = makeChecker();
 
@@ -299,6 +301,23 @@ async function main() {
   check("supervisor poll converged", (await call("sara","GET","/api/orders?status=preparing")).body.orders.some((o: any)=>o.id===F.id));
   check("date filter", (await call("sara","GET","/api/orders?date=2026-09-27")).body.orders.every((o: any)=>o.deliveryDate==="2026-09-27"));
   check("multi-status filter", (await call("sara","GET","/api/orders?status=new,preparing")).body.orders.every((o: any)=>["new","preparing"].includes(o.status)));
+
+  section("BOARD WINDOW — open orders and the last 7 days, not every order ever");
+  assertTestDatabase();
+  const db = new PrismaClient();
+  const before = await db.order.findUniqueOrThrow({ where: { id: dispatched.id }, select: { deliveryDate: true, updatedAt: true } });
+  const old = new Date(Date.now() - 30 * 86_400_000);
+  const oldDate = old.toISOString().slice(0, 10);
+  await db.$executeRaw`UPDATE "Order" SET "updatedAt" = ${old}, "deliveryDate" = ${oldDate} WHERE "id" = ${dispatched.id}`;
+  const board = (await call("sara","GET","/api/orders")).body.orders as any[];
+  check("a dispatched order closed 30 days ago leaves the board", !board.some((o) => o.id === dispatched.id));
+  check("…open orders stay on the board whatever their date", board.some((o) => o.status === "new" || o.status === "preparing"));
+  check("…and the order is still found by its date", (await call("sara","GET",`/api/orders?date=${oldDate}`)).body.orders.some((o: any) => o.id === dispatched.id));
+  const prodOrders = (await call("ahmed","GET","/api/orders?scope=production")).body.orders as any[];
+  check("production drill-down leaves it out too (same scope as the totals)", !prodOrders.some((o) => o.id === dispatched.id) && prodOrders.every((o) => o.status !== "cancelled"), prodOrders.filter((o) => o.id === dispatched.id || o.status === "cancelled").map((o) => [o.orderNumber, o.status, o.deliveryDate, o.updatedAt]));
+  await db.$executeRaw`UPDATE "Order" SET "updatedAt" = ${before.updatedAt}, "deliveryDate" = ${before.deliveryDate} WHERE "id" = ${dispatched.id}`;
+  check("an order dispatched today is on the production record", ((await call("ahmed","GET","/api/orders?scope=production")).body.orders as any[]).some((o) => o.id === dispatched.id));
+  await db.$disconnect();
 
   section("PRINT VIEWS");
   for (const kind of ["picking","delivery","dispatch"]) {

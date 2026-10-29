@@ -3140,7 +3140,7 @@ export const DICTIONARY = {
   "exceptions.informational-desc": { ar: "مفيش حاجة تعملها — الأوردرات دي معتمدة وماشية عادي، ظاهرة هنا للمتابعة بس.", en: "Nothing to do — these orders are approved and running normally; they are shown here for follow-up only." },
   "exceptions.informational-heading": { ar: "معلومة بس — اتعمد فرقها بالفعل", en: "For information only — the difference is already approved" },
   "exceptions.page-title": { ar: "مركز الاستثناءات", en: "Exceptions center" },
-  "exceptions.resolved-heading": { ar: "سجل تاريخي — أوردرات اتقفلت", en: "History — closed orders" },
+  "exceptions.resolved-heading": { ar: "سجل تاريخي — أوردرات اتقفلت آخر 7 أيام", en: "History — orders closed in the last 7 days" },
   "exceptions.subtitle": { ar: "اللي محتاج تدخلك دلوقتي — وبس اللي فعلاً محتاج.", en: "What needs your action now — and only what really does." },
   "master.description": { ar: "كل صنف له اسم واحد رسمي. الربط بيتم بالاسم المطابق بالظبط — مفيش تخمين.", en: "Every product has one official name. Matching uses the exact name — no guessing." },
   "master.loading-coverage": { ar: "بيحسب الربط...", en: "Calculating coverage..." },

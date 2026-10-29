@@ -24,7 +24,10 @@ export async function GET(req: NextRequest) {
     }
     // ?mine=1 — the preparation queue of the person asking.
     const assignedToId = searchParams.get("mine") === "1" && actor.id ? actor.id : undefined;
-    const orders = await listOrders({ status, date, assignedToId });
+    // Without a filter the list is the boards' window (open + recently closed); ?scope=production
+    // is exactly what the production totals count.
+    const scope = searchParams.get("scope") === "production" ? "production" : undefined;
+    const orders = await listOrders({ status, date, assignedToId, scope });
     return NextResponse.json({ orders });
   } catch (err) {
     return handleApiError(err, req);

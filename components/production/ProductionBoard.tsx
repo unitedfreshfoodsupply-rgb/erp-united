@@ -42,12 +42,12 @@ export function ProductionBoard() {
     refetchInterval: 5000,
   });
 
-  // Same scope as the aggregation: every non-cancelled order, including already-
-  // dispatched ones (production is a running record, not just pending work), so the
-  // drill-down always matches the totals above and a dispatched order stays clickable.
+  // Same scope as the aggregation (server-side productionScope): open orders plus what was
+  // delivered or closed today, so the drill-down always matches the totals above and a
+  // dispatched order stays clickable for the day.
   const { data: ordersData } = useQuery({
-    queryKey: ["orders", "all"],
-    queryFn: () => apiFetch<{ orders: OrderDTO[] }>("/api/orders"),
+    queryKey: ["orders", "production"],
+    queryFn: () => apiFetch<{ orders: OrderDTO[] }>("/api/orders?scope=production"),
     refetchInterval: 5000,
     staleTime: 2000,
   });

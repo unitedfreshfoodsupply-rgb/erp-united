@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { asText } from "@/lib/http";
 import { writeAudit, writeAuditMany } from "@/lib/audit";
@@ -17,6 +18,7 @@ import {
   isWaitingTooLong,
   orderUrgency,
   STATUS_LABEL,
+  OPEN_STATUSES,
 } from "@/lib/orderPresentation";
 import { validateProducts, type RawIncomingItem } from "@/lib/product-validation";
 import { ORDER_STATUSES, type OrderStatus, type Role } from "@/lib/types";
@@ -78,20 +80,56 @@ export async function assignOrder(orderId: string, userId: string | null, actor:
   });
 }
 
+/** How long a dispatched or cancelled order stays on the boards (command center, exceptions). */
+export const BOARD_HISTORY_DAYS = 7;
+
+/**
+ * The orders a live board shows: every open order, whatever its date, plus orders closed
+ * (dispatched or cancelled) within the last BOARD_HISTORY_DAYS. History beyond that lives in
+ * the reports and the audit log; without a bound every board loaded every order ever made.
+ */
+export function boardScope(now = new Date()): Prisma.OrderWhereInput {
+  const since = new Date(now.getTime() - BOARD_HISTORY_DAYS * 86_400_000);
+  return { OR: [{ status: { in: OPEN_STATUSES } }, { updatedAt: { gte: since } }, { deliveryDate: { gte: todayLocalISO(since) } }] };
+}
+
+/**
+ * Today's production: every open order (a fresh order counts at once, whatever its delivery
+ * date) and every non-cancelled order delivered or closed today (a dispatched order stays as
+ * the record of what was produced today). Shared by the totals and the drill-down list.
+ */
+export function productionScope(now = new Date()): Prisma.OrderWhereInput {
+  return {
+    status: { not: "cancelled" },
+    OR: [{ status: { in: OPEN_STATUSES } }, { deliveryDate: todayLocalISO(now) }, { updatedAt: { gte: startOfBusinessDay(now) } }],
+  };
+}
+
 export async function listOrders(filters: {
   status?: OrderStatus | OrderStatus[];
   date?: string;
   assignedToId?: string;
+  /** board (default when nothing else narrows the list) | production */
+  scope?: "board" | "production";
 }) {
+  const unfiltered = !filters.status && !filters.date && !filters.assignedToId;
+  const scope = filters.scope === "production" ? productionScope() : unfiltered || filters.scope === "board" ? boardScope() : {};
   return prisma.order.findMany({
     where: {
-      ...(filters.assignedToId ? { assignedToId: filters.assignedToId } : {}),
-      status: filters.status
-        ? Array.isArray(filters.status)
-          ? { in: filters.status }
-          : filters.status
-        : undefined,
-      deliveryDate: filters.date,
+      // The scope is its own AND term: merged as keys, an absent status filter would
+      // overwrite the scope's own status condition.
+      AND: [
+        scope,
+        {
+          ...(filters.assignedToId ? { assignedToId: filters.assignedToId } : {}),
+          status: filters.status
+            ? Array.isArray(filters.status)
+              ? { in: filters.status }
+              : filters.status
+            : undefined,
+          deliveryDate: filters.date,
+        },
+      ],
     },
     include: ORDER_INCLUDE,
     orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }, { createdAt: "asc" }],
@@ -1220,15 +1258,15 @@ export async function cloneOrder(
 }
 
 /**
- * Aggregates required/prepared/loaded quantities across every non-cancelled order —
- * a running total of the day's production, not scoped to a delivery date and not
- * dropped once an order dispatches. A freshly-arrived order counts immediately even
- * if its delivery date is days away, and a dispatched order stays visible here as
- * the record of what was actually produced.
+ * Aggregates required/prepared/loaded quantities over today's production (productionScope):
+ * a running total that is not scoped to a delivery date for open work — a freshly-arrived
+ * order counts immediately even if its delivery date is days away — and keeps an order
+ * dispatched today as the record of what was actually produced. Orders closed on earlier
+ * days no longer count (they used to, so the totals grew with every day of history).
  */
 export async function dailyProduction() {
   const orders = await prisma.order.findMany({
-    where: { status: { not: "cancelled" } },
+    where: productionScope(),
     include: ORDER_INCLUDE,
   });
 
@@ -1533,7 +1571,8 @@ export async function dailyOperationsSummary() {
       where: { createdAt: { gte: startOfDay, lt: endOfDay } },
       include: ORDER_INCLUDE,
     }),
-    prisma.order.findMany({ include: ORDER_INCLUDE }),
+    // Pipeline, exception counts and intelligence all read open orders only.
+    prisma.order.findMany({ where: { status: { in: OPEN_STATUSES } }, include: ORDER_INCLUDE }),
   ]);
 
   const byStatusToday: Record<string, number> = {};

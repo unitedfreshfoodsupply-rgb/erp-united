@@ -157,6 +157,7 @@ model Order {
   @@index([status])
   @@index([deliveryDate])
   @@index([customerAccountId])
+  @@index([updatedAt])
 }
 
 model OrderItem {
