@@ -43,7 +43,15 @@ Principles adopted from the board:
 
 ## 3. Design direction & tokens
 
-Identity: the existing UNITED logo and green family are kept. The logo's "U" mark (`public/brand/united-mark.png`, a crop of the existing logo, not a new drawing) is the app icon in the shell.
+Identity: the existing UNITED logo and green family are kept. Every in-app brand image is a crop of the committed source `public/logo-united.png` (transparent, 1024 px; the logo itself fills only 427×662 px of it), never a new drawing:
+
+| Asset | Crop of the source | Used in |
+|---|---|---|
+| `public/brand/united-mark.png` (512 px, transparent) | the "U" mark | sidebar / top bar (34 px), print headers beside the "UNITED · Fruits & Vegetables" text, browser tab (`app/icon.png`, 256 px) |
+| `public/brand/united-lockup.png` (321×333, transparent) | mark + UNITED + "Fruits & Vegetables" (the tagline is left out: it would be ≈7 px at login size) | login (160 px wide) |
+| `public/logo-united.png` | the full original, untouched | source only |
+
+The lockup's dark wordmark is for light surfaces; the mark reads on light and dark. The earlier mark was an opaque crop with the wordmark cut off along its bottom edge; it was replaced by the clean crop (29 Oct).
 
 ### Colour (`tailwind.config.js` → `united.*`)
 

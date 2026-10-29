@@ -48,8 +48,9 @@ export default function LoginPage() {
     <main className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-b from-united-bg to-white">
       <form onSubmit={onSubmit} className="card p-8 w-full max-w-sm flex flex-col gap-5 shadow-card-hover border-united-border/60">
         <div className="flex flex-col items-center gap-3 mb-1">
-          <Image src="/logo-united.png" alt="UNITED" width={72} height={72} className="rounded-2xl" />
-          <h1 className="text-2xl font-extrabold text-united-dark tracking-tight">UNITED</h1>
+          {/* The brand lockup (mark, UNITED, Fruits & Vegetables) cropped from public/logo-united.png. */}
+          <Image src="/brand/united-lockup.png" alt="" width={160} height={166} priority />
+          <h1 className="sr-only">UNITED</h1>
           <p className="text-sm font-bold text-united-green">{t("ui.login.subtitle")}</p>
         </div>
 

@@ -38,7 +38,7 @@ export default async function InvoicePrint({ params, searchParams }: { params: {
       {/* Header: brand on one side, document identity on the other */}
       <header className="flex items-start justify-between gap-6 pb-5 border-b-4 border-united-dark">
         <div className="flex items-start gap-3">
-          <Image src="/logo-united.png" alt="UNITED" width={64} height={64} className="rounded" />
+          <Image src="/brand/united-mark.png" alt="" width={56} height={56} className="shrink-0" />
           <div>
             <div className="text-2xl font-extrabold tracking-wide">UNITED</div>
             <div className="text-xs text-united-dark/60">Fruits &amp; Vegetables</div>

@@ -47,7 +47,7 @@ function activeHrefFor(links: NavLink[], pathname: string | null) {
 function Brand({ href, compact = false }: { href: string; compact?: boolean }) {
   return (
     <Link href={href} className="flex items-center gap-2.5 shrink-0 rounded-lg" aria-label="UNITED">
-      <Image src="/brand/united-mark.png" alt="" width={32} height={32} className="rounded-lg" priority />
+      <Image src="/brand/united-mark.png" alt="" width={34} height={34} className="shrink-0" priority />
       {!compact && (
         <span className="flex flex-col leading-none" dir="ltr">
           <span className="font-bold tracking-wide text-united-dark">UNITED</span>

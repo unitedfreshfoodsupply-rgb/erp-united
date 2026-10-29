@@ -27,7 +27,7 @@ export function PrintHeader({
   return (
     <div className="flex items-start justify-between gap-4 border-b-2 border-united-dark pb-4 mb-4 print-break-inside-avoid">
       <div className="flex items-start gap-3">
-        <Image src="/logo-united.png" alt="UNITED" width={48} height={48} className="rounded" />
+        <Image src="/brand/united-mark.png" alt="" width={44} height={44} className="shrink-0" />
         <div>
           <div className="font-extrabold text-lg text-united-dark leading-tight">UNITED</div>
           <div className="text-[10px] text-united-dark/50">Fruits &amp; Vegetables</div>
