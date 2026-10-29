@@ -6,7 +6,7 @@ import { getBaseUrl } from "@/lib/absoluteUrl";
 import { orderQrSvg } from "@/lib/orderQr";
 import { PrintBar } from "@/components/print/PrintBar";
 import { PrintHeader } from "@/components/print/PrintHeader";
-import { qty } from "@/lib/format";
+import { qty, unitLabel } from "@/lib/format";
 import { printDir, printIntl, printLocale, printT } from "@/lib/locale/print";
 
 /** What a loader needs: how much to load per item, and the manifest (driver /
@@ -31,7 +31,7 @@ export default async function DispatchSheetPage({ params, searchParams }: { para
         <PrintHeader
           locale={locale}
           titleAr="شيت التحميل / التسليم"
-          titleEn="Loading / Dispatch Sheet"
+          titleEn="Loading and dispatch sheet"
           orderNumber={order.orderNumber}
           customerName={order.customerName}
           deliveryDate={order.deliveryDate}
@@ -55,7 +55,7 @@ export default async function DispatchSheetPage({ params, searchParams }: { para
               <tr key={item.id} className="border-b border-united-border print-break-inside-avoid">
                 <td className="p-2 text-start text-united-dark/50">{idx + 1}</td>
                 <td className="p-2 text-start font-bold text-base">{item.productName}</td>
-                <td className="p-2 text-center">{item.unit}</td>
+                <td className="p-2 text-center">{unitLabel(item.unit, locale)}</td>
                 <td dir="ltr" className="p-2 text-center font-extrabold text-base">
                   {qty(item.preparedQuantity ?? item.requiredQuantity)}
                 </td>

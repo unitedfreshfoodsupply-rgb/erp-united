@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { systemText } from "@/lib/locale/system-text";
 import { apiFetch } from "@/lib/api-client";
 import type { AuditLogDTO } from "@/lib/client-types";
 import { buildTimeline, SOURCE_LABEL, SOURCE_LABEL_EN } from "@/lib/auditLabels";
@@ -61,7 +62,7 @@ export function Timeline({ orderId }: { orderId: string }) {
             <div className={`${e.milestone ? "font-semibold" : "font-medium"} text-united-dark`}>
               <span className="text-united-green">{e.actor}</span> {e.headline}
             </div>
-            {e.detail && <div className="text-sm text-united-dark/80">{e.detail}</div>}
+            {e.detail && <div className="text-sm text-united-dark/80">{systemText(e.detail, locale)}</div>}
             {e.reason && <div className="text-sm text-united-muted">{t("audit.reason-prefix")} {e.reason}</div>}
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-united-muted mt-0.5">
               <span dir="ltr">{clockLabel(e.at, locale)}</span>

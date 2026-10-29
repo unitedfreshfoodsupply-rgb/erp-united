@@ -11,6 +11,7 @@ import { useLocale } from "@/lib/locale";
 import { localName, otherLocalName } from "@/lib/locale/names";
 import type { StockProductDTO } from "@/lib/stock-client-types";
 import { useDialogs } from "@/components/ui/Dialog";
+import { unitLabel } from "@/lib/format";
 
 /** Product Master entries: canonical identity plus every name that resolves to it. */
 export function ProductsPanel({
@@ -190,7 +191,7 @@ function ProductCard({ product, canManage }: { product: StockProductDTO; canMana
             )}
           </div>
           <div className="flex flex-wrap gap-x-3 text-xs font-bold text-united-muted mt-0.5">
-            <span dir="ltr">{t("stock.label-unit")} {product.unit}</span>
+            <span dir="ltr">{t("stock.label-unit")} {unitLabel(product.unit)}</span>
             {product.sku && <span dir="ltr">{t("stock.label-code")} {product.sku}</span>}
             {product.category && <span>{product.category}</span>}
             {product._count && <span>{product._count.orderItems} {t("stock.label-order-lines")}</span>}

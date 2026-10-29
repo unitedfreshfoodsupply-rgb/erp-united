@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { systemText } from "@/lib/locale/system-text";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, errorMessage } from "@/lib/api-client";
 import { newClientKey } from "@/lib/clientKey";
@@ -11,7 +12,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { Pagination } from "@/components/ui/Pagination";
 import { useLocale } from "@/lib/locale";
-import { intlLocale } from "@/lib/format";
+import { intlLocale, unitLabel } from "@/lib/format";
 import { localName, type LocalizedNameSource } from "@/lib/locale/names";
 import { useDialogs } from "@/components/ui/Dialog";
 
@@ -102,16 +103,17 @@ export function AccountingView() {
 }
 
 function Cash() {
-  const { t } = useLocale();
-  const q = useQuery({ queryKey: ["acc", "cash"], queryFn: () => apiFetch<{ cash: { rows: { id: string; name: string; type: string; glCode: string; balance: string }[]; total: string } }>("/api/accounting/cash") });
+  const { t, locale } = useLocale();
+  const q = useQuery({ queryKey: ["acc", "cash"], queryFn: () => apiFetch<{ cash: { rows: { id: string; name: string; nameAr: string | null; type: string; glCode: string; balance: string }[]; total: string } }>("/api/accounting/cash") });
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   return (
     <section className="grid gap-2 sm:grid-cols-3">
       {q.data.cash.rows.map((r) => (
         <div key={r.id} className="card p-4">
-          <div className="text-sm font-bold text-united-muted">{r.name} · <span dir="ltr">{r.glCode}</span></div>
+          <div className="text-sm font-bold text-united-muted">{localName(r, locale)}</div>
           <div className="text-2xl font-extrabold" dir="ltr">{fmtMoney(r.balance)}</div>
+          <div className="mt-1 text-xs text-united-muted">{t("accounting.gl-account")} <bdi dir="ltr">{r.glCode}</bdi></div>
         </div>
       ))}
       <div className="card p-4 bg-united-green/10">
@@ -408,7 +410,7 @@ function Journals() {
           <div className="flex justify-between"><span className="font-extrabold"><span dir="ltr">{detail.data.journal.number}</span> · {detail.data.journal.description}</span><button type="button" className="underline" onClick={() => setOpen(null)}>{t("accounting.button.close")}</button></div>
           {detail.data.journal.lines?.map((l) => (
             <div key={l.id} className="grid grid-cols-[1fr_6rem_6rem] gap-2">
-              <span>{l.account.code} · {localName(l.account, locale)}{l.description ? ` — ${l.description}` : ""}</span>
+              <span>{l.account.code} · {localName(l.account, locale)}{l.description ? ` — ${systemText(l.description, locale)}` : ""}</span>
               <span dir="ltr" className="num">{Number(l.debit) ? l.debit : ""}</span>
               <span dir="ltr" className="num">{Number(l.credit) ? l.credit : ""}</span>
             </div>
@@ -421,7 +423,7 @@ function Journals() {
         {q.data?.journals.map((j) => (
           <li key={j.id}>
             <button type="button" className="card p-2 w-full text-start flex justify-between gap-2 text-sm font-bold" onClick={() => setOpen(j.id)}>
-              <span><span dir="ltr">{j.number}</span> · {j.date} · {t(SOURCE_TYPES[j.sourceType])} · {j.description}</span>
+              <span><span dir="ltr">{j.number}</span> · {j.date} · {t(SOURCE_TYPES[j.sourceType])} · {systemText(j.description, locale)}</span>
               <span dir="ltr">{fmtMoney(j.total)}</span>
             </button>
           </li>
@@ -492,7 +494,7 @@ function Trial() {
           <div className="flex flex-col gap-1">
             {ledger.data.ledger.lines.map((l) => (
               <div key={l.date + l.number + l.description} className="grid grid-cols-[1fr_6rem_6rem] gap-2">
-                <span>{l.date} · <span dir="ltr">{l.number}</span> · {l.description}</span>
+                <span>{l.date} · <span dir="ltr">{l.number}</span> · {systemText(l.description, locale)}</span>
                 <span dir="ltr" className="num">{Number(l.debit) ? fmtMoney(l.debit) : ""}</span>
                 <span dir="ltr" className="num">{Number(l.credit) ? fmtMoney(l.credit) : ""}</span>
               </div>
@@ -569,7 +571,7 @@ function Periods() {
 function Reconcile() {
   const toast = useToast();
   const qc = useQueryClient();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [form, setForm] = useState({ cash_account_id: "bank_main", statement_date: todayLocalISO(), statement_balance: "" });
   const [recId, setRecId] = useState<string | null>(null);
   const rec = useQuery({ queryKey: ["acc", "rec", recId], queryFn: () => apiFetch<{ reconciliation: { status: string; statementBalance: string; clearedBalance: string; difference: string; lines: { id: string; date: string; number: string; description: string; debit: string; credit: string; cleared: boolean }[] } }>(`/api/accounting/reconciliations/${recId}`), enabled: !!recId });
@@ -601,7 +603,7 @@ function Reconcile() {
         {r.lines.map((l) => (
           <li key={l.id} className="py-1 flex items-center gap-2">
             <input type="checkbox" className="w-5 h-5" checked={l.cleared} disabled={r.status !== "open"} onChange={() => mark([l.id], !l.cleared)} aria-label={l.number} />
-            <span className="flex-1">{l.date} · <span dir="ltr">{l.number}</span> · {l.description}</span>
+            <span className="flex-1">{l.date} · <span dir="ltr">{l.number}</span> · {systemText(l.description, locale)}</span>
             <span dir="ltr">{Number(l.debit) ? `+${l.debit}` : `-${l.credit}`}</span>
           </li>
         ))}
@@ -711,7 +713,7 @@ function Opening() {
         <h3 className="font-extrabold">{t("accounting.opening-stock")}</h3>
         {stock.map((l, i) => (
           <div key={i} className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <select className="field" value={l.product_id} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, product_id: e.target.value } : x)))}><option value="">{t("accounting.product-label")}</option>{products.data?.map((p) => <option key={p.id} value={p.id}>{localName(p, locale)} ({p.unit})</option>)}</select>
+            <select className="field" value={l.product_id} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, product_id: e.target.value } : x)))}><option value="">{t("accounting.product-label")}</option>{products.data?.map((p) => <option key={p.id} value={p.id}>{localName(p, locale)} ({unitLabel(p.unit)})</option>)}</select>
             <input className="field" dir="ltr" inputMode="decimal" placeholder={t("stock.qty")} value={l.quantity} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, quantity: e.target.value } : x)))} />
             <input className="field" dir="ltr" inputMode="decimal" placeholder={t("stock.unit-cost")} value={l.unit_cost} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, unit_cost: e.target.value } : x)))} />
             <input type="date" className="field" aria-label={t("accounting.info-expiry")} value={l.expiry_date} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, expiry_date: e.target.value } : x)))} />

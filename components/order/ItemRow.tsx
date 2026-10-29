@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check } from "lucide-react";
 import type { OrderItemDTO } from "@/lib/client-types";
 import { QuantityInput } from "@/components/QuantityInput";
-import { qty as qtyLabel } from "@/lib/format";
+import { qty as qtyLabel, unitLabel } from "@/lib/format";
 import { useLocale } from "@/lib/locale";
 
 type Mode = "display" | "prepare" | "load";
@@ -118,7 +118,7 @@ export function ItemRow({
         <div className="text-[11px] text-united-muted mb-0.5">{t(labelKey)}</div>
         <div dir="ltr" className={`font-extrabold text-lg sm:text-xl ${toneClass}`}>
           {value}
-          {value !== "—" && <span className="text-[10px] font-bold text-united-dark/40"> {unit}</span>}
+          {value !== "—" && <span className="text-[10px] font-bold text-united-dark/40"> {unitLabel(unit)}</span>}
         </div>
       </div>
     );
@@ -184,7 +184,7 @@ export function ItemRow({
           </div>
           {remoteValue !== null && (
             <div role="status" className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-united-warn/10 px-3 py-2 text-sm font-medium text-united-warn">
-              <span>{t("orders.item.changed_elsewhere", { qty: qtyLabel(remoteValue), unit: item.unit })}</span>
+              <span>{t("orders.item.changed_elsewhere", { qty: qtyLabel(remoteValue), unit: unitLabel(item.unit) })}</span>
               <button type="button" className="btn-secondary btn-sm" onClick={() => { setQty(remoteValue); setTouched(false); setRemoteValue(null); }}>
                 {t("orders.item.use_server_value")}
               </button>
@@ -193,9 +193,9 @@ export function ItemRow({
           {/* Inline prepared-vs-ordered comparison — updates immediately on every keystroke. */}
           <div className="flex items-center gap-2 mt-2 text-sm font-bold">
             <span className="text-united-muted">{t("orders.item.req_label")}</span>
-            <span dir="ltr" className="text-united-dark">{qtyLabel(item.requiredQuantity)} {item.unit}</span>
+            <span dir="ltr" className="text-united-dark">{qtyLabel(item.requiredQuantity)} {unitLabel(item.unit)}</span>
             <span className="text-united-muted">{t("orders.item.prep_label")}</span>
-            <span dir="ltr" className={qty > item.requiredQuantity ? "text-united-warn" : "text-united-green"}>{qtyLabel(qty)} {item.unit}</span>
+            <span dir="ltr" className={qty > item.requiredQuantity ? "text-united-warn" : "text-united-green"}>{qtyLabel(qty)} {unitLabel(item.unit)}</span>
           </div>
           {qty > item.requiredQuantity && (
             <p className="text-united-danger font-bold text-sm mt-1">
@@ -206,7 +206,7 @@ export function ItemRow({
             <p className="text-united-warn font-bold text-sm mt-2">
               {t("orders.item.outlier_warning", {
                 required: qtyLabel(item.requiredQuantity),
-                unit: item.unit,
+                unit: unitLabel(item.unit),
                 msg: outlierConfirmed ? t("orders.item.outlier_confirmed_msg") : t("orders.item.outlier_pending_msg"),
               })}
             </p>
@@ -216,7 +216,7 @@ export function ItemRow({
 
       {short && (
         <p className="mt-2 flex items-start gap-1.5 font-semibold text-united-danger">
-          <AlertTriangle size={18} className="mt-0.5 shrink-0" aria-hidden /> {t("orders.item.shortage_text", { qty: qtyLabel(item.requiredQuantity - (mode === "load" ? item.loadedQuantity! : item.preparedQuantity!)), unit: item.unit })}
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" aria-hidden /> {t("orders.item.shortage_text", { qty: qtyLabel(item.requiredQuantity - (mode === "load" ? item.loadedQuantity! : item.preparedQuantity!)), unit: unitLabel(item.unit) })}
         </p>
       )}
       {!short && mismatch && (

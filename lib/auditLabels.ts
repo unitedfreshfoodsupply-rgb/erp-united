@@ -1,7 +1,7 @@
 import type { AuditLogDTO } from "@/lib/client-types";
 import { STATUS_LABEL, STATUS_LABEL_EN } from "@/lib/orderPresentation";
 import type { OrderStatus } from "@/lib/types";
-import { qty } from "@/lib/format";
+import { qty, intlLocale, unitLabel } from "@/lib/format";
 
 /**
  * Turning the audit trail into an operational story.
@@ -52,7 +52,7 @@ function withUnit(value: string | number | null, unit?: string | null) {
   if (value === null || value === undefined || value === "") return "—";
   const n = Number(value);
   const shown = Number.isFinite(n) ? qty(n) : String(value);
-  return unit ? `${shown} ${unit}` : shown;
+  return unit ? `${shown} ${unitLabel(unit)}` : shown;
 }
 
 export type TimelineEvent = {
@@ -260,7 +260,7 @@ export const SOURCE_LABEL_EN: Record<string, string> = {
 };
 
 export function timeLabel(iso: string, locale: TimelineLocale = "ar") {
-  return new Date(iso).toLocaleString(locale === "en" ? "en-GB" : "ar-EG", {
+  return new Date(iso).toLocaleString(intlLocale(locale), {
     hour: "2-digit",
     minute: "2-digit",
     day: "2-digit",

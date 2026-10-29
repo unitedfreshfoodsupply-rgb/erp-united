@@ -10,7 +10,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { LoadingState, EmptyState, ErrorState } from "@/components/States";
 import { LiveIndicator } from "@/components/ui/LiveIndicator";
 import { todayLocalISO } from "@/lib/localDate";
-import { qty } from "@/lib/format";
+import { qty, unitLabel } from "@/lib/format";
 import { useLocale } from "@/lib/locale";
 
 type ProductionRow = {
@@ -88,7 +88,7 @@ export function ProductionBoard() {
           <div className="flex gap-4 flex-wrap">
             {[...totalsByUnit.entries()].map(([unit, total]) => (
               <div key={unit} className="text-end">
-                <div className="text-sm font-bold text-white/60">{unit}</div>
+                <div className="text-sm font-bold text-white/60">{unitLabel(unit)}</div>
                 <div dir="ltr" className="text-2xl font-extrabold">{qty(total)}</div>
               </div>
             ))}
@@ -120,14 +120,14 @@ export function ProductionBoard() {
                     <span dir="ltr">
                       {qty(p.prepared)} / {qty(p.required)}
                     </span>
-                    <span className="text-xs font-bold text-united-dark/40"> {p.unit}</span>
+                    <span className="text-xs font-bold text-united-dark/40"> {unitLabel(p.unit)}</span>
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm text-united-dark/50 font-bold mb-2">
                   <span>{t("prodboard.orders", { count: p.orderCount })}</span>
                   {!complete && (
                     <span className="text-united-warn">
-                      {t("prodboard.left")} <span dir="ltr">{qty(remaining)} {p.unit}</span>
+                      {t("prodboard.left")} <span dir="ltr">{qty(remaining)} {unitLabel(p.unit)}</span>
                     </span>
                   )}
                 </div>
@@ -154,7 +154,7 @@ export function ProductionBoard() {
                       >
                         <span className="font-bold text-united-dark">{o.customerName}</span>
                         <span dir="ltr" className="text-united-dark/60">
-                          {qty(item.requiredQuantity)} {item.unit}
+                          {qty(item.requiredQuantity)} {unitLabel(item.unit)}
                         </span>
                         <StatusBadge status={o.status} />
                       </Link>

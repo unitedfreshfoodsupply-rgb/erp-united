@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { systemText } from "@/lib/locale/system-text";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
@@ -300,7 +301,7 @@ type Ex = { id: string; type: string; status: string; description: string; produ
 
 function Exceptions() {
   const { can } = usePermissions();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
   const [status, setStatus] = useState("open");
@@ -318,7 +319,7 @@ function Exceptions() {
               <span className="font-extrabold">{EX_TYPE[e.type] ? t(EX_TYPE[e.type]) : e.type}{e.productName ? ` · ${e.productName}` : ""}{e.quantity ? <> · <span dir="ltr">{fmtQty(e.quantity)}</span></> : null}</span>
               <span className={`text-xs font-extrabold ${e.status === "open" ? "text-united-warn" : "text-united-green"}`}>{e.status === "open" ? t("ops.exc.open-status") : t("ops.exc.closed-status")}</span>
             </div>
-            <p className="text-sm font-bold">{e.description}</p>
+            <p className="text-sm font-bold">{systemText(e.description, locale)}</p>
             <p className="text-xs font-bold text-united-muted">{e.order ? <><span dir="ltr">{e.order.orderNumber}</span> · {e.order.customerName} · </> : null}{t("ops.exc.logged-by-prefix")} {e.createdBy}{e.ownerName ? ` · ${t("ops.exc.responsible-label")} ${e.ownerName}` : ""}{e.resolution ? ` · ${t("ops.exc.resolution-label")}: ${e.resolution} (${e.resolvedBy})` : ""}</p>
             {e.status === "open" && can("orders.approve") && (
               <div className="flex gap-2">

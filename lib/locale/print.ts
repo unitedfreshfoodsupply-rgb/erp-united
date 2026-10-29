@@ -1,4 +1,5 @@
 import { DICTIONARY } from "./dictionary";
+import { intlLocale } from "@/lib/format";
 
 /**
  * Translation for server-rendered print pages. They cannot read the locale the browser
@@ -28,7 +29,7 @@ export function printDir(locale: PrintLocale): "rtl" | "ltr" {
   return locale === "ar" ? "rtl" : "ltr";
 }
 
-/** Dates and numbers on the sheet use the sheet's language (no Arabic-Indic digits in English). */
+/** Dates and numbers on the sheet use the sheet's language, with the app's digits (lib/format). */
 export function printIntl(locale: PrintLocale): string {
-  return locale === "en" ? "en-GB" : "ar-EG";
+  return intlLocale(locale);
 }

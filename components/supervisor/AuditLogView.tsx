@@ -7,6 +7,7 @@ import { apiFetch, errorMessage } from "@/lib/api-client";
 import type { AuditLogDTO } from "@/lib/client-types";
 import { EmptyState, ErrorState } from "@/components/States";
 import { LiveIndicator } from "@/components/ui/LiveIndicator";
+import { systemText } from "@/lib/locale/system-text";
 import { buildTimeline, timeLabel, SOURCE_LABEL, SOURCE_LABEL_EN, type TimelineLocale } from "@/lib/auditLabels";
 import { ROLE_LABEL, ROLE_LABEL_EN, isRole } from "@/lib/types";
 import { CardSkeleton } from "@/components/Skeleton";
@@ -146,8 +147,8 @@ export function AuditLogView() {
               <p className="flex items-center gap-1.5 font-medium text-united-dark">
                 <EventIcon symbol={icon} className="shrink-0 text-united-muted" /> {headline}
               </p>
-              {detail && <p className="text-sm text-united-dark/80">{detail}</p>}
-              {l.reason && <p className="text-sm text-united-muted">{t("audit.reason-prefix")} {l.reason}</p>}
+              {detail && <p className="text-sm text-united-dark/80">{systemText(detail, locale)}</p>}
+              {l.reason && <p className="text-sm text-united-muted">{t("audit.reason-prefix")} {systemText(l.reason, locale)}</p>}
               <div className="flex items-center justify-between mt-2">
                 <span className="text-xs font-bold text-united-muted bg-united-dark/5 px-2 py-0.5 rounded-full">
                   {(locale === "en" ? SOURCE_LABEL_EN : SOURCE_LABEL)[l.source] ?? l.source}
@@ -177,10 +178,12 @@ function describeOne(l: AuditLogDTO, locale: TimelineLocale) {
   const en = locale === "en";
   const entity = DICTIONARY[`audit.entity.${l.entityType}` as keyof typeof DICTIONARY];
   const what = entity ? (en ? entity.en : entity.ar) : l.entityType;
-  const verb = Object.entries(VERBS).find(([suffix]) => l.action.endsWith(suffix))?.[1];
+  const verb = Object.entries(VERBS).sort((a, b) => b[0].length - a[0].length).find(([suffix]) => l.action.endsWith(suffix))?.[1];
   return {
     icon: "•",
-    headline: verb ? `${what} — ${en ? verb.en : verb.ar}` : `${what} — ${l.action.replace(/_/g, " ")}`,
+    // An action without a verb here still reads in the reader's language: English gets the
+    // action in words, Arabic a neutral "activity" rather than an English identifier.
+    headline: `${what} — ${verb ? (en ? verb.en : verb.ar) : en ? l.action.replace(/_/g, " ") : "نشاط مسجّل"}`,
     detail: event?.detail ?? l.newValue ?? undefined,
   };
 }
@@ -198,4 +201,60 @@ const VERBS: Record<string, { ar: string; en: string }> = {
   _advance: { ar: "سلفة", en: "advance paid" },
   _reimbursement: { ar: "صرف مستحقات", en: "reimbursement paid" },
   _advance_return: { ar: "رد سلفة", en: "advance returned" },
+  _viewed: { ar: "اتعرض", en: "viewed" },
+  _changed: { ar: "اتغيّر", en: "changed" },
+  _edited: { ar: "اتعدّل", en: "edited" },
+  _reset: { ar: "رجع للافتراضي", en: "reset to default" },
+  _calculated: { ar: "اتحسب", en: "calculated" },
+  _returned: { ar: "اترجّع للتعديل", en: "returned for changes" },
+  _submitted: { ar: "اتبعت للاعتماد", en: "submitted for approval" },
+  _withdrawn: { ar: "اتسحب", en: "withdrawn" },
+  _exported: { ar: "اتصدّر", en: "exported" },
+  _applied: { ar: "اتطبّق", en: "applied" },
+  _requested: { ar: "اتطلب", en: "requested" },
+  _confirmed: { ar: "اتأكد", en: "confirmed" },
+  _compiled: { ar: "اتجمّع", en: "compiled" },
+  _reopened: { ar: "اتفتح تاني", en: "reopened" },
+  _issued: { ar: "اتصدر", en: "issued" },
+  _paid: { ar: "اتدفع", en: "paid" },
+  _added: { ar: "اتضاف", en: "added" },
+  _removed: { ar: "اتشال", en: "removed" },
+  _assigned: { ar: "اتوزّع", en: "assigned" },
+  _set: { ar: "اتحدد", en: "set" },
+  _verified: { ar: "اتراجع واتأكد", en: "verified" },
+  _retired: { ar: "اتوقف", en: "retired" },
+  _discarded: { ar: "اتلغت المسودة", en: "draft discarded" },
+  _allocated: { ar: "اتوزّع الرصيد", en: "allocated" },
+  _adjusted: { ar: "اتسوّى", en: "adjusted" },
+  _voided: { ar: "اتلغى", en: "voided" },
+  _resolved: { ar: "اتحل", en: "resolved" },
+  _skipped: { ar: "اتعدّى", en: "skipped" },
+  _raised: { ar: "اتسجل", en: "raised" },
+  _revoked: { ar: "اتلغى", en: "revoked" },
+  _locked: { ar: "اتقفل", en: "locked" },
+  _unlocked: { ar: "اتفتح", en: "unlocked" },
+  _closed: { ar: "اتقفل", en: "closed" },
+  _sent: { ar: "اتبعت", en: "sent" },
+  _accepted: { ar: "اتقبل", en: "accepted" },
+  _mapped: { ar: "اتربط", en: "linked" },
+  _unmapped: { ar: "اتفك ربطه", en: "unlinked" },
+  _saved: { ar: "اتحفظ", en: "saved" },
+  _cleared: { ar: "اتمسح", en: "cleared" },
+  _corrected: { ar: "اتصحّح", en: "corrected" },
+  _priced: { ar: "اتسعّر", en: "priced" },
+  _overridden: { ar: "اتغيّر يدويًا", en: "overridden" },
+  _evaluated: { ar: "اتراجع", en: "evaluated" },
+  _initialized: { ar: "اتجهّز", en: "initialized" },
+  _cloned: { ar: "اتنسخ", en: "copied" },
+  _redated: { ar: "اتغيّر تاريخه", en: "redated" },
+  _entered: { ar: "اتدخل", en: "entered" },
+  _proposed: { ar: "اتقترح", en: "proposed" },
+  _recovered: { ar: "اتسترد", en: "recovered" },
+  _refunded: { ar: "اترد", en: "refunded" },
+  _imported: { ar: "اتستورد", en: "imported" },
+  _activated: { ar: "اتفعّل", en: "activated" },
+  _deactivated: { ar: "اتوقف", en: "deactivated" },
+  _disabled: { ar: "اتوقف", en: "disabled" },
+  _enabled: { ar: "اتفعّل", en: "enabled" },
+  _repriced: { ar: "اتعاد تسعيره", en: "repriced" },
 };

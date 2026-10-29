@@ -8,7 +8,7 @@ import { apiFetch, errorMessage } from "@/lib/api-client";
 import { LoadingState, EmptyState, ErrorState } from "@/components/States";
 import { LiveIndicator } from "@/components/ui/LiveIndicator";
 import { todayLocalISO } from "@/lib/localDate";
-import { qty } from "@/lib/format";
+import { qty, unitLabel } from "@/lib/format";
 import type { DailySheetDTO } from "@/lib/picking-sheet";
 import { useLocale } from "@/lib/locale";
 
@@ -215,7 +215,7 @@ export function PickingSheet() {
                     {line.productName}
                   </span>
                   <span className="text-xs text-united-muted ms-2">
-                    {line.unit}
+                    {unitLabel(line.unit)}
                   </span>
                 </div>
                 <div className="flex items-center gap-4">

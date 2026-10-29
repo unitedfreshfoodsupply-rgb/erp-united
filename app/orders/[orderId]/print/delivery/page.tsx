@@ -10,7 +10,7 @@ import { getBaseUrl } from "@/lib/absoluteUrl";
 import { orderQrSvg } from "@/lib/orderQr";
 import { PrintBar } from "@/components/print/PrintBar";
 import { PrintHeader } from "@/components/print/PrintHeader";
-import { qty } from "@/lib/format";
+import { qty, unitLabel } from "@/lib/format";
 import type { OrderStatus } from "@/lib/types";
 
 export default async function DeliverySheetPage({ params, searchParams }: { params: { orderId: string }; searchParams?: { lang?: string } }) {
@@ -51,7 +51,7 @@ export default async function DeliverySheetPage({ params, searchParams }: { para
         <PrintHeader
           locale={locale}
           titleAr="مستند التسليم"
-          titleEn="Order / Delivery Sheet"
+          titleEn="Delivery note"
           orderNumber={order.orderNumber}
           customerName={order.customerName}
           externalId={order.externalId}
@@ -109,7 +109,7 @@ export default async function DeliverySheetPage({ params, searchParams }: { para
                 <tr key={item.id} className={`border-b border-united-border print-break-inside-avoid ${short ? "bg-red-50" : ""}`}>
                   <td className="p-2 text-start text-united-dark/50">{idx + 1}</td>
                   <td className="p-2 text-start font-bold">{item.productName}</td>
-                  <td className="p-2 text-center">{item.unit}</td>
+                  <td className="p-2 text-center">{unitLabel(item.unit, locale)}</td>
                   <td dir="ltr" className="p-2 text-center font-bold">{qty(item.requiredQuantity)}</td>
                   <td dir="ltr" className="p-2 text-center">{item.preparedQuantity != null ? qty(item.preparedQuantity) : "—"}</td>
                   <td dir="ltr" className="p-2 text-center">{item.loadedQuantity != null ? qty(item.loadedQuantity) : "—"}</td>

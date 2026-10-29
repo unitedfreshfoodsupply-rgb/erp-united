@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { systemText } from "@/lib/locale/system-text";
 import { newClientKey } from "@/lib/clientKey";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -460,7 +461,7 @@ function Statement({ supplier, onClose }: { supplier: { id: string; name: string
               {q.data.statement.rows.map((r) => (
                 <tr key={r.id} className="border-t border-united-dark/5 font-bold">
                   <td className="p-1">{r.date}</td>
-                  <td className="p-1"><span dir="ltr">{r.number}</span><div className="text-xs text-united-muted">{r.ref}</div></td>
+                  <td className="p-1"><span dir="ltr">{r.number}</span><div className="text-xs text-united-muted">{systemText(r.ref, locale)}</div></td>
                   <td className="p-1 num" dir="ltr">{Number(r.credit) ? r.credit : ""}</td>
                   <td className="p-1 num" dir="ltr">{Number(r.debit) ? r.debit : ""}</td>
                   <td className="p-1 num font-bold" dir="ltr">{r.balance}</td>

@@ -1,5 +1,6 @@
 "use client";
 
+import { unitLabel } from "@/lib/format";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
@@ -55,7 +56,7 @@ export function LedgerView() {
         <div className="card p-4 flex items-center justify-between">
           <span className="font-semibold text-united-dark">{t("ledger.balance-of", { name: localName({ name: selected.productName, nameAr: selected.productNameAr }, locale) })}</span>
           <span dir="ltr" className="text-2xl font-bold text-united-green">
-            {fmtKg(selected.balanceKg)} {selected.unit}
+            {fmtKg(selected.balanceKg)} {unitLabel(selected.unit)}
           </span>
         </div>
       )}
@@ -141,7 +142,7 @@ function AdjustmentForm({ products }: { products: StockBalanceDTO[] }) {
         <option value="">{t("ledger.product-placeholder")}</option>
         {products.map((p) => (
           <option key={p.productId} value={p.productId}>
-            {localName({ name: p.productName, nameAr: p.productNameAr }, locale)} ({fmtKg(p.balanceKg)} {p.unit})
+            {localName({ name: p.productName, nameAr: p.productNameAr }, locale)} ({fmtKg(p.balanceKg)} {unitLabel(p.unit)})
           </option>
         ))}
       </select>

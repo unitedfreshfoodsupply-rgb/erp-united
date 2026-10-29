@@ -579,7 +579,7 @@ export async function cashPosition() {
   const accounts = await prisma.cashAccount.findMany({ where: { active: true }, include: { account: { select: { code: true } } }, orderBy: { code: "asc" } });
   const sums = await prisma.journalLine.groupBy({ by: ["accountId"], where: { accountId: { in: accounts.map((a) => a.accountId) } }, _sum: { debit: true, credit: true } });
   const by = new Map(sums.map((s) => [s.accountId, D(s._sum.debit ?? 0).minus(s._sum.credit ?? 0)]));
-  const rows = accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, type: a.type, glCode: a.account.code, balance: (by.get(a.accountId) ?? D(0)).toFixed(2) }));
+  const rows = accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, nameAr: a.nameAr, type: a.type, glCode: a.account.code, balance: (by.get(a.accountId) ?? D(0)).toFixed(2) }));
   return { rows, total: rows.reduce((s, r) => s.plus(r.balance), D(0)).toFixed(2) };
 }
 

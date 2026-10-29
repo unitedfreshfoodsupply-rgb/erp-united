@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { systemText } from "@/lib/locale/system-text";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye, Plus, ShieldAlert } from "lucide-react";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
@@ -24,12 +25,12 @@ import { localName } from "@/lib/locale/names";
  */
 
 type History = {
-  id: string; event: string; effectiveFrom: string; effectiveTo: string | null; status: string; department: string | null; jobTitle: string | null;
+  id: string; event: string; effectiveFrom: string; effectiveTo: string | null; status: string; department: string | null; departmentAr?: string | null; jobTitle: string | null;
   manager: { id: string; code: string; name: string } | null; employmentType: string | null; contractEnd: string | null; probationEnd: string | null;
   reason: string; createdBy: string; superseded: boolean; terminationReason?: string | null;
 };
 type Profile = {
-  employee: { id: string; code: string; name: string; jobTitle: string | null; active: boolean; hireDate: string | null; department: { id: string; name: string } | null; version: number; phone?: string | null };
+  employee: { id: string; code: string; name: string; nameAr?: string | null; jobTitle: string | null; active: boolean; hireDate: string | null; department: { id: string; name: string; nameAr?: string | null } | null; version: number; phone?: string | null };
   current: { status: string; employmentType: string | null; since: string; manager: { id: string; name: string } | null; contractEnd: string | null; probationEnd: string | null; schedule: { id: string; code: string; nameAr: string; nameEn: string | null } | null } | null;
   history: History[];
 };
@@ -135,10 +136,10 @@ function HistoryTab({ data, canManage }: { data: Profile; canManage: boolean }) 
                 {h.superseded && <StatusPill tone="neutral" strike>{t("hr.employment.superseded")}</StatusPill>}
               </div>
               <div className="mt-0.5 text-sm text-united-dark">
-                {[h.department, h.jobTitle, h.manager ? `${t("hr.profile.manager")}: ${localName(h.manager, locale)}` : null, h.employmentType].filter(Boolean).join(" · ") || "—"}
+                {[h.department ? localName({ name: h.department, nameAr: h.departmentAr }, locale) : null, h.jobTitle, h.manager ? `${t("hr.profile.manager")}: ${localName(h.manager, locale)}` : null, h.employmentType].filter(Boolean).join(" · ") || "—"}
               </div>
               <div className="mt-0.5 text-xs text-united-muted">
-                {h.reason}{h.terminationReason ? ` · ${t("hr.employment.termination_reason")}: ${h.terminationReason}` : ""} · {h.createdBy}
+                {systemText(h.reason, locale)}{h.terminationReason ? ` · ${t("hr.employment.termination_reason")}: ${h.terminationReason}` : ""} · {h.createdBy}
               </div>
             </div>
             <div dir="ltr" className="whitespace-nowrap text-sm text-united-muted">
@@ -514,7 +515,7 @@ function DocumentsTab({ employeeId, canManage }: { employeeId: string; canManage
 }
 
 function StatementTab({ employeeId }: { employeeId: string }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const q = useQuery({
     queryKey: ["hr", "statement", employeeId],
     queryFn: () => apiFetch<{ statement: { rows: { date: string; number: string; description: string; account: string; debit: string; credit: string }[]; advancesHeld: string; owedToEmployee: string } }>(`/api/hr/employees/${employeeId}/statement`).then((r) => r.statement),
@@ -536,7 +537,7 @@ function StatementTab({ employeeId }: { employeeId: string }) {
                 <tr key={`${r.number}-${i}`}>
                   <td dir="ltr" className="whitespace-nowrap">{r.date}</td>
                   <td dir="ltr" className="whitespace-nowrap text-united-muted">{r.number}</td>
-                  <td className="min-w-[12rem]">{r.description}</td>
+                  <td className="min-w-[12rem]">{systemText(r.description, locale)}</td>
                   <td>{r.account === "employee_advances" ? t("hr.statement.acc_advances") : t("hr.statement.acc_payable")}</td>
                   <td className="num" dir="ltr">{Number(r.debit) ? fmtMoney(r.debit) : ""}</td>
                   <td className="num" dir="ltr">{Number(r.credit) ? fmtMoney(r.credit) : ""}</td>

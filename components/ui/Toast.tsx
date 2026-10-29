@@ -1,5 +1,6 @@
 "use client";
 
+import { intlLocale } from "@/lib/format";
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, Info, type LucideIcon } from "lucide-react";
@@ -27,7 +28,7 @@ const KIND_ICON: Record<ToastKind, LucideIcon> = {
 function nowLabel() {
   // Called outside render: read the language the locale provider put on <html>.
   const en = typeof document !== "undefined" && document.documentElement.lang === "en";
-  return new Date().toLocaleTimeString(en ? "en-GB" : "ar-EG", { hour: "2-digit", minute: "2-digit" });
+  return new Date().toLocaleTimeString(intlLocale(en ? "en" : "ar"), { hour: "2-digit", minute: "2-digit" });
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {

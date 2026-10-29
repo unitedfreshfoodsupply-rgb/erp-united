@@ -127,7 +127,7 @@ export const SETTING_DEFS = {
     group: "inventory",
     label: "سياسة تكلفة الفرز",
     description:
-      "proportional: كل مخرج بياخد نفس تكلفة الوحدة المدخلة (السلوك الحالي). nrv: توزيع التكلفة حسب القيمة السوقية النسبية للمخرجات القابلة للبيع.",
+      "بالتناسب: كل مخرج بياخد نفس تكلفة الوحدة المدخلة (السلوك الحالي). حسب القيمة السوقية: التكلفة بتتوزع حسب القيمة السوقية النسبية للمخرجات القابلة للبيع.",
     unit: "",
     schema: z.enum(["proportional", "nrv"], { errorMap: () => ({ message: "القيمة لازم تكون proportional أو nrv" }) }),
     default: "proportional" as "proportional" | "nrv",
@@ -136,7 +136,7 @@ export const SETTING_DEFS = {
     group: "inventory",
     label: "معالجة هالك الفرز",
     description:
-      "expense_at_grading: خسارة الهالك بتتسجل في الفرز. zero_basis: تكلفة الهالك بتتوزع على المخرجات القابلة للبيع.",
+      "وقت الفرز: خسارة الهالك بتتسجل في الفرز نفسه. على المخرجات: تكلفة الهالك بتتوزع على المخرجات القابلة للبيع.",
     unit: "",
     schema: z.enum(["expense_at_grading", "zero_basis"], { errorMap: () => ({ message: "القيمة لازم تكون expense_at_grading أو zero_basis" }) }),
     default: "expense_at_grading" as "expense_at_grading" | "zero_basis",
@@ -145,7 +145,7 @@ export const SETTING_DEFS = {
     group: "inventory",
     label: "لو السعر مش موجود في الفرز",
     description:
-      "fallback: يوزع بالتناسب (proportional) ويسجل السبب. refuse: يرفض الفرز.",
+      "توزيع بالتناسب: يكمل الفرز ويوزع التكلفة بالتناسب ويسجل السبب. رفض: يرفض الفرز لحد ما السعر يتسجل.",
     unit: "",
     schema: z.enum(["fallback", "refuse"], { errorMap: () => ({ message: "القيمة لازم تكون fallback أو refuse" }) }),
     default: "fallback" as "fallback" | "refuse",
@@ -163,7 +163,7 @@ export const SETTING_DEFS = {
     group: "inventory",
     label: "صرف المخزون عند خروج الأوردر",
     description:
-      "lenient: الأوردر بيخرج دايماً، واللي ملوش رصيد كفاية أو صنفه مش معروف بيتسجل كاستثناء لأمين المخزن يراجعه. strict: الأوردر مايخرجش لو رصيد صنف متتبع مش كفاية.",
+      "مرن: الأوردر بيخرج دايماً، واللي ملوش رصيد كفاية أو صنفه مش معروف بيتسجل كاستثناء لأمين المخزن يراجعه. صارم: الأوردر مايخرجش لو رصيد صنف متتبع مش كفاية.",
     unit: "",
     schema: z.enum(["lenient", "strict"], { errorMap: () => ({ message: "القيمة لازم تكون lenient أو strict" }) }),
     default: "lenient" as "lenient" | "strict",
@@ -172,7 +172,7 @@ export const SETTING_DEFS = {
     group: "sales",
     label: "رقابة الائتمان",
     description:
-      "off: من غير رقابة. warn: الأوردر بيكمل، والحسابات بيوصلها تنبيه لو العميل الآجل عدّى حده أو موقوف. block: الأوردر مايبدأش تجهيز غير بموافقة الحسابات.",
+      "إيقاف: من غير رقابة. تنبيه: الأوردر بيكمل، والحسابات بيوصلها تنبيه لو العميل الآجل عدّى حده أو موقوف. منع: الأوردر مايبدأش تجهيز غير بموافقة الحسابات.",
     unit: "",
     schema: z.enum(["off", "warn", "block"], { errorMap: () => ({ message: "القيمة لازم تكون off أو warn أو block" }) }),
     default: "warn" as "off" | "warn" | "block",
@@ -354,6 +354,16 @@ export const SETTING_GROUP_LABEL_EN: Record<SettingGroup, string> = {
 };
 
 /** English for each setting's label and description (unit test: every setting has both). */
+/** Settings whose value is one of a few choices: the words for each stored value. The
+ * admin screen shows these and offers them in a list instead of a free-text box. */
+export const SETTING_CHOICES: Partial<Record<SettingKey, Record<string, { ar: string; en: string }>>> = {
+  "inventory.grading_cost_policy": { proportional: { ar: "بالتناسب", en: "Proportional" }, nrv: { ar: "حسب القيمة السوقية", en: "By market value" } },
+  "inventory.grading_waste_loss": { expense_at_grading: { ar: "وقت الفرز", en: "At grading" }, zero_basis: { ar: "على المخرجات", en: "Over the outputs" } },
+  "inventory.grading_price_missing": { fallback: { ar: "توزيع بالتناسب", en: "Spread proportionally" }, refuse: { ar: "رفض", en: "Refuse" } },
+  "inventory.dispatch_issue_policy": { lenient: { ar: "مرن", en: "Lenient" }, strict: { ar: "صارم", en: "Strict" } },
+  "sales.credit_check_mode": { off: { ar: "إيقاف", en: "Off" }, warn: { ar: "تنبيه", en: "Warn" }, block: { ar: "منع", en: "Block" } },
+};
+
 export const SETTING_EN: Record<SettingKey, { label: string; description: string }> = {
   "orders.shortage_review_threshold_pct": { label: "Variance needing approval", description: "If the prepared or loaded quantity differs from the ordered one by more than this percentage (over or under), the order stops until a supervisor approves it." },
   "orders.waiting_to_start_minutes": { label: "Time to start preparation", description: "A new order nobody has started after this long shows as waiting on the supervisor board." },
@@ -364,12 +374,12 @@ export const SETTING_EN: Record<SettingKey, { label: string; description: string
   "inventory.default_warehouse_code": { label: "Default warehouse", description: "The warehouse code receipts and adjustments go to when the screen does not name one." },
   "inventory.adjustment_approval_threshold": { label: "Adjustment needing approval", description: "Any stock adjustment (up or down) larger than this quantity, in the product's base unit, waits for approval before it is recorded. Zero = no approval." },
   "inventory.expiry_warning_days": { label: "Expiry warning", description: "Lots expiring within this many days appear in the near-expiry report." },
-  "inventory.grading_cost_policy": { label: "Grading cost policy", description: "proportional: every output takes the input's unit cost (current behaviour). nrv: cost is spread by the relative market value of the saleable outputs." },
-  "inventory.grading_waste_loss": { label: "Grading waste treatment", description: "expense_at_grading: the waste loss is recorded at grading. zero_basis: the waste cost is spread over the saleable outputs." },
-  "inventory.grading_price_missing": { label: "When grading has no price", description: "fallback: spread proportionally and record the reason. refuse: refuse the grading." },
+  "inventory.grading_cost_policy": { label: "Grading cost policy", description: "Proportional: every output takes the input's unit cost (current behaviour). By market value: cost is spread by the relative market value of the saleable outputs." },
+  "inventory.grading_waste_loss": { label: "Grading waste treatment", description: "At grading: the waste loss is recorded at grading. Over the outputs: the waste cost is spread over the saleable outputs." },
+  "inventory.grading_price_missing": { label: "When grading has no price", description: "Spread proportionally: grading goes on, cost is spread proportionally and the reason recorded. Refuse: grading is refused until the price is entered." },
   "inventory.grading_loss_approval_threshold": { label: "Grading loss needing approval", description: "If the grading loss (EGP) is above this value, it waits for approval before it is recorded. Zero = no approval." },
-  "inventory.dispatch_issue_policy": { label: "Stock issue at dispatch", description: "lenient: the order always leaves; a line without enough stock or with an unknown product is recorded as an exception for the storekeeper. strict: the order does not leave if a tracked product lacks stock." },
-  "sales.credit_check_mode": { label: "Credit control", description: "off: no control. warn: the order goes on and accounting is alerted if a credit customer is over their limit or on hold. block: the order cannot start preparation without accounting approval." },
+  "inventory.dispatch_issue_policy": { label: "Stock issue at dispatch", description: "Lenient: the order always leaves; a line without enough stock or with an unknown product is recorded as an exception for the storekeeper. Strict: the order does not leave if a tracked product lacks stock." },
+  "sales.credit_check_mode": { label: "Credit control", description: "Off: no control. Warn: the order goes on and accounting is alerted if a credit customer is over their limit or on hold. Block: the order cannot start preparation without accounting approval." },
   "sales.auto_reserve": { label: "Reserve stock for orders automatically", description: "When on, every order for a tracked product reserves what is available until it leaves. Best turned on once receipts are fully recorded, because reserved stock cannot be scrapped or adjusted." },
   "sales.eta_person_id_threshold": { label: "National ID threshold on e-invoices", description: "An invoice to a person (not a company) at or above this amount is not sent to the Tax Authority without the customer's national ID. The value follows the published system rules \u2014 to be confirmed by the accountant." },
   "sales.quotation_validity_days": { label: "Quotation validity", description: "Days a quotation stays valid when no date is given." },

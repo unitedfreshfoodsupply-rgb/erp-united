@@ -525,7 +525,7 @@ function CurrencyRow({ currency, canManage }: { currency: CurrencyDTO; canManage
   return (
     <li className="py-2.5">
       <RowHeader
-        title={`${localName(currency, locale)}${currency.symbol ? ` (${currency.symbol})` : ""}`}
+        title={`${localName(currency, locale)}${currency.symbol && (locale === "ar" || !/[؀-ۿ]/.test(currency.symbol)) ? ` (${currency.symbol})` : ""}`}
         code={currency.code}
         active={currency.active}
         canManage={canManage}

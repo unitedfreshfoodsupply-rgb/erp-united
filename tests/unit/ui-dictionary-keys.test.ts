@@ -33,3 +33,15 @@ test("every dictionary-shaped string in components/ and app/ exists in the dicti
   }
   assert.deepEqual(missing, []);
 });
+
+test("every literal t(\"…\") key exists, dotted or not", () => {
+  const keys = new Set(Object.keys(DICTIONARY));
+  const missing: string[] = [];
+  for (const f of [...files("components"), ...files("app")]) {
+    const src = readFileSync(f, "utf8");
+    for (const m of src.matchAll(/\bt\(\s*"([^"$]+)"/g)) {
+      if (!keys.has(m[1])) missing.push(`${f}: ${m[1]}`);
+    }
+  }
+  assert.deepEqual(missing, []);
+});

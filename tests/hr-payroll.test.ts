@@ -343,7 +343,9 @@ async function main() {
   const bankRow = typeof r.body === "string" ? r.body.split("\r\n").find((l: string) => l.startsWith(e1.code)) : undefined;
   check("bank file: e1's unpaid remainder, flagged with no verified account (no number printed)", r.status === 200 && !!bankRow && bankRow.includes(money(net1 - 1000)) && bankRow.endsWith("no_account"), bankRow ?? r.body);
   const slipPage = await page("karim", `/hr/payroll/runs/${run.id}/payslips/${e1.id}/print`);
-  check("bilingual payslip prints for a posted run", slipPage.status === 200 && slipPage.html.includes("Payslip") && slipPage.html.includes("قسيمة مرتب") && slipPage.html.includes(e1.code), slipPage.status);
+  check("payslip prints for a posted run in Arabic by default (RTL, no English title)", slipPage.status === 200 && /dir="rtl"/.test(slipPage.html) && slipPage.html.includes("قسيمة مرتب") && !slipPage.html.includes("Payslip") && slipPage.html.includes(e1.code), slipPage.status);
+  const slipEn = await page("karim", `/hr/payroll/runs/${run.id}/payslips/${e1.id}/print?lang=en`);
+  check("the same payslip in English (?lang=en): LTR, no Arabic title", slipEn.status === 200 && /dir="ltr"/.test(slipEn.html) && slipEn.html.includes("Payslip") && !slipEn.html.includes("قسيمة مرتب") && slipEn.html.includes(e1.code), slipEn.status);
   check("the supervisor cannot open a payslip", !(await page("sara", `/hr/payroll/runs/${run.id}/payslips/${e1.id}/print`)).html.includes("data-payslip"));
 
   check("reversing a payment needs a reason (400)", (await call("karim", "POST", `/api/hr/payroll/payments/${pay1.id}/reverse`, {})).status === 400);

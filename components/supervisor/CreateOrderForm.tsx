@@ -1,5 +1,6 @@
 "use client";
 
+import { unitLabel } from "@/lib/format";
 import { useState } from "react";
 import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -163,7 +164,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
                 const units = product ? [product.unit, ...product.packagings.map((x) => x.uomCode)] : [];
                 return <>
                   {!row.unit && <option value="">{t("create.unit-placeholder")}</option>}
-                  {[...new Set(units)].map((unit) => <option key={unit} value={unit}>{unit}</option>)}
+                  {[...new Set(units)].map((unit) => <option key={unit} value={unit}>{unitLabel(unit)}</option>)}
                 </>;
               })()}
             </select>

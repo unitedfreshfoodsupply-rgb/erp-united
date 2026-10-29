@@ -21,9 +21,9 @@ import { ErrorState } from "@/components/States";
 import { LiveIndicator } from "@/components/ui/LiveIndicator";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useToast } from "@/components/ui/Toast";
-import { orderUrgency, STATUS_LABEL } from "@/lib/orderPresentation";
+import { orderUrgency, STATUS_LABEL, STATUS_LABEL_EN } from "@/lib/orderPresentation";
 import { nextAction, rollUpQuantities, stageOf, STATUS_MEANING, STATUS_MEANING_EN } from "@/lib/orderSummary";
-import { deliverySlot, qty as qtyLabel, orDash } from "@/lib/format";
+import { deliverySlot, qty as qtyLabel, orDash, unitLabel } from "@/lib/format";
 import { ORDER_STATUSES } from "@/lib/types";
 import type { OrderStatus } from "@/lib/types";
 import { invalidateDerivedOrderData } from "@/lib/queryInvalidation";
@@ -653,7 +653,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                 <option value="">{t("orders.override_choose_status")}</option>
                 {ORDER_STATUSES.map((s) => (
                   <option key={s} value={s}>
-                    {STATUS_LABEL[s]}
+                    {(locale === "en" ? STATUS_LABEL_EN : STATUS_LABEL)[s]}
                   </option>
                 ))}
               </select>
@@ -713,7 +713,7 @@ function SummaryFigure({
       <div className="text-[11px] font-bold text-united-muted">{label}</div>
       <div dir="ltr" className={`text-xl font-extrabold ${toneClass}`}>
         {value}
-        {unit && <span className="text-[10px] font-bold text-united-dark/40"> {unit}</span>}
+        {unit && <span className="text-[10px] font-bold text-united-dark/40"> {unitLabel(unit)}</span>}
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 "use client";
 
+import { unitLabel } from "@/lib/format";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
@@ -65,7 +66,7 @@ export function PriceListsView() {
             } catch (err) { fail(toast, err, t); }
           }}
         >
-          <input className="field flex-1" dir="ltr" placeholder="CODE" value={newList.code} onChange={(e) => setNewList({ ...newList, code: e.target.value })} />
+          <input className="field flex-1" dir="ltr" placeholder={t("pricelists.code-placeholder")} value={newList.code} onChange={(e) => setNewList({ ...newList, code: e.target.value })} />
           <input className="field flex-[2]" placeholder={t("pricelists.name-placeholder")} value={newList.name} onChange={(e) => setNewList({ ...newList, name: e.target.value })} />
           <button className="btn-secondary shrink-0">{t("pricelists.add")}</button>
         </form>
@@ -130,7 +131,7 @@ function ListDetail({ id }: { id: string }) {
                 return (
                   <tr key={key} className="border-t border-united-dark/5 font-bold">
                     <td className="p-2">{idx === 0 ? localName(p, locale) : ""}</td>
-                    <td className="p-2 text-center" dir="ltr">{uom}{idx > 0 ? ` (${Number(p.packagings[idx - 1].qtyInBaseUnit)} ${p.unit})` : ""}</td>
+                    <td className="p-2 text-center" >{unitLabel(uom)}{idx > 0 ? ` (${Number(p.packagings[idx - 1].qtyInBaseUnit)} ${unitLabel(p.unit)})` : ""}</td>
                     <td className="p-2 text-center" dir="ltr">{priceOf.get(key) ?? (idx > 0 && priceOf.get(`${p.id}|${p.unit}`) ? `≈ ${(Number(priceOf.get(`${p.id}|${p.unit}`)) * Number(p.packagings[idx - 1].qtyInBaseUnit)).toFixed(2)}` : "—")}</td>
                     {canManage && (
                       <td className="p-2"><input className="field text-center" inputMode="decimal" dir="ltr" value={draft[key] ?? ""} onChange={(e) => setDraft({ ...draft, [key]: e.target.value.replace(",", ".") })} /></td>

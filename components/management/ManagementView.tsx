@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { MOVEMENT_LABEL, movementLabel } from "@/lib/stockPresentation";
+import type { MovementKind } from "@/lib/inventory/ledger";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
 import { ErrorState, LoadingState } from "@/components/States";
@@ -47,24 +49,17 @@ const Table = ({ head, rows, total }: { head: string[]; rows: (string | number |
 const H = ({ children }: { children: React.ReactNode }) => <h2 className="section-title mt-3">{children}</h2>;
 
 export function ManagementView({ kind }: { kind: "finance" | "operations" | "cash-flow" }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [from, setFrom] = useState(`${todayLocalISO().slice(0, 7)}-01`);
   const [to, setTo] = useState(todayLocalISO());
   const apiKind = kind === "cash-flow" ? "cash-flow" : kind;
 
   // Localized dictionaries for kind/experience code lookups
-  const KIND: Record<string, string> = {
-    intake: t("mgmt.kinds.intake"),
-    intake_correction: t("mgmt.kinds.intake_correction"),
-    intake_void: t("mgmt.kinds.intake_void"),
-    adjustment: t("mgmt.kinds.adjustment"),
-    transfer_out: t("mgmt.kinds.transfer_out"),
-    transfer_in: t("mgmt.kinds.transfer_in"),
-    issue: t("mgmt.kinds.issue"),
-    customer_return: t("mgmt.kinds.customer_return"),
-    supplier_return: t("mgmt.kinds.supplier_return"),
-    scrap: t("mgmt.kinds.scrap"),
-  };
+  // Stock movement kinds: the shared labels (lib/stockPresentation) cover every kind,
+  // including sorting and quarantine release.
+  const KIND: Record<string, string> = Object.fromEntries(
+    (Object.keys(MOVEMENT_LABEL) as MovementKind[]).map((k) => [k, movementLabel(k, locale)])
+  );
   const EX: Record<string, string> = {
     shortage: t("mgmt.exceptions.shortage"),
     damage: t("mgmt.exceptions.damage"),

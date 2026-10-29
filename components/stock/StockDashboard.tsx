@@ -1,5 +1,6 @@
 "use client";
 
+import { unitLabel } from "@/lib/format";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
@@ -88,7 +89,7 @@ export function StockDashboard() {
                       {!s.active && <span className="text-xs font-bold text-united-muted ms-2">{t("stock.suspended-badge")}</span>}
                     </span>
                     <span dir="ltr" className={`font-extrabold ${s.balanceKg > 0 ? "text-united-dark" : "text-united-muted"}`}>
-                      {fmtKg(s.balanceKg)} {s.unit}
+                      {fmtKg(s.balanceKg)} {unitLabel(s.unit)}
                     </span>
                   </li>
                 ))}

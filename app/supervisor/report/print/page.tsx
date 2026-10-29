@@ -25,7 +25,6 @@ export default async function DailyReportPrintPage({ searchParams }: { searchPar
         <div className="flex items-center justify-between border-b-4 border-united-dark pb-4 mb-5">
           <div>
             <div className="font-extrabold text-xl">{t("report.title")}</div>
-            <div className="text-xs text-united-dark/60">{t("report.subtitle")}</div>
           </div>
           <div className="text-sm font-bold" dir="ltr">
             {data.date}

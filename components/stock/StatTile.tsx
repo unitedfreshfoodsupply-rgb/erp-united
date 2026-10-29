@@ -1,3 +1,4 @@
+import { unitLabel } from "@/lib/format";
 export function StatTile({
   label,
   value,
@@ -27,7 +28,7 @@ export function StatTile({
         <span dir="ltr" className={`text-2xl font-extrabold leading-none ${toneClass}`}>
           {value}
         </span>
-        {unit && <span className="text-xs font-bold text-united-muted">{unit}</span>}
+        {unit && <span className="text-xs font-bold text-united-muted">{unitLabel(unit)}</span>}
       </div>
       {sub && <span className="text-[11px] font-bold text-united-muted mt-1">{sub}</span>}
     </div>

@@ -224,7 +224,7 @@ export async function employeeProfile(employeeId: string, actor: ServiceActor) {
   const open = e.employments.find((r) => r.effectiveTo === null) ?? null;
   return {
     employee: {
-      id: e.id, code: e.code, name: e.name, jobTitle: e.jobTitle, active: e.active, hireDate: e.hireDate, department: e.department, version: e.version,
+      id: e.id, code: e.code, name: e.name, nameAr: e.nameAr, jobTitle: e.jobTitle, active: e.active, hireDate: e.hireDate, department: e.department, version: e.version,
       ...(hrManager ? { phone: e.phone, userId: e.userId } : {}),
     },
     current: open ? { status: open.status, employmentType: open.employmentType, since: open.effectiveFrom, manager: open.manager, contractEnd: open.contractEnd, probationEnd: open.probationEnd, schedule: open.schedule } : null,
@@ -233,7 +233,7 @@ export async function employeeProfile(employeeId: string, actor: ServiceActor) {
     history: e.employments
       .map((r) => ({
         superseded: !!r.effectiveTo && r.effectiveTo < r.effectiveFrom,
-        id: r.id, event: r.event, effectiveFrom: r.effectiveFrom, effectiveTo: r.effectiveTo, status: r.status, department: r.department?.name ?? null,
+        id: r.id, event: r.event, effectiveFrom: r.effectiveFrom, effectiveTo: r.effectiveTo, status: r.status, department: r.department?.name ?? null, departmentAr: r.department?.nameAr ?? null,
         jobTitle: r.jobTitle, manager: r.manager, employmentType: r.employmentType, contractStart: r.contractStart, contractEnd: r.contractEnd,
         probationEnd: r.probationEnd, schedule: r.schedule, reason: r.reason, createdBy: r.createdBy, createdAt: r.createdAt,
         ...(hrManager ? { terminationReason: r.terminationReason } : {}),

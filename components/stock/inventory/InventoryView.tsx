@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { systemText } from "@/lib/locale/system-text";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
@@ -12,7 +13,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { MoveForms } from "./MoveForms";
 import { Pagination } from "@/components/ui/Pagination";
 import { useLocale } from "@/lib/locale";
-import { intlLocale } from "@/lib/format";
+import { intlLocale, unitLabel } from "@/lib/format";
 import { localName } from "@/lib/locale/names";
 
 /**
@@ -135,7 +136,7 @@ function StockList({ onOpen }: { onOpen: (id: string) => void }) {
                 <Stat label={t("stock.stat.available")} value={fmtQty(r.available)} strong />
               </div>
               <div className="flex justify-between text-xs font-bold text-united-muted">
-                <span>{r.unit}</span>
+                <span>{unitLabel(r.unit)}</span>
                 {showValue && <span dir="ltr">{fmtMoney(r.stockValue)}</span>}
               </div>
             </button>
@@ -402,7 +403,7 @@ function ProductSettings({ d }: { d: ProductDetail }) {
         </label>
         <button className="btn-primary col-span-full">{t("stock.form-lot-expiry-save")}</button>
       </form>
-      <h4 className="font-extrabold text-united-dark text-sm">{t("stock.packaging-heading-units", { unit: p.unit })}</h4>
+      <h4 className="font-extrabold text-united-dark text-sm">{t("stock.packaging-heading-units", { unit: unitLabel(p.unit) })}</h4>
       <ul className="flex flex-wrap gap-2">
         {p.packagings.map((x) => (
           <li key={x.id} className="rounded-xl bg-united-dark/5 px-3 py-2 text-sm font-extrabold" dir="ltr">
@@ -417,7 +418,7 @@ function ProductSettings({ d }: { d: ProductDetail }) {
             <option key={x.code} value={x.code}>{localName(x, locale)} ({x.code})</option>
           ))}
         </select>
-        <input className="field" inputMode="decimal" dir="ltr" placeholder={t("stock.packaging-qty-placeholder", { unit: p.unit })} value={pack.qty} onChange={(e) => setPack({ ...pack, qty: e.target.value })} />
+        <input className="field" inputMode="decimal" dir="ltr" placeholder={t("stock.packaging-qty-placeholder", { unit: unitLabel(p.unit) })} value={pack.qty} onChange={(e) => setPack({ ...pack, qty: e.target.value })} />
         <button className="btn-secondary shrink-0">{t("stock.add-button")}</button>
       </form>
     </section>
@@ -515,8 +516,8 @@ function ExceptionCard({ x, canResolve }: { x: ExceptionDTO; canResolve: boolean
         <span className="text-xs font-bold text-united-muted">{t("stock.exception-ordered")} {x.order.orderNumber} · {x.order.customerName}</span>
       </div>
       <p className="text-sm font-bold text-united-warn">{EXCEPTION_REASON[x.reason] ? t(EXCEPTION_REASON[x.reason]) : x.reason}</p>
-      <p className="text-sm font-bold" dir="rtl">
-        exited <span dir="ltr">{fmtQty(x.requestedQty, x.unit)}</span> · {t("stock.exception-issued-from-books")} <span dir="ltr">{fmtQty(x.issuedQty, x.unit)}</span>
+      <p className="text-sm font-bold">
+        {t("stock.exception-went-out")} <span dir="ltr">{fmtQty(x.requestedQty, x.unit)}</span> · {t("stock.exception-issued-from-books")} <span dir="ltr">{fmtQty(x.issuedQty, x.unit)}</span>
         {x.document ? ` · ${x.document.number}` : ""}
       </p>
       {x.resolution && <p className="text-sm text-united-muted font-bold">{t("stock.resolution-solution")}: {x.resolution} {x.resolvedBy ? `— ${x.resolvedBy}` : ""}</p>}
@@ -550,10 +551,10 @@ type DocumentDTO = {
 };
 
 const DOC_TYPE_MAP: Record<string, string> = {
-  transfer: "تحويل", adjustment: "تسوية", scrap: "هالك", customer_return: "مرتجع عميل", supplier_return: "مرتجع مورد", issue: "صرف",
+  transfer: "تحويل", adjustment: "تسوية", scrap: "هالك", customer_return: "مرتجع عميل", supplier_return: "مرتجع مورد", issue: "صرف", grading: "فرز", release: "إفراج من الحجز",
 };
 const DOC_TYPE_MAP_EN: Record<string, string> = {
-  transfer: "Transfer", adjustment: "Adjustment", scrap: "Scrap", customer_return: "Customer Return", supplier_return: "Supplier Return", issue: "Issue",
+  transfer: "Transfer", adjustment: "Adjustment", scrap: "Scrap", customer_return: "Customer Return", supplier_return: "Supplier Return", issue: "Issue", grading: "Grading", release: "Quarantine release",
 };
 
 const DOC_STATUS_MAP: Record<string, { label: string; cls: string }> = {
@@ -617,7 +618,7 @@ function DocumentCard({ d, highlight, canReverse }: { d: DocumentDTO; highlight:
           <span className={`rounded-full px-2 text-xs font-extrabold ${st.cls}`}>{st.label}</span>
         </span>
       </button>
-      {d.reason && <p className="text-sm font-bold text-united-muted">{d.reason} — {d.createdBy}</p>}
+      {d.reason && <p className="text-sm font-bold text-united-muted">{systemText(d.reason, locale)} — {d.createdBy}</p>}
       {open && (
         <>
           <ul className="text-sm flex flex-col gap-1">
@@ -688,7 +689,7 @@ function Valuation() {
             {q.data.rows.map((r) => (
               <tr key={r.productId} className="border-t border-united-dark/5 font-bold">
                 <td className="p-2">{localName({ name: r.productName, nameAr: r.productNameAr }, locale)}</td>
-                <td className="p-2 text-center uppercase">{r.costingMethod}</td>
+                <td className="p-2 text-center">{["avco", "fifo", "standard"].includes(r.costingMethod) ? t(`stock.costing.${r.costingMethod}` as "stock.costing.avco") : r.costingMethod}</td>
                 <td className="p-2 text-center" dir="ltr">{fmtQty(r.quantity, r.unit)}</td>
                 <td className="p-2 text-center" dir="ltr">{r.averageCost ?? "—"}</td>
                 <td className="p-2 text-center" dir="ltr">{fmtMoney(r.value)}</td>

@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/States";
 import { invalidateStockData } from "@/lib/stockInvalidation";
 import type { CoverageDTO, CoverageRowDTO, StockProductDTO } from "@/lib/stock-client-types";
 import { useDialogs } from "@/components/ui/Dialog";
+import { unitLabel } from "@/lib/format";
 
 /**
  * Mapping coverage: every distinct product name orders actually use, and whether the
@@ -167,7 +168,7 @@ function CoverageRow({
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-extrabold text-united-dark">{row.productName}</span>
-            <span dir="ltr" className="text-xs font-bold text-united-muted">{row.unit}</span>
+            <span dir="ltr" className="text-xs font-bold text-united-muted">{unitLabel(row.unit)}</span>
             <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-full ${badge.cls}`}>
               {badge.text}
             </span>
@@ -244,7 +245,7 @@ function CoverageRow({
                 <option value="">{t("stock.select.placeholder")}</option>
                 {activeProducts.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {localName(p, locale)}{otherLocalName(p, locale) ? ` · ${otherLocalName(p, locale)}` : ""} ({p.unit})
+                    {localName(p, locale)}{otherLocalName(p, locale) ? ` · ${otherLocalName(p, locale)}` : ""} ({unitLabel(p.unit)})
                   </option>
                 ))}
               </select>

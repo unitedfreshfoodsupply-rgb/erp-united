@@ -1,3 +1,4 @@
+import { unitLabel } from "@/lib/format";
 import {
   MOVEMENT_ICON,
   movementLabel,
@@ -24,7 +25,7 @@ export function MovementRow({ movement }: { movement: MovementDTO }) {
         <div className="flex items-center justify-between gap-2">
           <span className="truncate font-medium text-united-dark">{localName(movement.product, locale)}</span>
           <span dir="ltr" className={`shrink-0 font-semibold ${positive ? "text-united-green" : "text-united-danger"}`}>
-            {fmtSignedKg(movement.quantityKg)} {movement.product.unit}
+            {fmtSignedKg(movement.quantityKg)} {unitLabel(movement.product.unit)}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-x-2 text-xs text-united-muted">

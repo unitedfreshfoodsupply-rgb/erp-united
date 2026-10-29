@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { systemText } from "@/lib/locale/system-text";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, ShieldCheck } from "lucide-react";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
@@ -108,7 +109,7 @@ function PackagesTab({ canPropose }: { canPropose: boolean }) {
                   {p.lines.map((l) => <span key={l.id} className="rounded bg-united-subtle px-1.5 py-0.5">{nm(isEN, l.payComponent)} <span dir="ltr" className="font-semibold">{fmtMoney(l.amount)}</span></span>)}
                   {p.insurableWage && <span className="rounded bg-united-info/10 px-1.5 py-0.5">{t("pay.insurable_wage")} <span dir="ltr">{fmtMoney(p.insurableWage)}</span></span>}
                 </div>
-                <div className="mt-0.5 text-xs text-united-muted">{p.reason} · {p.createdBy}{p.decidedBy ? ` · ${t("pay.decided_by")} ${p.decidedBy}` : ""}{p.decisionComment ? `: ${p.decisionComment}` : ""}</div>
+                <div className="mt-0.5 text-xs text-united-muted">{systemText(p.reason, locale)} · {p.createdBy}{p.decidedBy ? ` · ${t("pay.decided_by")} ${p.decidedBy}` : ""}{p.decisionComment ? `: ${p.decisionComment}` : ""}</div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-semibold text-united-dark" dir="ltr">{fmtMoney(p.total)}</span>
@@ -325,6 +326,76 @@ const RULE_TEMPLATES: Record<string, unknown> = {
   pay_proration: { method: "fixed_divisor", divisor_days: null, base_components: [] },
 };
 
+/** Words for the parameter keys of the rule templates above; an unknown key shows as written. */
+const PARAM_LABEL: Record<string, { ar: string; en: string }> = {
+  employee_rate: { ar: "نسبة الموظف %", en: "Employee rate %" },
+  employer_rate: { ar: "نسبة صاحب العمل %", en: "Employer rate %" },
+  min_insurable_wage: { ar: "أقل أجر تأميني", en: "Minimum insurable wage" },
+  max_insurable_wage: { ar: "أقصى أجر تأميني", en: "Maximum insurable wage" },
+  taxable_base: { ar: "وعاء الضريبة", en: "Taxable base" },
+  period_method: { ar: "طريقة الفترة", en: "Period method" },
+  annual_exemption: { ar: "الإعفاء السنوي", en: "Annual exemption" },
+  brackets: { ar: "الشرائح", en: "Brackets" },
+  high_income_tables: { ar: "جداول الدخل المرتفع", en: "High-income tables" },
+  levies: { ar: "الرسوم", en: "Levies" },
+  day_multiplier: { ar: "معامل الإضافي النهاري", en: "Day overtime multiplier" },
+  night_multiplier: { ar: "معامل الإضافي الليلي", en: "Night overtime multiplier" },
+  rest_day_multiplier: { ar: "معامل يوم الراحة", en: "Rest-day multiplier" },
+  holiday_multiplier: { ar: "معامل الأجازة الرسمية", en: "Holiday multiplier" },
+  monthly_divisor_days: { ar: "أيام القسمة الشهرية", en: "Monthly divisor days" },
+  hours_per_day: { ar: "ساعات اليوم", en: "Hours per day" },
+  base_components: { ar: "بنود الأساس", en: "Base components" },
+  minimum_minutes_per_day: { ar: "أقل دقايق في اليوم", en: "Minimum minutes per day" },
+  method: { ar: "الطريقة", en: "Method" },
+  divisor_days: { ar: "أيام القسمة", en: "Divisor days" },
+};
+
+/** Words for the choice values those parameters take (lib/hr/statutory.ts). */
+const PARAM_VALUE: Record<string, { ar: string; en: string }> = {
+  taxable_gross_minus_employee_insurance: { ar: "الإجمالي الخاضع ناقص تأمينات الموظف", en: "Taxable gross minus employee insurance" },
+  taxable_gross: { ar: "الإجمالي الخاضع", en: "Taxable gross" },
+  annualised_monthly: { ar: "شهري على أساس سنوي", en: "Annualised monthly" },
+  fixed_divisor: { ar: "قاسم ثابت", en: "Fixed divisor" },
+  calendar_days: { ar: "أيام الشهر الفعلية", en: "Calendar days" },
+  gross: { ar: "الإجمالي", en: "Gross" },
+  insurable_wage: { ar: "الأجر التأميني", en: "Insurable wage" },
+  net_entitlement: { ar: "صافي الاستحقاق", en: "Net entitlement" },
+  employee: { ar: "الموظف", en: "Employee" },
+  employer: { ar: "صاحب العمل", en: "Employer" },
+};
+
+function RuleParams({ parameters }: { parameters: unknown }) {
+  const { t, isEN } = useLocale();
+  if (!parameters || typeof parameters !== "object") return null;
+  const fmt = (v: unknown): string => {
+    if (v === null || v === undefined || v === "") return t("pay.param_missing");
+    if (Array.isArray(v)) {
+      if (!v.length) return "—";
+      return v.map((x) => {
+        if (x && typeof x === "object" && "rate" in x) {
+          const b = x as { up_to?: unknown; rate?: unknown };
+          return b.up_to === null || b.up_to === undefined ? `${t("pay.param_above")}: ${fmt(b.rate)}%` : `${t("pay.param_up_to")} ${fmt(b.up_to)}: ${fmt(b.rate)}%`;
+        }
+        return typeof x === "object" ? Object.values(x as object).filter((y) => y !== null).join(" ") : String(x);
+      }).join(" · ");
+    }
+    if (typeof v === "boolean") return v ? t("ui.yes") : t("ui.no");
+    if (typeof v === "number") return v.toLocaleString("en-US");
+    const w = PARAM_VALUE[String(v)];
+    return w ? (isEN ? w.en : w.ar) : String(v);
+  };
+  return (
+    <dl className="mt-1 grid gap-x-4 gap-y-0.5 text-xs sm:grid-cols-2">
+      {Object.entries(parameters as Record<string, unknown>).map(([k, v]) => (
+        <div key={k} className="flex gap-1.5">
+          <dt className="text-united-muted">{PARAM_LABEL[k] ? (isEN ? PARAM_LABEL[k].en : PARAM_LABEL[k].ar) : k}:</dt>
+          <dd className={`font-semibold ${v === null ? "text-united-warn" : "text-united-dark"}`}><bdi>{fmt(v)}</bdi></dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function RulesTab({ canManage }: { canManage: boolean }) {
   const { t } = useLocale();
   const toast = useToast();
@@ -347,9 +418,9 @@ function RulesTab({ canManage }: { canManage: boolean }) {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-united-dark">{t(`pay.rule.${r.code}`)}</span>
                   <StatusPill tone={RULE_TONE[r.status] ?? "neutral"}>{t(`pay.rule_status.${r.status}`)}</StatusPill>
-                  <span className="text-xs text-united-muted" dir="ltr">{r.code} · {r.effectiveFrom} → {r.effectiveTo ?? "…"}</span>
+                  <span className="text-xs text-united-muted">{t("pay.effective")} <bdi dir="ltr">{r.effectiveFrom}</bdi> → <bdi dir="ltr">{r.effectiveTo ?? "…"}</bdi></span>
                 </div>
-                <pre dir="ltr" className="mt-1 max-w-full overflow-x-auto whitespace-pre-wrap rounded bg-united-subtle px-2 py-1 text-xs">{JSON.stringify(r.parameters)}</pre>
+                <RuleParams parameters={r.parameters} />
                 <div className="mt-0.5 text-xs text-united-muted">{t("pay.source")}: {r.sourceReference} · {r.createdBy}{r.verifiedBy ? ` · ${t("pay.verified_by")} ${r.verifiedBy}` : ""}</div>
               </div>
               {canManage && (

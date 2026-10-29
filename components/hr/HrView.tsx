@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { systemText } from "@/lib/locale/system-text";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Banknote, FileText, Pencil, Plus, Search } from "lucide-react";
@@ -546,7 +547,7 @@ function StatementDialog({ employee, onClose }: { employee: Emp; onClose: () => 
                     <tr key={`${r.number}-${i}`}>
                       <td dir="ltr" className="whitespace-nowrap">{r.date}</td>
                       <td dir="ltr" className="whitespace-nowrap text-united-muted">{r.number}</td>
-                      <td className="min-w-[12rem]">{r.description}</td>
+                      <td className="min-w-[12rem]">{systemText(r.description, locale)}</td>
                       <td className="whitespace-nowrap">{r.account === "employee_advances" ? t("hr.statement.acc_advances") : t("hr.statement.acc_payable")}</td>
                       <td className="num" dir="ltr">{Number(r.debit) ? fmtMoney(r.debit) : ""}</td>
                       <td className="num" dir="ltr">{Number(r.credit) ? fmtMoney(r.credit) : ""}</td>

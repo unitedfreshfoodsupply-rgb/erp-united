@@ -6,7 +6,7 @@ import { getBaseUrl } from "@/lib/absoluteUrl";
 import { orderQrSvg } from "@/lib/orderQr";
 import { PrintBar } from "@/components/print/PrintBar";
 import { PrintHeader } from "@/components/print/PrintHeader";
-import { qty } from "@/lib/format";
+import { qty, unitLabel } from "@/lib/format";
 import { printDir, printIntl, printLocale, printT } from "@/lib/locale/print";
 
 /** What a preparer actually needs on the warehouse floor — required quantities
@@ -29,7 +29,7 @@ export default async function PickingSheetPage({ params, searchParams }: { param
         <PrintHeader
           locale={locale}
           titleAr="شيت التجهيز"
-          titleEn="Preparation / Picking Sheet"
+          titleEn="Picking sheet"
           orderNumber={order.orderNumber}
           customerName={order.customerName}
           deliveryDate={order.deliveryDate}
@@ -59,7 +59,7 @@ export default async function PickingSheetPage({ params, searchParams }: { param
               <tr key={item.id} className="border-b border-united-border print-break-inside-avoid">
                 <td className="p-2 text-start text-united-dark/50">{idx + 1}</td>
                 <td className="p-2 text-start font-bold text-base">{item.productName}</td>
-                <td className="p-2 text-center">{item.unit}</td>
+                <td className="p-2 text-center">{unitLabel(item.unit, locale)}</td>
                 <td dir="ltr" className="p-2 text-center font-extrabold text-base">{qty(item.requiredQuantity)}</td>
                 <td className="p-2 text-center">
                   <div className="border-b border-united-dark/50 h-8 w-24 mx-auto" />

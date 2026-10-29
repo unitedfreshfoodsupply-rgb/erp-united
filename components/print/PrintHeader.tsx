@@ -12,7 +12,7 @@ export function PrintHeader({
   qrSvg,
   locale = "ar",
 }: {
-  /** The sheet's language: its title leads, the other language's title sits under it. */
+  /** The sheet's language; the whole sheet, title included, is in it. */
   locale?: PrintLocale;
   titleAr: string;
   titleEn: string;
@@ -32,7 +32,6 @@ export function PrintHeader({
           <div className="font-extrabold text-lg text-united-dark leading-tight">UNITED</div>
           <div className="text-[10px] text-united-dark/50">Fruits &amp; Vegetables</div>
           <div className="mt-1.5 font-extrabold text-base text-united-dark">{locale === "en" ? titleEn : titleAr}</div>
-          <div className="text-[10px] text-united-dark/50">{locale === "en" ? titleAr : titleEn}</div>
         </div>
       </div>
 
@@ -48,7 +47,7 @@ export function PrintHeader({
         </div>
         {externalId && (
           <div className="flex justify-between gap-3">
-            <span className="text-united-dark/50">PO</span>
+            <span className="text-united-dark/50">{t("print.customer-po")}</span>
             <span className="font-bold">{externalId}</span>
           </div>
         )}

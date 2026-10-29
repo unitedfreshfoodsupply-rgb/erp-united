@@ -17,7 +17,7 @@ function statusLabel(t: (k: string) => string, d: { etaStatus: string | null; et
   return label === k ? d.etaStatusLabel : label;
 }
 import { PageHeader } from "@/components/ui/PageHeader";
-import { intlLocale } from "@/lib/format";
+import { intlLocale, unitLabel } from "@/lib/format";
 import type { TranslationKey } from "@/lib/locale/dictionary";
 import { useDialogs } from "@/components/ui/Dialog";
 
@@ -245,7 +245,7 @@ function ItemRow({ p, manage, onSave }: { p: Overview["products"][number]; manag
   const [code, setCode] = useState(p.itemCode ?? "");
   return (
     <li className="flex flex-wrap items-center justify-between gap-2 text-sm font-bold">
-      <span>{p.itemCode ? "✓" : "✗"} {localName(p, locale)} <span className="text-xs text-united-muted">({p.unit}{p.sku ? ` · ${p.sku}` : ""})</span></span>
+      <span>{p.itemCode ? "✓" : "✗"} {localName(p, locale)} <span className="text-xs text-united-muted">({unitLabel(p.unit)}{p.sku ? ` · ${p.sku}` : ""})</span></span>
       <span className="flex gap-1">
         <select className="field w-20" disabled={!manage} value={type} onChange={(e) => setType(e.target.value)}><option>EGS</option><option>GS1</option></select>
         <input className="field w-48" dir="ltr" placeholder={t("eta.item-system-code-placeholder")} disabled={!manage} value={code} onChange={(e) => setCode(e.target.value)} />

@@ -1,5 +1,6 @@
 "use client";
 
+import { unitLabel } from "@/lib/format";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPatch, apiPost, ApiClientError } from "@/lib/api-client";
@@ -511,7 +512,7 @@ function SupplierDetail({ id, onClose, locale, t }: { id: string; onClose: () =>
       <section className="card p-4 flex flex-col gap-2 text-sm font-bold">
         {otherLocalName(s, locale) && <div dir="auto" className="text-united-muted">{otherLocalName(s, locale)}</div>}
         <div>
-          <span className="text-united-muted">{t("purchasing.supplier.type." + s.type) ?? s.type}</span>
+          <span className="text-united-muted">{((k) => (t(k) === k ? s.type : t(k)))(`purchasing.supplier.type.${s.type}`)}</span>
           {s.phone && <span className="ms-2 text-united-green">· {s.phone}</span>}
           {s.city && <span className="ms-2">· {s.city}</span>}
           {s.address && <span className="ms-2">· {s.address}</span>}
@@ -553,7 +554,7 @@ function SupplierDetail({ id, onClose, locale, t }: { id: string; onClose: () =>
             }}>
               <select className="field col-span-2" value={price.product_id} onChange={(e) => setPrice({ ...price, product_id: e.target.value })} aria-label={t("purchasing.line.product.placeholder")}>
                 <option value="">{t("purchasing.line.product.placeholder")}</option>
-                {(catalog.data?.products ?? []).map((p) => <option key={p.id} value={p.id}>{localName(p, locale)} ({p.unit})</option>)}
+                {(catalog.data?.products ?? []).map((p) => <option key={p.id} value={p.id}>{localName(p, locale)} ({unitLabel(p.unit)})</option>)}
               </select>
               <input className="field" dir="ltr" inputMode="decimal" placeholder={t("purchasing.rfq.quote_price")} aria-label={t("purchasing.rfq.quote_price")} value={price.unit_price} onChange={(e) => setPrice({ ...price, unit_price: e.target.value })} />
               <input className="field" type="date" value={price.valid_from} onChange={(e) => setPrice({ ...price, valid_from: e.target.value })} aria-label={t("purchasing.supplier.price_valid_from")} />

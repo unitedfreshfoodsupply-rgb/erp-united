@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPatch, ApiClientError, errorMessage } from "@/lib/api-client";
 import { LoadingState, ErrorState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
-import { SETTING_EN, SETTING_GROUP_LABEL, SETTING_GROUP_LABEL_EN, SETTING_UNIT_EN, type SettingGroup, type SettingKey } from "@/lib/core/settings-registry";
+import { SETTING_CHOICES, SETTING_EN, SETTING_GROUP_LABEL, SETTING_GROUP_LABEL_EN, SETTING_UNIT_EN, type SettingGroup, type SettingKey } from "@/lib/core/settings-registry";
 import type { SettingDTO } from "@/lib/admin-client-types";
 import { useLocale } from "@/lib/locale";
 
@@ -62,8 +62,12 @@ function SettingRow({ setting }: { setting: SettingDTO }) {
 
   const isBool = typeof setting.defaultValue === "boolean";
   const isText = typeof setting.defaultValue === "string";
-  const show = (v: unknown) =>
-    isBool ? (v ? t("admin.settings.toggled-on") : t("admin.settings.toggled-off")) : String(v);
+  const choices = SETTING_CHOICES[setting.key as SettingKey];
+  const show = (v: unknown) => {
+    if (isBool) return v ? t("admin.settings.toggled-on") : t("admin.settings.toggled-off");
+    const c = choices?.[String(v)];
+    return c ? (isEN ? c.en : c.ar) : String(v);
+  };
 
   async function save(next: number | boolean | string | null) {
     if (busy) return;
@@ -127,9 +131,6 @@ function SettingRow({ setting }: { setting: SettingDTO }) {
         <div className="min-w-0 flex-1">
           <div className="font-extrabold text-united-dark">{label}</div>
           <p className="text-xs font-bold text-united-muted mt-0.5">{description}</p>
-          <code dir="ltr" className="text-[10px] text-united-muted">
-            {setting.key}
-          </code>
         </div>
         <div className="text-end shrink-0">
           <div className="text-2xl font-extrabold text-united-dark tabular-nums">
@@ -162,6 +163,12 @@ function SettingRow({ setting }: { setting: SettingDTO }) {
               <select className="field" value={value} onChange={(e) => setValue(e.target.value)} autoFocus>
                 <option value="true">{t("admin.settings.toggled-on")}</option>
                 <option value="false">{t("admin.settings.toggled-off")}</option>
+              </select>
+            ) : choices ? (
+              <select className="field" value={value} onChange={(e) => setValue(e.target.value)} autoFocus>
+                {Object.entries(choices).map(([k, c]) => (
+                  <option key={k} value={k}>{isEN ? c.en : c.ar}</option>
+                ))}
               </select>
             ) : (
               <input

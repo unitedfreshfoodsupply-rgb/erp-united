@@ -1,3 +1,4 @@
+import { unitLabel } from "@/lib/format";
 import Image from "next/image";
 import { requirePagePermission } from "@/lib/session-guard";
 import { AccessDenied } from "@/components/AccessDenied";
@@ -53,7 +54,6 @@ export default async function InvoicePrint({ params, searchParams }: { params: {
         </div>
         <div className="text-end">
           <div className="text-3xl font-extrabold text-united-green">{L.title}</div>
-          <div className="text-xs text-united-dark/50">{L.subtitle}</div>
           <div className="mt-2 inline-block rounded-lg bg-united-bg px-3 py-1 font-extrabold text-lg" dir="ltr">{d.meta.number}</div>
         </div>
       </header>
@@ -98,7 +98,7 @@ export default async function InvoicePrint({ params, searchParams }: { params: {
               <td className="px-2 py-1.5">{l.no}</td>
               <td className="px-2 py-1.5 font-bold">{l.description}</td>
               <td className="px-2 py-1.5 text-center" dir="ltr">{l.qty}</td>
-              <td className="px-2 py-1.5 text-center">{l.unit}</td>
+              <td className="px-2 py-1.5 text-center">{unitLabel(l.unit, lang)}</td>
               <td className="px-2 py-1.5 text-center" dir="ltr">{l.unitPrice}</td>
               <td className="px-2 py-1.5 text-center" dir="ltr">{l.discount}</td>
               <td className="px-2 py-1.5 text-center" dir="ltr">{l.net}</td>

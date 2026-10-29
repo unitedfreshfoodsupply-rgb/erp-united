@@ -57,21 +57,32 @@ export function IntegrationsPanel() {
       </ul>
       <section className="card p-3 overflow-x-auto">
         <h3 className="font-extrabold mb-2">{t("admin.integrations.recent-calls")}</h3>
+        {!q.data?.logs.length ? (
+          <p className="text-sm text-united-muted">{t("admin.integrations.no-calls")}</p>
+        ) : (
         <table className="w-full text-xs font-bold">
+          <thead>
+            <tr className="text-start text-united-muted">
+              {(["time", "caller", "request", "status", "reference", "error", "duration"] as const).map((c) => (
+                <th key={c} className="p-1 text-start font-bold">{t(`admin.integrations.col.${c}`)}</th>
+              ))}
+            </tr>
+          </thead>
           <tbody>
             {q.data?.logs.map((l) => (
               <tr key={l.id} className="border-t border-united-dark/5">
-                <td className="p-1" dir="ltr">{new Date(l.createdAt).toLocaleString("en-GB")}</td>
+                <td className="p-1 whitespace-nowrap">{new Date(l.createdAt).toLocaleString(intlLocale(locale), { dateStyle: "short", timeStyle: "short" })}</td>
                 <td className="p-1" dir="ltr">{l.caller}</td>
                 <td className="p-1" dir="ltr">{l.method} {l.path}</td>
                 <td className={`p-1 ${l.status >= 400 ? "text-united-danger" : "text-united-green"}`} dir="ltr">{l.status}</td>
                 <td className="p-1" dir="ltr">{l.externalId ?? ""} {l.result ? `→ ${l.result}` : ""}</td>
                 <td className="p-1">{l.error ?? ""}</td>
-                <td className="p-1" dir="ltr">{l.durationMs}ms</td>
+                <td className="p-1 whitespace-nowrap tabular-nums"><bdi>{l.durationMs}</bdi> {t("admin.integrations.ms")}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        )}
       </section>
     </div>
   );

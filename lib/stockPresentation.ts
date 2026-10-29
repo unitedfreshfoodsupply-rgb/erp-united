@@ -1,3 +1,4 @@
+import { intlLocale } from "@/lib/format";
 import type { MovementKind } from "@/lib/stock-service";
 import { DICTIONARY } from "@/lib/locale";
 
@@ -165,5 +166,5 @@ export function shortDate(iso: string) {
 }
 
 export function timeLabel(iso: string, locale: "ar" | "en" = "ar") {
-  return new Date(iso).toLocaleTimeString(locale === "en" ? "en-GB" : "ar-EG", { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString(intlLocale(locale), { hour: "2-digit", minute: "2-digit" });
 }

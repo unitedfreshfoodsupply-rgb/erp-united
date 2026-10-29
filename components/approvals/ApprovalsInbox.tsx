@@ -1,6 +1,8 @@
 "use client";
 
+import { intlLocale } from "@/lib/format";
 import Link from "next/link";
+import { systemText } from "@/lib/locale/system-text";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
@@ -41,7 +43,7 @@ const STATUS: Record<ApprovalDTO["status"], { label: string; tone: Tone }> = {
   cancelled: { label: "approvals.status.cancelled", tone: "neutral" },
 };
 
-const when = (iso: string, locale: string) => new Date(iso).toLocaleString(locale === "en" ? "en-GB" : "ar-EG", { dateStyle: "short", timeStyle: "short" });
+const when = (iso: string, locale: string) => new Date(iso).toLocaleString(intlLocale(locale), { dateStyle: "short", timeStyle: "short" });
 
 /** One inbox for every approval type: decide here, or open the thing being approved. */
 export function ApprovalsInbox() {
@@ -114,8 +116,8 @@ function ApprovalCard({ a }: { a: ApprovalDTO }) {
           <div className="text-xs font-medium text-united-muted">
             {typeLabel(a)} · <bdi dir="ltr">{a.number}</bdi>
           </div>
-          <div className="mt-0.5 text-base font-semibold text-united-dark">{a.title}</div>
-          {a.summary && <p className="mt-0.5 text-sm text-united-dark">{a.summary}</p>}
+          <div className="mt-0.5 text-base font-semibold text-united-dark">{systemText(a.title, locale)}</div>
+          {a.summary && <p className="mt-0.5 text-sm text-united-dark">{systemText(a.summary, locale)}</p>}
           <p className="mt-1 text-xs text-united-muted">
             {t("approvals.requested-by", { name: a.requestedBy })} · <bdi dir="ltr">{when(a.createdAt, locale)}</bdi>
             {a.requiredLevels > 1 && t("approvals.level", { done: a.approvedLevels, required: a.requiredLevels })}

@@ -5,7 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
 import { LoadingState, ErrorState, EmptyState } from "@/components/States";
 import { usePermissions } from "@/lib/use-session";
-import { ROLE_LABEL, ROLE_LABEL_EN } from "@/lib/types";
+import { ROLE_LABEL, ROLE_LABEL_EN, isRole } from "@/lib/types";
+import { systemText } from "@/lib/locale/system-text";
+import { DICTIONARY } from "@/lib/locale/dictionary";
 import { permissionText } from "@/lib/permissions";
 import { GROUP_LABEL, GROUP_LABEL_EN, SECURITY_ACTION_LABEL, SECURITY_ACTION_LABEL_EN, type AdminOverview, type AdminUser } from "@/lib/admin-client-types";
 import { UsersPanel } from "@/components/admin/UsersPanel";
@@ -224,7 +226,7 @@ function SystemOverview({ data, canSeeAudit }: { data: AdminOverview; canSeeAudi
                   </span>
                 </div>
                 <div className="text-xs font-bold text-united-muted mt-0.5">
-                  {permissionText(o.permissionKey, locale).label} · <code dir="ltr">{o.permissionKey}</code> · {t("admin.by-label")} {o.grantedBy}
+                  {permissionText(o.permissionKey, locale).label} · {t("admin.by-label")} {o.grantedBy}
                 </div>
                 {o.reason && <p className="text-xs font-bold text-united-dark/70 mt-0.5">{t("admin.reason")}: {o.reason}</p>}
               </li>
@@ -252,21 +254,21 @@ function SystemOverview({ data, canSeeAudit }: { data: AdminOverview; canSeeAudi
                   </div>
                   <div className="text-xs font-bold text-united-muted">
                     {t("admin.by-label")} {l.userName}
-                    {l.fieldChanged && <> · {l.fieldChanged}</>}
+                    {l.fieldChanged && <> · {auditField(l.fieldChanged, locale)}</>}
                     {l.oldValue && l.newValue && (
                       <>
                         {" "}
-                        · <span dir="ltr">{l.oldValue} → {l.newValue}</span>
+                        · <bdi>{auditValue(l.oldValue, l.fieldChanged, locale)}</bdi> → <bdi>{auditValue(l.newValue, l.fieldChanged, locale)}</bdi>
                       </>
                     )}
                     {!l.oldValue && l.newValue && (
                       <>
                         {" "}
-                        · <span dir="ltr">{l.newValue}</span>
+                        · <bdi>{auditValue(l.newValue, l.fieldChanged, locale)}</bdi>
                       </>
                     )}
                   </div>
-                  {l.reason && <p className="text-xs font-bold text-united-dark/70">{t("admin.reason")}: {l.reason}</p>}
+                  {l.reason && <p className="text-xs font-bold text-united-dark/70">{t("admin.reason")}: {systemText(l.reason, locale)}</p>}
                 </li>
               ))}
             </ul>
@@ -275,4 +277,36 @@ function SystemOverview({ data, canSeeAudit }: { data: AdminOverview; canSeeAudi
       )}
     </div>
   );
+}
+
+/** User-security audit rows store field names and raw values; show them as words. */
+const USER_FIELD: Record<string, { ar: string; en: string }> = {
+  name: { ar: "الاسم", en: "Name" },
+  username: { ar: "اسم الدخول", en: "Username" },
+  password: { ar: "كلمة السر", en: "Password" },
+  mustChangePassword: { ar: "لازم يغيّر كلمة السر", en: "Must change password" },
+  active: { ar: "الحالة", en: "Status" },
+  role: { ar: "الدور", en: "Role" },
+  sessionEpoch: { ar: "الجلسات المفتوحة", en: "Open sessions" },
+};
+
+function auditField(field: string, locale: "ar" | "en") {
+  const f = USER_FIELD[field];
+  if (f) return locale === "en" ? f.en : f.ar;
+  return permissionText(field, locale).label;
+}
+
+function auditValue(value: string, field: string | null, locale: "ar" | "en") {
+  const dict = (k: keyof typeof DICTIONARY) => (locale === "en" ? DICTIONARY[k].en : DICTIONARY[k].ar);
+  return value
+    .split(" · ")
+    .map((seg) => {
+      if (isRole(seg)) return (locale === "en" ? ROLE_LABEL_EN : ROLE_LABEL)[seg];
+      if (seg === "true" || seg === "false") {
+        if (field === "active") return dict(seg === "true" ? "admin.badge-active" : "admin.badge-inactive");
+        return dict(seg === "true" ? "ui.yes" : "ui.no");
+      }
+      return systemText(seg, locale);
+    })
+    .join(" · ");
 }

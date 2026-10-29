@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { systemText } from "@/lib/locale/system-text";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
@@ -320,7 +321,7 @@ function CustomerPanel({ id, onClose }: { id: string; onClose: () => void }) {
           {history.data?.logs.map((l) => (
             <li key={l.id} className="border-b border-united-dark/5 py-1">
               <span className="font-bold">{l.userName}</span> · {actionLabel(l.action)}{l.fieldChanged && FIELD_LABEL[l.fieldChanged] ? ` · ${t(FIELD_LABEL[l.fieldChanged])}` : ""}{l.newValue ? `: ${l.oldValue ?? "—"} ← ${l.newValue}` : ""}
-              {l.reason ? <span className="text-united-muted"> ({l.reason})</span> : null}
+              {l.reason ? <span className="text-united-muted"> ({systemText(l.reason, locale)})</span> : null}
               <span className="text-xs text-united-muted"> · {new Date(l.timestamp).toLocaleString(intlLocale(locale), { dateStyle: "short", timeStyle: "short" })}</span>
             </li>
           ))}

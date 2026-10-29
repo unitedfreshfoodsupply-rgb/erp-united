@@ -161,7 +161,7 @@ export function PaymentsPanel({ run }: { run: PostingRun }) {
                 <td className="num" dir="ltr">{fmtMoney(s.paid)}</td>
                 <td className={`num font-semibold ${Number(s.remaining) > 0 ? "" : "text-united-green"}`} dir="ltr">{fmtMoney(s.remaining)}</td>
                 {canPay && <td className="num">{Number(s.remaining) > 0 && <input className="field w-28" dir="ltr" inputMode="decimal" aria-label={`${t("pay.pay_now")} ${nameOf.get(s.employeeId)?.code ?? ""}`} value={amounts[s.employeeId] ?? ""} onChange={(e) => setAmounts({ ...amounts, [s.employeeId]: e.target.value })} />}</td>}
-                <td><a className="btn-ghost btn-sm gap-1" href={`/hr/payroll/runs/${run.id}/payslips/${s.employeeId}/print`} target="_blank" rel="noreferrer"><Download size={14} aria-hidden />{t("pay.payslip")}</a></td>
+                <td><a className="btn-ghost btn-sm gap-1" href={`/hr/payroll/runs/${run.id}/payslips/${s.employeeId}/print${locale === "en" ? "?lang=en" : ""}`} target="_blank" rel="noreferrer"><Download size={14} aria-hidden />{t("pay.payslip")}</a></td>
               </tr>
             ))}
           </tbody>

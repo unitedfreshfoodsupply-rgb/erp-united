@@ -49,9 +49,9 @@ export function ProductMasterView() {
         <section className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <StatTile label={t("master.stat-tile-products")} value={String(products.length)} sub={`${products.filter((p) => p.active).length} ${t("master.stat-active")}`} />
           <StatTile label={t("master.stat-order-names")} value={String(summary.distinctNames)} />
-          <StatTile label={t("master-stat-connected")} value={String(summary.mapped)} tone={summary.mapped > 0 ? "good" : "muted"} />
+          <StatTile label={t("master.stat-connected")} value={String(summary.mapped)} tone={summary.mapped > 0 ? "good" : "muted"} />
           <StatTile
-            label={t("master-stat-disconnected")}
+            label={t("master.stat-disconnected")}
             value={String(summary.unmapped)}
             tone={summary.unmapped > 0 ? "warn" : "good"}
             sub={summary.ambiguous > 0 ? `${summary.ambiguous} ${t("master.stat-ambiguous")}` : undefined}

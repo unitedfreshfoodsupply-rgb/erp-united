@@ -14,6 +14,7 @@ import { newClientKey } from "@/lib/clientKey";
 import Link from "next/link";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
+import { unitLabel } from "@/lib/format";
 
 type OpenPoLine = { lineId: string; poNumber: string; expectedDate: string | null; supplier: { id: string; name: string }; product: { id: string; name: string; unit: string }; ordered: string; receivedGood: string; remaining: string };
 type Packaging = { uomCode: string; qtyInBaseUnit: string; active: boolean; uom: { nameAr: string | null; name: string } };
@@ -244,7 +245,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
                 onClick={() => pickPoLine(l)}
                 className="chip h-auto whitespace-normal py-2 text-start"
               >
-                {l.poNumber} · {localName(l.product, locale)} · {t("stock.remaining")} <span dir="ltr">{fmtKg(Number(l.remaining))}</span> {l.product.unit}
+                {l.poNumber} · {localName(l.product, locale)} · {t("stock.remaining")} <span dir="ltr">{fmtKg(Number(l.remaining))}</span> {unitLabel(l.product.unit)}
               </button>
             ))}
           </div>
@@ -254,7 +255,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
 
       {packagings.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {[{ code: "", label: t("stock.packaging-unit", { unit: baseUnit }) }, ...packagings.map((p) => ({ code: p.uomCode, label: `${t("stock.packaging-in")} ${localName(p.uom, locale)} (${Number(p.qtyInBaseUnit)} ${baseUnit})` }))].map((o) => (
+          {[{ code: "", label: t("stock.packaging-unit", { unit: unitLabel(baseUnit) }) }, ...packagings.map((p) => ({ code: p.uomCode, label: `${t("stock.packaging-in")} ${localName(p.uom, locale)} (${Number(p.qtyInBaseUnit)} ${baseUnit})` }))].map((o) => (
             <button
               key={o.code}
               type="button"

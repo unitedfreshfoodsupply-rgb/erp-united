@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api-client";
 import { storageLocationTypeLabel } from "@/lib/core/reference-data";
 import { localName } from "@/lib/locale/names";
 import { activeLocale } from "@/lib/locale/active";
+import { unitLabel } from "@/lib/format";
 import { useLocale } from "@/lib/locale";
 
 /** Quantities arrive as decimal strings (exact). Display only — never computed on. */
@@ -13,7 +14,7 @@ export function fmtQty(q: string | number | null | undefined, unit?: string) {
   if (q === null || q === undefined || q === "") return "—";
   const n = Number(q);
   const s = Number.isFinite(n) ? n.toLocaleString("en-US", { maximumFractionDigits: 3 }) : String(q);
-  return unit ? `${s} ${unit}` : s;
+  return unit ? `${s} ${unitLabel(unit)}` : s;
 }
 
 export function fmtMoney(v: string | number | null | undefined) {

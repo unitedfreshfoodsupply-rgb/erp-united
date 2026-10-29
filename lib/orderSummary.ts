@@ -1,6 +1,6 @@
 import type { OrderDTO, OrderItemDTO } from "@/lib/client-types";
 import type { OrderStatus } from "@/lib/types";
-import { qty } from "@/lib/format";
+import { qty, unitLabel } from "@/lib/format";
 
 /**
  * One place that answers, for any order: what stage is it at, how much is actually
@@ -140,13 +140,13 @@ export function shortageSummary(order: OrderDTO, locale: "ar" | "en" = "ar"): st
   const units = new Set(shorts.map((s) => s.item.unit));
   const total = shorts.reduce((s, x) => s + x.missing, 0);
   if (locale === "en") {
-    const amountEn = units.size === 1 ? `${qty(total)} ${[...units][0]}` : `${shorts.length} items`;
+    const amountEn = units.size === 1 ? `${qty(total)} ${unitLabel([...units][0], "en")}` : `${shorts.length} items`;
     return shorts.length === 1
-      ? `Short ${qty(shorts[0].missing)} ${shorts[0].item.unit} — ${shorts[0].item.productName}`
+      ? `Short ${qty(shorts[0].missing)} ${unitLabel(shorts[0].item.unit, "en")} — ${shorts[0].item.productName}`
       : `Short ${amountEn} across ${shorts.length} items`;
   }
-  const amount = units.size === 1 ? `${qty(total)} ${[...units][0]}` : `${shorts.length} صنف`;
+  const amount = units.size === 1 ? `${qty(total)} ${unitLabel([...units][0], "ar")}` : `${shorts.length} صنف`;
   return shorts.length === 1
-    ? `ناقص ${qty(shorts[0].missing)} ${shorts[0].item.unit} — ${shorts[0].item.productName}`
+    ? `ناقص ${qty(shorts[0].missing)} ${unitLabel(shorts[0].item.unit, "ar")} — ${shorts[0].item.productName}`
     : `ناقص ${amount} في ${shorts.length} أصناف`;
 }

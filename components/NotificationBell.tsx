@@ -1,6 +1,8 @@
 "use client";
 
+import { intlLocale } from "@/lib/format";
 import { Bell } from "lucide-react";
+import { systemText } from "@/lib/locale/system-text";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -33,7 +35,7 @@ export function NotificationBell() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  const { t, dir, isRTL, locale: curLocale } = useLocale();
+  const { t, dir, isRTL, locale: curLocale, locale } = useLocale();
 
   const q = useQuery({
     queryKey: ["notifications"],
@@ -108,10 +110,10 @@ export function NotificationBell() {
                   >
                     <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${n.readAt ? "bg-united-dark/20" : DOT[n.severity]}`} />
                     <span className="min-w-0">
-                      <span className="block font-bold text-sm text-united-dark">{n.title}</span>
+                      <span className="block font-bold text-sm text-united-dark">{systemText(n.title, locale)}</span>
                       {n.body && <span className="block text-xs font-bold text-united-muted">{n.body}</span>}
                       <span className="block text-[10px] font-bold text-united-muted mt-0.5" dir="ltr">
-                        {new Date(n.createdAt).toLocaleString(curLocale === "ar" ? "ar-EG" : "en-US", { dateStyle: "short", timeStyle: "short" })}
+                        {new Date(n.createdAt).toLocaleString(intlLocale(curLocale), { dateStyle: "short", timeStyle: "short" })}
                       </span>
                     </span>
                   </button>

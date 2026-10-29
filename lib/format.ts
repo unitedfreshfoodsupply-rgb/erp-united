@@ -1,3 +1,4 @@
+import { activeLocale } from "@/lib/locale/active";
 /**
  * Presentation helpers shared by every operational screen, so the same value never
  * reads two different ways in two places.
@@ -49,15 +50,42 @@ export function qty(n: number | null | undefined): string {
   return String(rounded);
 }
 
-/** Quantity with its unit, wrapped so the bidi algorithm can't swap number and unit. */
-export function qtyUnit(n: number | null | undefined, unit: string): string {
-  return n === null || n === undefined ? "—" : `${qty(n)} ${unit}`;
+/** Units are stored as codes (KG, BOX — the unit-of-measure catalog's keys, used in imports,
+ * the API and conversions). On screen and on paper they read as the reader's word for the
+ * unit; a code that is not in this list shows as stored. */
+const UNIT_WORD: Record<string, { ar: string; en: string }> = {
+  KG: { ar: "كجم", en: "kg" },
+  G: { ar: "جم", en: "g" },
+  TON: { ar: "طن", en: "t" },
+  L: { ar: "لتر", en: "L" },
+  ML: { ar: "مل", en: "mL" },
+  PIECE: { ar: "قطعة", en: "pc" },
+  PC: { ar: "قطعة", en: "pc" },
+  PCS: { ar: "قطعة", en: "pc" },
+  BOX: { ar: "صندوق", en: "box" },
+  CARTON: { ar: "كرتونة", en: "carton" },
+  CRATE: { ar: "برنيكة", en: "crate" },
+  DOZEN: { ar: "دستة", en: "dozen" },
+  BUNCH: { ar: "ربطة", en: "bunch" },
+  PALLET: { ar: "باليتة", en: "pallet" },
+};
+
+export function unitLabel(unit: string | null | undefined, locale: "ar" | "en" = activeLocale()): string {
+  if (!unit) return "";
+  const w = UNIT_WORD[unit.trim().toUpperCase()];
+  return w ? w[locale] : unit;
 }
 
-/** The Intl locale for dates and numbers: "ar-EG" writes Arabic-Indic digits, which an
- * English screen must not show. */
+/** Quantity with its unit, wrapped so the bidi algorithm can't swap number and unit. */
+export function qtyUnit(n: number | null | undefined, unit: string, locale?: "ar" | "en"): string {
+  return n === null || n === undefined ? "—" : `${qty(n)} ${unitLabel(unit, locale)}`;
+}
+
+/** The Intl locale for dates and numbers. Arabic uses Arabic month and day names with
+ * Western digits (`-u-nu-latn`), the same digits as amounts, quantities and document
+ * numbers everywhere else, so one screen never mixes two digit systems. */
 export function intlLocale(locale?: string): string {
-  return locale === "en" ? "en-GB" : "ar-EG";
+  return locale === "en" ? "en-GB" : "ar-EG-u-nu-latn";
 }
 
 /** "من ٣ دقايق" / "3 min ago" — relative time for "when did this last move". */
