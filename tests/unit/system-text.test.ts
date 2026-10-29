@@ -42,3 +42,8 @@ test("unit codes inside stored text follow the reader", () => {
   assert.equal(systemText("Mint: مطلوب 9 KG، الفعلي 10 (فرق 11.1%)", "ar"), "Mint: مطلوب 9 كجم، الفعلي 10 (فرق 11.1%)");
   assert.equal(systemText("Mango: خرج 2 KG، اتصرف من الدفاتر 0", "ar"), "Mango: خرج 2 كجم، اتصرف من الدفاتر 0");
 });
+
+test("integration scopes stored as keys read as words", () => {
+  assert.equal(systemText("Key · orders.create · uk_abc…", "en"), "Key · Create orders · uk_abc…");
+  assert.equal(systemText("Key · orders.create · uk_abc…", "ar"), "Key · إنشاء أوردرات · uk_abc…");
+});

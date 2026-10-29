@@ -35,7 +35,16 @@ const Tile = ({ label, value, tone }: { label: string; value: string; tone?: "go
 const Table = ({ head, rows, total }: { head: string[]; rows: (string | number | null)[][]; total?: boolean }) => {
   const body = total ? rows.slice(0, -1) : rows;
   const foot = total ? rows[rows.length - 1] : null;
-  const cells = (r: (string | number | null)[]) => r.map((c, j) => (j ? <td key={j} className="num" dir="ltr">{c ?? "—"}</td> : <td key={j} className="font-medium">{c ?? "—"}</td>));
+  // Figures arrive as plain decimal strings ("21000.00"); grouped digits read at a glance.
+  // Anything that is not a plain number (a percentage, "—", a label) is shown as given.
+  const fig = (c: string | number | null) => {
+    if (c === null || c === "") return "—";
+    const s = String(c);
+    if (!/^-?\d+(\.\d+)?$/.test(s)) return s;
+    const dp = s.includes(".") ? s.split(".")[1].length : 0;
+    return Number(s).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+  };
+  const cells = (r: (string | number | null)[]) => r.map((c, j) => (j ? <td key={j} className="num whitespace-nowrap tabular-nums" dir="ltr">{fig(c)}</td> : <td key={j} className="font-medium">{c ?? "—"}</td>));
   return (
     <div className="card overflow-x-auto">
       <table className="data-table">

@@ -689,11 +689,11 @@ function Valuation() {
             {q.data.rows.map((r) => (
               <tr key={r.productId} className="border-t border-united-dark/5 font-bold">
                 <td className="p-2">{localName({ name: r.productName, nameAr: r.productNameAr }, locale)}</td>
-                <td className="p-2 text-center">{["avco", "fifo", "standard"].includes(r.costingMethod) ? t(`stock.costing.${r.costingMethod}` as "stock.costing.avco") : r.costingMethod}</td>
-                <td className="p-2 text-center" dir="ltr">{fmtQty(r.quantity, r.unit)}</td>
-                <td className="p-2 text-center" dir="ltr">{r.averageCost ?? "—"}</td>
-                <td className="p-2 text-center" dir="ltr">{fmtMoney(r.value)}</td>
-                <td className="p-2 text-center" dir="ltr">{Number(r.receivedWithoutCost) > 0 ? fmtQty(r.receivedWithoutCost, r.unit) : "—"}</td>
+                <td className="p-2 text-center whitespace-nowrap">{["avco", "fifo", "standard"].includes(r.costingMethod) ? t(`stock.costing.${r.costingMethod}` as "stock.costing.avco") : r.costingMethod}</td>
+                <td className="p-2 text-center whitespace-nowrap tabular-nums" dir="ltr">{fmtQty(r.quantity, r.unit)}</td>
+                <td className="p-2 text-center whitespace-nowrap tabular-nums" dir="ltr">{r.averageCost ?? "—"}</td>
+                <td className="p-2 text-center whitespace-nowrap tabular-nums" dir="ltr">{fmtMoney(r.value)}</td>
+                <td className="p-2 text-center whitespace-nowrap tabular-nums" dir="ltr">{Number(r.receivedWithoutCost) > 0 ? fmtQty(r.receivedWithoutCost, r.unit) : "—"}</td>
               </tr>
             ))}
           </tbody>

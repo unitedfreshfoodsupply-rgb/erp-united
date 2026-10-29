@@ -147,6 +147,10 @@ const PAIRS: readonly (readonly [ar: string, en: string])[] = [
   ["(افتراضية)", "(default)"],
   ["(موقوفة)", "(inactive)"],
   ["{n} محاولات غلط — مقفول {n} دقائق", "{} failed attempts — locked for {} minutes"],
+  // Integration key scopes, stored as keys in audit values
+  ["إنشاء أوردرات", "orders.create"],
+  ["متابعة الحالة", "orders.status"],
+  ["إرسال الحضور (جهاز)", "attendance.ingest"],
   // Values some audit rows store as identifiers (attendance, pay components)
   ["حضور", "present"],
   ["غياب", "absent"],
@@ -225,7 +229,10 @@ function translateOne(text: string, target: Locale, depth: number): string | nul
 
 /** Identifiers some rows store (`payroll_run`, `absent_unpaid`) read as words in English. */
 let identifiers: Set<string> | null = null;
+const ENGLISH_KEYS: Record<string, string> = { "orders.create": "Create orders", "orders.status": "Track status", "attendance.ingest": "Send attendance (device)" };
 function englishIdentifier(seg: string): string | null {
+  const key = ENGLISH_KEYS[seg.trim()];
+  if (key) return seg.replace(seg.trim(), key);
   identifiers ??= new Set(PAIRS.map(([, en]) => en).filter((en) => /^[a-z]+(?:_[a-z]+)*$/.test(en)));
   const t = seg.trim();
   if (!identifiers.has(t)) return null;
@@ -245,7 +252,7 @@ export function systemText(text: string | null | undefined, locale: Locale): str
 function translate(text: string | null | undefined, locale: Locale): string {
   if (!text) return text ?? "";
   if (locale === "en" && !ARABIC.test(text)) {
-    if (!/[a-z]_?[a-z]/.test(text)) return text;
+    if (!/[a-z][_.]?[a-z]/.test(text)) return text;
     return text.split(" · ").map((seg) => englishIdentifier(seg) ?? seg).join(" · ");
   }
   if (!needsWork(text, locale)) return text;

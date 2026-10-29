@@ -400,3 +400,22 @@ export const SETTING_EN: Record<SettingKey, { label: string; description: string
 
 /** English for the units shown next to values. */
 export const SETTING_UNIT_EN: Record<string, string> = { "%": "%", "دقيقة": "minutes", "ميجا": "MB", "بوحدة الصنف": "in the product's unit", "يوم": "days", "ج.م": "EGP", "ساعة": "hours", "محاولة": "attempts", "": "" };
+
+/** A setting's name in the reader's language (audit rows store the key). */
+export function settingLabel(key: string, locale: "ar" | "en"): string | null {
+  if (!isSettingKey(key)) return null;
+  return locale === "en" ? SETTING_EN[key].label : SETTING_DEFS[key].label;
+}
+
+/** A setting value as audit rows store it (JSON: `"strict"`, `true`, `12`, `null`) in words:
+ * a choice by its label, a switch as on/off, null as the default. */
+export function settingValueText(key: string, raw: string | null, locale: "ar" | "en"): string {
+  if (raw === null || raw === undefined) return "—";
+  let v: unknown = raw;
+  try { v = JSON.parse(raw); } catch { return raw; }
+  if (v === null) return locale === "en" ? "Default" : "الافتراضي";
+  if (typeof v === "boolean") return v ? (locale === "en" ? "Enabled" : "مفعّل") : (locale === "en" ? "Disabled" : "مقفول");
+  const choice = isSettingKey(key) ? SETTING_CHOICES[key]?.[String(v)] : undefined;
+  if (choice) return locale === "en" ? choice.en : choice.ar;
+  return String(v);
+}

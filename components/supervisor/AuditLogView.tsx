@@ -8,6 +8,7 @@ import type { AuditLogDTO } from "@/lib/client-types";
 import { EmptyState, ErrorState } from "@/components/States";
 import { LiveIndicator } from "@/components/ui/LiveIndicator";
 import { systemText } from "@/lib/locale/system-text";
+import { settingLabel, settingValueText } from "@/lib/core/settings-registry";
 import { buildTimeline, timeLabel, SOURCE_LABEL, SOURCE_LABEL_EN, type TimelineLocale } from "@/lib/auditLabels";
 import { ROLE_LABEL, ROLE_LABEL_EN, isRole } from "@/lib/types";
 import { CardSkeleton } from "@/components/Skeleton";
@@ -173,6 +174,17 @@ export function AuditLogView() {
  * entry, a bill) say what it is and what happened to it instead. */
 function describeOne(l: AuditLogDTO, locale: TimelineLocale) {
   const [event] = buildTimeline([l], locale);
+  const setting = l.fieldChanged ? settingLabel(l.fieldChanged, locale) : null;
+  if (setting) {
+    const en = locale === "en";
+    const entity = DICTIONARY["audit.entity.system_setting"];
+    const verb = l.action.endsWith("_reset") ? (en ? "reset to default" : "رجع للافتراضي") : (en ? "changed" : "اتغيّر");
+    return {
+      icon: "•",
+      headline: `${en ? entity.en : entity.ar} — ${verb}`,
+      detail: `${setting}: ${settingValueText(l.fieldChanged!, l.oldValue, locale)} → ${settingValueText(l.fieldChanged!, l.newValue, locale)}`,
+    };
+  }
   const isOrder = !l.entityType || l.entityType === "order" || l.entityType === "order_item";
   if (event && (isOrder || event.icon !== "•")) return event;
   const en = locale === "en";

@@ -7,6 +7,7 @@ import { LoadingState, ErrorState, EmptyState } from "@/components/States";
 import { usePermissions } from "@/lib/use-session";
 import { ROLE_LABEL, ROLE_LABEL_EN, isRole } from "@/lib/types";
 import { systemText } from "@/lib/locale/system-text";
+import { settingLabel, settingValueText } from "@/lib/core/settings-registry";
 import { DICTIONARY } from "@/lib/locale/dictionary";
 import { permissionText } from "@/lib/permissions";
 import { GROUP_LABEL, GROUP_LABEL_EN, SECURITY_ACTION_LABEL, SECURITY_ACTION_LABEL_EN, type AdminOverview, type AdminUser } from "@/lib/admin-client-types";
@@ -293,10 +294,13 @@ const USER_FIELD: Record<string, { ar: string; en: string }> = {
 function auditField(field: string, locale: "ar" | "en") {
   const f = USER_FIELD[field];
   if (f) return locale === "en" ? f.en : f.ar;
+  const setting = settingLabel(field, locale);
+  if (setting) return setting;
   return permissionText(field, locale).label;
 }
 
 function auditValue(value: string, field: string | null, locale: "ar" | "en") {
+  if (field && settingLabel(field, locale)) return settingValueText(field, value, locale);
   const dict = (k: keyof typeof DICTIONARY) => (locale === "en" ? DICTIONARY[k].en : DICTIONARY[k].ar);
   return value
     .split(" · ")
