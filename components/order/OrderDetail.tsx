@@ -563,7 +563,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
               >
                 <option value="">{t("orders.customer.choose")}</option>
                 {customerCards.data?.customers.map((c) => (
-                  <option key={c.id} value={c.id}>{c.code} · {localName(c, locale)}{!c.active ? ` ${t("orders.customer.inactive")}` : ""}</option>
+                  <option key={c.id} value={c.id}>{localName(c, locale)}{!c.active ? ` ${t("orders.customer.inactive")}` : ""}</option>
                 ))}
               </select>
               <div className="flex flex-wrap gap-2">

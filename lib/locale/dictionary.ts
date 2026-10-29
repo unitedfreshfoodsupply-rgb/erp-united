@@ -2266,6 +2266,9 @@ const hr = {
   "hr.empty_expenses": { ar: "مفيش مصروفات", en: "No expenses yet" },
 
   // ─── Employees form ───────────────────────────────────────
+  "names.arabic": { ar: "الاسم بالعربي", en: "Name in Arabic" },
+  "names.english": { ar: "الاسم بالإنجليزي", en: "Name in English" },
+  "names.one_required": { ar: "اكتب اسم واحد على الأقل — كل لغة بتعرض اسمها، ولو ناقص بيظهر التاني", en: "At least one name — each language shows its own, and the other when one is missing" },
   "hr.placeholder.name": { ar: "الاسم", en: "Name" },
   "hr.placeholder.job_title": { ar: "الوظيفة", en: "Job Title" },
   "hr.placeholder.phone": { ar: "التليفون", en: "Phone" },

@@ -2082,6 +2082,7 @@ model CashAccount {
   id        String   @id @default(cuid())
   code      String   @unique
   name      String
+  nameAr    String?
   /// cash | bank
   type      String
   accountId String
@@ -2246,6 +2247,7 @@ model Department {
   id                String     @id @default(cuid())
   code              String     @unique
   name              String
+  nameAr            String?
   active            Boolean    @default(true)
   /// Head of the department (routing of leave / attendance approvals when enabled).
   managerEmployeeId String?
@@ -2261,6 +2263,7 @@ model Employee {
   /// EMP-#####
   code         String   @unique
   name         String
+  nameAr       String?
   departmentId String?
   jobTitle     String?
   phone        String?

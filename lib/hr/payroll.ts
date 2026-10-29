@@ -96,7 +96,7 @@ export async function getRun(id: string, actor: ServiceActor) {
     include: {
       employees: {
         orderBy: { employee: { code: "asc" } },
-        include: { employee: { select: { id: true, code: true, name: true, jobTitle: true, department: { select: { name: true } } } }, lines: { orderBy: [{ sortOrder: "asc" }, { code: "asc" }] } },
+        include: { employee: { select: { id: true, code: true, name: true, nameAr: true, jobTitle: true, department: { select: { name: true, nameAr: true } } } }, lines: { orderBy: [{ sortOrder: "asc" }, { code: "asc" }] } },
       },
       snapshots: { orderBy: { sequence: "desc" }, select: { sequence: true, calculationHash: true, totals: true, calculatedBy: true, calculatedAt: true } },
     },
@@ -174,7 +174,7 @@ export async function listAdjustments(actor: ServiceActor, filter: { period?: st
     where: filter.period ? { targetPeriod: filter.period } : {},
     orderBy: { createdAt: "desc" },
     take: 300,
-    include: { employee: { select: { id: true, code: true, name: true } }, payComponent: { select: { code: true, nameAr: true, nameEn: true, kind: true } } },
+    include: { employee: { select: { id: true, code: true, name: true, nameAr: true } }, payComponent: { select: { code: true, nameAr: true, nameEn: true, kind: true } } },
   });
 }
 

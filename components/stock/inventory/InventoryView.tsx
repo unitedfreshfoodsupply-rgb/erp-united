@@ -623,7 +623,7 @@ function DocumentCard({ d, highlight, canReverse }: { d: DocumentDTO; highlight:
           <ul className="text-sm flex flex-col gap-1">
             {d.movements.map((m) => (
               <li key={m.id} className="flex justify-between">
-                <span className="font-bold">{m.product.name} · {m.location.code}{m.lot ? ` · ${m.lot.lotNumber}` : ""}</span>
+                <span className="font-bold">{localName(m.product, locale)} · {localName(m.location, locale)}{m.lot ? ` · ${m.lot.lotNumber}` : ""}</span>
                 <span dir="ltr" className="font-extrabold">{fmtQty(m.quantity, m.product.unit)}</span>
               </li>
             ))}

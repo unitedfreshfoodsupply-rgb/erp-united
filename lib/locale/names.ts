@@ -80,3 +80,28 @@ export function compareLocalNames(locale: NameLocale) {
   const collator = new Intl.Collator(locale === "ar" ? "ar" : "en", { sensitivity: "base", numeric: true });
   return (a: LocalizedNameSource, b: LocalizedNameSource) => collator.compare(localName(a, locale), localName(b, locale));
 }
+
+const ARABIC_SCRIPT = /[؀-ۿ]/;
+
+/**
+ * The two fields an edit form shows for an entity with `name` (English) and `nameAr` (Arabic).
+ * A record created before the Arabic field existed may hold Arabic text in `name`; it opens
+ * in the Arabic field so the person editing is not asked to treat it as English.
+ */
+export function namesForEdit(entity: { name?: string | null; nameAr?: string | null }): { en: string; ar: string } {
+  const name = cleanName(entity.name) ?? "";
+  const ar = cleanName(entity.nameAr);
+  if (ar) return { en: name === ar ? "" : name, ar };
+  return ARABIC_SCRIPT.test(name) ? { en: "", ar: name } : { en: name, ar: "" };
+}
+
+/**
+ * What a form saves from its two fields: `name` is required by the schema, so a record
+ * entered with only an Arabic name stores it in both (both locales then show it — the
+ * documented fallback); `name_ar` is null when no Arabic name was given.
+ */
+export function namesForSave(en: string, ar: string): { name: string; name_ar: string | null } {
+  const e = cleanName(en);
+  const a = cleanName(ar);
+  return { name: e ?? a ?? "", name_ar: a };
+}

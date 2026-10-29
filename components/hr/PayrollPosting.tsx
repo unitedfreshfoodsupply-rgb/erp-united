@@ -23,7 +23,7 @@ import { localName } from "@/lib/locale/names";
 type Problem = { code: string; params: Record<string, string>; message: string };
 type PreviewLine = { side: "debit" | "credit"; role: "component" | "recovery" | "net"; accountCode: string | null; accountName: string | null; accountNameAr: string | null; amount: string; label: string; component: string | null };
 type Preview = { posted: boolean; entry: { id: string; number: string; date: string; total: string } | null; date: string | null; lines: PreviewLine[]; totals: { debit: string; credit: string } | null; balanced: boolean; problems: Problem[] };
-type Payment = { id: string; number: string; date: string; method: string; reference: string | null; amount: string; createdBy: string; reversedAt: string | null; reversalReason: string | null; cashAccount: { code: string; name: string }; journalEntry: { number: string } | null; reversalEntry: { number: string } | null; lines: { employeeId: string; amount: string }[] };
+type Payment = { id: string; number: string; date: string; method: string; reference: string | null; amount: string; createdBy: string; reversedAt: string | null; reversalReason: string | null; cashAccount: { code: string; name: string; nameAr?: string | null }; journalEntry: { number: string } | null; reversalEntry: { number: string } | null; lines: { employeeId: string; amount: string }[] };
 type Payments = { payments: Payment[]; slips: { employeeId: string; netPayable: string; paid: string; remaining: string }[]; totals: { netPayable: string; paid: string; remaining: string } };
 export type PostingRun = { id: string; number: string; status: string; postedBy?: string | null; postingDate?: string | null; reversedBy?: string | null; reversalReason?: string | null; can: { post?: boolean; reverse?: boolean; pay?: boolean; bankFile?: boolean }; employees: { employeeId: string; inclusion: string; employee: { code: string; name: string } }[] };
 
@@ -99,7 +99,7 @@ export function PostingPanel({ run }: { run: PostingRun }) {
 }
 
 export function PaymentsPanel({ run }: { run: PostingRun }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const dialogs = useDialogs();
   const qc = useQueryClient();
@@ -177,7 +177,7 @@ export function PaymentsPanel({ run }: { run: PostingRun }) {
         <ul className="flex flex-col divide-y divide-united-border border-t border-united-border text-sm">
           {d.payments.map((p) => (
             <li key={p.id} className={`flex flex-wrap items-center justify-between gap-2 px-5 py-2 ${p.reversedAt ? "opacity-70" : ""}`}>
-              <span><span dir="ltr" className="font-semibold">{p.number}</span> · {p.date} · {p.cashAccount.name} · {t(`accounting.method.${p.method.replace("_", "-")}`)} · {t("pay.employees_n", { n: p.lines.length })}{p.reference ? <> · <span dir="ltr">{p.reference}</span></> : null} · {p.createdBy}{p.reversedAt ? ` · ${t("pay.payment_reversed_note", { reason: p.reversalReason ?? "" })}` : ""}</span>
+              <span><span dir="ltr" className="font-semibold">{p.number}</span> · {p.date} · {localName(p.cashAccount, locale)} · {t(`accounting.method.${p.method.replace("_", "-")}`)} · {t("pay.employees_n", { n: p.lines.length })}{p.reference ? <> · <span dir="ltr">{p.reference}</span></> : null} · {p.createdBy}{p.reversedAt ? ` · ${t("pay.payment_reversed_note", { reason: p.reversalReason ?? "" })}` : ""}</span>
               <span className="flex items-center gap-2">
                 <span dir="ltr" className={`font-semibold ${p.reversedAt ? "line-through" : ""}`}>{fmtMoney(p.amount)}</span>
                 {!p.reversedAt && run.can.pay && <button type="button" className="text-xs text-united-danger underline" onClick={() => void reverse(p)}>{t("pay.reverse_payment_short")}</button>}

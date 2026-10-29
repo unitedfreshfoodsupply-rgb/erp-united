@@ -240,12 +240,12 @@ function CodeRow({ label, value, placeholder, manage, onSave }: { label: string;
 }
 
 function ItemRow({ p, manage, onSave }: { p: Overview["products"][number]; manage: boolean; onSave: (type: string, code: string) => void }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [type, setType] = useState(p.itemType ?? "EGS");
   const [code, setCode] = useState(p.itemCode ?? "");
   return (
     <li className="flex flex-wrap items-center justify-between gap-2 text-sm font-bold">
-      <span>{p.itemCode ? "✓" : "✗"} {p.name} <span className="text-xs text-united-muted">({p.unit}{p.sku ? ` · ${p.sku}` : ""})</span></span>
+      <span>{p.itemCode ? "✓" : "✗"} {localName(p, locale)} <span className="text-xs text-united-muted">({p.unit}{p.sku ? ` · ${p.sku}` : ""})</span></span>
       <span className="flex gap-1">
         <select className="field w-20" disabled={!manage} value={type} onChange={(e) => setType(e.target.value)}><option>EGS</option><option>GS1</option></select>
         <input className="field w-48" dir="ltr" placeholder={t("eta.item-system-code-placeholder")} disabled={!manage} value={code} onChange={(e) => setCode(e.target.value)} />
@@ -256,14 +256,14 @@ function ItemRow({ p, manage, onSave }: { p: Overview["products"][number]; manag
 }
 
 function ReceiverRow({ c, manage, onSave }: { c: Overview["customers"][number]; manage: boolean; onSave: (body: unknown) => void }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [f, setF] = useState<Record<string, string>>({ receiver_type: c.profile?.receiverType ?? "", receiver_id: c.profile?.receiverId ?? "", ...Object.fromEntries(ADDRESS.map(([k]) => [k, c.profile?.[k] ?? ""])) });
   const derived = c.taxRegistrationNo ? "B" : "P";
   const complete = (f.receiver_type || derived) !== "B" || ADDRESS.every(([k]) => f[k]);
   return (
     <li className="border-b border-united-dark/5 pb-2">
       <details>
-        <summary className="cursor-pointer text-sm font-bold">{complete ? "✓" : "✗"} {c.name} ({c.code}) · {c.taxRegistrationNo ? <span dir="ltr">{c.taxRegistrationNo} {t("eta.receiver-tax-reg")}</span> : t("eta.receiver-no-tax")}</summary>
+        <summary className="cursor-pointer text-sm font-bold">{complete ? "✓" : "✗"} {localName(c, locale)} · {c.taxRegistrationNo ? <span dir="ltr">{c.taxRegistrationNo} {t("eta.receiver-tax-reg")}</span> : t("eta.receiver-no-tax")}</summary>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
           <Field label={t("eta.receiver-type")}><select className="field" disabled={!manage} value={f.receiver_type} onChange={(e) => setF({ ...f, receiver_type: e.target.value })}><option value="">{t("eta.receiver-auto", { derived })}</option><option value="B">{t("eta.receiver-company")}</option><option value="P">{t("eta.receiver-person")}</option><option value="F">{t("eta.receiver-foreign")}</option></select></Field>
           <Field label={t("eta.receiver-national-id")}><input className="field" dir="ltr" disabled={!manage} value={f.receiver_id} onChange={(e) => setF({ ...f, receiver_id: e.target.value })} /></Field>

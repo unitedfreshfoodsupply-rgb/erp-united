@@ -244,7 +244,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
                 onClick={() => pickPoLine(l)}
                 className="chip h-auto whitespace-normal py-2 text-start"
               >
-                {l.poNumber} · {l.product.name} · {t("stock.remaining")} <span dir="ltr">{fmtKg(Number(l.remaining))}</span> {l.product.unit}
+                {l.poNumber} · {localName(l.product, locale)} · {t("stock.remaining")} <span dir="ltr">{fmtKg(Number(l.remaining))}</span> {l.product.unit}
               </button>
             ))}
           </div>

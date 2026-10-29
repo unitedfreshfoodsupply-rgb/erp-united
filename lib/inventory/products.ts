@@ -188,7 +188,7 @@ export async function productStockDetail(productId: string, warehouseId: string 
       where: { productId, warehouseId: wh.id },
       orderBy: { occurredAt: "desc" },
       take: 30,
-      include: { location: { select: { code: true } }, lot: { select: { lotNumber: true } }, document: { select: { number: true, type: true } }, intake: { select: { receiptNumber: true } } },
+      include: { location: { select: { code: true, name: true, nameAr: true } }, lot: { select: { lotNumber: true } }, document: { select: { number: true, type: true } }, intake: { select: { receiptNumber: true } } },
     }),
     opts.withValue ? prisma.stockValuationLayer.aggregate({ where: { productId }, _sum: { quantity: true, value: true } }) : Promise.resolve(null),
   ]);

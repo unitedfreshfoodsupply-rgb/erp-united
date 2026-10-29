@@ -51,7 +51,7 @@ const audit = (tx: Tx, actor: Actorish, entityType: "employee" | "expense" | "em
 
 export async function saveDepartment(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "hr.employees.manage");
-  const v = parse(z.object({ code: text("الكود", 20), name: text("الاسم", 100), active: active().optional(), manager_employee_id: z.string().nullable().optional() }), input);
+  const v = parse(z.object({ code: text("الكود", 20), name: text("الاسم", 100), name_ar: optText("الاسم بالعربي", 100).optional(), active: active().optional(), manager_employee_id: z.string().nullable().optional() }), input);
   const code = v.code.toUpperCase();
   return inTx(async (tx) => {
     if (v.active === false) {
@@ -62,14 +62,17 @@ export async function saveDepartment(input: unknown, actor: ServiceActor) {
     const before = await tx.department.findUnique({ where: { code } });
     if (v.manager_employee_id && !(await tx.employee.findFirst({ where: { id: v.manager_employee_id, active: true } }))) throw new ApiError(400, "المدير مش موجود أو موقوف");
     const manager = v.manager_employee_id !== undefined ? { managerEmployeeId: v.manager_employee_id } : {};
-    const d = await tx.department.upsert({ where: { code }, update: { name: v.name, ...manager, ...(v.active !== undefined ? { active: v.active } : {}) }, create: { code, name: v.name, ...manager, ...(v.active !== undefined ? { active: v.active } : {}) } });
+    const nameAr = v.name_ar !== undefined ? { nameAr: v.name_ar ?? null } : {};
+    const d = await tx.department.upsert({ where: { code }, update: { name: v.name, ...nameAr, ...manager, ...(v.active !== undefined ? { active: v.active } : {}) }, create: { code, name: v.name, ...nameAr, ...manager, ...(v.active !== undefined ? { active: v.active } : {}) } });
     await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: before ? "department_updated" : "department_created", entityType: "department", entityId: d.id, oldValue: before ? `${before.name}${before.active ? "" : " · موقوف"}` : undefined, newValue: `${d.code} · ${d.name}${d.active ? "" : " · موقوف"}`, source: "user", deviceId: actor.deviceId }, tx);
     return d;
   });
 }
 
 const employeeInput = z.object({
+  /** The English name (schema convention: name = English, nameAr = Arabic); either alone is fine. */
   name: text("الاسم", 100),
+  name_ar: optText("الاسم بالعربي", 100).optional(),
   department_id: z.string().nullable().optional(),
   job_title: optText("الوظيفة", 100).optional(),
   phone: optText("التليفون", 30).optional(),
@@ -92,6 +95,7 @@ export async function saveEmployee(id: string | null, input: unknown, actor: Ser
     // written directly but through the employment history (lib/hr/employment.ts), so the
     // register and the history can never disagree.
     const data: Prisma.EmployeeUncheckedUpdateInput & { name: string } = { name: v.name };
+    if (v.name_ar !== undefined) data.nameAr = v.name_ar ?? null;
     if (v.phone !== undefined) data.phone = v.phone ?? null;
     if (v.user_id !== undefined) data.userId = v.user_id ?? null;
     if (v.hire_date !== undefined) data.hireDate = v.hire_date ?? null;
@@ -152,21 +156,21 @@ export function canSeeEmployeeFinance(actor: ServiceActor) {
 export async function listEmployees(actor: ServiceActor) {
   const full = canSeeEmployeeFinance(actor);
   const [emps, deps, bal] = await Promise.all([
-    prisma.employee.findMany({ orderBy: [{ active: "desc" }, { code: "asc" }], include: { department: { select: { id: true, name: true } } } }),
+    prisma.employee.findMany({ orderBy: [{ active: "desc" }, { code: "asc" }], include: { department: { select: { id: true, name: true, nameAr: true } } } }),
     prisma.department.findMany({ orderBy: { code: "asc" } }),
     full ? prisma.journalLine.groupBy({ by: ["partyId"], where: { partyType: "employee" }, _sum: { debit: true, credit: true } }) : Promise.resolve([]),
   ]);
   if (!full && actorCan(actor, "hr.employees.view")) {
     // The directory: placement and status for everyone, active or not — no money, no contact details.
     return {
-      departments: deps.map((d) => ({ id: d.id, code: d.code, name: d.name, active: d.active })),
-      employees: emps.map((e) => ({ id: e.id, code: e.code, name: e.name, active: e.active, jobTitle: e.jobTitle, hireDate: e.hireDate, department: e.department })),
+      departments: deps.map((d) => ({ id: d.id, code: d.code, name: d.name, nameAr: d.nameAr, active: d.active })),
+      employees: emps.map((e) => ({ id: e.id, code: e.code, name: e.name, nameAr: e.nameAr, active: e.active, jobTitle: e.jobTitle, hireDate: e.hireDate, department: e.department })),
     };
   }
   if (!full) {
     return {
-      departments: deps.filter((d) => d.active).map((d) => ({ id: d.id, code: d.code, name: d.name, active: d.active })),
-      employees: emps.filter((e) => e.active).map((e) => ({ id: e.id, code: e.code, name: e.name, active: e.active, department: e.department })),
+      departments: deps.filter((d) => d.active).map((d) => ({ id: d.id, code: d.code, name: d.name, nameAr: d.nameAr, active: d.active })),
+      employees: emps.filter((e) => e.active).map((e) => ({ id: e.id, code: e.code, name: e.name, nameAr: e.nameAr, active: e.active, department: e.department })),
     };
   }
   const by = new Map(bal.map((b) => [b.partyId!, D(b._sum.debit ?? 0).minus(b._sum.credit ?? 0)]));
@@ -252,7 +256,7 @@ export async function listExpenses(actor: ServiceActor, filters: { status?: stri
   const rows = await prisma.expense.findMany({
     where: { ...(filters.status ? { status: filters.status } : {}), ...(all ? {} : { createdById: actor.id ?? "-" }) },
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-    include: { employee: { select: { code: true, name: true } } },
+    include: { employee: { select: { code: true, name: true, nameAr: true } } },
     take: 300,
   });
   const accounts = new Map((await prisma.account.findMany({ where: { type: "expense" }, select: { id: true, code: true, name: true, nameAr: true } })).map((a) => [a.id, a]));

@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/rbac";
 import { serviceActorFromContext } from "@/lib/core/actor";
 import { getRun } from "@/lib/hr/payroll";
 import { PrintButton } from "@/app/sales/invoices/[id]/print/PrintButton";
+import { localName } from "@/lib/locale/names";
 
 /**
  * One payslip, A4, bilingual (Arabic and English side by side), from the run's frozen lines.
@@ -15,6 +16,11 @@ import { PrintButton } from "@/app/sales/invoices/[id]/print/PrintButton";
  */
 const READ = ["hr.payroll.prepare", "hr.payroll.view", "hr.payroll.approve", "hr.payroll.post", "hr.payroll.pay"] as const;
 const D = (v: Prisma.Decimal.Value) => new Prisma.Decimal(v);
+/** A bilingual document shows both names when they differ (fallback policy otherwise). */
+const bothNames = (e: { name?: string | null; nameAr?: string | null }) => {
+  const ar = localName(e, "ar"), en = localName(e, "en");
+  return ar === en ? ar : `${ar} / ${en}`;
+};
 const money = (v: Prisma.Decimal.Value) => D(v).toNumber().toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default async function PayslipPrint({ params }: { params: { id: string; employeeId: string } }) {
@@ -73,9 +79,9 @@ export default async function PayslipPrint({ params }: { params: { id: string; e
         </div>
       </header>
       <section className="mt-4 grid grid-cols-2 gap-x-6 gap-y-1 text-[12px]">
-        <Row ar="الموظف" en="Employee" v={slip.employee.name} />
+        <Row ar="الموظف" en="Employee" v={bothNames(slip.employee)} />
         <Row ar="الكود" en="Code" v={slip.employee.code} />
-        <Row ar="القسم" en="Department" v={slip.employee.department?.name ?? "—"} />
+        <Row ar="القسم" en="Department" v={slip.employee.department ? bothNames(slip.employee.department) : "—"} />
         <Row ar="الوظيفة" en="Job title" v={slip.employee.jobTitle ?? "—"} />
       </section>
       <Table title={{ ar: "المستحقات", en: "Earnings" }} lines={section(["earning"])} />

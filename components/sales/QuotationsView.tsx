@@ -112,7 +112,7 @@ function NewQuotation({ onDone }: { onDone: (id?: string) => void }) {
       <Field label={t("sales.quotation.customer-label")}>
         <select className="field font-bold" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
           <option value="">{t("sales.quotation.customer-placeholder")}</option>
-          {(customers.data?.customers ?? []).map((c) => <option key={c.id} value={c.id}>{c.code} · {localName(c, locale)}</option>)}
+          {(customers.data?.customers ?? []).map((c) => <option key={c.id} value={c.id}>{localName(c, locale)}</option>)}
         </select>
       </Field>
       <div className="grid grid-cols-2 gap-3">

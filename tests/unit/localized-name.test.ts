@@ -66,3 +66,18 @@ test("search matches either language's name or the code, whatever the display lo
   assert.ok(!matchesLocalName(product, "tomato"));
   assert.ok(matchesLocalName(product, "  "));
 });
+
+test("edit forms: a legacy Arabic-only name opens in the Arabic field", async () => {
+  const { namesForEdit } = await import("@/lib/locale/names");
+  assert.deepEqual(namesForEdit({ name: "كريم محمود", nameAr: null }), { en: "", ar: "كريم محمود" });
+  assert.deepEqual(namesForEdit({ name: "Karim Mahmoud", nameAr: "كريم محمود" }), { en: "Karim Mahmoud", ar: "كريم محمود" });
+  assert.deepEqual(namesForEdit({ name: "Karim Mahmoud", nameAr: null }), { en: "Karim Mahmoud", ar: "" });
+  assert.deepEqual(namesForEdit({ name: "كريم", nameAr: "كريم" }), { en: "", ar: "كريم" });
+});
+
+test("saving: the required name falls back to the Arabic one; blanks become null", async () => {
+  const { namesForSave } = await import("@/lib/locale/names");
+  assert.deepEqual(namesForSave("Karim", " كريم "), { name: "Karim", name_ar: "كريم" });
+  assert.deepEqual(namesForSave("  ", "كريم"), { name: "كريم", name_ar: "كريم" });
+  assert.deepEqual(namesForSave("Karim", ""), { name: "Karim", name_ar: null });
+});

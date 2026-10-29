@@ -315,7 +315,7 @@ export async function leaveBalances(employeeId: string | null, actor: ServiceAct
     prisma.leaveLedgerEntry.groupBy({ by: ["employeeId", "leaveTypeId", "kind"], where, _sum: { days: true } }),
     prisma.leaveRequest.groupBy({ by: ["employeeId", "leaveTypeId"], where: { ...where, status: "pending" }, _sum: { days: true } }),
     prisma.leaveType.findMany({ select: { id: true, code: true, nameAr: true, nameEn: true, allowNegativeBalance: true } }),
-    prisma.employee.findMany({ where: employeeId ? { id: employeeId } : { active: true }, select: { id: true, code: true, name: true }, orderBy: { code: "asc" } }),
+    prisma.employee.findMany({ where: employeeId ? { id: employeeId } : { active: true }, select: { id: true, code: true, name: true, nameAr: true }, orderBy: { code: "asc" } }),
   ]);
   const key = (e: string, t: string) => `${e}|${t}`;
   const out = new Map<string, { employeeId: string; leaveTypeId: string; entitled: Prisma.Decimal; taken: Prisma.Decimal; other: Prisma.Decimal; pending: Prisma.Decimal }>();
@@ -397,7 +397,7 @@ export async function requestLeave(input: unknown, actor: ServiceActor) {
   try {
     return await inTx(async (tx) => {
       await advisoryXactLock(tx, `hr-leave-employee:${v.employee_id}`);
-      const [type, employee] = await Promise.all([tx.leaveType.findUnique({ where: { id: v.leave_type_id } }), tx.employee.findUnique({ where: { id: v.employee_id }, select: { id: true, code: true, name: true } })]);
+      const [type, employee] = await Promise.all([tx.leaveType.findUnique({ where: { id: v.leave_type_id } }), tx.employee.findUnique({ where: { id: v.employee_id }, select: { id: true, code: true, name: true, nameAr: true } })]);
       if (!type || !type.active) throw new ApiError(400, "نوع الإجازة مش موجود أو موقوف");
       if (!employee) throw new ApiError(404, "الموظف مش موجود");
       const dates = await countLeaveDays(tx, v.employee_id, type, v.start_date, v.end_date);
@@ -532,7 +532,7 @@ export async function listLeaveRequests(actor: ServiceActor, filter: { status?: 
     },
     orderBy: { createdAt: "desc" },
     take: 300,
-    include: { employee: { select: { id: true, code: true, name: true } }, leaveType: { select: { id: true, code: true, nameAr: true, nameEn: true, requiresAttachment: true, payMode: true } } },
+    include: { employee: { select: { id: true, code: true, name: true, nameAr: true } }, leaveType: { select: { id: true, code: true, nameAr: true, nameEn: true, requiresAttachment: true, payMode: true } } },
   });
   const approver = actorCan(actor, "hr.leave.approve");
   return rows.map((r) => ({

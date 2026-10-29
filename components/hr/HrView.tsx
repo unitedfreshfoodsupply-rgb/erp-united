@@ -16,7 +16,7 @@ import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
-import { localName } from "@/lib/locale/names";
+import { localName, namesForEdit, namesForSave } from "@/lib/locale/names";
 
 /**
  * HR and expenses on today's schema: expenses (above the threshold they wait for approval),
@@ -27,9 +27,9 @@ import { localName } from "@/lib/locale/names";
  * to choose from, never balances or phone numbers (lib/hr/service.ts listEmployees).
  */
 
-type Dept = { id: string; code: string; name: string; active: boolean; activeEmployees?: number };
+type Dept = { id: string; code: string; name: string; nameAr?: string | null; active: boolean; activeEmployees?: number };
 type Emp = {
-  id: string; code: string; name: string; active: boolean; department: { id: string; name: string } | null;
+  id: string; code: string; name: string; nameAr?: string | null; active: boolean; department: { id: string; name: string; nameAr?: string | null } | null;
   // HR/finance only:
   jobTitle?: string | null; phone?: string | null; hireDate?: string | null; departmentId?: string | null; userId?: string | null; version?: number; balance?: string;
 };
@@ -144,7 +144,7 @@ function Expenses() {
             <Field label={t("hr.label.employee")} required>
               <select className="field" required value={f.employee_id} onChange={(e) => setF({ ...f, employee_id: e.target.value })}>
                 <option value="">{t("hr.placeholder.choose")}</option>
-                {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{localName(e, locale)}</option>)}
               </select>
             </Field>
           ) : (
@@ -202,7 +202,7 @@ function Expenses() {
                     <td dir="ltr" className="whitespace-nowrap">{e.date}</td>
                     <td className="min-w-[12rem]">
                       <div className="font-medium text-united-dark">{e.description}</div>
-                      <div className="text-xs text-united-muted">{e.employee ? `${e.employee.name} · ` : ""}{e.createdBy}</div>
+                      <div className="text-xs text-united-muted">{e.employee ? `${localName(e.employee, locale)} · ` : ""}{e.createdBy}</div>
                     </td>
                     <td className="whitespace-nowrap">{e.account ? <><span dir="ltr" className="text-united-muted">{e.account.code}</span> · {localName(e.account, locale)}</> : "—"}</td>
                     <td className="whitespace-nowrap">{MODE[e.paymentMode] ?? e.paymentMode}</td>
@@ -223,7 +223,7 @@ function Expenses() {
 
 function Employees() {
   const { can } = usePermissions();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const q = useEmployees();
   const [search, setSearch] = useState("");
   const [show, setShow] = useState<"active" | "inactive" | "all">("active");
@@ -290,15 +290,15 @@ function Employees() {
                       <td className="min-w-[12rem]">
                         <div className="flex flex-wrap items-center gap-2">
                           {canOpen ? (
-                            <Link href={`/hr/employees/${e.id}`} className="font-medium text-united-dark hover:text-united-green hover:underline">{e.name}</Link>
+                            <Link href={`/hr/employees/${e.id}`} className="font-medium text-united-dark hover:text-united-green hover:underline">{localName(e, locale)}</Link>
                           ) : (
-                            <span className="font-medium text-united-dark">{e.name}</span>
+                            <span className="font-medium text-united-dark">{localName(e, locale)}</span>
                           )}
                           {!e.active && <StatusPill tone="neutral">{t("hr.status.inactive")}</StatusPill>}
                         </div>
                         <div className="text-xs text-united-muted"><span dir="ltr">{e.code}</span>{e.jobTitle ? ` · ${e.jobTitle}` : ""}</div>
                       </td>
-                      <td className="whitespace-nowrap">{e.department?.name ?? "—"}</td>
+                      <td className="whitespace-nowrap">{(e.department ? localName(e.department, locale) : "—")}</td>
                       <td dir="ltr" className="whitespace-nowrap">{e.phone || "—"}</td>
                       <td dir="ltr" className="whitespace-nowrap">{e.hireDate || "—"}</td>
                       <td className={`num font-semibold ${bal > 0 ? "text-united-warn" : bal < 0 ? "text-united-danger" : ""}`} dir="ltr">
@@ -347,11 +347,11 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
 }
 
 function EmployeeDialog({ employee, departments, onClose }: { employee: Emp | null; departments: Dept[]; onClose: () => void }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
   const [f, setF] = useState({
-    name: employee?.name ?? "",
+    ...(() => { const n = namesForEdit(employee ?? {}); return { name: n.en, name_ar: n.ar }; })(),
     job_title: employee?.jobTitle ?? "",
     phone: employee?.phone ?? "",
     department_id: employee?.department?.id ?? employee?.departmentId ?? "",
@@ -367,7 +367,7 @@ function EmployeeDialog({ employee, departments, onClose }: { employee: Emp | nu
     setBusy(true);
     setError(null);
     // Only the fields this form shows are sent; the linked user account is left as it is.
-    const body = { name: f.name.trim(), job_title: f.job_title.trim() || null, phone: f.phone.trim() || null, department_id: f.department_id || null, hire_date: f.hire_date || undefined, active: f.active };
+    const body = { ...namesForSave(f.name, f.name_ar), job_title: f.job_title.trim() || null, phone: f.phone.trim() || null, department_id: f.department_id || null, hire_date: f.hire_date || undefined, active: f.active };
     try {
       if (employee) await apiPatch(`/api/hr/employees/${employee.id}`, { ...body, expected_version: employee.version });
       else await apiPost("/api/hr/employees", body);
@@ -390,23 +390,24 @@ function EmployeeDialog({ employee, departments, onClose }: { employee: Emp | nu
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>{t("ui.cancel")}</button>
-          <button type="submit" form="emp-form" className="btn-primary" disabled={busy || !f.name.trim()}>{busy ? t("ui.saving") : t("ui.save")}</button>
+          <button type="submit" form="emp-form" className="btn-primary" disabled={busy || !(f.name.trim() || f.name_ar.trim())}>{busy ? t("ui.saving") : t("ui.save")}</button>
         </>
       }
     >
-      <form id="emp-form" className="grid gap-4 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); if (f.name.trim() && !busy) void save(); }}>
-        <div className="sm:col-span-2">
-          <Field label={t("hr.placeholder.name")} required>
-            <input className="field" required autoFocus maxLength={100} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-          </Field>
-        </div>
+      <form id="emp-form" className="grid gap-4 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); if ((f.name.trim() || f.name_ar.trim()) && !busy) void save(); }}>
+        <Field label={t("names.arabic")} hint={t("names.one_required")}>
+          <input className="field" dir="rtl" lang="ar" autoFocus maxLength={100} value={f.name_ar} onChange={(e) => setF({ ...f, name_ar: e.target.value })} />
+        </Field>
+        <Field label={t("names.english")}>
+          <input className="field" dir="ltr" lang="en" maxLength={100} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        </Field>
         <Field label={t("hr.placeholder.job_title")}>
           <input className="field" maxLength={100} value={f.job_title} onChange={(e) => setF({ ...f, job_title: e.target.value })} />
         </Field>
         <Field label={t("hr.placeholder.department")}>
           <select className="field" value={f.department_id} onChange={(e) => setF({ ...f, department_id: e.target.value })}>
             <option value="">{t("hr.department.none")}</option>
-            {options.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {options.map((d) => <option key={d.id} value={d.id}>{localName(d, locale)}</option>)}
           </select>
         </Field>
         <Field label={t("hr.placeholder.phone")}>
@@ -431,7 +432,7 @@ function EmployeeDialog({ employee, departments, onClose }: { employee: Emp | nu
 }
 
 function MoneyDialog({ employee, onClose }: { employee: Emp; onClose: () => void }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
   const [f, setF] = useState({ type: "advance", amount: "", cash_account_id: "cash_main", date: todayLocalISO(), notes: "", payroll_period: todayLocalISO().slice(0, 7) });
@@ -463,7 +464,7 @@ function MoneyDialog({ employee, onClose }: { employee: Emp; onClose: () => void
       open
       onClose={onClose}
       title={t("hr.money.title")}
-      description={`${employee.name} · ${bal > 0 ? `${t("hr.balance.advance")} ${fmtMoney(bal)}` : bal < 0 ? `${t("hr.balance.owed")} ${fmtMoney(-bal)}` : t("hr.balance.settled")}`}
+      description={`${localName(employee, locale)} · ${bal > 0 ? `${t("hr.balance.advance")} ${fmtMoney(bal)}` : bal < 0 ? `${t("hr.balance.owed")} ${fmtMoney(-bal)}` : t("hr.balance.settled")}`}
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>{t("ui.cancel")}</button>
@@ -510,13 +511,13 @@ function MoneyDialog({ employee, onClose }: { employee: Emp; onClose: () => void
 }
 
 function StatementDialog({ employee, onClose }: { employee: Emp; onClose: () => void }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const q = useQuery({
     queryKey: ["hr", "statement", employee.id],
     queryFn: () => apiFetch<{ statement: { rows: { date: string; number: string; description: string; account: string; debit: string; credit: string }[]; advancesHeld: string; owedToEmployee: string } }>(`/api/hr/employees/${employee.id}/statement`).then((r) => r.statement),
   });
   return (
-    <Modal open onClose={onClose} size="lg" title={t("hr.statement.title")} description={`${employee.name} · ${employee.code}`} footer={<button type="button" className="btn-secondary" onClick={onClose}>{t("ui.close")}</button>}>
+    <Modal open onClose={onClose} size="xl" title={t("hr.statement.title")} description={localName(employee, locale)} footer={<button type="button" className="btn-secondary" onClick={onClose}>{t("ui.close")}</button>}>
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
       {q.data && (
@@ -564,17 +565,17 @@ function StatementDialog({ employee, onClose }: { employee: Emp; onClose: () => 
 // ── Departments ────────────────────────────────────────────────────────────
 
 function Departments() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
   const q = useEmployees();
-  const [n, setN] = useState({ code: "", name: "" });
+  const [n, setN] = useState({ code: "", name: "", name_ar: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<Dept | null>(null);
   const deps = q.data?.departments ?? [];
 
-  const save = async (body: { code: string; name: string; active?: boolean }, done: string) => {
+  const save = async (body: { code: string; name: string; name_ar?: string | null; active?: boolean }, done: string) => {
     setBusy(true);
     setError(null);
     try {
@@ -599,26 +600,29 @@ function Departments() {
           <h2 id="dep-form" className="section-title">{t("hr.department.add_title")}</h2>
         </div>
         <form
-          className="grid gap-4 p-5 sm:grid-cols-[10rem_1fr_auto] sm:items-end"
+          className="grid gap-4 p-5 sm:grid-cols-[10rem_1fr_1fr_auto] sm:items-end"
           onSubmit={async (e) => {
             e.preventDefault();
-            if (!n.code.trim() || !n.name.trim()) return;
+            if (!n.code.trim() || !(n.name.trim() || n.name_ar.trim())) return;
             if (deps.some((d) => d.code === n.code.trim().toUpperCase())) { setError(t("hr.department.code_taken")); return; }
-            if (await save({ code: n.code.trim(), name: n.name.trim() }, t("hr.department.created"))) setN({ code: "", name: "" });
+            if (await save({ code: n.code.trim(), ...namesForSave(n.name, n.name_ar) }, t("hr.department.created"))) setN({ code: "", name: "", name_ar: "" });
           }}
         >
           <Field label={t("hr.department.code")} required>
             <input className="field uppercase" dir="ltr" required maxLength={20} placeholder="OPS" aria-describedby="dep-code-hint" value={n.code} onChange={(e) => setN({ ...n, code: e.target.value })} />
           </Field>
-          <Field label={t("hr.department.name")} required>
-            <input className="field" required maxLength={100} value={n.name} onChange={(e) => setN({ ...n, name: e.target.value })} />
+          <Field label={t("names.arabic")}>
+            <input className="field" dir="rtl" lang="ar" maxLength={100} value={n.name_ar} onChange={(e) => setN({ ...n, name_ar: e.target.value })} />
           </Field>
-          <button type="submit" className="btn-primary gap-1.5" disabled={busy || !n.code.trim() || !n.name.trim()}>
+          <Field label={t("names.english")}>
+            <input className="field" dir="ltr" lang="en" maxLength={100} value={n.name} onChange={(e) => setN({ ...n, name: e.target.value })} />
+          </Field>
+          <button type="submit" className="btn-primary gap-1.5" disabled={busy || !n.code.trim() || !(n.name.trim() || n.name_ar.trim())}>
             <Plus size={16} aria-hidden />
             {t("hr.department.add")}
           </button>
-          <p id="dep-code-hint" className="-mt-2 text-xs text-united-muted sm:col-span-3">{t("hr.department.code_hint")}</p>
-          {error && <p role="alert" className="text-sm font-medium text-united-danger sm:col-span-3">{error}</p>}
+          <p id="dep-code-hint" className="-mt-2 text-xs text-united-muted sm:col-span-4">{t("hr.department.code_hint")}</p>
+          {error && <p role="alert" className="text-sm font-medium text-united-danger sm:col-span-4">{error}</p>}
         </form>
       </section>
 
@@ -640,7 +644,7 @@ function Departments() {
               {deps.map((d) => (
                 <tr key={d.id} className={d.active ? undefined : "text-united-muted"}>
                   <td dir="ltr" className="whitespace-nowrap">{d.code}</td>
-                  <td className="font-medium">{d.name}</td>
+                  <td className="font-medium">{localName(d, locale)}</td>
                   <td className="num">{d.activeEmployees ?? 0}</td>
                   <td><StatusPill tone={d.active ? "success" : "neutral"}>{d.active ? t("hr.status.active") : t("hr.status.closed")}</StatusPill></td>
                   <td className="whitespace-nowrap text-end">
@@ -652,12 +656,12 @@ function Departments() {
                           className="btn-ghost btn-sm text-united-danger hover:bg-[#FDECEA] disabled:opacity-40"
                           disabled={busy || (d.activeEmployees ?? 0) > 0}
                           title={(d.activeEmployees ?? 0) > 0 ? t("hr.department.close_blocked") : undefined}
-                          onClick={() => void save({ code: d.code, name: d.name, active: false }, t("hr.department.closed"))}
+                          onClick={() => void save({ code: d.code, name: d.name, name_ar: d.nameAr ?? null, active: false }, t("hr.department.closed"))}
                         >
                           {t("hr.action.close")}
                         </button>
                       ) : (
-                        <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => void save({ code: d.code, name: d.name, active: true }, t("hr.department.reopened"))}>{t("hr.action.reopen")}</button>
+                        <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => void save({ code: d.code, name: d.name, name_ar: d.nameAr ?? null, active: true }, t("hr.department.reopened"))}>{t("hr.action.reopen")}</button>
                       )}
                     </div>
                   </td>
@@ -667,14 +671,17 @@ function Departments() {
           </table>
         )}
       </section>
-      {renaming && <RenameDialog dept={renaming} onClose={() => setRenaming(null)} onSave={async (name) => (await save({ code: renaming.code, name, active: renaming.active }, t("hr.department.renamed"))) && setRenaming(null)} busy={busy} />}
+      {renaming && <RenameDialog dept={renaming} onClose={() => setRenaming(null)} onSave={async (names) => (await save({ code: renaming.code, ...names, active: renaming.active }, t("hr.department.renamed"))) && setRenaming(null)} busy={busy} />}
     </div>
   );
 }
 
-function RenameDialog({ dept, onClose, onSave, busy }: { dept: Dept; onClose: () => void; onSave: (name: string) => void; busy: boolean }) {
+function RenameDialog({ dept, onClose, onSave, busy }: { dept: Dept; onClose: () => void; onSave: (names: { name: string; name_ar: string | null }) => void; busy: boolean }) {
   const { t } = useLocale();
-  const [name, setName] = useState(dept.name);
+  const initial = namesForEdit(dept);
+  const [name, setName] = useState(initial.en);
+  const [nameAr, setNameAr] = useState(initial.ar);
+  const unchanged = name.trim() === initial.en && nameAr.trim() === initial.ar;
   return (
     <Modal
       open
@@ -684,13 +691,16 @@ function RenameDialog({ dept, onClose, onSave, busy }: { dept: Dept; onClose: ()
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>{t("ui.cancel")}</button>
-          <button type="submit" form="dep-rename" className="btn-primary" disabled={busy || !name.trim() || name.trim() === dept.name}>{t("ui.save")}</button>
+          <button type="submit" form="dep-rename" className="btn-primary" disabled={busy || !(name.trim() || nameAr.trim()) || unchanged}>{t("ui.save")}</button>
         </>
       }
     >
-      <form id="dep-rename" onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSave(name.trim()); }}>
-        <Field label={t("hr.department.name")} required>
-          <input className="field" required autoFocus maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
+      <form id="dep-rename" className="grid gap-4" onSubmit={(e) => { e.preventDefault(); if (name.trim() || nameAr.trim()) onSave(namesForSave(name, nameAr)); }}>
+        <Field label={t("names.arabic")} hint={t("names.one_required")}>
+          <input className="field" dir="rtl" lang="ar" autoFocus maxLength={100} value={nameAr} onChange={(e) => setNameAr(e.target.value)} />
+        </Field>
+        <Field label={t("names.english")}>
+          <input className="field" dir="ltr" lang="en" maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
       </form>
     </Modal>

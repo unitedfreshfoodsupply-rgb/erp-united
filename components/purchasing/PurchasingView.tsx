@@ -206,7 +206,7 @@ function NewPo({ onDone, locale, t }: { onDone: (id?: string) => void; locale: L
       <Field label={t("purchasing.new_po.supplier.label")}>
         <select className="field font-bold" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
           <option value="">{t("purchasing.new_po.supplier.placeholder")}</option>
-          {(suppliers.data?.suppliers ?? []).map((s) => <option key={s.id} value={s.id}>{s.code} · {localName(s, locale)}</option>)}
+          {(suppliers.data?.suppliers ?? []).map((s) => <option key={s.id} value={s.id}>{localName(s, locale)}</option>)}
         </select>
       </Field>
       <Field label={t("purchasing.new_po.expected_date.label")}><input type="date" className="field" value={expected} onChange={(e) => setExpected(e.target.value)} /></Field>
@@ -235,7 +235,7 @@ function PoDetail({ id, onClose, locale, t, poStatus }: { id: string; onClose: (
       <div className="flex justify-between items-center gap-2">
         <div>
           <h2 className="text-xl font-extrabold" dir="ltr">{po.number}</h2>
-          <p className="text-sm font-bold text-united-muted">{po.supplier.code} · {localName(po.supplier, locale)} · {po.orderDate}{po.expectedDate ? ` · ${t("purchasing.po_detail.expected")} ${po.expectedDate}` : ""}</p>
+          <p className="text-sm font-bold text-united-muted">{localName(po.supplier, locale)} · {po.orderDate}{po.expectedDate ? ` · ${t("purchasing.po_detail.expected")} ${po.expectedDate}` : ""}</p>
         </div>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("purchasing.common.back")}</button>
       </div>

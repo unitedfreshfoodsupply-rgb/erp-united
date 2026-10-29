@@ -311,7 +311,7 @@ function locationFields(siblings: StorageLocationDTO[], t: ReturnType<typeof use
       kind: "select",
       options: [
         { value: "", label: t("admin.location.parent-main") },
-        ...siblings.filter((l) => l.active && l.id !== selfId).map((l) => ({ value: l.id, label: `${l.code} · ${localName(l, locale)}` })),
+        ...siblings.filter((l) => l.active && l.id !== selfId).map((l) => ({ value: l.id, label: localName(l, locale) })),
       ],
     },
     { key: "capacity_kg", label: t("admin.location.form-capacity"), kind: "number" },

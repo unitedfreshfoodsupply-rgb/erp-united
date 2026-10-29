@@ -120,7 +120,7 @@ export async function listPackages(actor: ServiceActor, filter: { employeeId?: s
     where: { ...(filter.employeeId ? { employeeId: filter.employeeId } : {}), ...(filter.status ? { status: filter.status } : {}) },
     orderBy: [{ createdAt: "desc" }],
     take: 500,
-    include: { employee: { select: { id: true, code: true, name: true } }, ...lineInclude },
+    include: { employee: { select: { id: true, code: true, name: true, nameAr: true } }, ...lineInclude },
   });
   const approver = actorCan(actor, "hr.payroll.approve");
   return rows.map((r) => ({
@@ -147,7 +147,7 @@ export async function proposePackage(body: unknown, actor: ServiceActor) {
   if (new Set(ids).size !== ids.length) throw new ApiError(400, "البند متكرر في نفس المرتب");
   return inTx(async (tx) => {
     await advisoryXactLock(tx, `hr-compensation:${v.employee_id}`);
-    const employee = await tx.employee.findUnique({ where: { id: v.employee_id }, select: { id: true, code: true, name: true } });
+    const employee = await tx.employee.findUnique({ where: { id: v.employee_id }, select: { id: true, code: true, name: true, nameAr: true } });
     if (!employee) throw new ApiError(404, "الموظف مش موجود");
     const components = await tx.payComponent.findMany({ where: { id: { in: ids } } });
     if (components.length !== ids.length) throw new ApiError(400, "بند المرتب مش موجود");

@@ -347,7 +347,7 @@ export async function runPayments(runId: string, actor: ServiceActor) {
     prisma.payrollPayment.findMany({
       where: { runId },
       orderBy: { createdAt: "asc" },
-      include: { cashAccount: { select: { code: true, name: true } }, journalEntry: { select: { number: true } }, reversalEntry: { select: { number: true } }, lines: { select: { amount: true, runEmployee: { select: { employeeId: true } } } } },
+      include: { cashAccount: { select: { code: true, name: true, nameAr: true } }, journalEntry: { select: { number: true } }, reversalEntry: { select: { number: true } }, lines: { select: { amount: true, runEmployee: { select: { employeeId: true } } } } },
     }),
     remaining(prisma, runId),
   ]);
@@ -367,7 +367,7 @@ export async function payrollRegister(runId: string, actor: ServiceActor) {
   assertCanRead(actor);
   const run = await prisma.payrollRun.findUnique({
     where: { id: runId },
-    include: { employees: { where: { inclusion: "included" }, orderBy: { employee: { code: "asc" } }, include: { employee: { select: { code: true, name: true, jobTitle: true, department: { select: { name: true } } } }, lines: true } } },
+    include: { employees: { where: { inclusion: "included" }, orderBy: { employee: { code: "asc" } }, include: { employee: { select: { code: true, name: true, nameAr: true, jobTitle: true, department: { select: { name: true, nameAr: true } } } }, lines: true } } },
   });
   if (!run) throw new ApiError(404, "مسير المرتبات مش موجود");
   const open = new Map((await remaining(prisma, runId)).map((s) => [s.id, s]));

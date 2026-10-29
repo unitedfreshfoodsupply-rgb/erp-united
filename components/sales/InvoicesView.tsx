@@ -59,7 +59,7 @@ function ToInvoice({ onOpen }: { onOpen: (id: string) => void }) {
           <li key={o.id} className="card p-3 flex items-center justify-between gap-2">
             <div>
               <Link href={`/orders/${o.id}`} className="font-extrabold" dir="ltr">{o.orderNumber}</Link>
-              <div className="text-xs font-bold text-united-muted">{o.customer ? `${o.customer.code} · ${localName(o.customer, locale)}` : o.customerName} · {o.deliveryDate}</div>
+              <div className="text-xs font-bold text-united-muted">{o.customer ? localName(o.customer, locale) : o.customerName} · {o.deliveryDate}</div>
               {blocked && <div className="text-xs font-extrabold text-united-warn">{blocked}</div>}
             </div>
             {can("sales.invoices.manage") && (
@@ -218,7 +218,7 @@ function Aging() {
             <tbody>
               {q.data.rows.map((r) => (
                 <tr key={r.customer.id} className="border-t border-united-dark/5 font-bold">
-                  <td className="p-2"><Link href={`/sales?customer=${r.customer.id}`}>{r.customer.code} · {localName(r.customer, locale)}</Link></td>
+                  <td className="p-2"><Link href={`/sales?customer=${r.customer.id}`}>{localName(r.customer, locale)}</Link></td>
                   {cols.map(([k]) => <td key={k} dir="ltr" className={`p-2 text-center ${k === "d90_plus" && Number(r[k as keyof typeof r]) > 0 ? "text-united-danger" : ""}`}>{Number(r[k as keyof typeof r]) ? Number(r[k as keyof typeof r]).toLocaleString("en-US", { minimumFractionDigits: 2 }) : "—"}</td>)}
                 </tr>
               ))}

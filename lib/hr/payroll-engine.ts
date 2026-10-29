@@ -90,7 +90,7 @@ export async function calculatePayroll(tx: Tx, run: { id: string; period: string
     // Recoveries counted by other runs not yet posted (a posted run's recovery is already in the
     // journal balance above; a reversed one's was reversed there).
     tx.payrollRunEmployee.groupBy({ by: ["employeeId"], where: { employeeId: { in: ids }, runId: { not: run.id }, inclusion: "included", run: { status: { notIn: ["cancelled", "posted", "reversed"] } } }, _sum: { advanceRecovery: true } }),
-    tx.employee.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true, jobTitle: true, department: { select: { name: true } } } }),
+    tx.employee.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true, nameAr: true, jobTitle: true, department: { select: { name: true, nameAr: true } } } }),
   ]);
 
   const rules = {

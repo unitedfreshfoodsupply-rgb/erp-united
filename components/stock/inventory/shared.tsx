@@ -143,7 +143,7 @@ export function LocationSelect({ value, onChange, allowAny, anyLabel }: { value:
       {allowAny ? <option value="">{anyLabel ?? t("stock-move-any-location")}</option> : <option value="">{t("stock.release-select-default")}</option>}
       {locations.map((l) => (
         <option key={l.id} value={l.id}>
-          {l.code} · {localName(l, locale)} ({locationTypeLabel(l.type, locale)})
+          {localName(l, locale)} ({locationTypeLabel(l.type, locale)})
         </option>
       ))}
     </select>

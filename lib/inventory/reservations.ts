@@ -271,6 +271,6 @@ export async function listReservations(filters: { productId?: string; sourceId?:
     },
     orderBy: { createdAt: "desc" },
     take: 200,
-    include: { product: { select: { name: true, unit: true } }, warehouse: { select: { code: true } } },
+    include: { product: { select: { name: true, nameAr: true, unit: true } }, warehouse: { select: { code: true } } },
   });
 }

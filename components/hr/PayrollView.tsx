@@ -15,6 +15,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
 import { PayrollRuns } from "@/components/hr/PayrollRuns";
+import { localName } from "@/lib/locale/names";
 
 /**
  * Payroll (docs/erp/DESIGN_SYSTEM.md §8.4): runs, salary packages, the pay-component
@@ -65,7 +66,7 @@ export function PayrollView() {
 // ── Packages ───────────────────────────────────────────────────────────────
 
 function PackagesTab({ canPropose }: { canPropose: boolean }) {
-  const { t, isEN } = useLocale();
+  const { t, isEN, locale } = useLocale();
   const toast = useToast();
   const dialogs = useDialogs();
   const qc = useQueryClient();
@@ -99,7 +100,7 @@ function PackagesTab({ canPropose }: { canPropose: boolean }) {
             <li key={p.id} className="flex flex-wrap items-start justify-between gap-3 px-5 py-3.5">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-semibold text-united-dark">{p.employee.name}</span>
+                  <span className="font-semibold text-united-dark">{localName(p.employee, locale)}</span>
                   <StatusPill tone={PKG_TONE[p.status] ?? "neutral"}>{t(`pay.pkg.${p.status}`)}</StatusPill>
                   <span className="text-xs text-united-muted" dir="ltr">{p.number} · {p.effectiveFrom} → {p.effectiveTo ?? "…"}</span>
                 </div>
@@ -127,7 +128,7 @@ function PackagesTab({ canPropose }: { canPropose: boolean }) {
 }
 
 function PackageDialog({ onClose }: { onClose: () => void }) {
-  const { t, isEN } = useLocale();
+  const { t, isEN, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
   const comps = useComponents();
@@ -160,7 +161,7 @@ function PackageDialog({ onClose }: { onClose: () => void }) {
           <Field label={t("pay.employee")} required>
             <select className="field" value={f.employee_id} onChange={(e) => setF({ ...f, employee_id: e.target.value })}>
               <option value="">{t("pay.choose")}</option>
-              {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{e.code} · {e.name}</option>)}
+              {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{localName(e, locale)}</option>)}
             </select>
           </Field>
           <Field label={t("pay.effective_from")} required><input type="date" className="field" value={f.effective_from} onChange={(e) => setF({ ...f, effective_from: e.target.value })} /></Field>
@@ -175,7 +176,7 @@ function PackageDialog({ onClose }: { onClose: () => void }) {
                 <td>
                   <select className="field" value={l.pay_component_id} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, pay_component_id: e.target.value } : x)))} aria-label={t("pay.component")}>
                     <option value="">{t("pay.choose")}</option>
-                    {fixed.map((c) => <option key={c.id} value={c.id}>{c.code} · {nm(isEN, c)}</option>)}
+                    {fixed.map((c) => <option key={c.id} value={c.id}>{nm(isEN, c)}</option>)}
                   </select>
                 </td>
                 <td><input type="number" min={0} step="0.01" className="field text-end" dir="ltr" value={l.amount} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} aria-label={t("pay.monthly_amount")} /></td>
@@ -234,7 +235,7 @@ function ComponentsTab({ canManage }: { canManage: boolean }) {
 }
 
 function ComponentDialog({ component, onClose }: { component: Component | null; onClose: () => void }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { can } = usePermissions();
   const toast = useToast();
   const qc = useQueryClient();
@@ -298,12 +299,12 @@ function ComponentDialog({ component, onClose }: { component: Component | null; 
         <Field label={t("pay.payslip_order")}><input type="number" className="field" dir="ltr" value={f.payslip_order} onChange={(e) => setF({ ...f, payslip_order: e.target.value })} /></Field>
         <Field label={t("pay.expense_account")} hint={t("pay.accounts_hint")}>
           <select className="field" value={f.expense_account_id} onChange={(e) => setF({ ...f, expense_account_id: e.target.value })}>
-            <option value="">—</option>{accounts.data?.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.nameAr}</option>)}
+            <option value="">—</option>{accounts.data?.map((a) => <option key={a.id} value={a.id}>{a.code} · {localName(a, locale)}</option>)}
           </select>
         </Field>
         <Field label={t("pay.liability_account")}>
           <select className="field" value={f.liability_account_id} onChange={(e) => setF({ ...f, liability_account_id: e.target.value })}>
-            <option value="">—</option>{accounts.data?.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.nameAr}</option>)}
+            <option value="">—</option>{accounts.data?.map((a) => <option key={a.id} value={a.id}>{a.code} · {localName(a, locale)}</option>)}
           </select>
         </Field>
         <label className="flex items-center gap-2 self-end text-sm font-medium"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} />{t("pay.active")}</label>

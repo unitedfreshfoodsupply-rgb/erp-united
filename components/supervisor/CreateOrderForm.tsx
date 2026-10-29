@@ -109,7 +109,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
         >
           <option value="">{t("create.customer-placeholder")}</option>
           {accounts.data?.customers.map((c) => (
-            <option key={c.id} value={c.id}>{c.code} · {localName(c, locale)}{c.creditHold ? ` ${t("create.credit-hold")}` : ""}</option>
+            <option key={c.id} value={c.id}>{localName(c, locale)}{c.creditHold ? ` ${t("create.credit-hold")}` : ""}</option>
           ))}
         </select>
       )}

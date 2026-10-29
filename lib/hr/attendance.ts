@@ -232,7 +232,7 @@ export async function attendanceRegister(date: string, actor: ServiceActor) {
     return e && e.status !== "terminated";
   });
   const [employees, days, pending] = await Promise.all([
-    prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true, jobTitle: true, department: { select: { name: true } } }, orderBy: { code: "asc" } }),
+    prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true, nameAr: true, jobTitle: true, department: { select: { name: true, nameAr: true } } }, orderBy: { code: "asc" } }),
     prisma.attendanceDay.findMany({ where: { date, employeeId: { in: ids } } }),
     prisma.attendanceCorrection.findMany({ where: { date, status: "pending" }, select: { employeeId: true, number: true } }),
   ]);
@@ -288,7 +288,7 @@ export async function attendanceMonth(month: string, actor: ServiceActor) {
   const ctx = await loadContext(prisma, from, to);
   const ids = ctx.employeeIds().filter((id) => dates.some((d) => { const e = ctx.employmentOn(id, d); return e && e.status !== "terminated"; }));
   const [employees, days] = await Promise.all([
-    prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true }, orderBy: { code: "asc" } }),
+    prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true, nameAr: true }, orderBy: { code: "asc" } }),
     prisma.attendanceDay.findMany({ where: { date: { gte: from, lte: to }, employeeId: { in: ids } } }),
   ]);
   const key = (e: string, d: string) => `${e}|${d}`;
@@ -327,7 +327,7 @@ export async function attendanceDayDetail(id: string, actor: ServiceActor) {
   assertCanView(actor);
   const d = await prisma.attendanceDay.findUnique({
     where: { id },
-    include: { employee: { select: { id: true, code: true, name: true } }, revisions: { orderBy: { revision: "desc" }, include: { correction: { select: { number: true } } } } },
+    include: { employee: { select: { id: true, code: true, name: true, nameAr: true } }, revisions: { orderBy: { revision: "desc" }, include: { correction: { select: { number: true } } } } },
   });
   if (!d) throw new ApiError(404, "يوم الحضور مش موجود");
   return { day: { ...presentDay(d, d.date), date: d.date, employee: d.employee }, revisions: d.revisions };
@@ -521,7 +521,7 @@ export async function listCorrections(actor: ServiceActor, status?: string | nul
     where: status && ["pending", "approved", "rejected", "cancelled"].includes(status) ? { status } : {},
     orderBy: { createdAt: "desc" },
     take: 200,
-    include: { employee: { select: { id: true, code: true, name: true } } },
+    include: { employee: { select: { id: true, code: true, name: true, nameAr: true } } },
   });
   const canDecide = actorCan(actor, "hr.attendance.approve");
   return rows.map((r) => ({ ...r, canDecide: canDecide && r.status === "pending" && r.requestedById !== actor.id, canCancel: r.status === "pending" && (r.requestedById === actor.id || canDecide) }));

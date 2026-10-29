@@ -31,7 +31,7 @@ const audit = (tx: Tx | typeof prisma, actor: Actorish, entityType: "employee_pr
 export const maskAccount = (n: string) => (n.length <= 4 ? "••••" : `•••• ${n.slice(-4)}`);
 
 async function employeeOr404(db: Tx | typeof prisma, id: string) {
-  const e = await db.employee.findUnique({ where: { id }, select: { id: true, code: true, name: true } });
+  const e = await db.employee.findUnique({ where: { id }, select: { id: true, code: true, name: true, nameAr: true } });
   if (!e) throw new ApiError(404, "الموظف مش موجود");
   return e;
 }
@@ -203,6 +203,6 @@ export async function expiringDocuments(actor: ServiceActor, days = 60) {
   return prisma.employeeDocument.findMany({
     where: { expiryDate: { not: null, lte: limit }, attachment: { deletedAt: null }, employee: { active: true } },
     orderBy: { expiryDate: "asc" },
-    select: { id: true, docType: true, expiryDate: true, employee: { select: { id: true, code: true, name: true } } },
+    select: { id: true, docType: true, expiryDate: true, employee: { select: { id: true, code: true, name: true, nameAr: true } } },
   });
 }

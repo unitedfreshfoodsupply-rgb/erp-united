@@ -369,7 +369,7 @@ export async function addAlias(productId: string, rawAlias: string, actor: Stock
     await advisoryXactLock(tx, ALIAS_LOCK);
     const clash = await tx.productAlias.findUnique({
       where: { normalized },
-      select: { product: { select: { id: true, name: true } } },
+      select: { product: { select: { id: true, name: true, nameAr: true } } },
     });
     if (clash) {
       if (clash.product.id === productId) throw new ApiError(409, `"${alias}" مضاف بالفعل للصنف ده`);
@@ -396,7 +396,7 @@ export async function addAlias(productId: string, rawAlias: string, actor: Stock
 export async function removeAlias(aliasId: string, actor: StockActor) {
   const alias = await prisma.productAlias.findUnique({
     where: { id: aliasId },
-    include: { product: { select: { id: true, name: true } } },
+    include: { product: { select: { id: true, name: true, nameAr: true } } },
   });
   if (!alias) throw new ApiError(404, "الاسم البديل مش موجود");
   // Canonical aliases are derived from the product's own names; removing one directly
@@ -576,7 +576,7 @@ export async function mapOrderProductName(
     if (createAlias) {
       const clash = await tx.productAlias.findUnique({
         where: { normalized },
-        select: { id: true, productId: true, product: { select: { name: true } } },
+        select: { id: true, productId: true, product: { select: { name: true, nameAr: true } } },
       });
       if (clash && clash.productId !== product.id) {
         throw new ApiError(409, `"${productName}" مربوط بالفعل بالصنف "${clash.product.name}"`);

@@ -15,6 +15,7 @@ import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 /**
  * Leave (docs/erp/DESIGN_SYSTEM.md §8.3): requests and their decisions, balances (the sum of
@@ -61,7 +62,7 @@ const typeName = (isEN: boolean, x: { nameAr: string; nameEn: string | null }) =
 // ── Requests ───────────────────────────────────────────────────────────────
 
 function RequestsTab({ canRequest }: { canRequest: boolean }) {
-  const { t, isEN } = useLocale();
+  const { t, isEN, locale } = useLocale();
   const toast = useToast();
   const dialogs = useDialogs();
   const qc = useQueryClient();
@@ -107,7 +108,7 @@ function RequestsTab({ canRequest }: { canRequest: boolean }) {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-united-dark">{r.employee.name}</span>
+                    <span className="font-semibold text-united-dark">{localName(r.employee, locale)}</span>
                     <span className="text-sm text-united-muted">· {typeName(isEN, r.leaveType)}</span>
                     <StatusPill tone={REQ_TONE[r.status] ?? "neutral"}>{t(`leave.status.${r.status}`)}</StatusPill>
                     {r.leaveType.requiresAttachment && <StatusPill tone="info">{t("leave.needs_document")}</StatusPill>}
@@ -141,7 +142,7 @@ function RequestsTab({ canRequest }: { canRequest: boolean }) {
 }
 
 function RequestDialog({ onClose }: { onClose: () => void }) {
-  const { t, isEN } = useLocale();
+  const { t, isEN, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
   const types = useTypes();
@@ -182,7 +183,7 @@ function RequestDialog({ onClose }: { onClose: () => void }) {
         <Field label={t("leave.employee")} required>
           <select className="field" value={f.employee_id} onChange={(e) => set({ employee_id: e.target.value })}>
             <option value="">{t("leave.choose")}</option>
-            {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{e.code} · {e.name}</option>)}
+            {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{localName(e, locale)}</option>)}
           </select>
         </Field>
         <Field label={t("leave.type")} required>
@@ -211,7 +212,7 @@ function RequestDialog({ onClose }: { onClose: () => void }) {
 type Balance = { employee: { id: string; code: string; name: string }; types: { leaveType?: { id: string; code: string; nameAr: string; nameEn: string | null }; entitled: string; taken: string; adjustments: string; pending: string; balance: string; available: string }[] };
 
 function BalancesTab({ canAdjust }: { canAdjust: boolean }) {
-  const { t, isEN } = useLocale();
+  const { t, isEN, locale } = useLocale();
   const q = useQuery({ queryKey: ["hr", "leave", "balances"], queryFn: () => apiFetch<{ balances: Balance[] }>("/api/hr/leave/balances").then((r) => r.balances) });
   const [ledgerOf, setLedgerOf] = useState<Balance["employee"] | null>(null);
   const [adjusting, setAdjusting] = useState(false);
@@ -229,7 +230,7 @@ function BalancesTab({ canAdjust }: { canAdjust: boolean }) {
             <tbody>
               {rows.flatMap((b) => b.types.map((x, i) => (
                 <tr key={`${b.employee.id}-${x.leaveType?.id}`}>
-                  <td>{i === 0 && <button type="button" className="font-semibold text-united-dark underline-offset-2 hover:underline" onClick={() => setLedgerOf(b.employee)}>{b.employee.name}</button>}</td>
+                  <td>{i === 0 && <button type="button" className="font-semibold text-united-dark underline-offset-2 hover:underline" onClick={() => setLedgerOf(b.employee)}>{localName(b.employee, locale)}</button>}</td>
                   <td>{x.leaveType ? typeName(isEN, x.leaveType) : "—"}</td>
                   <td className="num" dir="ltr">{num(x.entitled)}</td>
                   <td className="num" dir="ltr">{num(x.taken)}</td>
@@ -249,10 +250,10 @@ function BalancesTab({ canAdjust }: { canAdjust: boolean }) {
 }
 
 function LedgerDialog({ employee, onClose }: { employee: { id: string; name: string }; onClose: () => void }) {
-  const { t, isEN } = useLocale();
+  const { t, isEN, locale } = useLocale();
   const q = useQuery({ queryKey: ["hr", "leave", "ledger", employee.id], queryFn: () => apiFetch<{ entries: { id: string; date: string; kind: string; days: string; note: string | null; createdBy: string; leaveType: { code: string; nameAr: string; nameEn: string | null } }[] }>(`/api/hr/leave/ledger?employee_id=${employee.id}`).then((r) => r.entries) });
   return (
-    <Modal open onClose={onClose} size="lg" title={`${t("leave.ledger")} · ${employee.name}`} footer={<button type="button" className="btn-primary" onClick={onClose}>{t("ui.close")}</button>}>
+    <Modal open onClose={onClose} size="lg" title={`${t("leave.ledger")} · ${localName(employee, locale)}`} footer={<button type="button" className="btn-primary" onClick={onClose}>{t("ui.close")}</button>}>
       {q.isLoading ? <LoadingState /> : !q.data?.length ? <EmptyState title={t("leave.ledger_empty")} /> : (
         <table className="data-table">
           <thead><tr><th>{t("leave.date")}</th><th>{t("leave.type")}</th><th>{t("leave.kind")}</th><th className="num">{t("leave.days")}</th><th>{t("leave.note")}</th></tr></thead>
@@ -272,7 +273,7 @@ function LedgerDialog({ employee, onClose }: { employee: { id: string; name: str
 }
 
 function AdjustDialog({ onClose }: { onClose: () => void }) {
-  const { t, isEN } = useLocale();
+  const { t, isEN, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
   const types = useTypes();
@@ -302,7 +303,7 @@ function AdjustDialog({ onClose }: { onClose: () => void }) {
         <Field label={t("leave.employee")} required>
           <select className="field" value={f.employee_id} onChange={(e) => setF({ ...f, employee_id: e.target.value })}>
             <option value="">{t("leave.choose")}</option>
-            {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{e.code} · {e.name}</option>)}
+            {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{localName(e, locale)}</option>)}
           </select>
         </Field>
         <Field label={t("leave.type")} required>

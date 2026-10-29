@@ -14,6 +14,7 @@ import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 /**
  * One employee's file (docs/erp/DESIGN_SYSTEM.md §8.1): overview, employment history,
@@ -43,7 +44,7 @@ const STATUS_TONE: Record<string, Tone> = { active: "success", suspended: "warn"
 const fail = (t: (k: string) => string, err: unknown) => (err instanceof ApiClientError ? err.message : t("hr.error"));
 
 export function EmployeeProfile({ employeeId }: { employeeId: string }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { can } = usePermissions();
   const [tab, setTab] = useState<Tab>("overview");
   const q = useQuery({ queryKey: ["hr", "profile", employeeId], queryFn: () => apiFetch<Profile>(`/api/hr/employees/${employeeId}`) });
@@ -65,8 +66,8 @@ export function EmployeeProfile({ employeeId }: { employeeId: string }) {
     <div className="page-container">
       <PageHeader
         back={{ href: "/hr", label: t("hr.profile.back") }}
-        title={employee.name}
-        description={<><span dir="ltr">{employee.code}</span>{employee.jobTitle ? ` · ${employee.jobTitle}` : ""}{employee.department ? ` · ${employee.department.name}` : ""}</>}
+        title={localName(employee, locale)}
+        description={<><span dir="ltr">{employee.code}</span>{employee.jobTitle ? ` · ${employee.jobTitle}` : ""}{employee.department ? ` · ${localName(employee.department, locale)}` : ""}</>}
         actions={current && <StatusPill tone={STATUS_TONE[current.status] ?? "neutral"} size="md">{t(`hr.employment.status.${current.status}`)}</StatusPill>}
       />
       <Tabs value={tab} onChange={setTab} items={items} />
@@ -80,11 +81,11 @@ export function EmployeeProfile({ employeeId }: { employeeId: string }) {
 }
 
 function Overview({ data }: { data: Profile }) {
-  const { t, isEN } = useLocale();
+  const { t, isEN, locale } = useLocale();
   const { employee, current } = data;
   const rows: [string, React.ReactNode][] = [
     [t("hr.profile.code"), <span key="c" dir="ltr">{employee.code}</span>],
-    [t("hr.placeholder.department"), employee.department?.name ?? "—"],
+    [t("hr.placeholder.department"), (employee.department ? localName(employee.department, locale) : "—")],
     [t("hr.placeholder.job_title"), employee.jobTitle ?? "—"],
     [t("hr.profile.manager"), current?.manager?.name ?? "—"],
     [t("hr.col.hire_date"), <span key="h" dir="ltr">{employee.hireDate ?? "—"}</span>],
@@ -110,7 +111,7 @@ function Overview({ data }: { data: Profile }) {
 }
 
 function HistoryTab({ data, canManage }: { data: Profile; canManage: boolean }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [open, setOpen] = useState(false);
   const terminated = data.current?.status === "terminated";
   return (
@@ -134,7 +135,7 @@ function HistoryTab({ data, canManage }: { data: Profile; canManage: boolean }) 
                 {h.superseded && <StatusPill tone="neutral" strike>{t("hr.employment.superseded")}</StatusPill>}
               </div>
               <div className="mt-0.5 text-sm text-united-dark">
-                {[h.department, h.jobTitle, h.manager ? `${t("hr.profile.manager")}: ${h.manager.name}` : null, h.employmentType].filter(Boolean).join(" · ") || "—"}
+                {[h.department, h.jobTitle, h.manager ? `${t("hr.profile.manager")}: ${localName(h.manager, locale)}` : null, h.employmentType].filter(Boolean).join(" · ") || "—"}
               </div>
               <div className="mt-0.5 text-xs text-united-muted">
                 {h.reason}{h.terminationReason ? ` · ${t("hr.employment.termination_reason")}: ${h.terminationReason}` : ""} · {h.createdBy}
@@ -152,7 +153,7 @@ function HistoryTab({ data, canManage }: { data: Profile; canManage: boolean }) 
 }
 
 function EmploymentDialog({ data, onClose }: { data: Profile; onClose: () => void }) {
-  const { t, isEN } = useLocale();
+  const { t, isEN, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
   const terminated = data.current?.status === "terminated";
@@ -231,7 +232,7 @@ function EmploymentDialog({ data, onClose }: { data: Profile; onClose: () => voi
             <Field label={t("hr.placeholder.department")}>
               <select className="field" value={f.department_id} onChange={(e) => setF({ ...f, department_id: e.target.value })}>
                 <option value="">{t("hr.department.none")}</option>
-                {deps.data?.departments.filter((d) => d.active || d.id === f.department_id).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                {deps.data?.departments.filter((d) => d.active || d.id === f.department_id).map((d) => <option key={d.id} value={d.id}>{localName(d, locale)}</option>)}
               </select>
             </Field>
             <Field label={t("hr.placeholder.job_title")}>
@@ -240,7 +241,7 @@ function EmploymentDialog({ data, onClose }: { data: Profile; onClose: () => voi
             <Field label={t("hr.profile.manager")}>
               <select className="field" value={f.manager_employee_id} onChange={(e) => setF({ ...f, manager_employee_id: e.target.value })}>
                 <option value="">—</option>
-                {deps.data?.employees.filter((e) => e.active && e.id !== data.employee.id).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                {deps.data?.employees.filter((e) => e.active && e.id !== data.employee.id).map((e) => <option key={e.id} value={e.id}>{localName(e, locale)}</option>)}
               </select>
             </Field>
           </>

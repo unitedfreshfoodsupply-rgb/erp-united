@@ -60,6 +60,7 @@ type SettlementRow = {
   date: string;
   method: string;
   cashAccount: string;
+  cashAccountAr?: string | null;
   reference: string | null;
   amount: string;
   cashAmount: string;
@@ -175,7 +176,7 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
             <Field label={isReceipt ? t("accounting.form.party.label-customer") : t("accounting.form.party.label-supplier")}>
               <select className="field font-bold" value={party} onChange={(e) => { setParty(e.target.value); setAlloc({}); }}>
                 <option value="">{t("accounting.form.party.placeholder")}</option>
-                {parties.data?.map((p) => <option key={p.id} value={p.id}>{getPartyName(p, locale)} ({p.code})</option>)}
+                {parties.data?.map((p) => <option key={p.id} value={p.id}>{getPartyName(p, locale)}</option>)}
               </select>
             </Field>
             <Field label={t("accounting.form.amount")}><input className="field" dir="ltr" inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
@@ -227,7 +228,7 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
           <li key={r.id} className={`card p-3 flex justify-between gap-2 text-sm font-bold ${r.reversal ? "opacity-70" : ""}`}>
             <div>
               <div className="font-extrabold"><span dir="ltr">{r.number}</span> · {getPartyName(r.customer, locale) || getPartyName(r.supplier, locale)}</div>
-              <div className="text-xs text-united-muted">{r.date} · {METHOD_LABELS[r.method] ? t(METHOD_LABELS[r.method]) : r.method} · {r.cashAccount}{r.reference ? <> · <span dir="ltr">{r.reference}</span></> : null}{Number(r.unallocated) > 0 ? ` · ${t("accounting.unallocated")} ${r.unallocated}` : ""}</div>
+              <div className="text-xs text-united-muted">{r.date} · {METHOD_LABELS[r.method] ? t(METHOD_LABELS[r.method]) : r.method} · {localName({ name: r.cashAccount, nameAr: r.cashAccountAr }, locale)}{r.reference ? <> · <span dir="ltr">{r.reference}</span></> : null}{Number(r.unallocated) > 0 ? ` · ${t("accounting.unallocated")} ${r.unallocated}` : ""}</div>
               {(r.deductions?.length ?? 0) > 0 && (
                 <div className="text-xs text-united-muted">
                   {r.deductions!.map((d) => `${t(`accounting.deductions.kind.${d.kind}`)} ${fmtMoney(d.amount)}${d.reference ? ` (${d.reference})` : ""}`).join(" · ")} · {isReceipt ? t("accounting.deductions.cash-in") : t("accounting.deductions.cash-out")} <span dir="ltr">{fmtMoney(r.cashAmount)}</span>
@@ -318,7 +319,7 @@ function Refunds({ kind }: { kind: "customer" | "supplier" }) {
             <Field label={isCustomer ? t("accounting.form.party.label-customer") : t("accounting.form.party.label-supplier")}>
               <select className="field font-bold" value={form.party} onChange={(e) => setForm({ ...form, party: e.target.value })}>
                 <option value="">{t("accounting.form.party.placeholder")}</option>
-                {parties.data?.map((p) => <option key={p.id} value={p.id}>{getPartyName(p, locale)} ({p.code})</option>)}
+                {parties.data?.map((p) => <option key={p.id} value={p.id}>{getPartyName(p, locale)}</option>)}
               </select>
             </Field>
             <Field label={t("accounting.form.amount")}><input className="field" dir="ltr" inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
@@ -697,7 +698,7 @@ function Opening() {
       <section className="card p-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
         <h3 className="font-extrabold col-span-full">{t("accounting.info-heading")}</h3>
         <Field label={t("accounting.info-type")}><select className="field" value={b.party_type} onChange={(e) => setB({ ...b, party_type: e.target.value, party_id: "" })}><option value="customer">{t("accounting.info-type-customer")}</option><option value="supplier">{t("accounting.info-type-supplier")}</option></select></Field>
-        <Field label={b.party_type === "customer" ? t("accounting.form.party.label-customer") : t("accounting.form.party.label-supplier")}><select className="field" value={b.party_id} onChange={(e) => setB({ ...b, party_id: e.target.value })}><option value="">{t("accounting.form.party.placeholder")}</option>{parties?.map((p) => <option key={p.id} value={p.id}>{getPartyName(p, locale)} ({p.code})</option>)}</select></Field>
+        <Field label={b.party_type === "customer" ? t("accounting.form.party.label-customer") : t("accounting.form.party.label-supplier")}><select className="field" value={b.party_id} onChange={(e) => setB({ ...b, party_id: e.target.value })}><option value="">{t("accounting.form.party.placeholder")}</option>{parties?.map((p) => <option key={p.id} value={p.id}>{getPartyName(p, locale)}</option>)}</select></Field>
         <Field label={b.party_type === "customer" ? t("accounting.info-amount-customer") : t("accounting.info-amount-supplier")}><input className="field" dir="ltr" inputMode="decimal" value={b.amount} onChange={(e) => setB({ ...b, amount: e.target.value })} /></Field>
         <Field label={t("accounting.form.date")}><input type="date" className="field" value={b.date} onChange={(e) => setB({ ...b, date: e.target.value })} /></Field>
         <Field label={t("accounting.info-due-date")}><input type="date" className="field" value={b.due_date} onChange={(e) => setB({ ...b, due_date: e.target.value })} /></Field>
@@ -710,7 +711,7 @@ function Opening() {
         <h3 className="font-extrabold">{t("accounting.opening-stock")}</h3>
         {stock.map((l, i) => (
           <div key={i} className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <select className="field" value={l.product_id} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, product_id: e.target.value } : x)))}><option value="">{t("accounting.product-label")}</option>{products.data?.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>)}</select>
+            <select className="field" value={l.product_id} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, product_id: e.target.value } : x)))}><option value="">{t("accounting.product-label")}</option>{products.data?.map((p) => <option key={p.id} value={p.id}>{localName(p, locale)} ({p.unit})</option>)}</select>
             <input className="field" dir="ltr" inputMode="decimal" placeholder={t("stock.qty")} value={l.quantity} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, quantity: e.target.value } : x)))} />
             <input className="field" dir="ltr" inputMode="decimal" placeholder={t("stock.unit-cost")} value={l.unit_cost} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, unit_cost: e.target.value } : x)))} />
             <input type="date" className="field" aria-label={t("accounting.info-expiry")} value={l.expiry_date} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, expiry_date: e.target.value } : x)))} />

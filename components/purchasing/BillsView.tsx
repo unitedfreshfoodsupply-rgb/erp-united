@@ -155,7 +155,7 @@ function NewBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill 
         <Field label={t("purchasing.bill.field.supplier")}>
           <select className="field font-bold" value={supplierId} disabled={!!bill} onChange={(e) => { setSupplierId(e.target.value); setPicked({}); }}>
             <option value="">{t("purchasing.bill.field.select_supplier")}</option>
-            {suppliers.data?.suppliers.map((s) => <option key={s.id} value={s.id}>{localName(s, locale)} ({s.code})</option>)}
+            {suppliers.data?.suppliers.map((s) => <option key={s.id} value={s.id}>{localName(s, locale)}</option>)}
           </select>
         </Field>
         <Field label={t("purchasing.bill.field.invoice_no")}><input className="field" dir="ltr" value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} /></Field>
@@ -177,7 +177,7 @@ function NewBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill 
                 <li key={k} className="py-2 grid grid-cols-[auto_1fr_auto] gap-2 items-center">
                   <input type="checkbox" className="w-6 h-6" checked={on} onChange={() => setPicked((p) => { const n = { ...p }; if (on) delete n[k]; else n[k] = r.expectedUnitPrice ?? ""; return n; })} aria-label={r.receiptNumber} />
                   <div className="text-sm">
-                    <div className="font-extrabold">{r.product.name} · <span dir="ltr">{fmtQty(r.goodQty, r.product.unit)}</span></div>
+                    <div className="font-extrabold">{localName(r.product, locale)} · <span dir="ltr">{fmtQty(r.goodQty, r.product.unit)}</span></div>
                     <div className="text-xs font-bold text-united-muted"><span dir="ltr">{r.receiptNumber}</span> · {r.receivedDate}{r.poNumber ? <> · <span dir="ltr">{r.poNumber}</span></> : ""} · {t("purchasing.bill.agreed_price")} {r.expectedUnitPrice ? <span dir="ltr">{r.expectedUnitPrice}</span> : "—"}</div>
                     {diff !== null && Math.abs(diff) >= 0.005 && <div className={`text-xs font-extrabold ${diff > 0 ? "text-united-danger" : "text-united-green"}`}>{t("purchasing.bill.variance")} <span dir="ltr">{fmtMoney(diff)}</span></div>}
                   </div>
@@ -250,7 +250,7 @@ function NewServiceBill({ onDone, bill }: { onDone: (id?: string) => void; bill?
         <Field label={t("purchasing.bill.field.supplier")}>
           <select className="field font-bold" value={supplierId} disabled={!!bill} onChange={(e) => setSupplierId(e.target.value)}>
             <option value="">{t("purchasing.bill.field.select_supplier")}</option>
-            {suppliers.data?.suppliers.map((s) => <option key={s.id} value={s.id}>{localName(s, locale)} ({s.code})</option>)}
+            {suppliers.data?.suppliers.map((s) => <option key={s.id} value={s.id}>{localName(s, locale)}</option>)}
           </select>
         </Field>
         <Field label={t("purchasing.bill.field.invoice_no")}><input className="field" dir="ltr" value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} /></Field>
@@ -329,7 +329,7 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
       <div className="flex justify-between items-center gap-2">
         <div>
           <h2 className="text-xl font-extrabold" dir="ltr">{b.number}</h2>
-          <p className="text-sm font-bold text-united-muted">{b.supplier.code} · {localName(b.supplier, locale)} · {t("purchasing.bill.supplier_invoice_label")} <span dir="ltr">{b.supplierInvoiceNo}</span> · {b.billDate} · {t("purchasing.bill.due_date")} {b.dueDate}</p>
+          <p className="text-sm font-bold text-united-muted">{localName(b.supplier, locale)} · {t("purchasing.bill.supplier_invoice_label")} <span dir="ltr">{b.supplierInvoiceNo}</span> · {b.billDate} · {t("purchasing.bill.due_date")} {b.dueDate}</p>
         </div>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button>
       </div>

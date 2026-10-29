@@ -43,6 +43,15 @@ async function main() {
   check("the file shows one hire row from the hire date", r.status === 200 && r.body.history.length === 1 && r.body.history[0].event === "hire" && r.body.history[0].effectiveFrom === shift(today, -400) && r.body.current?.status === "active", r.body);
   const mgr = (await call("karim", "POST", "/api/hr/employees", { name: `${TAG} مدير`, department_id: dep1.id })).body.employee;
 
+  section("1b. NAMES IN BOTH LANGUAGES (name = English, nameAr = Arabic)");
+  const bi = (await call("karim", "POST", "/api/hr/employees", { name: `${TAG} Sami Adel`, name_ar: `${TAG} سامي عادل` })).body.employee;
+  const listed = ((await call("karim", "GET", "/api/hr/employees")).body.employees as any[]).find((e) => e.id === bi?.id);
+  check("an employee keeps both names, returned by the list", listed?.name === `${TAG} Sami Adel` && listed?.nameAr === `${TAG} سامي عادل`, listed);
+  r = await call("karim", "PATCH", `/api/hr/employees/${bi.id}`, { name: `${TAG} Sami A.`, name_ar: null, expected_version: bi.version });
+  check("clearing the Arabic name keeps the English one", r.status === 200 && r.body.employee?.nameAr === null && r.body.employee?.name === `${TAG} Sami A.`, r.body);
+  const supRole = ((await call("sara", "GET", "/api/hr/employees")).body.employees as any[] | undefined)?.find((e) => e.id === bi.id);
+  check("the reduced employee list (attendance roles) carries both names too", !supRole || "nameAr" in supRole, supRole);
+
   section("2. PLACEMENT CHANGES ARE HISTORY, MIRRORED ONTO THE REGISTER");
   let cur = (await call("karim", "GET", "/api/hr/employees")).body.employees.find((e: any) => e.id === emp.id);
   r = await call("karim", "PATCH", `/api/hr/employees/${emp.id}`, { name: cur.name, department_id: dep2.id, expected_version: cur.version, change_reason: "نقل للتوزيع" });

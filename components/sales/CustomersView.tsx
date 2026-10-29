@@ -15,7 +15,7 @@ import { CustomerStatement, InvoicesView } from "@/components/sales/InvoicesView
 import { Landmark, Star } from "lucide-react";
 import { useLocale } from "@/lib/locale";
 import { intlLocale } from "@/lib/format";
-import { codedLocalName, localName, otherLocalName } from "@/lib/locale/names";
+import { localName, otherLocalName } from "@/lib/locale/names";
 import { useDialogs } from "@/components/ui/Dialog";
 
 /**
@@ -364,7 +364,7 @@ function GroupLegalSection({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit
           {canEdit && <button type="button" className="text-sm font-extrabold text-united-green underline" onClick={() => { setSelected(new Set(c.groups.map((g) => g.id))); setLegalId(c.legalEntity?.id ?? ""); setEditing(true); }}>{t("ui.edit")}</button>}
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {c.groups.map((g) => <span key={g.id} className="rounded-lg bg-united-dark/5 px-2 py-0.5 text-xs font-extrabold" dir="auto">{codedLocalName(g, locale)}</span>)}
+          {c.groups.map((g) => <span key={g.id} className="rounded-lg bg-united-dark/5 px-2 py-0.5 text-xs font-extrabold" dir="auto">{localName(g, locale)}</span>)}
           {c.groups.length === 0 && <span className="text-sm font-bold text-united-muted">—</span>}
         </div>
         {c.legalEntity ? (
@@ -391,7 +391,7 @@ function GroupLegalSection({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit
             {(groups.data?.groups ?? []).map((g) => (
               <label key={g.id} className="tap-target flex items-center gap-1.5 rounded-lg bg-united-dark/5 px-3 py-1.5 text-sm font-extrabold">
                 <input type="checkbox" className="w-5 h-5" checked={selected.has(g.id)} onChange={(e) => { const next = new Set(selected); if (e.target.checked) next.add(g.id); else next.delete(g.id); setSelected(next); }} />
-                <span dir="auto">{codedLocalName(g, locale)}</span>
+                <span dir="auto">{localName(g, locale)}</span>
               </label>
             ))}
           </div>
@@ -401,7 +401,7 @@ function GroupLegalSection({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit
         <span className="text-xs font-extrabold text-united-muted">{t("sales.legal-entity-label")}</span>
         <select className="field font-bold" value={legalId} onChange={(e) => setLegalId(e.target.value)}>
           <option value="">{t("sales.option.no-entity")}</option>
-          {(legalEntities.data?.legalEntities ?? []).map((l) => <option key={l.id} value={l.id}>{codedLocalName(l, locale)}{l.taxRegistrationNo ? ` (TAX ${l.taxRegistrationNo})` : ` (${t("sales.option.no-tax")})`}</option>)}
+          {(legalEntities.data?.legalEntities ?? []).map((l) => <option key={l.id} value={l.id}>{localName(l, locale)}{l.taxRegistrationNo ? ` (TAX ${l.taxRegistrationNo})` : ` (${t("sales.option.no-tax")})`}</option>)}
         </select>
       </div>
       <button
@@ -583,7 +583,7 @@ function Unmapped({ names, loading }: { names: { customerName: string; orders: n
             <div className="flex gap-2">
               <select className="field font-bold" value={choice[n.customerName] ?? ""} onChange={(e) => setChoice({ ...choice, [n.customerName]: e.target.value })}>
                 <option value="">{t("sales.select.placeholder")}</option>
-                {(customers.data?.customers ?? []).map((c) => <option key={c.id} value={c.id}>{c.code} · {localName(c, locale)}</option>)}
+                {(customers.data?.customers ?? []).map((c) => <option key={c.id} value={c.id}>{localName(c, locale)}</option>)}
               </select>
               <button type="button" className="btn-primary shrink-0" disabled={!choice[n.customerName]} onClick={async () => {
                 try {

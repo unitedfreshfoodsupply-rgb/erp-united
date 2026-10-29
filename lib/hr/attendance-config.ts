@@ -167,7 +167,7 @@ export async function listSources(actor: ServiceActor) {
     orderBy: { createdAt: "asc" },
     include: {
       integration: { select: { code: true, keyPrefix: true, active: true } },
-      identities: { include: { employee: { select: { id: true, code: true, name: true } } }, orderBy: { externalUserId: "asc" } },
+      identities: { include: { employee: { select: { id: true, code: true, name: true, nameAr: true } } }, orderBy: { externalUserId: "asc" } },
       batches: { orderBy: { receivedAt: "desc" }, take: 5 },
     },
   });

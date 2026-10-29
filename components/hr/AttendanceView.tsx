@@ -15,6 +15,7 @@ import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 /**
  * Attendance (docs/erp/DESIGN_SYSTEM.md §8.2): the daily register (tablet-first: one row per
@@ -84,7 +85,7 @@ export function AttendanceView() {
 type Edit = { status: string; first_in: string; last_out: string; notes: string };
 
 function RegisterTab({ date, setDate, canRecord }: { date: string; setDate: (d: string) => void; canRecord: boolean }) {
-  const { t, isEN } = useLocale();
+  const { t, isEN, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["hr", "attendance", "day", date], queryFn: () => apiFetch<Register>(`/api/hr/attendance?date=${date}`) });
@@ -202,8 +203,8 @@ function RegisterTab({ date, setDate, canRecord }: { date: string; setDate: (d: 
                 return (
                   <tr key={r.employee.id} className={edits[r.employee.id] ? "bg-united-warn/5" : undefined}>
                     <td>
-                      <div className="font-semibold text-united-dark">{r.employee.name}</div>
-                      <div className="text-xs text-united-muted"><span dir="ltr">{r.employee.code}</span>{r.employee.department ? ` · ${r.employee.department.name}` : ""}</div>
+                      <div className="font-semibold text-united-dark">{localName(r.employee, locale)}</div>
+                      <div className="text-xs text-united-muted"><span dir="ltr">{r.employee.code}</span>{r.employee.department ? ` · ${localName(r.employee.department, locale)}` : ""}</div>
                     </td>
                     <td className="whitespace-nowrap text-sm text-united-muted">
                       {!r.schedule ? t("att.no_schedule") : sd?.isWorkingDay ? <span dir="ltr">{sd.start}–{sd.end}</span> : t("att.status.rest_day")}
@@ -262,7 +263,7 @@ function RegisterTab({ date, setDate, canRecord }: { date: string; setDate: (d: 
 type Revision = { id: string; revision: number; action: string; before: Record<string, unknown> | null; after: Record<string, unknown>; reason: string | null; changedBy: string; changedAt: string; correction: { number: string } | null };
 
 function DayHistory({ id, onClose }: { id: string; onClose: () => void }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { can } = usePermissions();
   const dialogs = useDialogs();
   const toast = useToast();
@@ -281,7 +282,7 @@ function DayHistory({ id, onClose }: { id: string; onClose: () => void }) {
     }
   };
   return (
-    <Modal open onClose={onClose} size="lg" title={q.data ? `${q.data.day.employee.name} · ${q.data.day.date}` : t("att.history")}
+    <Modal open onClose={onClose} size="lg" title={q.data ? `${localName(q.data.day.employee, locale)} · ${q.data.day.date}` : t("att.history")}
       footer={<>
         {q.data?.day.state === "confirmed" && can("hr.attendance.approve") && <button type="button" className="btn-secondary" onClick={reopen}>{t("att.reopen")}</button>}
         <button type="button" className="btn-primary" onClick={onClose}>{t("ui.close")}</button>
@@ -307,7 +308,7 @@ function DayHistory({ id, onClose }: { id: string; onClose: () => void }) {
 }
 
 function CorrectionDialog({ row, date, onClose }: { row: RegisterRow; date: string; onClose: () => void }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
   const d = row.day!;
@@ -330,7 +331,7 @@ function CorrectionDialog({ row, date, onClose }: { row: RegisterRow; date: stri
     }
   };
   return (
-    <Modal open onClose={onClose} title={`${t("att.request_correction")} · ${row.employee.name}`} description={d.state === "locked" ? t("att.correction_locked_hint") : t("att.correction_hint")}
+    <Modal open onClose={onClose} title={`${t("att.request_correction")} · ${localName(row.employee, locale)}`} description={d.state === "locked" ? t("att.correction_locked_hint") : t("att.correction_hint")}
       footer={<>
         <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>{t("ui.cancel")}</button>
         <button type="submit" form="correction-form" className="btn-primary" disabled={busy || !f.reason.trim()}>{busy ? t("ui.saving") : t("att.send_for_approval")}</button>
@@ -365,7 +366,7 @@ const CELL_CLASS: Record<string, string> = {
 };
 
 function MonthTab({ onOpenDay }: { onOpenDay: (d: string) => void }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [month, setMonth] = useState(todayLocalISO().slice(0, 7));
   const q = useQuery({ queryKey: ["hr", "attendance", "month", month], queryFn: () => apiFetch<MonthData>(`/api/hr/attendance/month?month=${month}`) });
   return (
@@ -397,7 +398,7 @@ function MonthTab({ onOpenDay }: { onOpenDay: (d: string) => void }) {
             <tbody>
               {q.data!.rows.map((r) => (
                 <tr key={r.employee.id} className="border-t border-united-border">
-                  <td className="sticky start-0 z-10 whitespace-nowrap bg-white p-2 font-semibold text-united-dark">{r.employee.name}</td>
+                  <td className="sticky start-0 z-10 whitespace-nowrap bg-white p-2 font-semibold text-united-dark">{localName(r.employee, locale)}</td>
                   {r.cells.map((c) => (
                     <td key={c.date} className="p-0.5 text-center">
                       {!c.employed ? <span className="text-united-border">·</span> : (
@@ -433,7 +434,7 @@ type Correction = {
 const CORR_TONE: Record<string, Tone> = { pending: "warn", approved: "success", rejected: "danger", cancelled: "neutral" };
 
 function CorrectionsTab() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const dialogs = useDialogs();
   const qc = useQueryClient();
@@ -479,7 +480,7 @@ function CorrectionsTab() {
                   {c.retroStatus === "pending" && <StatusPill tone="info">{t("att.retro_pending")}</StatusPill>}
                 </div>
                 <div className="mt-0.5 text-sm text-united-dark">
-                  {c.employee.name} · <span dir="ltr">{c.date}</span> → {t(`att.status.${c.requested.status}`)}{c.requested.first_in ? <span dir="ltr"> ({c.requested.first_in}–{c.requested.last_out})</span> : ""}
+                  {localName(c.employee, locale)} · <span dir="ltr">{c.date}</span> → {t(`att.status.${c.requested.status}`)}{c.requested.first_in ? <span dir="ltr"> ({c.requested.first_in}–{c.requested.last_out})</span> : ""}
                 </div>
                 <div className="mt-0.5 text-xs text-united-muted">{c.reason} · {c.requestedBy}{c.decidedBy ? ` · ${t("att.decided_by")} ${c.decidedBy}` : ""}{c.decisionComment ? `: ${c.decisionComment}` : ""}</div>
               </div>
@@ -715,7 +716,7 @@ type Source = {
 };
 
 function DevicesCard({ canManage, canRecord }: { canManage: boolean; canRecord: boolean }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["hr", "attendance", "sources"], queryFn: () => apiFetch<{ sources: Source[]; keys: { id: string; code: string; name: string }[] }>("/api/hr/attendance/sources") });
@@ -759,7 +760,7 @@ function DevicesCard({ canManage, canRecord }: { canManage: boolean; canRecord: 
           <input className="field" required placeholder={t("att.device_name")} value={src.name} onChange={(e) => setSrc({ ...src, name: e.target.value })} />
           <select className="field" required value={src.integration_id} onChange={(e) => setSrc({ ...src, integration_id: e.target.value })} aria-label={t("att.device_key")}>
             <option value="">{ingestKeys.length ? t("att.device_key") : t("att.device_no_key")}</option>
-            {ingestKeys.map((i) => <option key={i.id} value={i.id}>{i.code} · {i.name}</option>)}
+            {ingestKeys.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
           </select>
           <button type="submit" className="btn-primary" disabled={busy || !src.code || !src.name || !src.integration_id}>{t("att.device_add")}</button>
         </form>
@@ -777,7 +778,7 @@ function DevicesCard({ canManage, canRecord }: { canManage: boolean; canRecord: 
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {s.identities.map((i) => (
                   <span key={i.id} className="inline-flex items-center gap-1 rounded bg-united-subtle px-2 py-0.5 text-xs">
-                    <span dir="ltr">#{i.externalUserId}</span> → {i.employee.name}
+                    <span dir="ltr">#{i.externalUserId}</span> → {localName(i.employee, locale)}
                     {canManage && <button type="button" className="text-united-muted hover:text-united-danger" aria-label={t("att.unmap")} onClick={() => run(() => fetchDelete(`/api/hr/attendance/identities/${i.id}`))}>×</button>}
                   </span>
                 ))}
@@ -787,7 +788,7 @@ function DevicesCard({ canManage, canRecord }: { canManage: boolean; canRecord: 
                   <input className="field w-[140px]" dir="ltr" placeholder={t("att.device_user")} value={map[s.id]?.external_user_id ?? ""} onChange={(e) => setMap({ ...map, [s.id]: { employee_id: map[s.id]?.employee_id ?? "", external_user_id: e.target.value } })} />
                   <select className="field w-auto" value={map[s.id]?.employee_id ?? ""} onChange={(e) => setMap({ ...map, [s.id]: { external_user_id: map[s.id]?.external_user_id ?? "", employee_id: e.target.value } })} aria-label={t("att.col.employee")}>
                     <option value="">{t("att.col.employee")}</option>
-                    {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{e.code} · {e.name}</option>)}
+                    {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{localName(e, locale)}</option>)}
                   </select>
                   <button type="submit" className="btn-secondary btn-sm" disabled={busy}>{t("att.map")}</button>
                 </form>

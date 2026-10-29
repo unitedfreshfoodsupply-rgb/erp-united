@@ -212,10 +212,10 @@ export async function employeeProfile(employeeId: string, actor: ServiceActor) {
   const e = await prisma.employee.findUnique({
     where: { id: employeeId },
     include: {
-      department: { select: { id: true, code: true, name: true } },
+      department: { select: { id: true, code: true, name: true, nameAr: true } },
       employments: {
         orderBy: [{ effectiveFrom: "desc" }, { createdAt: "desc" }],
-        include: { department: { select: { name: true } }, manager: { select: { id: true, code: true, name: true } }, schedule: { select: { id: true, code: true, nameAr: true, nameEn: true } } },
+        include: { department: { select: { name: true, nameAr: true } }, manager: { select: { id: true, code: true, name: true, nameAr: true } }, schedule: { select: { id: true, code: true, nameAr: true, nameEn: true } } },
       },
     },
   });

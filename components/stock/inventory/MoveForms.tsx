@@ -11,6 +11,7 @@ import { invalidateStockData } from "@/lib/stockInvalidation";
 import type { SupplierDTO } from "@/lib/stock-client-types";
 import { Field, LocationSelect, ProductSelect } from "./shared";
 import { Segmented } from "@/components/ui/Segmented";
+import { localName } from "@/lib/locale/names";
 
 /**
  * Stock movements, one form each, built for a tablet on the warehouse floor:
@@ -188,7 +189,7 @@ function ScrapForm() {
 
 function ReturnForm({ direction }: { direction: "customer" | "supplier" }) {
   const s = useSubmit();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const suppliers = useQuery({
     queryKey: ["stock", "suppliers"],
     queryFn: () => apiFetch<{ suppliers: SupplierDTO[] }>("/api/stock/suppliers"),
@@ -225,7 +226,7 @@ function ReturnForm({ direction }: { direction: "customer" | "supplier" }) {
           <select className="field font-bold" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
             <option value="">{t("stock-move-choose-supplier")}</option>
             {(suppliers.data?.suppliers ?? []).map((x) => (
-              <option key={x.id} value={x.id}>{x.name}</option>
+              <option key={x.id} value={x.id}>{localName(x, locale)}</option>
             ))}
           </select>
         </Field>

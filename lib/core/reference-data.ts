@@ -178,6 +178,6 @@ export const CHART_OF_ACCOUNTS: { id: string; code: string; name: string; nameAr
 ];
 
 export const CASH_ACCOUNTS = [
-  { id: "cash_main", code: "CASH", name: "الخزينة الرئيسية", type: "cash", accountId: "acc_1100" },
-  { id: "bank_main", code: "BANK", name: "الحساب البنكي", type: "bank", accountId: "acc_1200" },
+  { id: "cash_main", code: "CASH", name: "Main cash", nameAr: "الخزينة الرئيسية", type: "cash", accountId: "acc_1100" },
+  { id: "bank_main", code: "BANK", name: "Bank account", nameAr: "الحساب البنكي", type: "bank", accountId: "acc_1200" },
 ];

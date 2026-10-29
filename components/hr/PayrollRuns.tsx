@@ -13,6 +13,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { Field, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
 import { PaymentsPanel, PostingPanel } from "@/components/hr/PayrollPosting";
+import { localName } from "@/lib/locale/names";
 
 /**
  * The payroll run workspace (docs/erp/DESIGN_SYSTEM.md §8.4): one month's run, its blocking
@@ -97,7 +98,7 @@ function exceptionText(t: (k: string, p?: Record<string, string | number>) => st
 }
 
 function RunDetail({ id, onBack }: { id: string; onBack: () => void }) {
-  const { t, isEN } = useLocale();
+  const { t, isEN, locale } = useLocale();
   const toast = useToast();
   const dialogs = useDialogs();
   const qc = useQueryClient();
@@ -179,7 +180,7 @@ function RunDetail({ id, onBack }: { id: string; onBack: () => void }) {
                 return (
                   <Fragment key={s.id}>
                     <tr className={s.inclusion === "on_hold" ? "opacity-60" : ""}>
-                      <td className="sticky start-0 z-10 bg-white"><div className="font-semibold">{s.employee.name}</div><div className="text-xs text-united-muted"><span dir="ltr">{s.employee.code}</span>{s.employee.department ? ` · ${s.employee.department.name}` : ""}</div></td>
+                      <td className="sticky start-0 z-10 bg-white"><div className="font-semibold">{localName(s.employee, locale)}</div><div className="text-xs text-united-muted"><span dir="ltr">{s.employee.code}</span>{s.employee.department ? ` · ${localName(s.employee.department, locale)}` : ""}</div></td>
                       <td className="num" dir="ltr">{fmtMoney(s.gross)}</td>
                       <td className="num" dir="ltr">{fmtMoney(s.employeeDeductions)}</td>
                       <td className="num" dir="ltr">{fmtMoney(s.employerContributions)}</td>
@@ -266,7 +267,7 @@ function SlipDetail({ runId, slip, canEdit, nm, onChanged }: { runId: string; sl
 }
 
 function AdjustmentsDialog({ period, onClose }: { period: string; onClose: () => void }) {
-  const { t, isEN } = useLocale();
+  const { t, isEN, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
   const list = useQuery({ queryKey: ["hr", "payroll", "adjustments", period], queryFn: () => apiFetch<{ adjustments: { id: string; number: string; amount: string; reason: string; status: string; employee: { name: string }; payComponent: { code: string; nameAr: string; nameEn: string | null; kind: string } }[] }>(`/api/hr/payroll/adjustments?period=${period}`).then((r) => r.adjustments) });
@@ -290,11 +291,11 @@ function AdjustmentsDialog({ period, onClose }: { period: string; onClose: () =>
       <form className="grid gap-3 sm:grid-cols-5" onSubmit={(e) => { e.preventDefault(); if (f.employee_id && f.pay_component_id && Number(f.amount) > 0 && f.reason.trim()) void add(); }}>
         <select className="field" value={f.employee_id} onChange={(e) => setF({ ...f, employee_id: e.target.value })} aria-label={t("pay.employee")}>
           <option value="">{t("pay.employee")}</option>
-          {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{e.code} · {e.name}</option>)}
+          {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{localName(e, locale)}</option>)}
         </select>
         <select className="field" value={f.pay_component_id} onChange={(e) => setF({ ...f, pay_component_id: e.target.value })} aria-label={t("pay.component")}>
           <option value="">{t("pay.component")}</option>
-          {comps.data?.filter((c) => c.active && c.method === "input").map((c) => <option key={c.id} value={c.id}>{c.code} · {nm(c)}</option>)}
+          {comps.data?.filter((c) => c.active && c.method === "input").map((c) => <option key={c.id} value={c.id}>{nm(c)}</option>)}
         </select>
         <input type="number" min={0} step="0.01" className="field" dir="ltr" placeholder={t("pay.amount")} value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
         <input className="field" maxLength={500} placeholder={t("pay.reason")} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} />
@@ -303,7 +304,7 @@ function AdjustmentsDialog({ period, onClose }: { period: string; onClose: () =>
       <ul className="mt-4 divide-y divide-united-border text-sm">
         {(list.data ?? []).map((a) => (
           <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-            <span><span dir="ltr" className="text-united-muted">{a.number}</span> · {a.employee.name} · {nm(a.payComponent)} · <span dir="ltr" className="font-semibold">{fmtMoney(a.amount)}</span> · {a.reason}</span>
+            <span><span dir="ltr" className="text-united-muted">{a.number}</span> · {localName(a.employee, locale)} · {nm(a.payComponent)} · <span dir="ltr" className="font-semibold">{fmtMoney(a.amount)}</span> · {a.reason}</span>
             <span className="flex items-center gap-2">
               <StatusPill tone={a.status === "reserved" ? "info" : a.status === "cancelled" ? "neutral" : "warn"}>{t(`pay.adj.${a.status}`)}</StatusPill>
               {["open", "reserved"].includes(a.status) && <button type="button" className="btn-ghost btn-sm" onClick={async () => { try { await apiPost(`/api/hr/payroll/adjustments/${a.id}/cancel`, {}); refresh(); } catch (err) { toast.show(fail(t, err), "error"); } }}>{t("pay.cancel_adj")}</button>}

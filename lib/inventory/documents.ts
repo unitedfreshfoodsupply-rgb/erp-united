@@ -204,7 +204,7 @@ async function withMovements(id: string) {
   return prisma.inventoryDocument.findUniqueOrThrow({
     where: { id },
     include: {
-      movements: { include: { location: { select: { code: true } }, lot: { select: { lotNumber: true, expiryDate: true } }, product: { select: { name: true, unit: true } } } },
+      movements: { include: { location: { select: { code: true, name: true, nameAr: true } }, lot: { select: { lotNumber: true, expiryDate: true } }, product: { select: { name: true, nameAr: true, unit: true } } } },
     },
   });
 }
@@ -964,7 +964,7 @@ export async function listDocuments(filters: { type?: string; status?: string; l
     prisma.inventoryDocument.count({ where }),
     prisma.inventoryDocument.findMany({
       where, orderBy: { createdAt: "desc" }, skip, take,
-      include: { movements: { include: { location: { select: { code: true } }, lot: { select: { lotNumber: true } }, product: { select: { name: true, unit: true } } } } },
+      include: { movements: { include: { location: { select: { code: true, name: true, nameAr: true } }, lot: { select: { lotNumber: true } }, product: { select: { name: true, nameAr: true, unit: true } } } } },
     }),
   ]);
   return { documents: rows, pagination: { total, limit: take, offset: skip } };

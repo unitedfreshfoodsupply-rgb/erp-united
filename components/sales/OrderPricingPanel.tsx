@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 type Amounts = { gross: string; discount: string; net: string; tax: string; total: string };
 type Pricing = {
@@ -33,7 +34,7 @@ const SOURCE: Record<string, string> = { list: "pricing.source.list", manual: "p
 /** The commercial side of an order, for people who may see prices. The floor screens
  * never load this. */
 export function OrderPricingPanel({ orderId }: { orderId: string }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { can } = usePermissions();
   const qc = useQueryClient();
   const toast = useToast();
@@ -53,7 +54,7 @@ export function OrderPricingPanel({ orderId }: { orderId: string }) {
     <section className="card p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <h3 className="font-extrabold text-united-dark">{t("pricing.title")}</h3>
-        <span className="text-xs font-bold text-united-muted">{p.customer ? `${p.customer.code} · ` : t("pricing.unlinked-customer")}{p.priceList ? p.priceList.name : t("pricing.no-price-list")}</span>
+        <span className="text-xs font-bold text-united-muted">{p.customer ? `${localName(p.customer, locale)} · ` : t("pricing.unlinked-customer")}{p.priceList ? p.priceList.name : t("pricing.no-price-list")}</span>
       </div>
       {p.creditStatus && p.creditStatus !== "not_applicable" && p.creditStatus !== "ok" && (
         <p className={`text-sm font-extrabold ${p.creditStatus === "approved" ? "text-united-green" : "text-united-danger"}`}>

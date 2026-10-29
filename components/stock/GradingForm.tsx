@@ -288,7 +288,7 @@ function SortResult({
   yieldPct: number | null;
   onClose: () => void;
 }) {
-  const { t, dir } = useLocale();
+  const { t, dir, locale } = useLocale();
   const p = doc.payload;
   const moved = (kind: string) => doc.movements.filter((m) => m.kind === kind).reduce((s, m) => s + (m.quantityKg ?? 0), 0);
   const fallback = p?.costBasis === "nrv_fallback_proportional";
@@ -334,8 +334,8 @@ function SortResult({
           return (
             <div key={m.id} className="flex items-center justify-between px-3 py-2 text-sm font-bold">
               <span>
-                {labelKey ? t(labelKey as Parameters<typeof t>[0]) : m.kind} · {m.product?.name ?? ""}
-                {m.location ? ` · ${m.location.code}` : ""}
+                {labelKey ? t(labelKey as Parameters<typeof t>[0]) : m.kind} · {m.product ? localName(m.product, locale) : ""}
+                {m.location ? ` · ${localName(m.location, locale)}` : ""}
               </span>
               <span dir="ltr" className="font-extrabold">
                 {m.quantityKg > 0 ? "+" : ""}

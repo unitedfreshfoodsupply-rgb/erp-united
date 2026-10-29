@@ -34,7 +34,7 @@ export function Modal({
   description?: React.ReactNode;
   children?: React.ReactNode;
   footer?: React.ReactNode;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
   /** Selector inside the dialog to focus first (else the first [autofocus], else the dialog). */
   initialFocus?: string;
 }) {
@@ -61,7 +61,7 @@ export function Modal({
     return () => d.removeEventListener("close", onNativeClose);
   }, [onClose]);
 
-  const width = size === "sm" ? "max-w-sm" : size === "lg" ? "max-w-2xl" : "max-w-md";
+  const width = size === "sm" ? "max-w-sm" : size === "lg" ? "max-w-2xl" : size === "xl" ? "max-w-4xl" : "max-w-md";
   return (
     <dialog
       ref={ref}
