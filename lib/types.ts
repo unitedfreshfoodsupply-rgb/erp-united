@@ -1,4 +1,4 @@
-export const ROLES = ["SUPER_ADMIN", "SUPERVISOR", "STOCK_CONTROLLER", "PREPARER", "LOADER", "SALES", "ACCOUNTANT", "PURCHASER"] as const;
+export const ROLES = ["SUPER_ADMIN", "SUPERVISOR", "STOCK_CONTROLLER", "PREPARER", "LOADER", "SALES", "ACCOUNTANT", "PURCHASER", "ACCOUNTING_CLERK"] as const;
 export type Role = (typeof ROLES)[number];
 
 export const ORDER_STATUSES = [
@@ -24,6 +24,7 @@ export const HOME_BY_ROLE: Record<Role, string> = {
   SALES: "/sales",
   ACCOUNTANT: "/sales",
   PURCHASER: "/purchasing",
+  ACCOUNTING_CLERK: "/accounting",
 };
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -33,8 +34,9 @@ export const ROLE_LABEL: Record<Role, string> = {
   PREPARER: "تجهيز",
   LOADER: "تحميل",
   SALES: "مبيعات",
-  ACCOUNTANT: "حسابات",
+  ACCOUNTANT: "مدير الحسابات",
   PURCHASER: "مشتريات",
+  ACCOUNTING_CLERK: "موظف حسابات",
 };
 
 /** English role labels for localized interface. */
@@ -45,8 +47,9 @@ export const ROLE_LABEL_EN: Record<Role, string> = {
   PREPARER: "Preparer",
   LOADER: "Loader",
   SALES: "Sales",
-  ACCOUNTANT: "Accountant",
+  ACCOUNTANT: "Accounting manager",
   PURCHASER: "Purchaser",
+  ACCOUNTING_CLERK: "Accounting clerk",
 };
 
 /** Human-readable one-line description of each role, shown on the read-only profile. */
@@ -59,6 +62,7 @@ export const ROLE_DESC: Record<Role, string> = {
   SALES: "المبيعات: الأوردرات والتسعير والعملاء والفوترة",
   ACCOUNTANT: "الحسابات: القيود والميزان والتحصيل والسداد",
   PURCHASER: "المشتريات: أوامر الشراء والاستلام وفواتير الموردين",
+  ACCOUNTING_CLERK: "تسجيل التحصيل من العملاء والسداد للموردين بس — من غير الأرصدة والقيود والتقارير المالية",
 };
 
 /** English role descriptions for localized interface. */
@@ -71,6 +75,7 @@ export const ROLE_DESC_EN: Record<Role, string> = {
   SALES: "Sales: orders, pricing, customers, invoicing",
   ACCOUNTANT: "Accounting: entries, balance, collection, payments",
   PURCHASER: "Purchasing: POs, receiving, supplier bills",
+  ACCOUNTING_CLERK: "Records customer receipts and supplier payments only — no balances, journals or financial reports",
 };
 
 export function isRole(value: unknown): value is Role {

@@ -83,7 +83,7 @@ async function main() {
   section("6. Existing-data validation — all DB rows have valid values");
   // Read all users and verify no invalid roles
   const users = (await call("admin", "GET", "/api/admin/users")).body?.users ?? [];
-  const validRoles = ["SUPER_ADMIN", "SUPERVISOR", "STOCK_CONTROLLER", "PREPARER", "LOADER", "SALES", "ACCOUNTANT", "PURCHASER"];
+  const validRoles = ["SUPER_ADMIN", "SUPERVISOR", "STOCK_CONTROLLER", "PREPARER", "LOADER", "SALES", "ACCOUNTANT", "PURCHASER", "ACCOUNTING_CLERK"];
   const badRoles = users.filter((u: any) => !validRoles.includes(u.role));
   check("no users with invalid role", badRoles.length === 0, badRoles.length ? badRoles : "ok");
 

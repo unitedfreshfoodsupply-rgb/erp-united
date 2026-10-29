@@ -218,7 +218,7 @@ async function main() {
   check("non-admin cannot read the security audit", (await call("sara","GET","/api/admin/overview")).status === 403);
   const m = ov.body.matrix;
   check("catalogue has 79 permissions", m.permissions.length === 79, m.permissions.length);
-  check("all 8 roles present (SALES, ACCOUNTANT in Phase 3; PURCHASER in Phase 4)", m.roles.length === 8);
+  check("all 9 roles present (SALES, ACCOUNTANT in Phase 3; PURCHASER in Phase 4; ACCOUNTING_CLERK)", m.roles.length === 9);
   check("database bundles match the code", m.catalogueInSync === true, m.roles.filter((r: any) => !r.inSync));
   const byRole = Object.fromEntries(m.roles.map((r: any) => [r.role, r.permissions]));
   check("SUPER_ADMIN holds everything", byRole.SUPER_ADMIN.length === 79);

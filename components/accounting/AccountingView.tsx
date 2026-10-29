@@ -81,23 +81,28 @@ function getPartyName(party: LocalizedNameSource | null | undefined, locale: str
 export function AccountingView() {
   const { can } = usePermissions();
   const { t } = useLocale();
-  const [tab, setTab] = useState<Tab>("health");
+  // Financial visibility (balances, journals, reports) is accounting.view; a clerk holding
+  // only the receipts or payments workflow sees just those tabs. The API enforces the same.
+  const full = can("accounting.view");
   const items: { key: Tab; label: string }[] = [
-    { key: "health", label: t("accounting.tab.health") },
-    { key: "cash", label: t("accounting.tab.cash") },
-    { key: "receipts", label: t("accounting.tab.receipts") },
-    { key: "payments", label: t("accounting.tab.payments") },
-    { key: "journals", label: t("accounting.tab.journals") },
-    { key: "trial", label: t("accounting.tab.trial") },
-    { key: "vat", label: t("accounting.tab.vat") },
-    { key: "periods", label: t("accounting.tab.periods") },
+    ...(full ? [{ key: "health" as Tab, label: t("accounting.tab.health") }, { key: "cash" as Tab, label: t("accounting.tab.cash") }] : []),
+    ...(full || can("accounting.receipts.manage") ? [{ key: "receipts" as Tab, label: t("accounting.tab.receipts") }] : []),
+    ...(full || can("accounting.payments.manage") ? [{ key: "payments" as Tab, label: t("accounting.tab.payments") }] : []),
+    ...(full ? [
+      { key: "journals" as Tab, label: t("accounting.tab.journals") },
+      { key: "trial" as Tab, label: t("accounting.tab.trial") },
+      { key: "vat" as Tab, label: t("accounting.tab.vat") },
+      { key: "periods" as Tab, label: t("accounting.tab.periods") },
+    ] : []),
     ...(can("accounting.manage") ? [{ key: "reconcile" as Tab, label: t("accounting.tab.reconcile") }, { key: "opening" as Tab, label: t("accounting.tab.opening") }] : []),
   ];
+  const [chosen, setTab] = useState<Tab>("health");
+  const tab: Tab = items.some((i) => i.key === chosen) ? chosen : items[0]?.key ?? "receipts";
   return (
     <div className="page-container">
       <h1 className="page-title">{t("accounting.title")}</h1>
       <Tabs value={tab} onChange={setTab} items={items} />
-      {tab === "health" ? <Health /> : tab === "opening" ? <Opening /> : tab === "cash" ? <Cash /> : tab === "receipts" ? <><MoneyIn kind="receipts" /><Refunds kind="customer" /></> : tab === "payments" ? <><MoneyIn kind="payments" /><Refunds kind="supplier" /></> : tab === "journals" ? <Journals /> : tab === "trial" ? <Trial /> : tab === "vat" ? <VatSummary /> : tab === "periods" ? <Periods /> : <Reconcile />}
+      {tab === "health" ? <Health /> : tab === "opening" ? <Opening /> : tab === "cash" ? <Cash /> : tab === "receipts" ? <><MoneyIn kind="receipts" />{(full || can("accounting.payments.manage")) && <Refunds kind="customer" />}</> : tab === "payments" ? <><MoneyIn kind="payments" />{(full || can("accounting.receipts.manage")) && <Refunds kind="supplier" />}</> : tab === "journals" ? <Journals /> : tab === "trial" ? <Trial /> : tab === "vat" ? <VatSummary /> : tab === "periods" ? <Periods /> : <Reconcile />}
     </div>
   );
 }
@@ -253,7 +258,7 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
         ))}
       </ul>
       {list.data && <Pagination page={page} pageSize={pageSize} total={list.data.total} onChange={setPage} />}
-      <Withholding side={isReceipt ? "receivable" : "payable"} />
+      {can("accounting.view") && <Withholding side={isReceipt ? "receivable" : "payable"} />}
     </div>
   );
 }

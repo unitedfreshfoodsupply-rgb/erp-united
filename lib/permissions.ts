@@ -213,6 +213,11 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   // New in Phase 4. Buys: suppliers, their prices, RFQs, purchase orders; reads stock
   // levels to know what to buy. Does not approve its own spend, book bills, or move stock.
   PURCHASER: [...PURCHASING, "stock.view", "purchasing.bills.view"],
+  // Accounting clerk: the receipts and payments workflows and the minimum they need —
+  // the customer or supplier, their open invoices or bills. Not accounting.view (chart of
+  // accounts, balances, journals, ledgers, trial balance, VAT/withholding), not
+  // reports.finance, not stock valuation, not reversals or period closing (manager only).
+  ACCOUNTING_CLERK: ["sales.customers.view", "sales.invoices.view", "purchasing.suppliers.view", "purchasing.bills.view", "accounting.receipts.manage", "accounting.payments.manage"],
 };
 
 /**
