@@ -286,7 +286,10 @@ async function main() {
   check("net salaries credited in one line equal to the run's net", preview.lines.filter((l: any) => l.role === "net").length === 1 && money(preview.lines.find((l: any) => l.role === "net").amount) === money(runNow.netPayable), preview.lines);
   check("the preview is dated the month's last day", preview.date === last, preview.date);
 
-  r = await call("karim", "POST", `/api/hr/payroll/runs/${run.id}/post`, {});
+  // Two posts at the same time: one entry, the other refused.
+  const both = await Promise.all([1, 2].map(() => call("karim", "POST", `/api/hr/payroll/runs/${run.id}/post`, {})));
+  check("two parallel posts: exactly one succeeds, one journal entry", both.filter((x) => x.status === 200).length === 1 && both.filter((x) => x.status === 409).length === 1 && (await s.journalEntry.count({ where: { sourceType: "payroll_run", sourceId: run.id } })) === 1, both.map((x) => x.status));
+  r = both.find((x) => x.status === 200)!;
   const posted = await s.payrollRun.findUniqueOrThrow({ where: { id: run.id } });
   const je = await s.journalEntry.findFirst({ where: { sourceType: "payroll_run", sourceId: run.id }, include: { lines: { include: { account: true } } } });
   check("finance posts the approved run: one entry, status posted", r.status === 200 && posted.status === "posted" && posted.journalEntryId === je?.id && je?.date === last, r.body);
