@@ -29,7 +29,7 @@
 | R1 | Final security review. On a Supabase-style disposable database (roles `anon`/`authenticated`/`service_role` with Supabase's default grants, then this branch's migrations): no table or sequence privileges for the Data API roles, RLS on every table, 0 policies, no views, no `SECURITY DEFINER` functions; the app role reads. Gap found: functions kept PostgreSQL's default `EXECUTE` for `PUBLIC` — none callable today (all trigger functions) but any later function would be exposed at `/rpc`; revoked, with default privileges. Payroll reviewed: maker/checker by DB CHECK, one journal entry per run (unique source + advisory lock; new test: two parallel posts → one 200, one 409, one entry), payment cap trigger, reversal only without live payments, audit rows, statutory/account gating; ETA refuses without credentials. | `1699d9a` | done |
 | R2 | Bilingual names: `Employee`, `Department`, `CashAccount` gain `nameAr` (name = English, nameAr = Arabic, as for customers/products/suppliers); HR forms take both; every list, picker, print and report shows the name in the UI language with the documented fallback. Codes removed from name labels in dropdowns and tables (customers, suppliers, products, locations, employees); kept in code columns, code fields, account pickers (accounting needs them), exports, API and audit. Sweep: 2,908 options on every tab AR/EN, none with a code beside the name. | `54b63fb` | done |
 | R3 | Brand: the sidebar/print mark was a low-contrast crop with stray background — replaced by clean crops of the committed `public/logo-united.png` (mark; full lockup on the login page; app icon); no new mark drawn. Browser: 56 page loads AR 1440 / EN 1024 + phone drawer AR/EN + payslip and invoice prints: 0 console errors, 0 HTTP 5xx, 0 overflow, 0 leaked keys. | `0a1eca7` | done |
-| R4 | Release validation on the final code (§4.2) and a rehearsal of the two new migrations on existing data (`RELEASE_2026_10_COMPLETION.md` §3 C). | local run 29 Oct | in progress |
+| R4 | Release validation on the final code (§4.2) and a rehearsal of the two new migrations on existing data (`RELEASE_2026_10_COMPLETION.md` §3 C). | `12013cc`, this commit | done |
 
 (Rows are appended as each phase completes.)
 
@@ -98,7 +98,7 @@ Status: open · in progress · fixed (commit) · blocked (external input) · acc
 ## 4. Handover (29 Oct 2026)
 
 **Repository** `unitedfreshfoodsupply-rgb/erp-united`, branch `united-full-project`, local
-HEAD in §4.1 — **not pushed** (27 commits ahead of `origin/united-full-project` = `37f9064`;
+HEAD in §4.1 — **not pushed** (33 commits ahead of `origin/united-full-project` = `37f9064`;
 pushing and deploying await the owner's approval). History was never rewritten; the old
 stash on `main` is untouched.
 
@@ -111,7 +111,10 @@ by lint) · `506dcb9` (lint) · `17f6174` · `8d5bad6` (waste awaiting write-off
 (payroll posting/payments/reversal/payslips/register/bank list) · `7606dd0` · `ac80eff`
 (cash-flow statement) · `b1016f3` (audit search) · `15c75f1` (English UI) · `4d5aa3f` ·
 `a9844d5` (board performance) · `ab01c55` (performance & cost review) · `19c2909`
-(flaky test date) · `538eac8` (release checklist) · this handover commit.
+(flaky test date) · `538eac8` (release checklist) · `be120fd` (handover) · `d1f3ae3`.
+Final review (R1–R4): `1699d9a` (function EXECUTE revoked; parallel double-post test) ·
+`54b63fb` (bilingual names; no codes beside names) · `0a1eca7` (brand assets) · `12013cc`
+(release docs) · this commit.
 
 ### 4.2 Verification on the final code
 
@@ -119,13 +122,13 @@ by lint) · `506dcb9` (lint) · `17f6174` · `8d5bad6` (waste awaiting write-off
 |---|---|
 | Typecheck (`tsc --noEmit`) | 0 errors |
 | Lint (`next lint`, now in CI) | 0 findings (116 at the start of Phase B) |
-| Unit (`test:unit`) | 121 / 121 |
+| Unit (`test:unit`, includes the dictionary checks) | 123 / 123 |
 | Integration (`test:integration`) | 68 / 68 |
-| End-to-end chain (`test:reset` + `test:e2e`, as CI runs it) | 55 suites, 9,571 checks, 0 failed, exit 0 — incl. HR payroll 147, cash flow 22, orders 180, RBAC 248, DB security 4 |
+| End-to-end chain (`test:reset` + `test:e2e`, as CI runs it) | 55 suites, 9,579 checks, 0 failed, exit 0 — incl. HR payroll 148, cash flow 22, orders 180, RBAC 248, DB security 8 |
 | Schema drift (migrations vs `schema.prisma`) | none |
 | Dictionary integrity | PASS |
-| Migration rehearsal | from empty and from the deployed branch: both drift 0, row counts preserved (`RELEASE_2026_10_COMPLETION.md` §3) |
-| Browser | 56 page loads AR 1440 / EN 1024: 0 console errors, 0 HTTP 5xx, 0 horizontal overflow; payroll, cash-flow and audit screens checked visually (screenshots kept in the session scratchpad, not committed) |
+| Migration rehearsal | from empty (64 migrations), from the deployed branch, and the two R1/R2 migrations on existing data: all drift 0, row counts preserved, only still-seeded cash-account names renamed (`RELEASE_2026_10_COMPLETION.md` §3) |
+| Browser | 56 page loads AR 1440 / EN 1024: 0 console errors, 0 HTTP 5xx, 0 horizontal overflow, 0 leaked keys; 2,908 dropdown options on every tab with no code beside a name; phone drawer AR/EN; login, sidebar, invoice and payslip prints checked visually (screenshots kept in the session scratchpad, not committed) |
 | Performance | 20k-order copy: order boards 3.5–7.0 s → 0.16–0.32 s (`PERFORMANCE_AND_COST.md`) |
 
 ### 4.3 Documents
@@ -144,10 +147,11 @@ receipt policy · HR role decisions (HR audit §12 P1–P3).
 
 ### 4.5 Verdict
 
-**Ready to deploy, once the owner approves the push.** The code is complete for this
+**Ready for controlled deployment, once the owner approves the push.** The code is complete for this
 program's scope and verified as above. The release is additive, rehearsed on a copy of the
 deployed schema, and fixes a defect live on the deployed branch (stock intake fails without
-the Grade-B column migration).
+the Grade-B column migration). The final review (R1–R4) closed one security gap (function
+EXECUTE, B-5) and found no defect in payroll posting, payments or reversal.
 
 **Not yet ready for live payroll, e-invoicing or statutory figures.** Those need the external
 inputs in §4.4. Until each is provided the system refuses the action and says what is
