@@ -139,7 +139,7 @@ export const DEFAULT_ORG = {
     { id: "loc_cold_2", warehouseId: "wh_main", code: "COLD-2", name: "Cold room 2", nameAr: "غرفة تبريد 2", type: "cold_room", capacityKg: "10000" },
     { id: "loc_recv", warehouseId: "wh_main", code: "RECV", name: "Receiving bay", nameAr: "منطقة الاستلام", type: "receiving", capacityKg: null },
     { id: "loc_disp", warehouseId: "wh_main", code: "DISP", name: "Dispatch dock", nameAr: "منطقة التحميل", type: "dispatch", capacityKg: null },
-    { id: "loc_grade_b", warehouseId: "wh_main", code: "GRADE-B", name: "Second grade / فرزة", nameAr: "فرزة", type: "cold_room", capacityKg: null },
+    { id: "loc_grade_b", warehouseId: "wh_main", code: "GRADE-B", name: "Second grade", nameAr: "فرزة", type: "cold_room", capacityKg: null },
     { id: "loc_waste", warehouseId: "wh_main", code: "WASTE", name: "Spoilage / waste", nameAr: "هالك وتوالف", type: "waste", capacityKg: null },
     { id: "loc_quarantine", warehouseId: "wh_main", code: "QUAR", name: "Quarantine (returns)", nameAr: "حجر صحي (مرتجعات)", type: "quarantine", capacityKg: null },
   ],
