@@ -407,7 +407,7 @@ function ProductSettings({ d }: { d: ProductDetail }) {
       <ul className="flex flex-wrap gap-2">
         {p.packagings.map((x) => (
           <li key={x.id} className="rounded-xl bg-united-dark/5 px-3 py-2 text-sm font-extrabold" dir="ltr">
-            1 {x.uomCode} = {fmtQty(x.qtyInBaseUnit)} {p.unit}{x.active ? "" : ` (${t("stock.suspended")})`}
+            1 {unitLabel(x.uomCode)} = {fmtQty(x.qtyInBaseUnit, p.unit)}{x.active ? "" : ` (${t("stock.suspended")})`}
           </li>
         ))}
       </ul>

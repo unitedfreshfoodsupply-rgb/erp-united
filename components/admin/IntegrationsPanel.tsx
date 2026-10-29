@@ -6,6 +6,7 @@ import { apiFetch, apiPost, ApiClientError } from "@/lib/api-client";
 import { LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { useLocale } from "@/lib/locale";
+import { useDialogs } from "@/components/ui/Dialog";
 import { intlLocale } from "@/lib/format";
 
 /** Integration keys (shown once at creation), revocation, and the recent call log. */
@@ -16,6 +17,7 @@ export function IntegrationsPanel() {
   const toast = useToast();
   const qc = useQueryClient();
   const { t, locale } = useLocale();
+  const dialogs = useDialogs();
   const q = useQuery({ queryKey: ["admin", "integrations"], queryFn: () => apiFetch<{ integrations: Row[]; logs: Log[] }>("/api/admin/integrations") });
   const [f, setF] = useState({ code: "", name: "", create: true, status: true, attendance: false });
   const [key, setKey] = useState<string | null>(null);
@@ -50,6 +52,7 @@ export function IntegrationsPanel() {
           <li key={i.id} className={`card p-3 flex justify-between items-center gap-2 text-sm font-bold ${i.active ? "" : "opacity-60"}`}>
             <span><span dir="ltr">{i.code}</span> · {i.name} · <span dir="ltr">{i.keyPrefix}…</span> · {i.scopes.join(t("admin.integrations.sep-scope"))}{i.lastUsedAt ? ` · ${t("admin.integrations.last-used")} ${new Date(i.lastUsedAt).toLocaleString(intlLocale(locale))}` : ""}{i.active ? "" : ` · ${t("admin.integrations.revoked")}`}</span>
             {i.active && <button type="button" className="btn-danger" onClick={async () => {
+              if (!(await dialogs.confirm({ title: t("admin.integrations.revoke-confirm", { name: i.name }), body: t("admin.integrations.revoke-confirm-body"), confirmLabel: t("admin.integrations.revoke-key"), tone: "danger" }))) return;
               try { await apiPost(`/api/admin/integrations/${i.id}/revoke`, {}); void qc.invalidateQueries({ queryKey: ["admin", "integrations"] }); } catch (err) { fail(err); }
             }}>{t("admin.integrations.revoke-key")}</button>}
           </li>

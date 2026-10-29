@@ -426,8 +426,10 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         {order.notes && <p className="mb-1 flex items-start gap-1.5 text-sm text-united-dark/80"><StickyNote size={15} className="mt-0.5 shrink-0 text-united-muted" aria-hidden />{order.notes}</p>}
         {order.vehicle && (
           <p className="text-united-dark/70 text-sm mb-1">
-            {t("orders.vehicle_label")} {order.vehicle}
-            {order.driverName && ` ${t("orders.driver_label")} ${order.driverName}`}
+            {/* Vehicle and driver are typed data in either script; <bdi> keeps each value in
+                place inside the sentence instead of letting it reorder its neighbours. */}
+            {t("orders.vehicle_label")} <bdi>{order.vehicle}</bdi>
+            {order.driverName && <>{` ${t("orders.driver_label")} `}<bdi>{order.driverName}</bdi></>}
             {order.crateCount != null && ` ${t("orders.crates_label", { count: order.crateCount })}`}
           </p>
         )}

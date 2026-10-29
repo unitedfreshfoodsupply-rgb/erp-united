@@ -1,8 +1,10 @@
 "use client";
 
+import { ErrorState } from "@/components/States";
+import { unitLabel } from "@/lib/format";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, apiPost, ApiClientError } from "@/lib/api-client";
+import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { useToast } from "@/components/ui/Toast";
 import { todayLocalISO } from "@/lib/localDate";
 import { fmtKg, fmtYield } from "@/lib/stockPresentation";
@@ -195,7 +197,8 @@ export function GradingForm({
             </span>
           </div>
 
-          {!ledgerQ.isLoading && remaining <= 0 && (
+          {ledgerQ.isError && <ErrorState message={errorMessage(ledgerQ.error)} onRetry={() => ledgerQ.refetch()} />}
+          {ledgerQ.isSuccess && remaining <= 0 && (
             <p className="text-united-danger font-bold text-sm">{t("grading.nothing-left")}</p>
           )}
 
@@ -339,7 +342,7 @@ function SortResult({
               </span>
               <span dir="ltr" className="font-extrabold">
                 {m.quantityKg > 0 ? "+" : ""}
-                {fmtKg(m.quantityKg)} {m.product?.unit ?? ""}
+                {fmtKg(m.quantityKg)} {unitLabel(m.product?.unit)}
               </span>
             </div>
           );

@@ -71,7 +71,7 @@ function Bills({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2 items-center">
-        <div className="flex-1"><Segmented value={status} onChange={setStatus} items={[{ key: "", label: t("purchasing.bill.filter.all") }, { key: "draft", label: t("purchasing.bill.filter.drafts") }, { key: "pending_approval", label: t("purchasing.bill.filter.pending_approval") }, { key: "posted", label: t("purchasing.bill.filter.posted") }]} /></div>
+        <div className="min-w-0 flex-1"><Segmented value={status} onChange={setStatus} items={[{ key: "", label: t("purchasing.bill.filter.all") }, { key: "draft", label: t("purchasing.bill.filter.drafts") }, { key: "pending_approval", label: t("purchasing.bill.filter.pending_approval") }, { key: "posted", label: t("purchasing.bill.filter.posted") }]} /></div>
         {can("purchasing.bills.manage") && <button type="button" className="btn-primary shrink-0" onClick={() => setCreating("goods")}>{t("purchasing.bill.new_supplier")}</button>}
         {can("purchasing.bills.manage") && <button type="button" className="btn-secondary shrink-0" onClick={() => setCreating("service")}>{t("purchasing.bill.new_service")}</button>}
       </div>
@@ -167,7 +167,8 @@ function NewBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill 
         <section className="card p-4 flex flex-col gap-2">
           <h3 className="font-extrabold">{t("purchasing.bill.receipts_header")}</h3>
           {billable.isLoading && <LoadingState />}
-          {rows.length === 0 && !billable.isLoading && <p className="text-sm font-bold text-united-muted">{t("purchasing.bill.no_receipts_empty")}</p>}
+          {billable.isError && <ErrorState message={errorMessage(billable.error)} onRetry={() => billable.refetch()} />}
+          {rows.length === 0 && billable.isSuccess && <p className="text-sm font-bold text-united-muted">{t("purchasing.bill.no_receipts_empty")}</p>}
           <ul className="flex flex-col divide-y divide-united-dark/5">
             {rows.map((r) => {
               const k = keyOf(r);

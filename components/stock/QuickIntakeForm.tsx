@@ -1,8 +1,9 @@
 "use client";
 
+import { ErrorState } from "@/components/States";
 import { forwardRef, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, apiPost, ApiClientError } from "@/lib/api-client";
+import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { useToast } from "@/components/ui/Toast";
 import { todayLocalISO } from "@/lib/localDate";
 import { fmtKg, fmtYield, YIELD_TONE_CLASS, yieldTone } from "@/lib/stockPresentation";
@@ -130,7 +131,9 @@ export function QuickIntakeForm({ date }: { date: string }) {
   const rejectedTooHigh =
     receivedKg !== "" && rejectedKg !== "" && Number(rejectedKg) > Number(receivedKg) * factor;
 
-  const setupIncomplete = !suppliersQ.isLoading && !productsQ.isLoading && (suppliers.length === 0 || products.length === 0);
+  // Only a successful empty answer means setup is missing — a failed request is an error, not "no suppliers".
+  const setupIncomplete = suppliersQ.isSuccess && productsQ.isSuccess && (suppliers.length === 0 || products.length === 0);
+  const loadFailed = suppliersQ.isError || productsQ.isError;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -194,6 +197,10 @@ export function QuickIntakeForm({ date }: { date: string }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (loadFailed) {
+    return <ErrorState message={errorMessage(suppliersQ.error ?? productsQ.error)} onRetry={() => { void suppliersQ.refetch(); void productsQ.refetch(); }} />;
   }
 
   if (setupIncomplete) {

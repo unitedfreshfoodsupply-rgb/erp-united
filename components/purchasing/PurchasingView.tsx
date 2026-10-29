@@ -113,7 +113,7 @@ function Orders({ onOpen, locale, t, poStatus }: { onOpen: (id: string) => void;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2 items-center">
-        <div className="flex-1"><Segmented value={status} onChange={setStatus} items={[
+        <div className="min-w-0 flex-1"><Segmented value={status} onChange={setStatus} items={[
           { key: "open", label: t("purchasing.orders.filter.open") },
           { key: "draft", label: t("purchasing.orders.filter.drafts") },
           { key: "pending_approval", label: t("purchasing.orders.filter.pending_approval") },
@@ -290,7 +290,7 @@ function Replenishment({ onCreateRfq, locale, t }: { onCreateRfq: (lines: { prod
               <label className="card p-3 flex items-center gap-3 cursor-pointer">
                 <input type="checkbox" checked={!!selected[s.productId]} onChange={(e) => setSelected({ ...selected, [s.productId]: e.target.checked })} />
                 <span className="flex-1"><strong>{s.productName}</strong><span className="block text-xs text-united-muted">{t("purchasing.replenishment.available")} {fmtQty(s.available)} · {t("purchasing.replenishment.reorder_point")} {fmtQty(s.reorderPointQty)} · {t("purchasing.replenishment.target")} {s.maxStockQty ? fmtQty(s.maxStockQty) : fmtQty(s.reorderPointQty)}</span></span>
-                <span className="font-extrabold">{t("purchasing.replenishment.order_qty")} {fmtQty(s.suggestedQty)} {s.unit}</span>
+                <span className="font-extrabold">{t("purchasing.replenishment.order_qty")} {fmtQty(s.suggestedQty, s.unit)}</span>
               </label>
             </li>
           ))}</ul>

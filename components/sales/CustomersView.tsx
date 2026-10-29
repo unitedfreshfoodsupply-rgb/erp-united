@@ -209,6 +209,7 @@ function NewCustomer({ onCreated }: { onCreated: (id: string) => void }) {
 function CustomerPanel({ id, onClose }: { id: string; onClose: () => void }) {
   const { can } = usePermissions();
   const { locale, t } = useLocale();
+  const dialogs = useDialogs();
   // t() returns the key itself when it is missing, so fall back to the raw action
   // explicitly instead of with ??, which never fired.
   const actionLabel = (action: string) => {
@@ -294,6 +295,7 @@ function CustomerPanel({ id, onClose }: { id: string; onClose: () => void }) {
               {a.alias}
               {a.kind === "manual" && canManage && (
                 <button type="button" aria-label={t("ui.delete")} className="text-united-danger font-extrabold" onClick={async () => {
+                  if (!(await dialogs.confirm({ title: t("ui.remove-alias-confirm", { name: a.alias }), confirmLabel: t("ui.delete"), tone: "danger" }))) return;
                   try { await apiFetch(`/api/sales/customers/aliases/${a.id}`, { method: "DELETE" }); refresh(); } catch (err) { fail(toast, err); }
                 }}>×</button>
               )}

@@ -224,13 +224,14 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
         </section>
       )}
       {list.isLoading && <LoadingState />}
+      {list.isError && <ErrorState message={errorMessage(list.error)} onRetry={() => list.refetch()} />}
       {list.data?.items.length === 0 && <EmptyState icon="💵" title={t("accounting.empty.no-transactions")} />}
       <ul className="flex flex-col gap-2">
         {list.data?.items.map((r) => (
           <li key={r.id} className={`card p-3 flex justify-between gap-2 text-sm font-bold ${r.reversal ? "opacity-70" : ""}`}>
             <div>
               <div className="font-extrabold"><span dir="ltr">{r.number}</span> · {getPartyName(r.customer, locale) || getPartyName(r.supplier, locale)}</div>
-              <div className="text-xs text-united-muted">{r.date} · {METHOD_LABELS[r.method] ? t(METHOD_LABELS[r.method]) : r.method} · {localName({ name: r.cashAccount, nameAr: r.cashAccountAr }, locale)}{r.reference ? <> · <span dir="ltr">{r.reference}</span></> : null}{Number(r.unallocated) > 0 ? ` · ${t("accounting.unallocated")} ${r.unallocated}` : ""}</div>
+              <div className="text-xs text-united-muted">{r.date} · {METHOD_LABELS[r.method] ? t(METHOD_LABELS[r.method]) : r.method} · {localName({ name: r.cashAccount, nameAr: r.cashAccountAr }, locale)}{r.reference ? <> · <span dir="ltr">{r.reference}</span></> : null}{Number(r.unallocated) > 0 ? ` · ${t("accounting.unallocated")} ${fmtMoney(r.unallocated)}` : ""}</div>
               {(r.deductions?.length ?? 0) > 0 && (
                 <div className="text-xs text-united-muted">
                   {r.deductions!.map((d) => `${t(`accounting.deductions.kind.${d.kind}`)} ${fmtMoney(d.amount)}${d.reference ? ` (${d.reference})` : ""}`).join(" · ")} · {isReceipt ? t("accounting.deductions.cash-in") : t("accounting.deductions.cash-out")} <span dir="ltr">{fmtMoney(r.cashAmount)}</span>
@@ -351,7 +352,7 @@ function Refunds({ kind }: { kind: "customer" | "supplier" }) {
             </li>
           ))}
         </ul>
-      ) : <p className="text-sm font-bold text-united-muted">{list.isLoading ? t("accounting.empty.loading") : t("accounting.empty.no-transactions")}</p>}
+      ) : list.isError ? <ErrorState message={errorMessage(list.error)} onRetry={() => list.refetch()} /> : <p className="text-sm font-bold text-united-muted">{list.isLoading ? t("accounting.empty.loading") : t("accounting.empty.no-transactions")}</p>}
     </section>
   );
 }
@@ -405,30 +406,71 @@ function Journals() {
           </div>
         </details>
       )}
-      {open && detail.data && (
-        <section className="card p-4 flex flex-col gap-1 text-sm font-bold">
-          <div className="flex justify-between"><span className="font-extrabold"><span dir="ltr">{detail.data.journal.number}</span> · {detail.data.journal.description}</span><button type="button" className="underline" onClick={() => setOpen(null)}>{t("accounting.button.close")}</button></div>
-          {detail.data.journal.lines?.map((l) => (
-            <div key={l.id} className="grid grid-cols-[1fr_6rem_6rem] gap-2">
-              <span>{l.account.code} · {localName(l.account, locale)}{l.description ? ` — ${systemText(l.description, locale)}` : ""}</span>
-              <span dir="ltr" className="num">{Number(l.debit) ? l.debit : ""}</span>
-              <span dir="ltr" className="num">{Number(l.credit) ? l.credit : ""}</span>
+      {open && detail.data && (() => {
+        const j = detail.data.journal;
+        const sum = (k: "debit" | "credit") => (j.lines ?? []).reduce((n, l) => n + Number(l[k]), 0);
+        return (
+          <section className="card overflow-hidden">
+            <div className="card-header">
+              <div className="min-w-0">
+                <h3 className="section-title"><bdi dir="ltr">{j.number}</bdi> · {j.date}</h3>
+                <p className="text-sm text-united-muted">{t(SOURCE_TYPES[j.sourceType])} · <bdi>{systemText(j.description, locale)}</bdi></p>
+              </div>
+              <button type="button" className="btn-secondary btn-sm shrink-0" onClick={() => setOpen(null)}>{t("accounting.button.close")}</button>
             </div>
-          ))}
-          {detail.data.journal.reversedBy && <p className="text-united-danger">{t("accounting.reversed-by", { n: detail.data.journal.reversedBy.number })}</p>}
-        </section>
-      )}
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead><tr><th>{t("accounting.col.account")}</th><th>{t("accounting.col.line-note")}</th><th className="num">{t("accounting.debit-placeholder")}</th><th className="num">{t("accounting.credit-placeholder")}</th></tr></thead>
+                <tbody>
+                  {j.lines?.map((l) => (
+                    <tr key={l.id}>
+                      <td><span dir="ltr" className="text-united-muted">{l.account.code}</span> · {localName(l.account, locale)}</td>
+                      <td className="text-united-muted">{l.description ? <bdi>{systemText(l.description, locale)}</bdi> : "—"}</td>
+                      <td dir="ltr" className="num tabular-nums">{Number(l.debit) ? fmtMoney(l.debit) : ""}</td>
+                      <td dir="ltr" className="num tabular-nums">{Number(l.credit) ? fmtMoney(l.credit) : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot><tr><td colSpan={2}>{t("accounting.col.total")}</td><td dir="ltr" className="num tabular-nums">{fmtMoney(sum("debit"))}</td><td dir="ltr" className="num tabular-nums">{fmtMoney(sum("credit"))}</td></tr></tfoot>
+              </table>
+            </div>
+            {j.reversedBy && <p className="px-5 py-3 text-sm font-semibold text-united-danger">{t("accounting.reversed-by", { n: j.reversedBy.number })}</p>}
+          </section>
+        );
+      })()}
       {q.isLoading && <LoadingState />}
-      <ul className="flex flex-col gap-1">
-        {q.data?.journals.map((j) => (
-          <li key={j.id}>
-            <button type="button" className="card p-2 w-full text-start flex justify-between gap-2 text-sm font-bold" onClick={() => setOpen(j.id)}>
-              <span><span dir="ltr">{j.number}</span> · {j.date} · {t(SOURCE_TYPES[j.sourceType])} · {systemText(j.description, locale)}</span>
-              <span dir="ltr">{fmtMoney(j.total)}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      {q.isError && <ErrorState message={errorMessage(q.error) ?? t("ui.error.generic")} onRetry={() => q.refetch()} />}
+      {q.data && !q.data.journals.length && <EmptyState title={t("accounting.journals-empty")} />}
+      {!!q.data?.journals.length && (
+        <div className="card overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>{t("accounting.col.number")}</th>
+                <th>{t("accounting.col.date")}</th>
+                <th>{t("accounting.col.source")}</th>
+                <th>{t("accounting.description")}</th>
+                <th className="num">{t("accounting.col.amount")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {q.data.journals.map((j) => (
+                <tr key={j.id} className={`cursor-pointer ${open === j.id ? "bg-united-green/5" : ""}`} onClick={() => setOpen(j.id)}>
+                  <td className="whitespace-nowrap">
+                    <button type="button" className="font-semibold text-united-green hover:underline" onClick={(e) => { e.stopPropagation(); setOpen(j.id); }}>
+                      <bdi dir="ltr">{j.number}</bdi>
+                    </button>
+                  </td>
+                  <td className="whitespace-nowrap tabular-nums">{j.date}</td>
+                  <td className="whitespace-nowrap text-united-muted">{t(SOURCE_TYPES[j.sourceType])}</td>
+                  <td className="min-w-[16rem]"><bdi>{systemText(j.description, locale)}</bdi></td>
+                  <td dir="ltr" className="num whitespace-nowrap tabular-nums font-semibold">{fmtMoney(j.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {q.data && <Pagination page={jPage} pageSize={jPageSize} total={q.data.pagination?.total ?? 0} onChange={setJPage} />}
     </div>
   );
@@ -484,6 +526,7 @@ function Trial() {
         </section>
       )}
       {activeAccount && ledger.isLoading && <LoadingState />}
+      {activeAccount && ledger.isError && <ErrorState message={errorMessage(ledger.error)} onRetry={() => ledger.refetch()} />}
       {activeAccount && ledger.data && (
         <section className="card p-3 text-sm font-bold">
           <div className="flex justify-between mb-2">

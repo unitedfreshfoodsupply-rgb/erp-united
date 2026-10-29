@@ -1,11 +1,12 @@
 "use client";
 
+import { ErrorState } from "@/components/States";
 import { unitLabel } from "@/lib/format";
 import { useState } from "react";
 import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, apiPost, ApiClientError } from "@/lib/api-client";
+import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { usePermissions } from "@/lib/use-session";
 import type { OrderDTO } from "@/lib/client-types";
 import { invalidateOrderData } from "@/lib/queryInvalidation";
@@ -115,8 +116,10 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
         </select>
       )}
       {accounts.isLoading && <p className="text-sm text-united-muted">{t("create.loading-customers")}</p>}
+      {accounts.isError && <ErrorState message={errorMessage(accounts.error)} onRetry={() => accounts.refetch()} />}
       {accounts.data && accounts.data.customers.length === 0 && <p className="text-sm text-united-warn">{t("create.no-customers")}</p>}
       {catalog.isLoading && <p className="text-sm text-united-muted">{t("create.loading-products")}</p>}
+      {catalog.isError && <ErrorState message={errorMessage(catalog.error)} onRetry={() => catalog.refetch()} />}
       {catalog.data && catalog.data.products.length === 0 && <p className="text-sm text-united-warn">{t("create.no-products")}</p>}
       {accountId && <p className="text-sm text-united-muted">{t("create.account-info")}</p>}
       <div className="flex gap-3">

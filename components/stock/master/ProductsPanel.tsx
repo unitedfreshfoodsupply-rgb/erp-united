@@ -248,13 +248,15 @@ function ProductCard({ product, canManage }: { product: StockProductDTO; canMana
                 </div>
                 {canManage && a.kind === "manual" && (
                   <button
-                    onClick={() =>
+                    type="button"
+                    onClick={async () => {
+                      if (!(await dialogs.confirm({ title: t("ui.remove-alias-confirm", { name: a.alias }), confirmLabel: t("stock.action-hide"), tone: "danger" }))) return;
                       run(
                         () =>
                           apiFetch(`/api/stock/products/${product.id}/aliases/${a.id}`, { method: "DELETE" }),
                         t("stock.toast-alias-removed")
-                      )
-                    }
+                      );
+                    }}
                     disabled={busy}
                     className="btn-danger text-xs px-3 shrink-0"
                   >

@@ -1,5 +1,6 @@
 "use client";
 
+import { unitLabel } from "@/lib/format";
 import { useEffect, useState } from "react";
 import { systemText } from "@/lib/locale/system-text";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -83,7 +84,7 @@ function Trips() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2 items-center">
-        <div className="flex-1"><Segmented value={all ? "all" : "open"} onChange={(v) => setAll(v === "all")} items={[{ key: "open", label: t("ops.tab.open") }, { key: "all", label: t("ops.tab.all") }]} /></div>
+        <div className="min-w-0 flex-1"><Segmented value={all ? "all" : "open"} onChange={(v) => setAll(v === "all")} items={[{ key: "open", label: t("ops.tab.open") }, { key: "all", label: t("ops.tab.all") }]} /></div>
         {can("operations.trips.manage") && <button type="button" className="btn-primary shrink-0" onClick={() => setCreating(true)}>{t("ops.btn.new-trip")}</button>}
       </div>
       {q.isLoading && <LoadingState />}
@@ -200,7 +201,7 @@ function TripView({ id, onClose }: { id: string; onClose: () => void }) {
                 return (
                   <li key={i.id} className="flex justify-between gap-2">
                     <span>{i.productName}</span>
-                    <span dir="ltr">{fmtQty(i.requiredQuantity)} → {fmtQty(i.preparedQuantity)} → {fmtQty(i.loadedQuantity)}{l ? ` → ✓${fmtQty(l.deliveredQty)}` : ""} {i.unit}</span>
+                    <span dir="ltr">{fmtQty(i.requiredQuantity)} → {fmtQty(i.preparedQuantity)} → {fmtQty(i.loadedQuantity)}{l ? ` → ✓${fmtQty(l.deliveredQty)}` : ""} {unitLabel(i.unit)}</span>
                   </li>
                 );
               })}
