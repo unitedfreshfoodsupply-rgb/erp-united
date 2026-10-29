@@ -39,6 +39,28 @@ async function main() {
     check(`${rolname} executes no public function`, Number(exec[0].n) === 0, Number(exec[0].n));
   }
 
+  section("2b. DATA API ROLES ARE REFUSED IN PRACTICE (where they exist)");
+  // Grants can be re-added by a dashboard click; this tries what the public key would do.
+  // Before 20261029090000, on Supabase's default grants, anon read password hashes from
+  // "User" and could set any user's role (reproduced on a disposable database).
+  const SENSITIVE = ["User", "Order", "OrderItem", "AuditLog", "CustomerGroup", "CustomerGroupMember", "CustomerLegalEntity"];
+  for (const { rolname } of roles) {
+    for (const table of SENSITIVE) {
+      for (const [verb, sql] of [["read", `SELECT 1 FROM "${table}" LIMIT 1`], ["write", `DELETE FROM "${table}" WHERE false`]] as const) {
+        let refused = false;
+        try {
+          await db.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(`SET LOCAL ROLE ${rolname}`);
+            await tx.$executeRawUnsafe(sql);
+          });
+        } catch (e) {
+          refused = /permission denied/i.test(String(e));
+        }
+        check(`${rolname} cannot ${verb} "${table}"`, refused);
+      }
+    }
+  }
+
   section("3. THE APPLICATION CONNECTION STILL READS");
   check("the app role reads users", (await db.user.count()) >= 1);
   await db.$disconnect();
