@@ -151,7 +151,7 @@ const ui = {
   // Login
   "ui.login.title": { ar: "UNITED", en: "UNITED" },
   "ui.login.subtitle": { ar: "نظام التجهيز والتحميل", en: "Production & Dispatch System" },
-  "ui.login.username": { ar: "اسم المستخدم", en: "Username" },
+  "ui.login.username": { ar: "اسم المستخدم أو الإيميل", en: "Username or email" },
   "ui.login.password": { ar: "كلمة السر", en: "Password" },
   "ui.login.button": { ar: "تسجيل الدخول", en: "Sign In" },
   "ui.login.logging-in": { ar: "جاري تسجيل الدخول…", en: "Signing in…" },

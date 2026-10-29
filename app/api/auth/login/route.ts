@@ -39,7 +39,11 @@ export async function POST(req: NextRequest) {
       throw new ApiError(429, loc === "en" ? `Too many failed attempts — try again in ${Math.ceil(lockState.retryAfterSec / 60)} minutes` : `محاولات كتير غلط — حاول تاني بعد ${Math.ceil(lockState.retryAfterSec / 60)} دقيقة`);
     }
 
-    const user = await prisma.user.findUnique({ where: { username } });
+    // The username, or the account's email (stored lower-case) when the identifier has an "@".
+    const identifier = username.trim();
+    const user = identifier.includes("@")
+      ? await prisma.user.findUnique({ where: { email: identifier.toLowerCase() } })
+      : await prisma.user.findUnique({ where: { username } });
     // Always pay for one bcrypt comparison, even for an unknown or disabled account.
     // Answering those instantly while a real account takes ~70ms tells anyone timing
     // the endpoint which usernames exist.
