@@ -25,6 +25,7 @@
 | E2 | Cash-flow statement balanced only by coincidence (liability/equity sign, negated total) — fixed with whole-history balance check. Audit log: server-side search across who/what/why/values/ids, paging, HR/payroll entities. | `ac80eff`, `b1016f3` | done |
 | F1 | Performance measured on a disposable copy grown to 20k orders / 300k audit rows / 20k journal entries: four order endpoints took 3.5–7.0 s (every order ever loaded on 3–5 s refreshes); bounded boards and today-scoped production → 158–321 ms; accounting/management/audit reads 12–124 ms; audit text search 0.7 s (documented). | `a9844d5`, `PERFORMANCE_AND_COST.md` | done |
 | F2 | Cost review from measured drivers: polling bandwidth (board payloads served uncompressed by `next start`; gzip ≈ 36× smaller — deployment action), database growth per row, recurring items to confirm with host/plan; no vendor prices invented. | `PERFORMANCE_AND_COST.md` | done |
+| G1 | Full regression on the final code (§4.2); a test date bug found and fixed (`19c2909`); migration rehearsals from empty and from the deployed branch; release checklist; handover. | `19c2909`, `538eac8`, this commit | done |
 
 (Rows are appended as each phase completes.)
 
@@ -77,8 +78,71 @@ Status: open · in progress · fixed (commit) · blocked (external input) · acc
 | E-3 | S3 | Reports | Cash-flow statement did not balance when liabilities or equity moved; non-system liabilities (salaries, withholdings) fell to "financing" | wrong management figures | sign fixed; configuration-referenced accounts operating | cash-flow suite N8 | fixed (`ac80eff`) |
 | F-1 | S6 | Performance | Never measured. Seen in code: the orders dashboard loads every order ever, with items, on each call (`lib/orders-service.ts` dashboard) | unknown headroom; dashboard cost grows with history | measure key endpoints on the seeded DB; add missing indexes where plans show sequential scans; bound the dashboard query | timings recorded | fixed (`a9844d5`); audit trigram index deferred (documented) |
 | F-2 | S6 | Cost | Recurring cost not inventoried | — | cost review from deployment config: hosting, Supabase, storage, ETA, CI minutes; measured where possible, labelled estimates otherwise | doc | done (`PERFORMANCE_AND_COST.md`); JSON compression to verify on the host |
-| G-1 | S2 | Release | Migration rehearsal from the deployed schema (`origin/united-full-project`) to HEAD, and from empty | failed cutover | rehearse both on disposable databases; record timings | drift = 0, suites green | open |
+| G-1 | S2 | Release | Migration rehearsal from the deployed schema (`origin/united-full-project`) to HEAD, and from empty | failed cutover | rehearse both on disposable databases; record timings | drift = 0, suites green | done (`RELEASE_2026_10_COMPLETION.md` §3) |
 | X-1 | — | ETA | Live submission needs credentials and the e-seal bridge | legal obligation | external input; code complete and contract-tested | sandbox checklist | blocked (credentials) |
 | X-2 | — | Accounting | Chart-of-accounts finalisation, tax subtypes, recognition basis (FULL_GAP_AUDIT §11) | — | accountant | — | blocked (accountant) |
 | X-3 | — | Payroll | Account mapping for each pay component (expense; liability for withholdings and employer contributions) and the net-salaries liability account (setting `hr.payroll_net_pay_account`) | posting blocked until set | accountant enters them; the journal preview lists what is missing | — | blocked (accountant) |
 | X-4 | — | Payroll | Bank upload format for salary transfers (if the bank requires one) | manual upload of the generic list | bank's file specification | — | blocked (bank) |
+
+---
+
+## 4. Handover (29 Oct 2026)
+
+**Repository** `unitedfreshfoodsupply-rgb/erp-united`, branch `united-full-project`, local
+HEAD in §4.1 — **not pushed** (27 commits ahead of `origin/united-full-project` = `37f9064`;
+pushing and deploying await the owner's approval). History was never rewritten; the old
+stash on `main` is untouched.
+
+### 4.1 Commits since the deployed branch (oldest first)
+
+Prior work committed at the start of this program (A2): `4c948a3`, `a5b4f24`, `be74c27`,
+`3529c6b`, `1233261`, `ffb297a`, `48e28ba`, `22f99bd`, `4596cbe`, `ac579a9`.
+This program: `e6a41fa` (benchmark + register) · `c3a60e2` (RLS) · `9fe7cd2` (defects found
+by lint) · `506dcb9` (lint) · `17f6174` · `8d5bad6` (waste awaiting write-off) · `e342611`
+(payroll posting/payments/reversal/payslips/register/bank list) · `7606dd0` · `ac80eff`
+(cash-flow statement) · `b1016f3` (audit search) · `15c75f1` (English UI) · `4d5aa3f` ·
+`a9844d5` (board performance) · `ab01c55` (performance & cost review) · `19c2909`
+(flaky test date) · `538eac8` (release checklist) · this handover commit.
+
+### 4.2 Verification on the final code
+
+| Check | Result |
+|---|---|
+| Typecheck (`tsc --noEmit`) | 0 errors |
+| Lint (`next lint`, now in CI) | 0 findings (116 at the start of Phase B) |
+| Unit (`test:unit`) | 121 / 121 |
+| Integration (`test:integration`) | 68 / 68 |
+| End-to-end chain (`test:reset` + `test:e2e`, as CI runs it) | 55 suites, 9,571 checks, 0 failed, exit 0 — incl. HR payroll 147, cash flow 22, orders 180, RBAC 248, DB security 4 |
+| Schema drift (migrations vs `schema.prisma`) | none |
+| Dictionary integrity | PASS |
+| Migration rehearsal | from empty and from the deployed branch: both drift 0, row counts preserved (`RELEASE_2026_10_COMPLETION.md` §3) |
+| Browser | 56 page loads AR 1440 / EN 1024: 0 console errors, 0 HTTP 5xx, 0 horizontal overflow; payroll, cash-flow and audit screens checked visually (screenshots kept in the session scratchpad, not committed) |
+| Performance | 20k-order copy: order boards 3.5–7.0 s → 0.16–0.32 s (`PERFORMANCE_AND_COST.md`) |
+
+### 4.3 Documents
+
+`RELEASE_2026_10_COMPLETION.md` (migrations, release steps, rehearsal evidence, rollback,
+inputs) · `PERFORMANCE_AND_COST.md` · `HR_PAYROLL_GAP_AUDIT.md` §0 · this file (ledger,
+Odoo benchmark with sources, gap register) · `DEPLOYMENT.md`, `BACKUP_RESTORE.md`,
+`CUTOVER.md` (unchanged procedures).
+
+### 4.4 Still open (external input — the system refuses the action until provided)
+
+X-1 ETA credentials and e-seal bridge · X-2 chart-of-accounts finalisation, tax subtypes ·
+X-3 payroll account mapping and net-salaries account · X-4 bank upload format (optional) ·
+D-5 statutory payroll rules with official sources, second-person verified · C-4 unknown-cost
+receipt policy · HR role decisions (HR audit §12 P1–P3).
+
+### 4.5 Verdict
+
+**Ready to deploy, once the owner approves the push.** The code is complete for this
+program's scope and verified as above. The release is additive, rehearsed on a copy of the
+deployed schema, and fixes a defect live on the deployed branch (stock intake fails without
+the Grade-B column migration).
+
+**Not yet ready for live payroll, e-invoicing or statutory figures.** Those need the external
+inputs in §4.4. Until each is provided the system refuses the action and says what is
+missing; nothing is defaulted or invented.
+
+Before go-live: run the release checklist on a restored copy of production data (§2 step 2),
+confirm JSON compression on the host, and complete `CUTOVER.md`.
