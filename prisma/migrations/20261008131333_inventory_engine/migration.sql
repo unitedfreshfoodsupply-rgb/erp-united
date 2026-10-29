@@ -307,8 +307,7 @@ ALTER TABLE "StockIntake" ADD CONSTRAINT "StockIntake_entered_pair" CHECK (("ent
 ALTER TABLE "StockMovement" DROP CONSTRAINT "StockMovement_kind_known";
 ALTER TABLE "StockMovement" ADD CONSTRAINT "StockMovement_kind_known" CHECK ("kind" IN (
   'intake', 'intake_correction', 'intake_void', 'adjustment',
-  'transfer_out', 'transfer_in', 'issue', 'customer_return', 'supplier_return', 'scrap',
-  'sorting_out', 'sorting_in'
+  'transfer_out', 'transfer_in', 'issue', 'customer_return', 'supplier_return', 'scrap'
 ));
 ALTER TABLE "StockMovement" DROP CONSTRAINT "StockMovement_intake_link_matches_kind";
 -- Every movement explains itself: receipt rows point at their receipt; everything
@@ -318,11 +317,10 @@ ALTER TABLE "StockMovement" ADD CONSTRAINT "StockMovement_source_matches_kind" C
   OR ("kind" = 'adjustment' AND "intakeId" IS NULL AND length(btrim(coalesce("reason", ''))) > 0)
   OR ("kind" = 'scrap' AND "intakeId" IS NULL AND "documentId" IS NOT NULL AND length(btrim(coalesce("reason", ''))) > 0)
   OR ("kind" IN ('transfer_out', 'transfer_in', 'issue', 'customer_return', 'supplier_return') AND "intakeId" IS NULL AND "documentId" IS NOT NULL)
-  OR ("kind" IN ('sorting_out', 'sorting_in') AND "intakeId" IS NOT NULL AND "documentId" IS NOT NULL AND length(btrim(coalesce("reason", ''))) > 0)
 );
 ALTER TABLE "StockMovement" ADD CONSTRAINT "StockMovement_direction_matches_kind" CHECK (
-  ("kind" IN ('intake', 'transfer_in', 'customer_return', 'sorting_in') AND "quantity" > 0)
-  OR ("kind" IN ('intake_void', 'transfer_out', 'issue', 'supplier_return', 'scrap', 'sorting_out') AND "quantity" < 0)
+  ("kind" IN ('intake', 'transfer_in', 'customer_return') AND "quantity" > 0)
+  OR ("kind" IN ('intake_void', 'transfer_out', 'issue', 'supplier_return', 'scrap') AND "quantity" < 0)
   OR "kind" IN ('intake_correction', 'adjustment')
 );
 ALTER TABLE "StockMovement" ADD CONSTRAINT "StockMovement_unitCost_non_negative" CHECK ("unitCost" IS NULL OR "unitCost" >= 0);
