@@ -7,7 +7,7 @@ const { check, section, finish } = makeChecker();
 const TAG = `ZZSHEET${Date.now()}`;
 // Unique run-specific date so leftover data never interferes
 const runTag = Date.now() % 10000;
-const today = `2099-12-${1 + (runTag % 28)}`;
+const today = `2099-12-${String(1 + (runTag % 28)).padStart(2, "0")}`; // zero-padded: the API accepts only YYYY-MM-DD
 const emptyDate = `2098-11-15`;
 let r: any;
 
