@@ -198,6 +198,14 @@
       "purchasing.suppliers.manage",
       "purchasing.suppliers.view",
       "stock.view"
+    ],
+    "ACCOUNTING_CLERK": [
+      "accounting.payments.manage",
+      "accounting.receipts.manage",
+      "purchasing.bills.view",
+      "purchasing.suppliers.view",
+      "sales.customers.view",
+      "sales.invoices.view"
     ]
   },
   "routes": [
@@ -265,9 +273,10 @@
       "method": "GET",
       "path": "/api/accounting/customer-refunds",
       "gate": {
-        "kind": "all",
+        "kind": "any",
         "permissions": [
-          "accounting.view"
+          "accounting.view",
+          "accounting.payments.manage"
         ]
       }
     },
@@ -285,9 +294,10 @@
       "method": "GET",
       "path": "/api/accounting/customers/[id]/open-invoices",
       "gate": {
-        "kind": "all",
+        "kind": "any",
         "permissions": [
-          "accounting.view"
+          "accounting.view",
+          "accounting.receipts.manage"
         ]
       }
     },
@@ -395,9 +405,10 @@
       "method": "GET",
       "path": "/api/accounting/payments",
       "gate": {
-        "kind": "all",
+        "kind": "any",
         "permissions": [
-          "accounting.view"
+          "accounting.view",
+          "accounting.payments.manage"
         ]
       }
     },
@@ -465,9 +476,10 @@
       "method": "GET",
       "path": "/api/accounting/receipts",
       "gate": {
-        "kind": "all",
+        "kind": "any",
         "permissions": [
-          "accounting.view"
+          "accounting.view",
+          "accounting.receipts.manage"
         ]
       }
     },
@@ -535,9 +547,10 @@
       "method": "GET",
       "path": "/api/accounting/supplier-refunds",
       "gate": {
-        "kind": "all",
+        "kind": "any",
         "permissions": [
-          "accounting.view"
+          "accounting.view",
+          "accounting.receipts.manage"
         ]
       }
     },
@@ -555,9 +568,10 @@
       "method": "GET",
       "path": "/api/accounting/suppliers/[id]/open-bills",
       "gate": {
-        "kind": "all",
+        "kind": "any",
         "permissions": [
-          "accounting.view"
+          "accounting.view",
+          "accounting.payments.manage"
         ]
       }
     },
@@ -3732,7 +3746,11 @@
     },
     {
       "href": "/accounting",
-      "permission": "accounting.view",
+      "permission": [
+        "accounting.view",
+        "accounting.receipts.manage",
+        "accounting.payments.manage"
+      ],
       "pageOpenToAll": false
     },
     {
