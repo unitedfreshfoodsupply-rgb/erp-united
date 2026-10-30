@@ -29,6 +29,9 @@ database unless `ALLOW_DEMO_SEED=1` is set deliberately — **never set it in pr
 3. `npx prisma migrate deploy` (uses `DIRECT_URL`).
 4. `npm run db:sync-permissions` — role bundles for new permissions.
 5. Deploy the app build; check `GET /api/health` → `{"status":"ok"}`.
+   Then, from the release directory, `node scripts/ops/warm-up.mjs http://127.0.0.1:<port>`:
+   it opens every page route once without a session (no data read or written) so the
+   first user after the deploy does not pay the route-loading cost (~0.85 s per screen).
 6. First release with accounting only: `POST /api/accounting/sync` (accountant) posts
    documents issued before the ledger existed and the stock valuation to date.
    **Go-live from Odoo** (in this order):
