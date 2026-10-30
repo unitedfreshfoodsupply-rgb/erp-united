@@ -165,6 +165,8 @@ Guard added: `tests/unit/ui-dictionary-keys.test.ts` fails when a component refe
 
 ## 7. Remaining UX debt
 
+> Updated Oct 2026: the dashboard (§9.1), identity (§9.2), users list (§9.3), touch sizes (§9.4) and form labels (§9.5) address parts of this list; see `docs/erp/UX_TRANSFORMATION.md` for the current inventory.
+
 - `lib/auditLabels.ts` / `lib/stockPresentation.ts` still store emoji as event symbols (rendered as icons on screen via `EventIcon`; the printed delivery document still prints them).
 - The ★ default marker in price lists is a text star.
 - Admin settings rows and the profile permission list show technical codes (e.g. `inventory.expiry_warning_days`) next to their labels — intentional for administrators, but the settings labels themselves are still Arabic-only.
@@ -212,3 +214,51 @@ Companion to `docs/erp/HR_PAYROLL_GAP_AUDIT.md` (schema §3, lifecycles §4, per
 - **Irreversible steps** (Submit, Approve, Post, Pay, Reverse) use `Modal` with a summary of the consequence ("This posts 1 journal entry of EGP 214,500.00 dated 30/11/2026 to the ledger") and the focus on the safe action.
 - **Tablet attendance entry** keeps 44px targets, a sticky employee column, and works one day at a time in portrait.
 - **Dates:** periods appear as month names in the user's language plus the ISO code (`نوفمبر 2026 · 2026-11`); dates in tables are ISO in `dir="ltr"` spans, consistent with the rest of the product.
+
+## 9. Data visualisation, identity and touch (Oct 2026, branch `ui/enterprise-ux`)
+
+### 9.1 Charts — `components/charts/Charts.tsx`
+
+No chart library: plain SVG (lines, columns) and HTML (ranked bars), ~9 kB for the whole
+dashboard page. Every chart answers one question and is built from recorded figures only
+(`lib/management/overview.ts`); a period with no data shows an empty state, never a zero line
+pretending to be data.
+
+| Rule | How |
+|---|---|
+| Colour by job | Two series: slot 1 blue `#2a78d6`, slot 2 orange `#eb6834` (validated: CVD ΔE 24.7, normal-vision ΔE 33.6, ≥3:1 on white). Ordered parts (good → grade B → waste): one blue ramp `#86b6ef → #3987e5 → #184f95`, the darkest step on the part that needs attention. Status colours (warn/danger) are never series. Tokens live on `.viz` in `globals.css`. |
+| One axis | Never two value scales on one chart. Sales and purchases share EGP; kilograms get their own chart. |
+| Marks | 2px lines, columns ≤28px with a 2px gap between stacked parts, recessive grid (`#eef2ed`), compact tick labels in the UI language (`80 ألف` / `80k`). |
+| Legend & text | A legend whenever there are two or more series; text never takes the series colour. |
+| Interaction | Crosshair + tooltip on lines; per-column tooltip on columns; pointer, touch (tap) and keyboard (focus the chart, ←/→, Esc). |
+| Table view | Every chart card has "Show as table" — the accessible and exact equivalent, with totals. |
+| Direction | The plot area is LTR in both languages (time runs left → right, like the printed reports and the numbers); titles, legends and tooltips follow the page; ranked bars are HTML and mirror naturally in Arabic. |
+
+`ChartCard` (title, subtitle, legend, table toggle) · `LineChart` · `ColumnChart` (`stacked`) ·
+`BarList` (ranked, aging) · `ChartTable` · `niceTicks` · `useChartFormat`.
+
+### 9.2 Identity — `components/ui/Avatar.tsx`
+
+Initials (first and last word; Arabic letters kept apart with a zero-width non-joiner), tone
+chosen from the user id so a person keeps one colour everywhere; six light tones with dark text
+above 7:1. No photos, no external avatar service. Used in the top bar, the users list and the
+profile header. Decorative by default (the name is beside it).
+
+### 9.3 Row actions — `components/ui/Menu.tsx`
+
+Secondary row actions behind one "more" button (menu-button pattern: arrow keys, Esc returns
+focus, click elsewhere closes). The users list shows Edit and Permissions inline and puts "Sign
+out on all devices" and "Suspend/Activate" in the menu; destructive items are red and still go
+through the danger-tone confirmation.
+
+### 9.4 Touch
+
+`coarse:` Tailwind variant (`(pointer: coarse)`): tablets and phones get 44px controls — compact
+buttons, small fields, chips, filter pills, segmented switches — while mouse users keep the
+desk density.
+
+### 9.5 Form labelling rule
+
+Every input has an accessible name: a visible `<label>`/`Field` first; where a compact row keeps
+the placeholder as the only visible text, the same text is also the `aria-label`. A select whose
+first option is a generic "— Choose —" is labelled by its field name, never by that option.
