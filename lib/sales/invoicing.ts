@@ -17,6 +17,7 @@ import { postCreditNote, postSalesInvoice } from "@/lib/accounting/ledger";
 import { postCustomerReturnInTx } from "@/lib/inventory/documents";
 import { idempotencyKeyField, lockKey, replayRequest, requestFingerprint } from "@/lib/core/idempotency";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
+import { listLimit } from "@/lib/core/list-window";
 
 /**
  * Sales invoicing.
@@ -512,15 +513,16 @@ async function openAmounts(db: Pick<Tx, "creditNote" | "receiptAllocation">, inv
   return out;
 }
 
-export async function listInvoices(filters: { status?: string; customerId?: string; orderId?: string }) {
-  const rows = await prisma.salesInvoice.findMany({
-    where: { ...(filters.status ? { status: filters.status } : {}), ...(filters.customerId ? { customerId: filters.customerId } : {}), ...(filters.orderId ? { orderId: filters.orderId } : {}) },
+export async function listInvoices(filters: { status?: string; customerId?: string; orderId?: string; limit?: number }) {
+  const where = { ...(filters.status ? { status: filters.status } : {}), ...(filters.customerId ? { customerId: filters.customerId } : {}), ...(filters.orderId ? { orderId: filters.orderId } : {}) };
+  const [total, rows] = await Promise.all([prisma.salesInvoice.count({ where }), prisma.salesInvoice.findMany({
+    where,
     orderBy: [{ createdAt: "desc" }],
-    take: 300,
+    take: listLimit(filters.limit),
     include: { customer: { select: { code: true, name: true, nameAr: true } }, order: { select: { orderNumber: true } } },
-  });
+  })]);
   const credited = await openAmounts(prisma, rows.map((r) => r.id));
-  return rows.map((r) => ({ ...r, credited: (credited.get(r.id) ?? D(0)).toFixed(2), open: r.status === "issued" ? r.total.minus(credited.get(r.id) ?? 0).toFixed(2) : null }));
+  return { items: rows.map((r) => ({ ...r, credited: (credited.get(r.id) ?? D(0)).toFixed(2), open: r.status === "issued" ? r.total.minus(credited.get(r.id) ?? 0).toFixed(2) : null })), total };
 }
 
 export async function getInvoice(id: string) {

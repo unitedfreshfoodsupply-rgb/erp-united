@@ -16,6 +16,7 @@ import { getSetting } from "@/lib/core/settings-service";
 import type { SettingKey } from "@/lib/core/settings-registry";
 import { customerReceivable } from "@/lib/sales/invoicing";
 import { supplierPayable } from "@/lib/purchasing/bills";
+import { listLimit } from "@/lib/core/list-window";
 
 /**
  * Cash and bank: customer receipts and supplier payments (each allocated to invoices /
@@ -564,14 +565,16 @@ export async function createSupplierRefund(input: unknown, actor: ServiceActor) 
   });
 }
 
-export async function listCustomerRefunds(filters: { customerId?: string }) {
-  const rows = await prisma.customerRefund.findMany({ where: filters.customerId ? { customerId: filters.customerId } : {}, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { customer: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true, nameAr: true } } }, take: 300 });
-  return rows.map((r) => ({ id: r.id, number: r.number, date: r.date, amount: r.amount.toFixed(2), method: r.method, reference: r.reference, reason: r.reason, createdBy: r.createdBy, customer: r.customer, cashAccount: r.cashAccount.name, cashAccountAr: r.cashAccount.nameAr }));
+export async function listCustomerRefunds(filters: { customerId?: string; limit?: number }) {
+  const where = filters.customerId ? { customerId: filters.customerId } : {};
+  const [total, rows] = await Promise.all([prisma.customerRefund.count({ where }), prisma.customerRefund.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { customer: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true, nameAr: true } } }, take: listLimit(filters.limit) })]);
+  return { total, items: rows.map((r) => ({ id: r.id, number: r.number, date: r.date, amount: r.amount.toFixed(2), method: r.method, reference: r.reference, reason: r.reason, createdBy: r.createdBy, customer: r.customer, cashAccount: r.cashAccount.name, cashAccountAr: r.cashAccount.nameAr })) };
 }
 
-export async function listSupplierRefunds(filters: { supplierId?: string }) {
-  const rows = await prisma.supplierRefund.findMany({ where: filters.supplierId ? { supplierId: filters.supplierId } : {}, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { supplier: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true, nameAr: true } } }, take: 300 });
-  return rows.map((r) => ({ id: r.id, number: r.number, date: r.date, amount: r.amount.toFixed(2), method: r.method, reference: r.reference, reason: r.reason, createdBy: r.createdBy, supplier: r.supplier, cashAccount: r.cashAccount.name, cashAccountAr: r.cashAccount.nameAr }));
+export async function listSupplierRefunds(filters: { supplierId?: string; limit?: number }) {
+  const where = filters.supplierId ? { supplierId: filters.supplierId } : {};
+  const [total, rows] = await Promise.all([prisma.supplierRefund.count({ where }), prisma.supplierRefund.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { supplier: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true, nameAr: true } } }, take: listLimit(filters.limit) })]);
+  return { total, items: rows.map((r) => ({ id: r.id, number: r.number, date: r.date, amount: r.amount.toFixed(2), method: r.method, reference: r.reference, reason: r.reason, createdBy: r.createdBy, supplier: r.supplier, cashAccount: r.cashAccount.name, cashAccountAr: r.cashAccount.nameAr })) };
 }
 
 /** Book balance of every cash / bank account (from the GL). */

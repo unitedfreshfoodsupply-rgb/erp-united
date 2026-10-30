@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { newClientKey } from "@/lib/clientKey";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
@@ -13,6 +13,7 @@ import { Field, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { Segmented } from "@/components/ui/Segmented";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
+import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
 
 /**
  * Invoicing for the accountant: orders that left and are not invoiced yet, drafts to
@@ -36,7 +37,7 @@ export function InvoicesView() {
     <div className="flex flex-col gap-3">
       <Segmented value={tab} onChange={setTab} items={[{ key: "todo", label: t("sales.invoice.tab.todo") }, { key: "draft", label: t("sales.invoice.tab.drafts") }, { key: "issued", label: t("sales.invoice.tab.issued") }, { key: "aging", label: t("sales.invoice.tab.aging") }]} />
       {tab === "todo" && <ToInvoice onOpen={setOpen} />}
-      {(tab === "draft" || tab === "issued") && <InvoiceList status={tab} onOpen={setOpen} />}
+      {(tab === "draft" || tab === "issued") && <InvoiceList key={tab} status={tab} onOpen={setOpen} />}
       {tab === "aging" && <Aging />}
     </div>
   );
@@ -80,7 +81,8 @@ function ToInvoice({ onOpen }: { onOpen: (id: string) => void }) {
 
 function InvoiceList({ status, onOpen }: { status: string; onOpen: (id: string) => void }) {
   const { t, locale } = useLocale();
-  const q = useQuery({ queryKey: ["sales", "invoices", status], queryFn: () => apiFetch<{ invoices: InvRow[] }>(`/api/sales/invoices?status=${status}`) });
+  const [limit, setLimit] = useState(LIST_PAGE);
+  const q = useQuery({ queryKey: ["sales", "invoices", status, limit], queryFn: () => apiFetch<{ invoices: InvRow[]; total: number }>(`/api/sales/invoices?status=${status}&limit=${limit}`), placeholderData: keepPreviousData });
   if (q.isLoading) return <LoadingState />;
   if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   if (!q.data?.invoices.length) return <EmptyState icon="🧾" title={t("sales.invoice.no_invoices")} />;
@@ -100,6 +102,7 @@ function InvoiceList({ status, onOpen }: { status: string; onOpen: (id: string) 
           </button>
         </li>
       ))}
+      <li><ListMore shown={q.data.invoices.length} total={q.data.total} busy={q.isFetching} onMore={() => setLimit(limit + LIST_PAGE)} /></li>
     </ul>
   );
 }

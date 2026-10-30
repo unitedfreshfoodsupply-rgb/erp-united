@@ -23,6 +23,7 @@ import { postDebitNote, postSupplierBill } from "@/lib/accounting/ledger";
 import { isServiceBillAccount } from "@/lib/purchasing/service-accounts";
 import { postReturnToSupplierInTx } from "@/lib/inventory/documents";
 import { idempotencyKeyField, lockKey, replayRequest, requestFingerprint } from "@/lib/core/idempotency";
+import { listLimit } from "@/lib/core/list-window";
 
 /**
  * Supplier bills and debit notes — the payables side of purchasing.
@@ -712,15 +713,16 @@ async function debitedByBill(db: Pick<Tx, "debitNote" | "paymentAllocation">, bi
   return out;
 }
 
-export async function listBills(filters: { status?: string; supplierId?: string }) {
-  const rows = await prisma.supplierBill.findMany({
-    where: { ...(filters.status ? { status: filters.status } : {}), ...(filters.supplierId ? { supplierId: filters.supplierId } : {}) },
+export async function listBills(filters: { status?: string; supplierId?: string; limit?: number }) {
+  const where = { ...(filters.status ? { status: filters.status } : {}), ...(filters.supplierId ? { supplierId: filters.supplierId } : {}) };
+  const [total, rows] = await Promise.all([prisma.supplierBill.count({ where }), prisma.supplierBill.findMany({
+    where,
     orderBy: [{ createdAt: "desc" }],
     include: { supplier: { select: { id: true, code: true, name: true, nameAr: true } }, _count: { select: { lines: true, serviceLines: true } } },
-    take: 300,
-  });
+    take: listLimit(filters.limit),
+  })]);
   const debited = await debitedByBill(prisma, rows.filter((b) => b.status === "posted").map((b) => b.id));
-  return rows.map((b) => ({
+  const items = rows.map((b) => ({
     id: b.id,
     number: b.number,
     status: b.status,
@@ -737,6 +739,7 @@ export async function listBills(filters: { status?: string; supplierId?: string 
     open: b.status === "posted" ? b.total.minus(debited.get(b.id) ?? 0).toFixed(2) : null,
     version: b.version,
   }));
+  return { items, total };
 }
 
 export async function getBill(id: string) {

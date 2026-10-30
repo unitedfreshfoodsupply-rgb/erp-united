@@ -2974,6 +2974,11 @@ const approvals = {
 // ─── Validation & Error Messages ────────────────────────────────────────
 const errors = {
   "error.generic": { ar: "حصل خطأ", en: "An error occurred" },
+  "error.page.title": { ar: "حصل خطأ في الصفحة دي", en: "This page ran into a problem" },
+  "error.page.body": { ar: "بياناتك محفوظة. جرّب تاني، ولو المشكلة فضلت ارجع للرئيسية.", en: "Your data is safe. Try again, or go back to the home page if it keeps happening." },
+  "error.page.retry": { ar: "حاول تاني", en: "Try again" },
+  "error.page.home": { ar: "الرئيسية", en: "Home" },
+  "error.page.ref": { ar: "رقم المرجع", en: "Reference" },
   "error.network": { ar: "فشل الاتصال بالسيرفر", en: "Connection to server failed" },
   "error.timeout": { ar: "انتهت مهلة الطلب", en: "Request timed out" },
   "error.unauthorized": { ar: "مش مسموح لك", en: "Not authorized" },
@@ -3625,6 +3630,8 @@ export const DICTIONARY = {
   "intake.void-note": { ar: "مفيش حاجة بتتمسح — بيتسجل قيد عكسي بيرجّع الرصيد لمكانه.", en: "Nothing is deleted — a reversing movement is recorded that puts the balance back." },
   "intake.void-confirm": { ar: "تأكيد الإلغاء", en: "Confirm void" },
   "ui.pagination.summary": { ar: "الصفحة {page} من {totalPages} ({total} سجل)", en: "Page {page} of {totalPages} ({total} records)" },
+  "ui.list.showing": { ar: "معروض {shown} من {total}", en: "Showing {shown} of {total}" },
+  "ui.list.more": { ar: "اعرض أكتر", en: "Load more" },
   "ui.pagination.prev": { ar: "‹ السابق", en: "‹ Previous" },
   "ui.pagination.next": { ar: "التالي ›", en: "Next ›" },
   "ui.live.now": { ar: "دلوقتي", en: "just now" },

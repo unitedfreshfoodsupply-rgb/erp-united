@@ -15,6 +15,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { isServiceBillAccount } from "@/lib/purchasing/service-accounts";
+import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
 
 /**
  * Supplier bills and payables (finance). A bill is booked from the supplier's invoice
@@ -64,14 +65,15 @@ function Bills({ onOpen }: { onOpen: (id: string) => void }) {
   const { t, locale } = useLocale();
   const [status, setStatus] = useState("");
   const [creating, setCreating] = useState<"goods" | "service" | null>(null);
-  const q = useQuery({ queryKey: ["purchasing", "bills", status], queryFn: () => apiFetch<{ bills: BillRow[] }>(`/api/purchasing/bills${status ? `?status=${status}` : ""}`) });
+  const [limit, setLimit] = useState(LIST_PAGE);
+  const q = useQuery({ queryKey: ["purchasing", "bills", status, limit], queryFn: () => apiFetch<{ bills: BillRow[]; total: number }>(`/api/purchasing/bills?limit=${limit}${status ? `&status=${status}` : ""}`), placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === status ? prev : undefined) });
   const done = (id?: string) => { setCreating(null); if (id) onOpen(id); };
   if (creating === "goods") return <NewBill onDone={done} />;
   if (creating === "service") return <NewServiceBill onDone={done} />;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2 items-center">
-        <div className="min-w-0 flex-1"><Segmented value={status} onChange={setStatus} items={[{ key: "", label: t("purchasing.bill.filter.all") }, { key: "draft", label: t("purchasing.bill.filter.drafts") }, { key: "pending_approval", label: t("purchasing.bill.filter.pending_approval") }, { key: "posted", label: t("purchasing.bill.filter.posted") }]} /></div>
+        <div className="min-w-0 flex-1"><Segmented value={status} onChange={(s) => { setStatus(s); setLimit(LIST_PAGE); }} items={[{ key: "", label: t("purchasing.bill.filter.all") }, { key: "draft", label: t("purchasing.bill.filter.drafts") }, { key: "pending_approval", label: t("purchasing.bill.filter.pending_approval") }, { key: "posted", label: t("purchasing.bill.filter.posted") }]} /></div>
         {can("purchasing.bills.manage") && <button type="button" className="btn-primary shrink-0" onClick={() => setCreating("goods")}>{t("purchasing.bill.new_supplier")}</button>}
         {can("purchasing.bills.manage") && <button type="button" className="btn-secondary shrink-0" onClick={() => setCreating("service")}>{t("purchasing.bill.new_service")}</button>}
       </div>
@@ -95,6 +97,7 @@ function Bills({ onOpen }: { onOpen: (id: string) => void }) {
           </li>
         ))}
       </ul>
+      {q.data && <ListMore shown={q.data.bills.length} total={q.data.total} busy={q.isFetching} onMore={() => setLimit(limit + LIST_PAGE)} />}
     </div>
   );
 }

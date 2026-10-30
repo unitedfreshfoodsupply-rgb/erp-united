@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { systemText } from "@/lib/locale/system-text";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, errorMessage } from "@/lib/api-client";
 import { newClientKey } from "@/lib/clientKey";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
@@ -15,6 +15,7 @@ import { useLocale } from "@/lib/locale";
 import { intlLocale, unitLabel } from "@/lib/format";
 import { localName, type LocalizedNameSource } from "@/lib/locale/names";
 import { useDialogs } from "@/components/ui/Dialog";
+import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
 
 /**
  * Finance: cash position, customer receipts, supplier payments, journals, trial
@@ -314,7 +315,9 @@ function Refunds({ kind }: { kind: "customer" | "supplier" }) {
     queryFn: () => (isCustomer ? apiFetch<{ customers: { id: string; code: string; name: string }[] }>("/api/sales/customers?include_inactive=1").then((r) => r.customers) : apiFetch<{ suppliers: { id: string; code: string; name: string }[] }>("/api/purchasing/suppliers?include_inactive=1").then((r) => r.suppliers)),
     enabled: manage,
   });
-  const list = useQuery({ queryKey: ["acc", path], queryFn: () => apiFetch<{ refunds: { id: string; number: string; date: string; amount: string; method: string; reason: string; createdBy: string; customer?: { name: string }; supplier?: { name: string }; cashAccount: string }[] }>(`/api/accounting/${path}`).then((r) => r.refunds) });
+  const [limit, setLimit] = useState(LIST_PAGE);
+  const listQ = useQuery({ queryKey: ["acc", path, limit], queryFn: () => apiFetch<{ refunds: { id: string; number: string; date: string; amount: string; method: string; reason: string; createdBy: string; customer?: { name: string }; supplier?: { name: string }; cashAccount: string }[]; total: number }>(`/api/accounting/${path}?limit=${limit}`), placeholderData: keepPreviousData });
+  const list = { ...listQ, data: listQ.data?.refunds };
   const [form, setForm] = useState({ party: "", amount: "", method: "cash", cash_account_id: "cash_main", reference: "", reason: "" });
   const [key, setKey] = useState(newClientKey);
   const [busy, setBusy] = useState(false);
@@ -358,6 +361,7 @@ function Refunds({ kind }: { kind: "customer" | "supplier" }) {
           ))}
         </ul>
       ) : list.isError ? <ErrorState message={errorMessage(list.error)} onRetry={() => list.refetch()} /> : <p className="text-sm font-bold text-united-muted">{list.isLoading ? t("accounting.empty.loading") : t("accounting.empty.no-transactions")}</p>}
+      {listQ.data && <ListMore shown={listQ.data.refunds.length} total={listQ.data.total} busy={listQ.isFetching} onMore={() => setLimit(limit + LIST_PAGE)} />}
     </section>
   );
 }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { systemText } from "@/lib/locale/system-text";
 import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
@@ -18,6 +18,8 @@ import { useLocale } from "@/lib/locale";
 import { intlLocale } from "@/lib/format";
 import { localName, otherLocalName } from "@/lib/locale/names";
 import { useDialogs } from "@/components/ui/Dialog";
+import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 
 /**
  * Customer accounts for sales and finance: find a customer, see and edit who they
@@ -98,15 +100,18 @@ function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
   const { t, locale } = useLocale();
   const [q, setQ] = useState("");
   const [inactive, setInactive] = useState(false);
+  const [limit, setLimit] = useState(LIST_PAGE);
+  const search = useDebouncedValue(q.trim());
   const query = useQuery({
-    queryKey: ["sales", "customers", q, inactive],
-    queryFn: () => apiFetch<{ customers: CustomerRow[] }>(`/api/sales/customers?q=${encodeURIComponent(q)}${inactive ? "&include_inactive=1" : ""}`),
+    queryKey: ["sales", "customers", search, inactive, limit],
+    queryFn: () => apiFetch<{ customers: CustomerRow[]; total: number }>(`/api/sales/customers?q=${encodeURIComponent(search)}${inactive ? "&include_inactive=1" : ""}&limit=${limit}`),
+    placeholderData: keepPreviousData,
   });
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2">
-        <input className="field" placeholder={t("sales.placeholder.customer-search")} value={q} onChange={(e) => setQ(e.target.value)} />
-        <button type="button" onClick={() => setInactive(!inactive)} aria-pressed={inactive} className="chip">{t("ui.inactive")}</button>
+        <input className="field" placeholder={t("sales.placeholder.customer-search")} value={q} onChange={(e) => { setQ(e.target.value); setLimit(LIST_PAGE); }} />
+        <button type="button" onClick={() => { setInactive(!inactive); setLimit(LIST_PAGE); }} aria-pressed={inactive} className="chip">{t("ui.inactive")}</button>
       </div>
       {query.isLoading && <LoadingState />}
       {query.isError && <ErrorState message={errorMessage(query.error)} onRetry={() => query.refetch()} />}
@@ -137,6 +142,7 @@ function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
           </li>
         ))}
       </ul>
+      {query.data && <ListMore shown={query.data.customers.length} total={query.data.total} busy={query.isFetching} onMore={() => setLimit(limit + LIST_PAGE)} />}
     </div>
   );
 }

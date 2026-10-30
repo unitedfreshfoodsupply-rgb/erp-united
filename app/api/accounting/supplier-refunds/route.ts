@@ -1,8 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { handleApiError } from "@/lib/rbac";
 import { requireAnyPermission } from "@/lib/authz";
 import { createSupplierRefund, listSupplierRefunds } from "@/lib/accounting/cash";
 import { postHandler } from "@/lib/route-handlers";
+import { jsonResponse } from "@/lib/http-response";
+import { listLimit } from "@/lib/core/list-window";
 
 export async function GET(req: NextRequest) {
   try {
@@ -10,7 +12,9 @@ export async function GET(req: NextRequest) {
     // these does not need the ledger, balances or reports — see lib/permissions.ts).
     await requireAnyPermission(req, ["accounting.view", "accounting.receipts.manage"]);
     const sp = new URL(req.url).searchParams;
-    return NextResponse.json({ refunds: await listSupplierRefunds({ supplierId: sp.get("supplier_id") ?? undefined }) });
+    const limit = listLimit(sp.get("limit"));
+    const { items, total } = await listSupplierRefunds({ supplierId: sp.get("supplier_id") ?? undefined, limit });
+    return jsonResponse(req, { refunds: items, total, limit });
   } catch (err) {
     return handleApiError(err, req);
   }

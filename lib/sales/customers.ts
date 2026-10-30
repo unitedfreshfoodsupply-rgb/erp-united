@@ -12,6 +12,7 @@ import { normalizeProductName as normalizeName } from "@/lib/productIdentity";
 import { active, optDecimal, optText, parse, text, version } from "@/lib/core/validation";
 import type { ServiceActor } from "@/lib/core/actor";
 import { applyListPrices } from "@/lib/sales/pricing";
+import { listLimit } from "@/lib/core/list-window";
 
 /**
  * The customer master.
@@ -142,11 +143,10 @@ async function releaseCanonical(tx: Tx, customerId: string, kind: "canonical" | 
 // Reads
 // ---------------------------------------------------------------------------
 
-export async function listCustomers(opts: { q?: string; includeInactive?: boolean } = {}) {
+export async function listCustomers(opts: { q?: string; includeInactive?: boolean; limit?: number } = {}) {
   const q = opts.q?.trim();
   const normalized = q ? normalizeName(q) : "";
-  const rows = await prisma.customer.findMany({
-    where: {
+  const where: Prisma.CustomerWhereInput = {
       ...(opts.includeInactive ? {} : { active: true }),
       ...(q
         ? {
@@ -164,19 +164,22 @@ export async function listCustomers(opts: { q?: string; includeInactive?: boolea
             ],
           }
         : {}),
-    },
+  };
+  const [total, rows] = await Promise.all([prisma.customer.count({ where }), prisma.customer.findMany({
+    where,
     orderBy: [{ active: "desc" }, { name: "asc" }],
-    take: 300,
+    take: listLimit(opts.limit),
     include: {
       _count: { select: { orders: true } },
       groupMembers: { include: { group: { select: { id: true, code: true, name: true, nameAr: true } } } },
       legalEntity: { select: { id: true, code: true, name: true, nameAr: true, taxRegistrationNo: true } },
     },
-  });
-  return rows.map(({ groupMembers, ...rest }) => ({
+  })]);
+  const items = rows.map(({ groupMembers, ...rest }) => ({
     ...rest,
     groups: groupMembers.map((m) => m.group),
   }));
+  return { items, total };
 }
 
 export async function getCustomer(id: string) {
