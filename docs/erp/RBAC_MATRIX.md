@@ -109,6 +109,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `/hr/attendance` الحضور والانصراف (`hr.attendance.record` / `hr.attendance.approve` / `hr.employees.manage`) | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | `/hr/leave` الإجازات (`hr.leave.request` / `hr.leave.approve` / `hr.leave.configure`) | ✓ |  |  |  |  |  | ✓ |  |  |
 | `/hr/payroll` المرتبات (`hr.compensation.view` / `hr.compensation.manage` / `hr.payroll.prepare` / `hr.payroll.view` / `hr.payroll.approve` / `hr.payroll.post` / `hr.payroll.pay` / `hr.statutory.manage`) | ✓ |  |  |  |  |  | ✓ |  |  |
+| `/management/overview` لوحة الأداء (`reports.finance`) | ✓ |  |  |  |  |  | ✓ |  |  |
 | `/management` تقارير الإدارة (`reports.finance`) | ✓ |  |  |  |  |  | ✓ |  |  |
 | `/management/operations` أداء التشغيل (`reports.view`) | ✓ | ✓ |  |  |  |  |  |  |  |
 | `/stock` المخزون (`stock.view`) | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |
@@ -318,6 +319,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/management/finance/export` | `reports.finance` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/management/finance` | `reports.finance` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/management/operations` | `reports.view` | ✓ | ✓ |  |  |  |  |  |  |  |
+| GET | `/api/management/overview` | `reports.finance` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/notifications/read` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | GET | `/api/notifications` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | PATCH | `/api/operations/drivers/[id]` | `operations.trips.manage` | ✓ | ✓ |  |  |  |  |  |  |  |

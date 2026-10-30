@@ -2216,6 +2216,16 @@
       }
     },
     {
+      "method": "GET",
+      "path": "/api/management/overview",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "reports.finance"
+        ]
+      }
+    },
+    {
       "method": "POST",
       "path": "/api/notifications/read",
       "gate": {
@@ -3793,6 +3803,11 @@
         "hr.payroll.pay",
         "hr.statutory.manage"
       ],
+      "pageOpenToAll": false
+    },
+    {
+      "href": "/management/overview",
+      "permission": "reports.finance",
       "pageOpenToAll": false
     },
     {

@@ -133,6 +133,7 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["الفترة لازم تكون YYYY-MM", "The period must be YYYY-MM"],
   ["اقفل الفترة {} الأول", "Close period {0} first"],
   ["الفترة غير صالحة", "Invalid period"],
+  ["الفترة أطول من المسموح (400 يوم)", "The period is longer than allowed (400 days)"],
   ["التاريخ غير صالح", "Invalid date"],
   ["الحساب مش موجود", "Account not found"],
   ["الكود أرقام بس (3–8)", "The code is digits only (3–8)"],
