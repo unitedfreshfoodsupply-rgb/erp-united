@@ -2921,6 +2921,8 @@ const management = {
   "admin.users.search": { ar: "دوّر بالاسم أو اسم المستخدم", en: "Search by name or username" },
   "admin.users.no-match": { ar: "مفيش مستخدم بالاسم ده", en: "No user matches" },
   "ui.profile.security": { ar: "الأمان وكلمة السر", en: "Security & password" },
+  "mgmt.overview.on-account.receivables": { ar: "رصيد دائن للعملاء (دفعات مش مخصصة)", en: "Customer credit on account" },
+  "mgmt.overview.on-account.payables": { ar: "رصيد مدين عند الموردين (دفعات مش مخصصة)", en: "Supplier advances on account" },
   "management.title.finance": { ar: "تقارير الإدارة", en: "Management Reports" },
   "management.title.operations": { ar: "أداء التشغيل", en: "Operations Performance" },
 } as const;

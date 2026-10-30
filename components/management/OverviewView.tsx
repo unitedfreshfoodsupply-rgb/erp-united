@@ -156,10 +156,18 @@ export function OverviewView() {
                       <caption className="sr-only">{t(`mgmt.overview.${k}.title`)}</caption>
                       <thead><tr><th scope="col">{t("mgmt.overview.age")}</th><th scope="col" className="num">{t("mgmt.overview.amount")}</th></tr></thead>
                       <tbody>{a.buckets.map((b) => <tr key={b.bucket}><th scope="row" className="font-medium">{BUCKET[b.bucket]}</th><td className="num" dir="ltr">{f.full(n(b.amount))}</td></tr>)}</tbody>
-                      <tfoot><tr><th scope="row">{t("viz.total")}</th><td className="num" dir="ltr">{f.full(n(a.total))}</td></tr></tfoot>
+                      <tfoot>
+                        {n(a.onAccount) > 0 && <tr><th scope="row">{t(`mgmt.overview.on-account.${k}`)}</th><td className="num" dir="ltr">−{f.full(n(a.onAccount))}</td></tr>}
+                        <tr><th scope="row">{t("viz.total")}</th><td className="num" dir="ltr">{f.full(n(a.total))}</td></tr>
+                      </tfoot>
                     </table>
                   }
-                  footer={<p className="text-xs text-united-muted">{t("viz.total")}: <span dir="ltr" className="font-semibold text-united-dark">{egp(n(a.total))}</span></p>}>
+                  footer={
+                    <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-united-muted">
+                      {n(a.onAccount) > 0 && <span>{t(`mgmt.overview.on-account.${k}`)}: <span dir="ltr" className="font-semibold text-united-dark">−{egp(n(a.onAccount))}</span></span>}
+                      <span>{t("viz.total")}: <span dir="ltr" className="font-semibold text-united-dark">{egp(n(a.total))}</span></span>
+                    </p>
+                  }>
                   <BarList format={egp} rows={a.buckets.map((b) => ({ key: b.bucket, label: BUCKET[b.bucket], value: n(b.amount) }))} />
                 </ChartCard>
               ))}

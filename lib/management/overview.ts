@@ -92,6 +92,9 @@ export async function managementOverview(opts: { from?: string; to?: string }) {
   });
   const bucketOrder = ["current", "d1_30", "d31_60", "d61_90", "d90_plus"] as const;
   const overdue = (t: Record<string, string>) => f2(bucketOrder.slice(1).reduce((sum, k) => sum.plus(D(t[k])), D(0)));
+  // Money on account (unapplied receipts or payments, credit beyond an invoice): not in any
+  // bucket, deducted from the total — shown so the bars reconcile with the total.
+  const credit = (rows: { unapplied: string }[]) => f2(rows.reduce((sum, r) => sum.plus(D(r.unapplied)), D(0)));
 
   return {
     from, to, previous: { from: prevFrom, to: prevTo },
@@ -105,8 +108,8 @@ export async function managementOverview(opts: { from?: string; to?: string }) {
       waste: D(g.get(week)?.waste).toFixed(0),
       rejected: D(g.get(week)?.rejected).toFixed(0),
     })),
-    receivables: { asOf: ar.asOf, total: ar.totals.total, overdue: overdue(ar.totals), buckets: bucketOrder.map((k) => ({ bucket: k, amount: ar.totals[k] })) },
-    payables: { asOf: ap.asOf, total: ap.totals.total, overdue: overdue(ap.totals), buckets: bucketOrder.map((k) => ({ bucket: k, amount: ap.totals[k] })) },
+    receivables: { asOf: ar.asOf, total: ar.totals.total, overdue: overdue(ar.totals), onAccount: credit(ar.rows), buckets: bucketOrder.map((k) => ({ bucket: k, amount: ar.totals[k] })) },
+    payables: { asOf: ap.asOf, total: ap.totals.total, overdue: overdue(ap.totals), onAccount: credit(ap.rows), buckets: bucketOrder.map((k) => ({ bucket: k, amount: ap.totals[k] })) },
     topCustomers: top.map((c) => ({ customerId: c.customerId, nameAr: c.nameAr, nameEn: c.nameEn, code: c.code, net: f2(D(c.net)), invoices: Number(c.invoices) })),
   };
 }

@@ -38,7 +38,11 @@ async function main() {
   check("receivables = the sales aging report", ar.status === 200 && near(n(o.receivables.total), n(ar.body.totals.total)), [o.receivables.total, ar.body.totals?.total]);
   const ap = await call("karim", "GET", `/api/purchasing/reports/ap-aging?as_of=${o.to}`);
   check("payables = the purchasing aging report", ap.status === 200 && near(n(o.payables.total), n(ap.body.aging.totals.total)), [o.payables.total, ap.body.aging?.totals?.total]);
-  check("aging buckets add up to the total", near(o.receivables.buckets.reduce((s: number, b: { amount: string }) => s + n(b.amount), 0), n(o.receivables.total)));
+  for (const side of ["receivables", "payables"] as const) {
+    const a = o[side];
+    const buckets = a.buckets.reduce((s: number, b: { amount: string }) => s + n(b.amount), 0);
+    check(`${side}: buckets less money on account = the total`, near(buckets - n(a.onAccount), n(a.total)), [buckets, a.onAccount, a.total]);
+  }
   check("top customers are sorted and at most 8", o.topCustomers.length <= 8 && o.topCustomers.every((c: { net: string }, i: number, a: { net: string }[]) => i === 0 || n(a[i - 1].net) >= n(c.net)));
   const prev = await call("karim", "GET", `/api/management/overview?from=${o.previous.from}&to=${o.previous.to}`);
   check("the comparison period's headline equals that period's own overview", prev.status === 200 && near(n(prev.body.headline.current.sales), n(o.headline.previous.sales)), [prev.body?.headline?.current?.sales, o.headline.previous.sales]);
