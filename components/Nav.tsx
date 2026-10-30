@@ -148,20 +148,38 @@ export function Nav() {
     }
   }
 
-  // Hold the bar's height while the session loads, so the page does not drop by a bar's
-  // height once it arrives (it was most of the layout shift on every screen).
-  if (!user) return isLoading ? <div aria-hidden className="sticky top-0 z-20 h-14 box-content border-b border-united-border bg-white/95" /> : null;
-
   // Links come from the shared NAV_LINKS definition filtered by effective permissions,
   // so the shell can never offer a module the server would refuse.
   const links = visibleNavLinks(permissions);
-  const home = homePathFor(permissions, user.role);
-  const roleLabel = locale === "en" ? ROLE_LABEL_EN[user.role] : ROLE_LABEL[user.role];
-  const activeHref = activeHrefFor(links, pathname);
   const groups = NAV_GROUPS.filter((g) => links.some((l) => l.group === g.key));
   // A role with a handful of screens sees them all as tabs; a role spanning departments
   // gets the grouped sidebar — never a wall of twenty pills.
   const grouped = links.length > 7 && groups.length > 1;
+
+  // Remember the shell shape for the next page load (a layout hint, nothing else).
+  useEffect(() => {
+    if (!user) return;
+    const shape = grouped ? "grouped" : "tabs";
+    if (!document.cookie.split("; ").includes(`u_shell=${shape}`)) {
+      document.cookie = `u_shell=${shape}; path=/; max-age=31536000; samesite=lax`;
+    }
+  }, [user, grouped]);
+
+  // Hold the bar's height (and, on the desktop, the sidebar's width when this browser's last
+  // session had one — the u_shell hint above, read in app/layout.tsx) while the session
+  // loads, so the page does not move once it arrives.
+  if (!user) {
+    return isLoading ? (
+      <>
+        <span aria-hidden className="u-shell-placeholder hidden" />
+        <div aria-hidden className="sticky top-0 z-20 h-14 box-content border-b border-united-border bg-white/95" />
+      </>
+    ) : null;
+  }
+
+  const home = homePathFor(permissions, user.role);
+  const roleLabel = locale === "en" ? ROLE_LABEL_EN[user.role] : ROLE_LABEL[user.role];
+  const activeHref = activeHrefFor(links, pathname);
   const activeLink = links.find((l) => l.href === activeHref);
   const activeGroup = activeLink ? NAV_GROUPS.find((g) => g.key === activeLink.group) : undefined;
   const initials = user.name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("");

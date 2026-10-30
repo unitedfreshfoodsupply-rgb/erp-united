@@ -56,12 +56,16 @@ body {
 /* Desktop shell: the grouped sidebar (components/Nav.tsx) is fixed at the inline start;
    the page it sits in makes room for it. Pure CSS, so nothing shifts after hydration. */
 @media (min-width: 1024px) {
-  main:has(.u-shell-sidebar) {
+  main:has(.u-shell-sidebar),
+  html[data-shell="grouped"] main:has(.u-shell-placeholder) {
     padding-inline-start: var(--u-sidebar);
   }
   main:has(.u-shell-sidebar) .page-narrow,
   main:has(.u-shell-sidebar) .page-floor,
-  main:has(.u-shell-sidebar) .page-container {
+  main:has(.u-shell-sidebar) .page-container,
+  html[data-shell="grouped"] main:has(.u-shell-placeholder) .page-narrow,
+  html[data-shell="grouped"] main:has(.u-shell-placeholder) .page-floor,
+  html[data-shell="grouped"] main:has(.u-shell-placeholder) .page-container {
     margin-inline-start: 0;
   }
 }

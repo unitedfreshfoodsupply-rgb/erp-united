@@ -5,6 +5,7 @@ import "@fontsource/ibm-plex-sans-arabic/500.css";
 import "@fontsource/ibm-plex-sans-arabic/600.css";
 import "@fontsource/ibm-plex-sans-arabic/700.css";
 import "./globals.css";
+import { cookies } from "next/headers";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
@@ -13,8 +14,11 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // Layout hint only (set by components/Nav.tsx): whether this browser's last session had the
+  // grouped desktop sidebar, so the page reserves its width before the session has loaded.
+  const shell = cookies().get("u_shell")?.value === "grouped" ? "grouped" : "tabs";
   return (
-    <html lang="ar" dir="rtl" suppressHydrationWarning>
+    <html lang="ar" dir="rtl" data-shell={shell} suppressHydrationWarning>
       <body className="font-arabic bg-united-bg text-united-dark">
         <Providers>{children}</Providers>
       </body>
