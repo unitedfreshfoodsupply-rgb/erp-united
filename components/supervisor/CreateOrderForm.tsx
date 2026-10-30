@@ -108,7 +108,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
           onChange={(e) => {
             setAccountId(e.target.value);
           }}
-        >
+         aria-label={t("create.customer-placeholder")}>
           <option value="">{t("create.customer-placeholder")}</option>
           {accounts.data?.customers.map((c) => (
             <option key={c.id} value={c.id}>{localName(c, locale)}{c.creditHold ? ` ${t("create.credit-hold")}` : ""}</option>
@@ -131,7 +131,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         className="field"
-      />
+       aria-label={t("create.notes-placeholder")}/>
 
       <div className="flex flex-col gap-2">
         {rows.map((row, i) => (
@@ -155,7 +155,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
               value={row.quantity}
               onChange={(e) => updateRow(i, { quantity: e.target.value })}
               className="field w-24"
-            />
+             aria-label={t("create.qty-placeholder")}/>
             <select
               aria-label={t("ui.qty.unit")}
               value={row.unit}

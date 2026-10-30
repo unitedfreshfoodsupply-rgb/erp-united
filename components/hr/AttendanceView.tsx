@@ -680,9 +680,9 @@ function HolidaysCard({ canManage }: { canManage: boolean }) {
       {canManage && (
         <form className="grid gap-3 border-b border-united-border p-4 sm:grid-cols-6" onSubmit={(e) => { e.preventDefault(); if (f.date && f.name_ar.trim() && !busy) void add(); }}>
           <input type="date" className="field" required value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} aria-label={t("att.date")} />
-          <input className="field" required maxLength={100} placeholder={t("att.name_ar")} value={f.name_ar} onChange={(e) => setF({ ...f, name_ar: e.target.value })} />
-          <input className="field" dir="ltr" maxLength={100} placeholder={t("att.name_en")} value={f.name_en} onChange={(e) => setF({ ...f, name_en: e.target.value })} />
-          <input className="field" maxLength={200} placeholder={t("att.reference")} value={f.reference} onChange={(e) => setF({ ...f, reference: e.target.value })} />
+          <input className="field" required maxLength={100} placeholder={t("att.name_ar")} value={f.name_ar} onChange={(e) => setF({ ...f, name_ar: e.target.value })}  aria-label={t("att.name_ar")}/>
+          <input className="field" dir="ltr" maxLength={100} placeholder={t("att.name_en")} value={f.name_en} onChange={(e) => setF({ ...f, name_en: e.target.value })}  aria-label={t("att.name_en")}/>
+          <input className="field" maxLength={200} placeholder={t("att.reference")} value={f.reference} onChange={(e) => setF({ ...f, reference: e.target.value })}  aria-label={t("att.reference")}/>
           <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={f.paid} onChange={(e) => setF({ ...f, paid: e.target.checked })} />{t("att.paid")}</label>
           <button type="submit" className="btn-primary" disabled={busy || !f.date || !f.name_ar.trim()}>{t("att.holiday_add")}</button>
         </form>
@@ -756,8 +756,8 @@ function DevicesCard({ canManage, canRecord }: { canManage: boolean; canRecord: 
           await apiPost("/api/hr/attendance/sources", { ...src, kind: "device" });
           setSrc({ code: "", name: "", integration_id: "" });
         }); }}>
-          <input className="field" dir="ltr" required placeholder={t("att.device_code")} value={src.code} onChange={(e) => setSrc({ ...src, code: e.target.value })} />
-          <input className="field" required placeholder={t("att.device_name")} value={src.name} onChange={(e) => setSrc({ ...src, name: e.target.value })} />
+          <input className="field" dir="ltr" required placeholder={t("att.device_code")} value={src.code} onChange={(e) => setSrc({ ...src, code: e.target.value })}  aria-label={t("att.device_code")}/>
+          <input className="field" required placeholder={t("att.device_name")} value={src.name} onChange={(e) => setSrc({ ...src, name: e.target.value })}  aria-label={t("att.device_name")}/>
           <select className="field" required value={src.integration_id} onChange={(e) => setSrc({ ...src, integration_id: e.target.value })} aria-label={t("att.device_key")}>
             <option value="">{ingestKeys.length ? t("att.device_key") : t("att.device_no_key")}</option>
             {ingestKeys.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}

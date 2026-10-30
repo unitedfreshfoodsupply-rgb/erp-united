@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import { Check } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
 import { LoadingState, ErrorState, EmptyState } from "@/components/States";
@@ -146,9 +147,9 @@ function PermissionMatrix({ data }: { data: AdminOverview }) {
         <table className="w-full text-sm border-collapse min-w-[640px]">
           <thead>
             <tr>
-              <th className="text-start p-2 font-semibold text-united-muted sticky start-0 bg-white">{t("admin.matrix.col.permission")}</th>
+              <th scope="col" className="text-start p-2 font-semibold text-united-muted sticky start-0 bg-white">{t("admin.matrix.col.permission")}</th>
               {roles.map((r) => (
-                <th key={r.role} className="p-2 font-extrabold text-united-dark whitespace-nowrap">
+                <th key={r.role} scope="col" className="p-2 font-extrabold text-united-dark whitespace-nowrap">
                   <div>{rl[r.role]}</div>
                   <div className="text-[10px] font-bold text-united-muted">
                     {r.activeUsers} {t("admin.matrix.col.active")}{r.disabledUsers > 0 ? ` · ${r.disabledUsers} ${t("admin.matrix.col.suspended")}` : ""}
@@ -159,38 +160,40 @@ function PermissionMatrix({ data }: { data: AdminOverview }) {
           </thead>
           <tbody>
             {groups.map((group) => (
-              <>
-                <tr key={group}>
-                  <td colSpan={roles.length + 1} className="p-2 pt-4 font-extrabold text-united-green text-xs">
+              <Fragment key={group}>
+                <tr>
+                  <th scope="colgroup" colSpan={roles.length + 1} className="p-2 pt-4 text-start font-extrabold text-united-green text-xs">
                     {gl[group]}
-                  </td>
+                  </th>
                 </tr>
                 {permissions
                   .filter((p) => p.group === group)
                   .map((p) => (
                     <tr key={p.key} className="border-t border-united-border">
-                      <td className="p-2 sticky start-0 bg-white">
+                      <th scope="row" className="p-2 sticky start-0 bg-white text-start font-normal">
                         <div className="font-bold text-united-dark">{permissionText(p.key, locale).label}</div>
                         <code dir="ltr" className="text-[10px] text-united-muted">
                           {p.key}
                         </code>
-                      </td>
+                      </th>
                       {roles.map((r) => (
                         <td key={r.role} className="p-2 text-center">
                           {r.permissions.includes(p.key) ? (
-                            <span className="text-united-green font-extrabold" title={t("admin.matrix.allowed")}>
-                              ✓
+                            <span className="inline-flex text-united-green" title={t("admin.matrix.allowed")}>
+                              <Check size={16} aria-hidden />
+                              <span className="sr-only">{t("admin.matrix.allowed")}</span>
                             </span>
                           ) : (
-                            <span className="text-united-dark/20" title={t("admin.matrix.denied")}>
-                              —
+                            <span className="text-united-dark/25" title={t("admin.matrix.denied")}>
+                              <span aria-hidden>—</span>
+                              <span className="sr-only">{t("admin.matrix.denied")}</span>
                             </span>
                           )}
                         </td>
                       ))}
                     </tr>
                   ))}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>

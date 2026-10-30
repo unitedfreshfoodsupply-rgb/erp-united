@@ -66,8 +66,8 @@ export function PriceListsView() {
             } catch (err) { fail(toast, err, t); }
           }}
         >
-          <input className="field flex-1" dir="ltr" placeholder={t("pricelists.code-placeholder")} value={newList.code} onChange={(e) => setNewList({ ...newList, code: e.target.value })} />
-          <input className="field flex-[2]" placeholder={t("pricelists.name-placeholder")} value={newList.name} onChange={(e) => setNewList({ ...newList, name: e.target.value })} />
+          <input className="field flex-1" dir="ltr" placeholder={t("pricelists.code-placeholder")} value={newList.code} onChange={(e) => setNewList({ ...newList, code: e.target.value })}  aria-label={t("pricelists.code-placeholder")}/>
+          <input className="field flex-[2]" placeholder={t("pricelists.name-placeholder")} value={newList.name} onChange={(e) => setNewList({ ...newList, name: e.target.value })}  aria-label={t("pricelists.name-placeholder")}/>
           <button className="btn-secondary shrink-0">{t("pricelists.add")}</button>
         </form>
       )}
@@ -106,7 +106,7 @@ function ListDetail({ id }: { id: string }) {
     <div className="flex flex-col gap-3">
       <div className="card p-3 flex flex-wrap items-end gap-3">
         <Field label={t("pricelists.from")}><input type="date" className="field" value={date} onChange={(e) => { setDate(e.target.value || todayLocalISO()); setDraft({}); }} /></Field>
-        <input className="field flex-1" placeholder={t("pricelists.search")} value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <input className="field flex-1" placeholder={t("pricelists.search")} value={filter} onChange={(e) => setFilter(e.target.value)}  aria-label={t("pricelists.search")}/>
         {canManage && (
           <div className="flex gap-2">
             {!d.priceList.isDefault && d.priceList.active && (

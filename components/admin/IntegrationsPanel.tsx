@@ -26,8 +26,8 @@ export function IntegrationsPanel() {
   return (
     <div className="flex flex-col gap-3">
       <section className="card p-4 grid grid-cols-2 sm:grid-cols-6 gap-2 items-center">
-        <input className="field" dir="ltr" placeholder={t("admin.integrations.code-placeholder")} value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} />
-        <input className="field" placeholder={t("admin.integrations.name-placeholder")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        <input className="field" dir="ltr" placeholder={t("admin.integrations.code-placeholder")} value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })}  aria-label={t("admin.integrations.code-placeholder")}/>
+        <input className="field" placeholder={t("admin.integrations.name-placeholder")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })}  aria-label={t("admin.integrations.name-placeholder")}/>
         <label className="flex gap-2 font-bold text-sm"><input type="checkbox" checked={f.create} onChange={(e) => setF({ ...f, create: e.target.checked })} />{t("admin.integrations.create-orders")}</label>
         <label className="flex gap-2 font-bold text-sm"><input type="checkbox" checked={f.status} onChange={(e) => setF({ ...f, status: e.target.checked })} />{t("admin.integrations.track-status")}</label>
         <label className="flex gap-2 font-bold text-sm"><input type="checkbox" checked={f.attendance} onChange={(e) => setF({ ...f, attendance: e.target.checked })} />{t("admin.integrations.attendance-ingest")}</label>

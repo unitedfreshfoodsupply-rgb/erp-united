@@ -389,7 +389,7 @@ function Journals() {
           <div className="flex flex-col gap-2 mt-2">
             <div className="grid grid-cols-2 gap-2">
               <input type="date" className="field" value={m.date} onChange={(e) => setM({ ...m, date: e.target.value })} />
-              <input className="field" placeholder={t("accounting.description")} value={m.description} onChange={(e) => setM({ ...m, description: e.target.value })} />
+              <input className="field" placeholder={t("accounting.description")} value={m.description} onChange={(e) => setM({ ...m, description: e.target.value })}  aria-label={t("accounting.description")}/>
             </div>
             {m.lines.map((l, i) => (
               <div key={i} className="grid grid-cols-[1fr_6rem_6rem] gap-2">
@@ -765,9 +765,9 @@ function Opening() {
         <h3 className="font-extrabold">{t("accounting.opening-stock")}</h3>
         {stock.map((l, i) => (
           <div key={i} className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <select className="field" value={l.product_id} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, product_id: e.target.value } : x)))}><option value="">{t("accounting.product-label")}</option>{products.data?.map((p) => <option key={p.id} value={p.id}>{localName(p, locale)} ({unitLabel(p.unit)})</option>)}</select>
-            <input className="field" dir="ltr" inputMode="decimal" placeholder={t("stock.qty")} value={l.quantity} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, quantity: e.target.value } : x)))} />
-            <input className="field" dir="ltr" inputMode="decimal" placeholder={t("stock.unit-cost")} value={l.unit_cost} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, unit_cost: e.target.value } : x)))} />
+            <select className="field" value={l.product_id} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, product_id: e.target.value } : x)))} aria-label={t("accounting.product-label")}><option value="">{t("accounting.product-label")}</option>{products.data?.map((p) => <option key={p.id} value={p.id}>{localName(p, locale)} ({unitLabel(p.unit)})</option>)}</select>
+            <input className="field" dir="ltr" inputMode="decimal" placeholder={t("stock.qty")} value={l.quantity} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, quantity: e.target.value } : x)))}  aria-label={t("stock.qty")}/>
+            <input className="field" dir="ltr" inputMode="decimal" placeholder={t("stock.unit-cost")} value={l.unit_cost} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, unit_cost: e.target.value } : x)))}  aria-label={t("stock.unit-cost")}/>
             <input type="date" className="field" aria-label={t("accounting.info-expiry")} value={l.expiry_date} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, expiry_date: e.target.value } : x)))} />
           </div>
         ))}

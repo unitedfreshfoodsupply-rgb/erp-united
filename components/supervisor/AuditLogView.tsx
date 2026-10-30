@@ -72,7 +72,7 @@ export function AuditLogView() {
         onChange={(e) => reset(setSearch)(e.target.value)}
         placeholder={t("audit.search-placeholder")}
         className="field mb-3"
-      />
+       aria-label={t("audit.search-placeholder")}/>
 
       <div className="flex gap-2 overflow-x-auto no-scrollbar mb-4 pb-1">
         {DECISION_FILTER_KEYS.map((f) => (

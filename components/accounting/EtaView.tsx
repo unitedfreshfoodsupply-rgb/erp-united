@@ -248,7 +248,7 @@ function ItemRow({ p, manage, onSave }: { p: Overview["products"][number]; manag
       <span>{p.itemCode ? "✓" : "✗"} {localName(p, locale)} <span className="text-xs text-united-muted">({unitLabel(p.unit)}{p.sku ? ` · ${p.sku}` : ""})</span></span>
       <span className="flex gap-1">
         <select className="field w-20" disabled={!manage} value={type} onChange={(e) => setType(e.target.value)}><option>EGS</option><option>GS1</option></select>
-        <input className="field w-48" dir="ltr" placeholder={t("eta.item-system-code-placeholder")} disabled={!manage} value={code} onChange={(e) => setCode(e.target.value)} />
+        <input className="field w-48" dir="ltr" placeholder={t("eta.item-system-code-placeholder")} disabled={!manage} value={code} onChange={(e) => setCode(e.target.value)}  aria-label={t("eta.item-system-code-placeholder")}/>
         {manage && <button type="button" className="btn-secondary" disabled={!code.trim()} onClick={() => onSave(type, code.trim())}>{t("orders.edit.save")}</button>}
       </span>
     </li>

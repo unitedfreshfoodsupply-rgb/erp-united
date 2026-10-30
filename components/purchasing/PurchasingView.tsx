@@ -162,16 +162,16 @@ function LineEditor({ lines, setLines, withPrice, t }: { lines: { product_id: st
         const p = products.find((x) => x.id === l.product_id);
         return (
           <div key={i} className="grid grid-cols-2 sm:grid-cols-5 gap-2 border-t border-united-dark/5 pt-2">
-            <select className="field font-bold col-span-2" value={l.product_id} onChange={(e) => set(i, { product_id: e.target.value, uom: "" })}>
+            <select className="field font-bold col-span-2" value={l.product_id} onChange={(e) => set(i, { product_id: e.target.value, uom: "" })} aria-label={t("purchasing.line.product.placeholder")}>
               <option value="">{t("purchasing.line.product.placeholder")}</option>
               {products.map((x) => <option key={x.id} value={x.id}>{localName(x, locale)}</option>)}
             </select>
-            <input className="field" inputMode="decimal" dir="ltr" placeholder={t("purchasing.line.quantity.placeholder")} value={l.quantity} onChange={(e) => set(i, { quantity: e.target.value })} />
+            <input className="field" inputMode="decimal" dir="ltr" placeholder={t("purchasing.line.quantity.placeholder")} value={l.quantity} onChange={(e) => set(i, { quantity: e.target.value })}  aria-label={t("purchasing.line.quantity.placeholder")}/>
             <select className="field" value={l.uom} onChange={(e) => set(i, { uom: e.target.value })}>
               <option value="">{p?.unit ?? t("purchasing.line.unit.default")}</option>
               {(p?.packagings ?? []).map((x) => <option key={x.uomCode} value={x.uomCode}>{x.uomCode}</option>)}
             </select>
-            {withPrice && <input className="field" inputMode="decimal" dir="ltr" placeholder={t("purchasing.line.price.placeholder")} value={l.unit_price} onChange={(e) => set(i, { unit_price: e.target.value })} />}
+            {withPrice && <input className="field" inputMode="decimal" dir="ltr" placeholder={t("purchasing.line.price.placeholder")} value={l.unit_price} onChange={(e) => set(i, { unit_price: e.target.value })}  aria-label={t("purchasing.line.price.placeholder")}/>}
           </div>
         );
       })}
@@ -212,7 +212,7 @@ function NewPo({ onDone, locale, t }: { onDone: (id?: string) => void; locale: L
       </Field>
       <Field label={t("purchasing.new_po.expected_date.label")}><input type="date" className="field" value={expected} onChange={(e) => setExpected(e.target.value)} /></Field>
       <LineEditor lines={lines} setLines={setLines} withPrice t={t} />
-      <input className="field" placeholder={t("purchasing.new_po.notes.placeholder")} value={notes} onChange={(e) => setNotes(e.target.value)} />
+      <input className="field" placeholder={t("purchasing.new_po.notes.placeholder")} value={notes} onChange={(e) => setNotes(e.target.value)}  aria-label={t("purchasing.new_po.notes.placeholder")}/>
       <button className="btn-primary text-lg" disabled={busy || !supplierId}>{busy ? t("purchasing.new_po.saving") : t("purchasing.new_po.save_draft")}</button>
     </form>
   );
@@ -264,7 +264,7 @@ function PoDetail({ id, onClose, locale, t, poStatus }: { id: string; onClose: (
         <section className="card p-4 flex flex-wrap gap-2">
           {po.status === "draft" && <button type="button" className="btn-primary" onClick={() => act("submit")}>{t("purchasing.po_detail.submit_btn")}</button>}
           {po.status === "approved" && <button type="button" className="btn-primary" onClick={() => act("send")}>{t("purchasing.po_detail.send_to_supplier")}</button>}
-          <input className="field flex-1" placeholder={t("purchasing.po_detail.reason_placeholder")} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <input className="field flex-1" placeholder={t("purchasing.po_detail.reason_placeholder")} value={reason} onChange={(e) => setReason(e.target.value)}  aria-label={t("purchasing.po_detail.reason_placeholder")}/>
           {["draft", "pending_approval", "approved", "sent"].includes(po.status) && <button type="button" className="btn-danger" onClick={() => act("cancel", { reason })}>{t("purchasing.po_detail.cancel_btn")}</button>}
           {["sent", "partially_received"].includes(po.status) && <button type="button" className="btn-secondary" onClick={() => act("close", { reason })}>{t("purchasing.po_detail.close_btn")}</button>}
         </section>
@@ -466,12 +466,12 @@ function Suppliers({ locale, t, sup_type }: { locale: Locale; t: (key: string) =
             void qc.invalidateQueries({ queryKey: ["purchasing", "suppliers"] });
           } catch (err) { toast.show(errorMsg(err), "error"); }
         }}>
-          <input className="field col-span-2" placeholder={t("purchasing.supplier.form.name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <input className="field col-span-2" dir="rtl" lang="ar" placeholder={t("purchasing.supplier.form.name_ar")} value={form.name_ar} onChange={(e) => setForm({ ...form, name_ar: e.target.value })} />
+          <input className="field col-span-2" placeholder={t("purchasing.supplier.form.name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}  aria-label={t("purchasing.supplier.form.name")}/>
+          <input className="field col-span-2" dir="rtl" lang="ar" placeholder={t("purchasing.supplier.form.name_ar")} value={form.name_ar} onChange={(e) => setForm({ ...form, name_ar: e.target.value })}  aria-label={t("purchasing.supplier.form.name_ar")}/>
           <select className="field" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
             {Object.entries(sup_type).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
-          <input className="field" inputMode="numeric" dir="ltr" placeholder={t("purchasing.supplier.form.payment_terms")} value={form.payment_terms_days} onChange={(e) => setForm({ ...form, payment_terms_days: e.target.value })} />
+          <input className="field" inputMode="numeric" dir="ltr" placeholder={t("purchasing.supplier.form.payment_terms")} value={form.payment_terms_days} onChange={(e) => setForm({ ...form, payment_terms_days: e.target.value })}  aria-label={t("purchasing.supplier.form.payment_terms")}/>
           <button className="btn-secondary">{t("purchasing.supplier.form.add_btn")}</button>
         </form>
       )}
@@ -530,7 +530,7 @@ function SupplierDetail({ id, onClose, locale, t }: { id: string; onClose: () =>
             } catch (err) { toast.show(errorMsg(err), "error"); }
             finally { setSavingNameAr(false); }
           }}>
-            <input className="field flex-1" dir="rtl" lang="ar" placeholder={t("purchasing.supplier.form.name_ar")} value={nameAr ?? s.nameAr ?? ""} onChange={(e) => setNameAr(e.target.value)} />
+            <input className="field flex-1" dir="rtl" lang="ar" placeholder={t("purchasing.supplier.form.name_ar")} value={nameAr ?? s.nameAr ?? ""} onChange={(e) => setNameAr(e.target.value)}  aria-label={t("purchasing.supplier.form.name_ar")}/>
             <button type="submit" className="btn-secondary text-sm" disabled={nameAr === null || savingNameAr}>{t("purchasing.supplier.name_ar.save")}</button>
           </form>
         )}

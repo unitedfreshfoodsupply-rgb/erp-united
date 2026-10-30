@@ -228,7 +228,7 @@ export function ItemRow({
           {!editingRequired ? (
             <button
               onClick={() => setEditingRequired(true)}
-              className="text-sm font-bold text-united-muted underline"
+              className="inline-flex min-h-[40px] items-center text-sm font-bold text-united-muted underline hover:text-united-dark"
             >
               {t("orders.item.edit_required_btn")}
             </button>

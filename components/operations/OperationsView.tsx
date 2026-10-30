@@ -226,7 +226,7 @@ function TripView({ id, onClose }: { id: string; onClose: () => void }) {
         {trip.status === "dispatched" && can("orders.dispatch") && <button type="button" className="btn-secondary" onClick={() => act("depart")}>{t("ops.detail.en-route")}</button>}
         {["planned", "loading", "loaded"].includes(trip.status) && can("operations.trips.manage") && (
           <>
-            <input className="field flex-1 min-w-48" placeholder={t("ops.detail.cancel-placeholder")} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <input className="field flex-1 min-w-48" placeholder={t("ops.detail.cancel-placeholder")} value={reason} onChange={(e) => setReason(e.target.value)}  aria-label={t("ops.detail.cancel-placeholder")}/>
             <button type="button" className="btn-danger" onClick={() => act("cancel", { reason })}>{t("ops.detail.cancel-btn")}</button>
           </>
         )}
@@ -272,7 +272,7 @@ function DeliveryForm({ stop, onDone }: { stop: Stop; onDone: () => void }) {
                       <input key={k} className="field" dir="ltr" inputMode="decimal" aria-label={`${k} ${i.productName}`} placeholder={k === "shortage_qty" ? t("ops.dlv.shortage-ph") : k === "damaged_qty" ? t("ops.dlv.damaged-ph") : t("ops.dlv.rejected-ph")} value={l?.[k] ?? ""} onChange={(e) => set(i.id, k, e.target.value)} />
                     ))}
                   </div>
-                  {l && (l.shortage_qty || l.damaged_qty || l.rejected_qty) && <input className="field" placeholder={t("ops.dlv.reason-ph")} value={l.reason} onChange={(e) => set(i.id, "reason", e.target.value)} />}
+                  {l && (l.shortage_qty || l.damaged_qty || l.rejected_qty) && <input className="field" placeholder={t("ops.dlv.reason-ph")} value={l.reason} onChange={(e) => set(i.id, "reason", e.target.value)}  aria-label={t("ops.dlv.reason-ph")}/>}
                 </div>
               );
             })}
@@ -324,7 +324,7 @@ function Exceptions() {
             <p className="text-xs font-bold text-united-muted">{e.order ? <><span dir="ltr">{e.order.orderNumber}</span> · {e.order.customerName} · </> : null}{t("ops.exc.logged-by-prefix")} {e.createdBy}{e.ownerName ? ` · ${t("ops.exc.responsible-label")} ${e.ownerName}` : ""}{e.resolution ? ` · ${t("ops.exc.resolution-label")}: ${e.resolution} (${e.resolvedBy})` : ""}</p>
             {e.status === "open" && can("orders.approve") && (
               <div className="flex gap-2">
-                <input className="field flex-1" placeholder={t("ops.exc.resolution-label")} value={text[e.id] ?? ""} onChange={(ev) => setText({ ...text, [e.id]: ev.target.value })} />
+                <input className="field flex-1" placeholder={t("ops.exc.resolution-label")} value={text[e.id] ?? ""} onChange={(ev) => setText({ ...text, [e.id]: ev.target.value })}  aria-label={t("ops.exc.resolution-label")}/>
                 <button type="button" className="btn-secondary shrink-0" onClick={async () => {
                   try { await apiPost(`/api/operations/exceptions/${e.id}/resolve`, { resolution: text[e.id] ?? "", expected_version: e.version }); void qc.invalidateQueries({ queryKey: ["ops", "exceptions"] }); } catch (err) { fail(toast, err, t); }
                 }}>{t("ops.exc.close-btn")}</button>
@@ -366,10 +366,10 @@ function FleetView() {
           e.preventDefault();
           try { await apiPost("/api/operations/vehicles", { ...v, capacity_kg: v.capacity_kg ? Number(v.capacity_kg) : null }); setV({ code: "", plate: "", type: "truck", capacity_kg: "", refrigerated: false }); refresh(); } catch (err) { fail(toast, err, t); }
         }}>
-          <input className="field" placeholder={t("ops.fleet.code-ph")} value={v.code} onChange={(e) => setV({ ...v, code: e.target.value })} />
-          <input className="field" placeholder={t("ops.fleet.plate-ph")} value={v.plate} onChange={(e) => setV({ ...v, plate: e.target.value })} />
+          <input className="field" placeholder={t("ops.fleet.code-ph")} value={v.code} onChange={(e) => setV({ ...v, code: e.target.value })}  aria-label={t("ops.fleet.code-ph")}/>
+          <input className="field" placeholder={t("ops.fleet.plate-ph")} value={v.plate} onChange={(e) => setV({ ...v, plate: e.target.value })}  aria-label={t("ops.fleet.plate-ph")}/>
           <select className="field" value={v.type} onChange={(e) => setV({ ...v, type: e.target.value })}><option value="truck">{t("ops.veh.type.truck")}</option><option value="van">{t("ops.veh.type.van")}</option><option value="pickup">{t("ops.veh.type.pickup")}</option><option value="other">{t("ops.veh.type.other")}</option></select>
-          <input className="field" dir="ltr" inputMode="decimal" placeholder={t("ops.fleet.capacity-label")} value={v.capacity_kg} onChange={(e) => setV({ ...v, capacity_kg: e.target.value })} />
+          <input className="field" dir="ltr" inputMode="decimal" placeholder={t("ops.fleet.capacity-label")} value={v.capacity_kg} onChange={(e) => setV({ ...v, capacity_kg: e.target.value })}  aria-label={t("ops.fleet.capacity-label")}/>
           <label className="flex items-center gap-2 font-bold text-sm"><input type="checkbox" checked={v.refrigerated} onChange={(e) => setV({ ...v, refrigerated: e.target.checked })} /> {t("ops.fleet.refrigerated")}</label>
           <button className="btn-secondary">{t("ops.fleet.add-vehicle")}</button>
         </form>
@@ -388,8 +388,8 @@ function FleetView() {
           e.preventDefault();
           try { await apiPost("/api/operations/drivers", { name: d.name, phone: d.phone || null }); setD({ name: "", phone: "" }); refresh(); } catch (err) { fail(toast, err, t); }
         }}>
-          <input className="field" placeholder={t("ops.fleet.name-ph")} value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} />
-          <input className="field" dir="ltr" placeholder={t("ops.fleet.phone-ph")} value={d.phone} onChange={(e) => setD({ ...d, phone: e.target.value })} />
+          <input className="field" placeholder={t("ops.fleet.name-ph")} value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })}  aria-label={t("ops.fleet.name-ph")}/>
+          <input className="field" dir="ltr" placeholder={t("ops.fleet.phone-ph")} value={d.phone} onChange={(e) => setD({ ...d, phone: e.target.value })}  aria-label={t("ops.fleet.phone-ph")}/>
           <button className="btn-secondary col-span-2">{t("ops.fleet.add-driver")}</button>
         </form>
         <ul className="text-sm font-bold divide-y divide-united-dark/5">

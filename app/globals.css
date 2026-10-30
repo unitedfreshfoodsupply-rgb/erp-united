@@ -63,6 +63,18 @@ body {
 }
 
 /* Touch screens on the floor: never a target below 44px (Primer's coarse minimum). */
+/* On touch pointers the compact desk controls grow to that minimum too; mouse users keep
+   the denser sizes. */
+@media (pointer: coarse) {
+  .btn-sm,
+  .field-sm,
+  .chip,
+  .filter-pill,
+  .filter-pill-active,
+  .filter-pill-inactive {
+    min-height: 44px;
+  }
+}
 .tap-target {
   min-height: 44px;
 }

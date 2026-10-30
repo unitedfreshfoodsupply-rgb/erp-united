@@ -110,7 +110,7 @@ function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2">
-        <input className="field" placeholder={t("sales.placeholder.customer-search")} value={q} onChange={(e) => { setQ(e.target.value); setLimit(LIST_PAGE); }} />
+        <input className="field" placeholder={t("sales.placeholder.customer-search")} value={q} onChange={(e) => { setQ(e.target.value); setLimit(LIST_PAGE); }}  aria-label={t("sales.placeholder.customer-search")}/>
         <button type="button" onClick={() => { setInactive(!inactive); setLimit(LIST_PAGE); }} aria-pressed={inactive} className="chip">{t("ui.inactive")}</button>
       </div>
       {query.isLoading && <LoadingState />}
@@ -408,7 +408,7 @@ function GroupLegalSection({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit
       )}
       <div className="flex flex-col gap-1">
         <span className="text-xs font-extrabold text-united-muted">{t("sales.legal-entity-label")}</span>
-        <select className="field font-bold" value={legalId} onChange={(e) => setLegalId(e.target.value)}>
+        <select className="field font-bold" value={legalId} onChange={(e) => setLegalId(e.target.value)} aria-label={t("sales.legal-entity-label")}>
           <option value="">{t("sales.option.no-entity")}</option>
           {(legalEntities.data?.legalEntities ?? []).map((l) => <option key={l.id} value={l.id}>{localName(l, locale)}{l.taxRegistrationNo ? ` (TAX ${l.taxRegistrationNo})` : ` (${t("sales.option.no-tax")})`}</option>)}
         </select>
@@ -464,8 +464,8 @@ function CreditSection({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit: bo
           <Field label={t("sales.credit-terms-field")}><input className="field" inputMode="numeric" dir="ltr" value={f.terms} onChange={(e) => setF({ ...f, terms: e.target.value })} /></Field>
           <Field label={t("sales.credit-limit-field")}><input className="field" inputMode="decimal" dir="ltr" value={f.limit} onChange={(e) => setF({ ...f, limit: e.target.value })} /></Field>
           <label className="tap-target flex items-center gap-2 font-extrabold"><input type="checkbox" className="w-6 h-6" checked={f.hold} onChange={(e) => setF({ ...f, hold: e.target.checked })} />{t("sales.holding-toggle")}</label>
-          {f.hold && <input className="field" placeholder={t("sales.customer.credit-hold-reason")} value={f.holdReason} onChange={(e) => setF({ ...f, holdReason: e.target.value })} />}
-          <input className="field col-span-2" placeholder={t("sales.field.reason")} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} />
+          {f.hold && <input className="field" placeholder={t("sales.customer.credit-hold-reason")} value={f.holdReason} onChange={(e) => setF({ ...f, holdReason: e.target.value })}  aria-label={t("sales.customer.credit-hold-reason")}/>}
+          <input className="field col-span-2" placeholder={t("sales.field.reason")} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })}  aria-label={t("sales.field.reason")}/>
           <button className="btn-primary col-span-2">{t("sales.update-credit-button")}</button>
         </form>
       )}
@@ -531,7 +531,7 @@ function AddAlias({ id, onDone }: { id: string; onDone: () => void }) {
       e.preventDefault();
       try { await apiPost(`/api/sales/customers/${id}/aliases`, { alias }); setAlias(""); onDone(); } catch (err) { fail(toast, err); }
     }}>
-      <input className="field" placeholder={t("sales.placeholder.alias")} value={alias} onChange={(e) => setAlias(e.target.value)} />
+      <input className="field" placeholder={t("sales.placeholder.alias")} value={alias} onChange={(e) => setAlias(e.target.value)}  aria-label={t("sales.placeholder.alias")}/>
       <button className="btn-secondary shrink-0">{t("ui.create")}</button>
     </form>
   );
@@ -559,9 +559,9 @@ function Contacts({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit: boolean
             onSaved();
           } catch (err) { fail(toast, err); }
         }}>
-          <input className="field" placeholder={t("placeholder-contact-name")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-          <input className="field" placeholder={t("placeholder-contact-role")} value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} />
-          <input className="field" dir="ltr" placeholder={t("placeholder-contact-phone")} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+          <input className="field" placeholder={t("placeholder-contact-name")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })}  aria-label={t("placeholder-contact-name")}/>
+          <input className="field" placeholder={t("placeholder-contact-role")} value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}  aria-label={t("placeholder-contact-role")}/>
+          <input className="field" dir="ltr" placeholder={t("placeholder-contact-phone")} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })}  aria-label={t("placeholder-contact-phone")}/>
           <label className="flex items-center gap-2 font-bold"><input type="checkbox" className="w-6 h-6" checked={f.primary} onChange={(e) => setF({ ...f, primary: e.target.checked })} />{t("label-primary")}</label>
           <button className="btn-secondary col-span-2">{t("button-add-contact")}</button>
         </form>
@@ -590,7 +590,7 @@ function Unmapped({ names, loading }: { names: { customerName: string; orders: n
           </div>
           {can("sales.customers.manage") && (
             <div className="flex gap-2">
-              <select className="field font-bold" value={choice[n.customerName] ?? ""} onChange={(e) => setChoice({ ...choice, [n.customerName]: e.target.value })}>
+              <select className="field font-bold" value={choice[n.customerName] ?? ""} onChange={(e) => setChoice({ ...choice, [n.customerName]: e.target.value })} aria-label={t("sales.select.placeholder")}>
                 <option value="">{t("sales.select.placeholder")}</option>
                 {(customers.data?.customers ?? []).map((c) => <option key={c.id} value={c.id}>{localName(c, locale)}</option>)}
               </select>

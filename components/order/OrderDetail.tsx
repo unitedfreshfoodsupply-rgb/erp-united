@@ -588,13 +588,13 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                 onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
                 placeholder={t("orders.edit.notes_placeholder")}
                 className="field"
-              />
+               aria-label={t("orders.edit.notes_placeholder")}/>
               <input
                 value={editForm.reason}
                 onChange={(e) => setEditForm((f) => ({ ...f, reason: e.target.value }))}
                 placeholder={t("orders.edit.reason_placeholder")}
                 className="field"
-              />
+               aria-label={t("orders.edit.reason_placeholder")}/>
               <div className="flex gap-2">
                 <button disabled={isBusy("edit")} className="btn-primary flex-1">
                   {t("orders.edit.save")}
@@ -652,7 +652,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                 value={overrideTo}
                 onChange={(e) => setOverrideTo(e.target.value as OrderStatus)}
                 className="field"
-              >
+               aria-label={t("orders.override_choose_status")}>
                 <option value="">{t("orders.override_choose_status")}</option>
                 {ORDER_STATUSES.map((s) => (
                   <option key={s} value={s}>
@@ -665,7 +665,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                 onChange={(e) => setOverrideReason(e.target.value)}
                 placeholder={t("orders.override_reason_placeholder")}
                 className="field"
-              />
+               aria-label={t("orders.override_reason_placeholder")}/>
               <button
                 disabled={!overrideTo || !overrideReason.trim() || isBusy("override")}
                 onClick={submitOverride}

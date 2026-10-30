@@ -326,7 +326,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
             className="field"
             value={gradeBProductId}
             onChange={(e) => setGradeBProductId(e.target.value)}
-          >
+           aria-label={t("stock.grade-b-same-product")}>
             <option value="">{t("stock.grade-b-same-product")}</option>
             {products
               .filter((p) => p.stockTracked && p.unit === "KG" && p.id !== productId)
@@ -340,7 +340,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
       )}
 
       {Number(rejectedKg) > 0 && (
-        <input placeholder={t("stock.rejection-reason-placeholder")} value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} className="field" />
+        <input placeholder={t("stock.rejection-reason-placeholder")} value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} className="field"  aria-label={t("stock.rejection-reason-placeholder")}/>
       )}
 
       <div className="flex items-center justify-between rounded-xl bg-united-dark/[0.03] px-4 py-3">
@@ -377,7 +377,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         className="field"
-      />
+       aria-label={t("stock.notes-input")}/>
 
       <button type="submit" disabled={busy || !preview} className="btn-primary w-full text-lg">
         {busy ? t("stock.saving") : t("stock.record-intake")}
@@ -395,11 +395,11 @@ function ChipPicker({
   onChange,
 }: {
   label: string;
-  items: { id: string; name: string }[];
+  items: { id: string; name: string; nameAr?: string | null }[];
   value: string;
   onChange: (id: string) => void;
 }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   if (items.length > 12) {
     return (
       <label className="flex flex-col gap-1">
@@ -408,7 +408,7 @@ function ChipPicker({
           <option value="">{t("stock.choose")}</option>
           {items.map((i) => (
             <option key={i.id} value={i.id}>
-              {i.name}
+              {localName(i, locale)}
             </option>
           ))}
         </select>
@@ -427,7 +427,7 @@ function ChipPicker({
             aria-pressed={value === i.id}
             className="chip"
           >
-            {i.name}
+            {localName(i, locale)}
           </button>
         ))}
       </div>
