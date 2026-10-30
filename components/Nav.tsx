@@ -13,6 +13,7 @@ import { visibleNavLinks, homePathFor, NAV_GROUPS, type NavGroup, type NavLink }
 import { NotificationBell } from "@/components/NotificationBell";
 import { Modal } from "@/components/ui/Dialog";
 import { useLocale } from "@/lib/locale";
+import { Avatar } from "@/components/ui/Avatar";
 
 /**
  * The application shell.
@@ -182,7 +183,6 @@ export function Nav() {
   const activeHref = activeHrefFor(links, pathname);
   const activeLink = links.find((l) => l.href === activeHref);
   const activeGroup = activeLink ? NAV_GROUPS.find((g) => g.key === activeLink.group) : undefined;
-  const initials = user.name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("");
 
   return (
     <>
@@ -235,7 +235,7 @@ export function Nav() {
               aria-haspopup="menu"
               className="flex h-10 items-center gap-2 rounded-xl ps-1 pe-2 hover:bg-united-subtle"
             >
-              <span aria-hidden className="grid h-8 w-8 place-items-center rounded-full bg-united-dark text-xs font-semibold text-white">{initials}</span>
+              <Avatar name={user.name} seed={user.id} size="sm" />
               <span className="hidden sm:flex flex-col items-start leading-tight">
                 <span className="text-sm font-semibold text-united-dark">{user.name}</span>
                 <span className="text-[11px] text-united-muted">{roleLabel}</span>
