@@ -17,6 +17,7 @@ import { useReadyForLoadingAlert } from "@/lib/liveAlerts";
 import { useOperationalSettings } from "@/lib/use-operational-settings";
 import { useLocale } from "@/lib/locale/useLocale";
 import { useDialogs } from "@/components/ui/Dialog";
+import { orderCustomerName } from "@/lib/locale/names";
 
 const URGENCY_RANK = { late: 0, soon: 1, ok: 2, none: 3 } as const;
 
@@ -25,7 +26,7 @@ export function LoadBoard() {
   const ops = useOperationalSettings();
   const qc = useQueryClient();
   const toast = useToast();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [vehicle, setVehicle] = useState("");
   const [driverName, setDriverName] = useState("");
   const [crateCounts, setCrateCounts] = useState<Record<string, string>>({});
@@ -145,7 +146,7 @@ export function LoadBoard() {
             {readyToDispatch.map((o) => (
               <li key={o.id} className="flex items-center gap-2">
                 <CheckCircle2 size={20} className="shrink-0 text-united-green" aria-hidden />
-                <span className="font-bold flex-1 min-w-0 truncate">{o.customerName}</span>
+                <span className="font-bold flex-1 min-w-0 truncate">{orderCustomerName(o, locale === "en" ? "en" : "ar")}</span>
                 <input
                   type="number"
                   inputMode="numeric"

@@ -8,6 +8,7 @@ import { nextAction, rollUpQuantities, shortageSummary, stageOf } from "@/lib/or
 import { SOURCE_LABEL, SOURCE_LABEL_EN } from "@/lib/auditLabels";
 import { useOperationalSettings } from "@/lib/use-operational-settings";
 import { useLocale } from "@/lib/locale";
+import { orderCustomerName } from "@/lib/locale/names";
 
 /**
  * One order, as an operator needs to read it in a second: who it is for, when it is
@@ -48,7 +49,7 @@ export function OrderCard({ order }: { order: OrderDTO }) {
 
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-lg font-semibold text-united-dark truncate">{order.customerName}</div>
+          <div className="text-lg font-semibold text-united-dark truncate">{orderCustomerName(order, locale === "en" ? "en" : "ar")}</div>
           <div className="mt-0.5 flex items-center gap-1.5 text-sm font-medium text-united-green">
             <Clock size={14} aria-hidden />
             <span>{t("order.delivery")} {deliverySlot(order.deliveryDate, order.deliveryTime, locale === "en" ? "en" : "ar")}</span>

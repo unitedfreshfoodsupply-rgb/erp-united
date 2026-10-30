@@ -12,9 +12,12 @@ import { LiveIndicator } from "@/components/ui/LiveIndicator";
 import { todayLocalISO } from "@/lib/localDate";
 import { qty, unitLabel } from "@/lib/format";
 import { useLocale } from "@/lib/locale";
+import { localName, orderCustomerName } from "@/lib/locale/names";
 
 type ProductionRow = {
   productName: string;
+  productNameEn?: string | null;
+  productNameAr?: string | null;
   unit: string;
   required: number;
   prepared: number;
@@ -22,7 +25,7 @@ type ProductionRow = {
 };
 
 export function ProductionBoard() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const today = todayLocalISO();
   const [open, setOpen] = useState<string | null>(null);
 
@@ -113,7 +116,7 @@ export function ProductionBoard() {
               >
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xl font-extrabold text-united-dark flex items-center gap-2">
-                    {p.productName}
+                    {localName({ name: p.productNameEn ?? p.productName, nameAr: p.productNameAr }, locale === "en" ? "en" : "ar")}
                     {complete ? <CheckCircle2 size={20} className="text-united-green" aria-label={t("ui.done")} /> : <CircleDashed size={20} className="text-united-warn" aria-hidden />}
                   </span>
                   <span className="text-lg font-extrabold text-united-dark">
@@ -152,7 +155,7 @@ export function ProductionBoard() {
                         href={`/orders/${o.id}`}
                         className="flex items-center justify-between text-sm py-2 px-2 -mx-2 rounded-lg hover:bg-united-dark/5"
                       >
-                        <span className="font-bold text-united-dark">{o.customerName}</span>
+                        <span className="font-bold text-united-dark">{orderCustomerName(o, locale === "en" ? "en" : "ar")}</span>
                         <span dir="ltr" className="text-united-dark/60">
                           {qty(item.requiredQuantity)} {unitLabel(item.unit)}
                         </span>

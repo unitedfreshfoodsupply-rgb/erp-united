@@ -24,6 +24,8 @@ export type OrderDTO = {
   customerId: string | null;
   customerAccountId?: string | null;
   customerName: string;
+  /** The linked customer account's names (absent for unmapped orders). */
+  customerAccount?: { name: string; nameAr: string | null; code: string } | null;
   deliveryDate: string;
   deliveryTime: string | null;
   notes: string | null;

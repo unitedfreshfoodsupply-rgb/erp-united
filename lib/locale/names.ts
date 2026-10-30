@@ -105,3 +105,8 @@ export function namesForSave(en: string, ar: string): { name: string; name_ar: s
   const a = cleanName(ar);
   return { name: e ?? a ?? "", name_ar: a };
 }
+
+/** An order's customer in the UI language: the linked account's name, else the name as received. */
+export function orderCustomerName(order: { customerName: string; customerAccount?: LocalizedNameSource | null }, locale: NameLocale): string {
+  return order.customerAccount ? localName(order.customerAccount, locale) : order.customerName;
+}

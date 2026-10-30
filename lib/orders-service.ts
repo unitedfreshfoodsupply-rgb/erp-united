@@ -54,7 +54,9 @@ export type Actor = {
   permissions: readonly string[];
 };
 
-const ORDER_INCLUDE = { items: true } as const;
+// The linked customer account's names travel with the order so every screen can show the
+// customer in the UI language (`customerName` is the text captured when the order came in).
+const ORDER_INCLUDE = { items: true, customerAccount: { select: { name: true, nameAr: true, code: true } } } as const;
 
 /** The order actor as the inventory services take it. "SYSTEM" (an integration) is
  * only a label there: those services check permissions, never the role. */
@@ -1272,7 +1274,7 @@ export async function dailyProduction() {
 
   const byProduct = new Map<
     string,
-    { productName: string; unit: string; required: number; prepared: number; orders: Set<string> }
+    { productName: string; productId: string | null; unit: string; required: number; prepared: number; orders: Set<string> }
   >();
 
   for (const order of orders) {
@@ -1281,6 +1283,7 @@ export async function dailyProduction() {
       if (!byProduct.has(key)) {
         byProduct.set(key, {
           productName: item.productName,
+          productId: item.stockProductId ?? null,
           unit: item.unit,
           required: 0,
           prepared: 0,
@@ -1294,9 +1297,15 @@ export async function dailyProduction() {
     }
   }
 
+  // The catalogue names, so the board can show each product in the UI language
+  // (`productName` stays the name as ordered — it is also the drill-down key).
+  const ids = [...new Set([...byProduct.values()].map((v) => v.productId).filter((x): x is string => !!x))];
+  const names = new Map((ids.length ? await prisma.stockProduct.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, nameAr: true } }) : []).map((p) => [p.id, p]));
   return Array.from(byProduct.values())
     .map((v) => ({
       productName: v.productName,
+      productNameEn: (v.productId && names.get(v.productId)?.name) || null,
+      productNameAr: (v.productId && names.get(v.productId)?.nameAr) || null,
       unit: v.unit,
       required: v.required,
       prepared: v.prepared,

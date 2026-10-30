@@ -32,6 +32,7 @@ import { OrderDetailSkeleton } from "@/components/order/OrderDetailSkeleton";
 import { useOperationalSettings } from "@/lib/use-operational-settings";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
+import { orderCustomerName } from "@/lib/locale/names";
 
 // Map order source → translation key
 const SOURCE_TKEY: Record<string, string> = {
@@ -370,7 +371,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       {/* Header / operational record */}
       <div className="card p-5">
         <div className="flex items-start justify-between gap-2 mb-1">
-          <h1 className="text-2xl font-extrabold text-united-dark">{order.customerName}</h1>
+          <h1 className="text-2xl font-extrabold text-united-dark">{orderCustomerName(order, locale === "en" ? "en" : "ar")}</h1>
           <StatusBadge status={order.status} />
         </div>
         {/* What the stage actually means, not just its name. */}
