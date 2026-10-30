@@ -8,12 +8,12 @@ import { apiFetch, errorMessage } from "@/lib/api-client";
 import { ErrorState, LoadingState } from "@/components/States";
 import { todayLocalISO } from "@/lib/localDate";
 import { fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
-import Link from "next/link";
 import { useLocale } from "@/lib/locale";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { localName } from "@/lib/locale/names";
 import type { Jsonified } from "@/lib/core/json-type";
 import type { cashFlowReport, financeReport, operationsReport } from "@/lib/management/reports";
+import { ManagementSwitch } from "@/components/management/ManagementSwitch";
 
 // The report shapes as the API serialises them; the kind in the URL picks which one arrives.
 type FinanceReport = Jsonified<Awaited<ReturnType<typeof financeReport>>>;
@@ -84,13 +84,7 @@ export function ManagementView({ kind }: { kind: "finance" | "operations" | "cas
         title={kind === "finance" ? t("management.title.finance") : kind === "cash-flow" ? t("management.title.cashflow") : t("management.title.operations")}
         actions={
           kind !== "operations" && (
-            <nav aria-label={t("management.title.finance")} className="inline-flex rounded-lg border border-united-border bg-united-subtle p-0.5">
-              {([["finance", "/management", t("mgmt.finance.tab.finance")], ["cash-flow", "/management/cash-flow", t("mgmt.finance.tab.cashflow")]] as const).map(([k, href, label]) => (
-                <Link key={k} href={href} aria-current={kind === k ? "page" : undefined} className={`inline-flex min-h-[36px] items-center rounded-md px-3 text-sm ${kind === k ? "bg-white font-semibold text-united-dark shadow-card" : "font-medium text-united-muted hover:text-united-dark"}`}>
-                  {label}
-                </Link>
-              ))}
-            </nav>
+            <ManagementSwitch current={kind === "cash-flow" ? "cash-flow" : "finance"} />
           )
         }
       />

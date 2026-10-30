@@ -48,6 +48,20 @@ body {
 .u-tabs { --u-tabs-end: right; }
 [dir="rtl"] .u-tabs { --u-tabs-end: left; }
 
+/* Chart tokens (components/charts/Charts.tsx). Series and ordinal ramp validated with the
+   data-viz checker against the white card: blue/orange CVD ΔE 24.7, ordinal ramp monotone with
+   its light end at 2.1:1. Status colours (warn/danger) are never used as series. */
+.viz {
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-ord-1: #184f95;
+  --viz-ord-2: #3987e5;
+  --viz-ord-3: #86b6ef;
+  --viz-grid: #eef2ed;
+  --viz-baseline: #c3cdc2;
+  --viz-axis-text: #5b6b5d;
+}
+
 /* Touch screens on the floor: never a target below 44px (Primer's coarse minimum). */
 .tap-target {
   min-height: 44px;

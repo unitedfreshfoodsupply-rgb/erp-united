@@ -7,6 +7,9 @@ module.exports = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // Touch pointers (tablets on the floor, phones): controls grow to the 44px target there
+      // without making desk screens sparse. Use as `coarse:min-h-[44px]`.
+      screens: { coarse: { raw: "(pointer: coarse)" } },
       colors: {
         united: {
           dark: "#1F3D24", // ink — headings, primary text (12.0:1 on white)
