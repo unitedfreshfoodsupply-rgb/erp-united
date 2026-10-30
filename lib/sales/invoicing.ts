@@ -623,11 +623,31 @@ export async function customerStatement(customerId: string, from: string, to: st
 
 /** Open receivables by how overdue they are, per customer, as of a date. */
 export async function agingReport(asOf = todayLocalISO()) {
-  const invs = await prisma.salesInvoice.findMany({
-    where: { status: "issued", issueDate: { lte: asOf } },
-    select: { id: true, number: true, customerId: true, dueDate: true, total: true, customer: { select: { code: true, name: true, nameAr: true } } },
-  });
-  const credits = await openAmounts(prisma, invs.map((i) => i.id));
+  // Every read is issued up front, in four independent chains, instead of one after
+  // another (each is a round trip to a database a region away); party names come in one
+  // query per chain instead of one per party. The arithmetic below is unchanged.
+  const partyNames = (ids: string[]) =>
+    ids.length ? prisma.customer.findMany({ where: { id: { in: [...new Set(ids)] } }, select: { id: true, code: true, name: true, nameAr: true } }).then((cs) => new Map(cs.map((c) => [c.id, c]))) : Promise.resolve(new Map<string, { code: string; name: string; nameAr: string | null }>());
+  const [[invs, credits], [openingBalances, openingAllocations, openingParties], receipts, [refunds, refundParties]] = await Promise.all([
+    prisma.salesInvoice.findMany({
+      where: { status: "issued", issueDate: { lte: asOf } },
+      select: { id: true, number: true, customerId: true, dueDate: true, total: true, customer: { select: { code: true, name: true, nameAr: true } } },
+    }).then(async (invs) => [invs, await openAmounts(prisma, invs.map((i) => i.id))] as const),
+    prisma.partyOpeningBalance.findMany({ where: { partyType: "customer", date: { lte: asOf } } }).then(async (obs) => {
+      const openingIds = obs.map((o) => o.id);
+      const [allocs, parties] = await Promise.all([
+        openingIds.length ? prisma.receiptAllocation.groupBy({
+          by: ["openingBalanceId"],
+          where: { openingBalanceId: { in: openingIds }, receipt: { date: { lte: asOf }, reversal: { is: null } } },
+          _sum: { amount: true },
+        }) : Promise.resolve([]),
+        partyNames(obs.map((o) => o.partyId)),
+      ]);
+      return [obs, allocs, parties] as const;
+    }),
+    prisma.customerReceipt.findMany({ where: { date: { lte: asOf }, reversal: { is: null } }, select: { customerId: true, amount: true, allocations: { select: { amount: true } }, customer: { select: { code: true, name: true, nameAr: true } } } }),
+    prisma.customerRefund.groupBy({ by: ["customerId"], where: { date: { lte: asOf } }, _sum: { amount: true } }).then(async (fs) => [fs, await partyNames(fs.map((f) => f.customerId))] as const),
+  ]);
   type Bucket = "current" | "d1_30" | "d31_60" | "d61_90" | "d90_plus";
   const byCustomer = new Map<string, { customer: { id: string; code: string; name: string; nameAr?: string | null; nameEn?: string | null }; total: Prisma.Decimal } & Record<Bucket, Prisma.Decimal>>();
   const day = (iso: string) => Date.parse(`${iso}T00:00:00Z`) / 86_400_000;
@@ -650,16 +670,9 @@ export async function agingReport(asOf = todayLocalISO()) {
   }
   // Balances brought over at go-live age from their own due date. Receipts allocated
   // to an opening item reduce that item in aging just like an invoice allocation.
-  const openingBalances = await prisma.partyOpeningBalance.findMany({ where: { partyType: "customer", date: { lte: asOf } } });
-  const openingIds = openingBalances.map((o) => o.id);
-  const openingAllocations = openingIds.length ? await prisma.receiptAllocation.groupBy({
-    by: ["openingBalanceId"],
-    where: { openingBalanceId: { in: openingIds }, receipt: { date: { lte: asOf }, reversal: { is: null } } },
-    _sum: { amount: true },
-  }) : [];
   const openingAllocatedBy = new Map(openingAllocations.map((a) => [a.openingBalanceId!, D(a._sum.amount ?? 0)]));
   for (const o of openingBalances) {
-    const c = await prisma.customer.findUnique({ where: { id: o.partyId }, select: { code: true, name: true, nameAr: true } });
+    const c = openingParties.get(o.partyId);
     const open = o.amount.minus(openingAllocatedBy.get(o.id) ?? 0);
     if (!open.isZero()) {
       if (open.lt(0)) {
@@ -676,7 +689,6 @@ export async function agingReport(asOf = todayLocalISO()) {
     }
   }
   // Money received but not yet applied to an invoice reduces what the customer owes.
-  const receipts = await prisma.customerReceipt.findMany({ where: { date: { lte: asOf }, reversal: { is: null } }, select: { customerId: true, amount: true, allocations: { select: { amount: true } }, customer: { select: { code: true, name: true, nameAr: true } } } });
   for (const r of receipts) {
     const left = r.amount.minus(r.allocations.reduce((s, a) => s.plus(a.amount), D(0)));
     if (!left.gt(0)) continue;
@@ -685,14 +697,14 @@ export async function agingReport(asOf = todayLocalISO()) {
   }
   // Money refunded uses up the customer's credit first; anything beyond it (credit that
   // came from an opening balance in their favour) is owed again from today.
-  for (const f of await prisma.customerRefund.groupBy({ by: ["customerId"], where: { date: { lte: asOf } }, _sum: { amount: true } })) {
+  for (const f of refunds) {
     const amt = D(f._sum.amount ?? 0);
     const held = unapplied.get(f.customerId) ?? D(0);
     const used = Prisma.Decimal.min(held, amt);
     unapplied.set(f.customerId, held.minus(used));
     const rest = amt.minus(used);
     if (rest.gt(0)) {
-      const c = await prisma.customer.findUnique({ where: { id: f.customerId }, select: { code: true, name: true, nameAr: true } });
+      const c = refundParties.get(f.customerId);
       const row = byCustomer.get(f.customerId) ?? { customer: { id: f.customerId, code: c?.code ?? "", name: c?.nameAr ?? c?.name ?? "", nameAr: c?.nameAr ?? null, nameEn: c?.name ?? null }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
       row.current = row.current.plus(rest);
       row.total = row.total.plus(rest);

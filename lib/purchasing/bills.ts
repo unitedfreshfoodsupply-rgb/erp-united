@@ -881,11 +881,30 @@ export async function supplierStatement(supplierId: string, from: string, to: st
 /** Open payables by how overdue they are, per supplier, as of a date. */
 export async function apAgingReport(asOf = todayLocalISO()) {
   if (!isValidISODate(asOf)) throw new ApiError(400, "التاريخ غير صالح");
-  const bills = await prisma.supplierBill.findMany({
-    where: { status: "posted", billDate: { lte: asOf } },
-    select: { id: true, supplierId: true, dueDate: true, total: true, supplier: { select: { code: true, name: true, nameAr: true } } },
-  });
-  const debited = await debitedByBill(prisma, bills.map((b) => b.id));
+  // All reads issued up front in four independent chains, party names in one query per
+  // chain (see agingReport in lib/sales/invoicing.ts). The arithmetic below is unchanged.
+  const partyNames = (ids: string[]) =>
+    ids.length ? prisma.supplier.findMany({ where: { id: { in: [...new Set(ids)] } }, select: { id: true, code: true, name: true } }).then((ss) => new Map(ss.map((x) => [x.id, x]))) : Promise.resolve(new Map<string, { code: string; name: string }>());
+  const [[bills, debited], [openingBalances, openingAllocations, openingParties], pays, [refunds, refundParties]] = await Promise.all([
+    prisma.supplierBill.findMany({
+      where: { status: "posted", billDate: { lte: asOf } },
+      select: { id: true, supplierId: true, dueDate: true, total: true, supplier: { select: { code: true, name: true, nameAr: true } } },
+    }).then(async (bills) => [bills, await debitedByBill(prisma, bills.map((b) => b.id))] as const),
+    prisma.partyOpeningBalance.findMany({ where: { partyType: "supplier", date: { lte: asOf } } }).then(async (obs) => {
+      const openingIds = obs.map((o) => o.id);
+      const [allocs, parties] = await Promise.all([
+        openingIds.length ? prisma.paymentAllocation.groupBy({
+        by: ["openingBalanceId"],
+        where: { openingBalanceId: { in: openingIds }, payment: { date: { lte: asOf }, reversal: { is: null } } },
+        _sum: { amount: true },
+      }) : Promise.resolve([]),
+        partyNames(obs.map((o) => o.partyId)),
+      ]);
+      return [obs, allocs, parties] as const;
+    }),
+    prisma.supplierPayment.findMany({ where: { date: { lte: asOf }, reversal: { is: null } }, select: { supplierId: true, amount: true, allocations: { select: { amount: true } }, supplier: { select: { code: true, name: true, nameAr: true } } } }),
+    prisma.supplierRefund.groupBy({ by: ["supplierId"], where: { date: { lte: asOf } }, _sum: { amount: true } }).then(async (fs) => [fs, await partyNames(fs.map((f) => f.supplierId))] as const),
+  ]);
   type Bucket = "current" | "d1_30" | "d31_60" | "d61_90" | "d90_plus";
   const bySupplier = new Map<string, { supplier: { id: string; code: string; name: string }; total: Prisma.Decimal } & Record<Bucket, Prisma.Decimal>>();
   const day = (iso: string) => Date.parse(`${iso}T00:00:00Z`) / 86_400_000;
@@ -908,16 +927,9 @@ export async function apAgingReport(asOf = todayLocalISO()) {
   }
   // Balances brought over at go-live age from their own due date. Payments allocated
   // to an opening item reduce it in aging just like a bill allocation.
-  const openingBalances = await prisma.partyOpeningBalance.findMany({ where: { partyType: "supplier", date: { lte: asOf } } });
-  const openingIds = openingBalances.map((o) => o.id);
-  const openingAllocations = openingIds.length ? await prisma.paymentAllocation.groupBy({
-    by: ["openingBalanceId"],
-    where: { openingBalanceId: { in: openingIds }, payment: { date: { lte: asOf }, reversal: { is: null } } },
-    _sum: { amount: true },
-  }) : [];
   const openingAllocatedBy = new Map(openingAllocations.map((a) => [a.openingBalanceId!, D(a._sum.amount ?? 0)]));
   for (const o of openingBalances) {
-    const sp = await prisma.supplier.findUnique({ where: { id: o.partyId }, select: { code: true, name: true } });
+    const sp = openingParties.get(o.partyId);
     const open = o.amount.minus(openingAllocatedBy.get(o.id) ?? 0);
     if (!open.isZero()) {
       if (open.lt(0)) {
@@ -934,7 +946,6 @@ export async function apAgingReport(asOf = todayLocalISO()) {
     }
   }
   // Paid but not yet applied to a bill reduces what we owe.
-  const pays = await prisma.supplierPayment.findMany({ where: { date: { lte: asOf }, reversal: { is: null } }, select: { supplierId: true, amount: true, allocations: { select: { amount: true } }, supplier: { select: { code: true, name: true, nameAr: true } } } });
   for (const p of pays) {
     const left = p.amount.minus(p.allocations.reduce((s, a) => s.plus(a.amount), D(0)));
     if (!left.gt(0)) continue;
@@ -943,14 +954,14 @@ export async function apAgingReport(asOf = todayLocalISO()) {
   }
   // Money the supplier paid back uses up our credit with them first; anything beyond it is
   // owed to them again from today.
-  for (const f of await prisma.supplierRefund.groupBy({ by: ["supplierId"], where: { date: { lte: asOf } }, _sum: { amount: true } })) {
+  for (const f of refunds) {
     const amt = D(f._sum.amount ?? 0);
     const held = unapplied.get(f.supplierId) ?? D(0);
     const used = Prisma.Decimal.min(held, amt);
     unapplied.set(f.supplierId, held.minus(used));
     const rest = amt.minus(used);
     if (rest.gt(0)) {
-      const sp = await prisma.supplier.findUnique({ where: { id: f.supplierId }, select: { code: true, name: true } });
+      const sp = refundParties.get(f.supplierId);
       const row = bySupplier.get(f.supplierId) ?? { supplier: { id: f.supplierId, code: sp?.code ?? "", name: sp?.name ?? "" }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
       row.current = row.current.plus(rest);
       row.total = row.total.plus(rest);
