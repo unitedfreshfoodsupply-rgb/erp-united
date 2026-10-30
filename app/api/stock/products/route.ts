@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { jsonFor } from "@/lib/security/redact";
+import { jsonFor, jsonForGet } from "@/lib/security/redact";
 import { handleApiError } from "@/lib/rbac";
 import { requireStockActor } from "@/lib/stock-auth";
 import { createProduct, listProducts } from "@/lib/product-master-service";
@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   try {
     const viewer = await requireStockActor(req, "stock.view");
     const includeInactive = new URL(req.url).searchParams.get("all") === "1";
-    return jsonFor(viewer, { products: await listProducts({ includeInactive }) });
+    return jsonForGet(req, viewer, { products: await listProducts({ includeInactive }) });
   } catch (err) {
     return handleApiError(err, req);
   }

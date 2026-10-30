@@ -3,12 +3,13 @@ import { handleApiError } from "@/lib/rbac";
 import { requireOrderActor } from "@/lib/api-auth";
 import { getOrder, editOrder } from "@/lib/orders-service";
 import { readJson } from "@/lib/http";
+import { jsonResponse } from "@/lib/http-response";
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     await requireOrderActor(req, "orders.view");
     const order = await getOrder(params.id);
-    return NextResponse.json({ order });
+    return jsonResponse(req, { order });
   } catch (err) {
     return handleApiError(err, req);
   }

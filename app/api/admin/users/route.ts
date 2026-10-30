@@ -3,11 +3,12 @@ import { handleApiError } from "@/lib/rbac";
 import { requirePermission } from "@/lib/authz";
 import { createUser, listUsers } from "@/lib/admin-service";
 import { readJson } from "@/lib/http";
+import { jsonResponse } from "@/lib/http-response";
 
 export async function GET(req: NextRequest) {
   try {
     await requirePermission(req, "users.view");
-    return NextResponse.json({ users: await listUsers() });
+    return jsonResponse(req, { users: await listUsers() });
   } catch (err) {
     return handleApiError(err, req);
   }

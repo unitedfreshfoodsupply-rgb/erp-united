@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { jsonResponse } from "@/lib/http-response";
 
 /**
  * What stock is worth is finance information (stock.valuation.view). Quantities are
@@ -47,4 +48,9 @@ export function redactCosts<T>(data: T): T {
 /** NextResponse.json, with costs removed unless the viewer may see them. */
 export function jsonFor(viewer: Viewer, data: unknown, init?: ResponseInit) {
   return NextResponse.json(canSeeCosts(viewer) ? data : redactCosts(data), init);
+}
+
+/** jsonFor for the large, polled GET lists: same redaction, then gzip + ETag revalidation. */
+export function jsonForGet(req: Request, viewer: Viewer, data: unknown) {
+  return jsonResponse(req, canSeeCosts(viewer) ? data : redactCosts(data));
 }

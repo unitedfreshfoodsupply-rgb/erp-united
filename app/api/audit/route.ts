@@ -7,6 +7,7 @@ import type { Permission } from "@/lib/permissions";
 import { visibleAuditRows } from "@/lib/security/audit-visibility";
 import { isValidISODate } from "@/lib/dates";
 import { localizeServerMessage, requestLocale } from "@/lib/locale/server-messages";
+import { jsonResponse } from "@/lib/http-response";
 
 const MAX_PAGE = 200;
 const KNOWN_ENTITY_TYPES = new Set([
@@ -93,7 +94,7 @@ export async function GET(req: NextRequest) {
       : [];
     const itemById = new Map(items.map((i) => [i.id, i]));
 
-    return NextResponse.json({
+    return jsonResponse(req, {
       total,
       offset,
       limit,

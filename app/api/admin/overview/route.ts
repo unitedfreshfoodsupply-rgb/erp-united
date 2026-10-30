@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { handleApiError } from "@/lib/rbac";
 import { requirePermission } from "@/lib/authz";
 import { permissionMatrix, securityAuditLog, systemAccessOverview } from "@/lib/admin-service";
+import { jsonResponse } from "@/lib/http-response";
 
 /** Role/permission matrix, system access overview and the security audit trail,
  * in one round trip for the admin dashboard. */
@@ -13,7 +14,7 @@ export async function GET(req: NextRequest) {
       systemAccessOverview(),
       securityAuditLog(),
     ]);
-    return NextResponse.json({ matrix, overview, audit });
+    return jsonResponse(req, { matrix, overview, audit });
   } catch (err) {
     return handleApiError(err, req);
   }

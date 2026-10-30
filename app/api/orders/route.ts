@@ -5,6 +5,7 @@ import { createOrder, listOrders } from "@/lib/orders-service";
 import { ORDER_STATUSES, type OrderStatus } from "@/lib/types";
 import { readJson } from "@/lib/http";
 import { loggedIntegrationCall } from "@/lib/integrations/service";
+import { jsonResponse } from "@/lib/http-response";
 
 function isOrderStatus(v: string): v is OrderStatus {
   return (ORDER_STATUSES as readonly string[]).includes(v);
@@ -28,7 +29,7 @@ export async function GET(req: NextRequest) {
     // is exactly what the production totals count.
     const scope = searchParams.get("scope") === "production" ? "production" : undefined;
     const orders = await listOrders({ status, date, assignedToId, scope });
-    return NextResponse.json({ orders });
+    return jsonResponse(req, { orders });
   } catch (err) {
     return handleApiError(err, req);
   }
