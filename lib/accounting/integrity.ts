@@ -123,115 +123,126 @@ async function partyMismatches(kind: "customer" | "supplier") {
 }
 
 export async function integrityReport() {
-  const checks: Check[] = [];
-
+  // The checks are independent read-only queries: run them together (the pool caps the
+  // concurrency) instead of one after another. The result keeps the same order.
+  const checks: Check[] = await Promise.all([
   // The journal itself.
-  const [tb] = await prisma.$queryRaw<{ dr: Prisma.Decimal | null; cr: Prisma.Decimal | null }[]>`SELECT sum("debit") AS dr, sum("credit") AS cr FROM "JournalLine"`;
-  checks.push({ key: "trial_balance", label: "ميزان المراجعة متوازن", ok: D(tb?.dr).equals(D(tb?.cr)), subledger: D(tb?.dr).toFixed(2), ledger: D(tb?.cr).toFixed(2) });
-
+  (async (): Promise<Check> => {
+    const [tb] = await prisma.$queryRaw<{ dr: Prisma.Decimal | null; cr: Prisma.Decimal | null }[]>`SELECT sum("debit") AS dr, sum("credit") AS cr FROM "JournalLine"`;
+    return { key: "trial_balance", label: "ميزان المراجعة متوازن", ok: D(tb?.dr).equals(D(tb?.cr)), subledger: D(tb?.dr).toFixed(2), ledger: D(tb?.cr).toFixed(2) };
+  })(),
   // Documents that should have posted.
-  const unposted = await prisma.$queryRaw<{ kind: string; n: bigint }[]>`
-    SELECT 'sales_invoice' AS kind, count(*) AS n FROM "SalesInvoice" d WHERE d."status" = 'issued' AND NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'sales_invoice' AND e."sourceId" = d."id")
-    UNION ALL SELECT 'credit_note', count(*) FROM "CreditNote" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'credit_note' AND e."sourceId" = d."id")
-    UNION ALL SELECT 'supplier_bill', count(*) FROM "SupplierBill" d WHERE d."status" = 'posted' AND NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'supplier_bill' AND e."sourceId" = d."id")
-    UNION ALL SELECT 'debit_note', count(*) FROM "DebitNote" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'debit_note' AND e."sourceId" = d."id")
-    UNION ALL SELECT 'customer_receipt', count(*) FROM "CustomerReceipt" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'customer_receipt' AND e."sourceId" = d."id")
-    UNION ALL SELECT 'supplier_payment', count(*) FROM "SupplierPayment" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'supplier_payment' AND e."sourceId" = d."id")
-    UNION ALL SELECT 'receipt_reversal', count(*) FROM "CustomerReceiptReversal" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'receipt_reversal' AND e."sourceId" = d."id")
-    UNION ALL SELECT 'payment_reversal', count(*) FROM "SupplierPaymentReversal" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'payment_reversal' AND e."sourceId" = d."id")
-    UNION ALL SELECT 'customer_refund', count(*) FROM "CustomerRefund" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'customer_refund' AND e."sourceId" = d."id")
-    UNION ALL SELECT 'supplier_refund', count(*) FROM "SupplierRefund" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'supplier_refund' AND e."sourceId" = d."id")
-    UNION ALL SELECT 'expense', count(*) FROM "Expense" d WHERE d."status" = 'approved' AND NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'expense' AND e."sourceId" = d."id")
-    UNION ALL SELECT 'stock_movement', count(*) FROM "StockMovement" m WHERE NOT EXISTS (SELECT 1 FROM "StockValuationPosting" p WHERE p."movementId" = m."id")
-    UNION ALL SELECT 'payroll_run', count(*) FROM "PayrollRun" d WHERE d."status" IN ('posted', 'reversed') AND NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'payroll_run' AND e."sourceId" = d."id")
-    UNION ALL SELECT 'payroll_payment', count(*) FROM "PayrollPayment" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'payroll_payment' AND e."sourceId" = d."id")`;
-  const missing = unposted.filter((u) => Number(u.n) > 0).map((u) => ({ kind: u.kind, count: Number(u.n) }));
-  checks.push({ key: "unposted", label: "كل المستندات وحركات المخزون مترحّلة للحسابات", ok: missing.length === 0, count: missing.reduce((s, m) => s + m.count, 0), detail: missing });
-
+  (async (): Promise<Check> => {
+    const unposted = await prisma.$queryRaw<{ kind: string; n: bigint }[]>`
+      SELECT 'sales_invoice' AS kind, count(*) AS n FROM "SalesInvoice" d WHERE d."status" = 'issued' AND NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'sales_invoice' AND e."sourceId" = d."id")
+      UNION ALL SELECT 'credit_note', count(*) FROM "CreditNote" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'credit_note' AND e."sourceId" = d."id")
+      UNION ALL SELECT 'supplier_bill', count(*) FROM "SupplierBill" d WHERE d."status" = 'posted' AND NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'supplier_bill' AND e."sourceId" = d."id")
+      UNION ALL SELECT 'debit_note', count(*) FROM "DebitNote" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'debit_note' AND e."sourceId" = d."id")
+      UNION ALL SELECT 'customer_receipt', count(*) FROM "CustomerReceipt" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'customer_receipt' AND e."sourceId" = d."id")
+      UNION ALL SELECT 'supplier_payment', count(*) FROM "SupplierPayment" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'supplier_payment' AND e."sourceId" = d."id")
+      UNION ALL SELECT 'receipt_reversal', count(*) FROM "CustomerReceiptReversal" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'receipt_reversal' AND e."sourceId" = d."id")
+      UNION ALL SELECT 'payment_reversal', count(*) FROM "SupplierPaymentReversal" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'payment_reversal' AND e."sourceId" = d."id")
+      UNION ALL SELECT 'customer_refund', count(*) FROM "CustomerRefund" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'customer_refund' AND e."sourceId" = d."id")
+      UNION ALL SELECT 'supplier_refund', count(*) FROM "SupplierRefund" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'supplier_refund' AND e."sourceId" = d."id")
+      UNION ALL SELECT 'expense', count(*) FROM "Expense" d WHERE d."status" = 'approved' AND NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'expense' AND e."sourceId" = d."id")
+      UNION ALL SELECT 'stock_movement', count(*) FROM "StockMovement" m WHERE NOT EXISTS (SELECT 1 FROM "StockValuationPosting" p WHERE p."movementId" = m."id")
+      UNION ALL SELECT 'payroll_run', count(*) FROM "PayrollRun" d WHERE d."status" IN ('posted', 'reversed') AND NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'payroll_run' AND e."sourceId" = d."id")
+      UNION ALL SELECT 'payroll_payment', count(*) FROM "PayrollPayment" d WHERE NOT EXISTS (SELECT 1 FROM "JournalEntry" e WHERE e."sourceType" = 'payroll_payment' AND e."sourceId" = d."id")`;
+    const missing = unposted.filter((u) => Number(u.n) > 0).map((u) => ({ kind: u.kind, count: Number(u.n) }));
+    return { key: "unposted", label: "كل المستندات وحركات المخزون مترحّلة للحسابات", ok: missing.length === 0, count: missing.reduce((s, m) => s + m.count, 0), detail: missing };
+  })(),
   // Journal entries with no source document behind them (only manual entries and reversals may stand alone).
-  const [orphans] = await prisma.$queryRaw<{ n: bigint }[]>`
-    SELECT count(*) AS n FROM "JournalEntry" e WHERE
-      (e."sourceType" = 'sales_invoice' AND NOT EXISTS (SELECT 1 FROM "SalesInvoice" d WHERE d."id" = e."sourceId"))
-      OR (e."sourceType" = 'credit_note' AND NOT EXISTS (SELECT 1 FROM "CreditNote" d WHERE d."id" = e."sourceId"))
-      OR (e."sourceType" = 'supplier_bill' AND NOT EXISTS (SELECT 1 FROM "SupplierBill" d WHERE d."id" = e."sourceId"))
-      OR (e."sourceType" = 'debit_note' AND NOT EXISTS (SELECT 1 FROM "DebitNote" d WHERE d."id" = e."sourceId"))
-      OR (e."sourceType" = 'customer_receipt' AND NOT EXISTS (SELECT 1 FROM "CustomerReceipt" d WHERE d."id" = e."sourceId"))
-      OR (e."sourceType" = 'supplier_payment' AND NOT EXISTS (SELECT 1 FROM "SupplierPayment" d WHERE d."id" = e."sourceId"))
-      OR (e."sourceType" = 'receipt_reversal' AND NOT EXISTS (SELECT 1 FROM "CustomerReceiptReversal" d WHERE d."id" = e."sourceId"))
-      OR (e."sourceType" = 'payment_reversal' AND NOT EXISTS (SELECT 1 FROM "SupplierPaymentReversal" d WHERE d."id" = e."sourceId"))
-      OR (e."sourceType" = 'customer_refund' AND NOT EXISTS (SELECT 1 FROM "CustomerRefund" d WHERE d."id" = e."sourceId"))
-      OR (e."sourceType" = 'supplier_refund' AND NOT EXISTS (SELECT 1 FROM "SupplierRefund" d WHERE d."id" = e."sourceId"))
-      OR (e."sourceType" = 'expense' AND NOT EXISTS (SELECT 1 FROM "Expense" d WHERE d."id" = e."sourceId"))
-      OR (e."sourceType" = 'employee_transaction' AND NOT EXISTS (SELECT 1 FROM "EmployeeTransaction" d WHERE d."id" = e."sourceId"))
-      OR (e."sourceType" = 'opening_balance' AND NOT EXISTS (SELECT 1 FROM "PartyOpeningBalance" d WHERE d."id" = e."sourceId"))
-      OR (e."sourceType" = 'payroll_run' AND NOT EXISTS (SELECT 1 FROM "PayrollRun" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
-      OR (e."sourceType" = 'payroll_payment' AND NOT EXISTS (SELECT 1 FROM "PayrollPayment" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
-      OR (e."sourceType" = 'stock_valuation' AND NOT EXISTS (SELECT 1 FROM "StockValuationPosting" p WHERE p."entryId" = e."id") AND e."sourceId" NOT LIKE '%|%')`;
-  checks.push({ key: "traceable", label: "كل قيد له مستند مصدر", ok: Number(orphans?.n ?? 0) === 0, count: Number(orphans?.n ?? 0) });
-
+  (async (): Promise<Check> => {
+    const [orphans] = await prisma.$queryRaw<{ n: bigint }[]>`
+      SELECT count(*) AS n FROM "JournalEntry" e WHERE
+        (e."sourceType" = 'sales_invoice' AND NOT EXISTS (SELECT 1 FROM "SalesInvoice" d WHERE d."id" = e."sourceId"))
+        OR (e."sourceType" = 'credit_note' AND NOT EXISTS (SELECT 1 FROM "CreditNote" d WHERE d."id" = e."sourceId"))
+        OR (e."sourceType" = 'supplier_bill' AND NOT EXISTS (SELECT 1 FROM "SupplierBill" d WHERE d."id" = e."sourceId"))
+        OR (e."sourceType" = 'debit_note' AND NOT EXISTS (SELECT 1 FROM "DebitNote" d WHERE d."id" = e."sourceId"))
+        OR (e."sourceType" = 'customer_receipt' AND NOT EXISTS (SELECT 1 FROM "CustomerReceipt" d WHERE d."id" = e."sourceId"))
+        OR (e."sourceType" = 'supplier_payment' AND NOT EXISTS (SELECT 1 FROM "SupplierPayment" d WHERE d."id" = e."sourceId"))
+        OR (e."sourceType" = 'receipt_reversal' AND NOT EXISTS (SELECT 1 FROM "CustomerReceiptReversal" d WHERE d."id" = e."sourceId"))
+        OR (e."sourceType" = 'payment_reversal' AND NOT EXISTS (SELECT 1 FROM "SupplierPaymentReversal" d WHERE d."id" = e."sourceId"))
+        OR (e."sourceType" = 'customer_refund' AND NOT EXISTS (SELECT 1 FROM "CustomerRefund" d WHERE d."id" = e."sourceId"))
+        OR (e."sourceType" = 'supplier_refund' AND NOT EXISTS (SELECT 1 FROM "SupplierRefund" d WHERE d."id" = e."sourceId"))
+        OR (e."sourceType" = 'expense' AND NOT EXISTS (SELECT 1 FROM "Expense" d WHERE d."id" = e."sourceId"))
+        OR (e."sourceType" = 'employee_transaction' AND NOT EXISTS (SELECT 1 FROM "EmployeeTransaction" d WHERE d."id" = e."sourceId"))
+        OR (e."sourceType" = 'opening_balance' AND NOT EXISTS (SELECT 1 FROM "PartyOpeningBalance" d WHERE d."id" = e."sourceId"))
+        OR (e."sourceType" = 'payroll_run' AND NOT EXISTS (SELECT 1 FROM "PayrollRun" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
+        OR (e."sourceType" = 'payroll_payment' AND NOT EXISTS (SELECT 1 FROM "PayrollPayment" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
+        OR (e."sourceType" = 'stock_valuation' AND NOT EXISTS (SELECT 1 FROM "StockValuationPosting" p WHERE p."entryId" = e."id") AND e."sourceId" NOT LIKE '%|%')`;
+    return { key: "traceable", label: "كل قيد له مستند مصدر", ok: Number(orphans?.n ?? 0) === 0, count: Number(orphans?.n ?? 0) };
+  })(),
   // Receivables: customer documents vs the AR account, in total and per customer.
-  const arSub = await prisma.$queryRaw<{ v: Prisma.Decimal | null }[]>`
-    SELECT (SELECT coalesce(sum("total"), 0) FROM "SalesInvoice" WHERE "status" = 'issued') - (SELECT coalesce(sum("total"), 0) FROM "CreditNote")
-         - (SELECT coalesce(sum("amount"), 0) FROM "CustomerReceipt") + (SELECT coalesce(sum("amount"), 0) FROM "PartyOpeningBalance" WHERE "partyType" = 'customer')
-         + (SELECT coalesce(sum(r."amount"), 0) FROM "CustomerReceiptReversal" x JOIN "CustomerReceipt" r ON r."id" = x."receiptId")
-         + (SELECT coalesce(sum("amount"), 0) FROM "CustomerRefund") AS v`;
-  const arGl = await glBalance("ar");
-  const arParties = await partyMismatches("customer");
-  checks.push({ key: "ar", label: "أرصدة العملاء = حساب العملاء في الأستاذ", ok: D(arSub[0]?.v).equals(arGl) && arParties.length === 0, subledger: D(arSub[0]?.v).toFixed(2), ledger: arGl.toFixed(2), difference: D(arSub[0]?.v).minus(arGl).toFixed(2), detail: arParties.slice(0, 20) });
-
+  (async (): Promise<Check> => {
+    const arSub = await prisma.$queryRaw<{ v: Prisma.Decimal | null }[]>`
+      SELECT (SELECT coalesce(sum("total"), 0) FROM "SalesInvoice" WHERE "status" = 'issued') - (SELECT coalesce(sum("total"), 0) FROM "CreditNote")
+           - (SELECT coalesce(sum("amount"), 0) FROM "CustomerReceipt") + (SELECT coalesce(sum("amount"), 0) FROM "PartyOpeningBalance" WHERE "partyType" = 'customer')
+           + (SELECT coalesce(sum(r."amount"), 0) FROM "CustomerReceiptReversal" x JOIN "CustomerReceipt" r ON r."id" = x."receiptId")
+           + (SELECT coalesce(sum("amount"), 0) FROM "CustomerRefund") AS v`;
+    const [arGl, arParties] = await Promise.all([glBalance("ar"), partyMismatches("customer")]);
+    return { key: "ar", label: "أرصدة العملاء = حساب العملاء في الأستاذ", ok: D(arSub[0]?.v).equals(arGl) && arParties.length === 0, subledger: D(arSub[0]?.v).toFixed(2), ledger: arGl.toFixed(2), difference: D(arSub[0]?.v).minus(arGl).toFixed(2), detail: arParties.slice(0, 20) };
+  })(),
   // Payables.
-  const apSub = await prisma.$queryRaw<{ v: Prisma.Decimal | null }[]>`
-    SELECT (SELECT coalesce(sum("total"), 0) FROM "SupplierBill" WHERE "status" = 'posted') - (SELECT coalesce(sum("total"), 0) FROM "DebitNote")
-         - (SELECT coalesce(sum("amount"), 0) FROM "SupplierPayment") + (SELECT coalesce(sum("amount"), 0) FROM "PartyOpeningBalance" WHERE "partyType" = 'supplier')
-         + (SELECT coalesce(sum(p."amount"), 0) FROM "SupplierPaymentReversal" x JOIN "SupplierPayment" p ON p."id" = x."paymentId")
-         + (SELECT coalesce(sum("amount"), 0) FROM "SupplierRefund") AS v`;
-  const apGl = (await glBalance("ap")).negated();
-  const apParties = await partyMismatches("supplier");
-  checks.push({ key: "ap", label: "أرصدة الموردين = حساب الموردين في الأستاذ", ok: D(apSub[0]?.v).equals(apGl) && apParties.length === 0, subledger: D(apSub[0]?.v).toFixed(2), ledger: apGl.toFixed(2), difference: D(apSub[0]?.v).minus(apGl).toFixed(2), detail: apParties.slice(0, 20) });
-
+  (async (): Promise<Check> => {
+    const apSub = await prisma.$queryRaw<{ v: Prisma.Decimal | null }[]>`
+      SELECT (SELECT coalesce(sum("total"), 0) FROM "SupplierBill" WHERE "status" = 'posted') - (SELECT coalesce(sum("total"), 0) FROM "DebitNote")
+           - (SELECT coalesce(sum("amount"), 0) FROM "SupplierPayment") + (SELECT coalesce(sum("amount"), 0) FROM "PartyOpeningBalance" WHERE "partyType" = 'supplier')
+           + (SELECT coalesce(sum(p."amount"), 0) FROM "SupplierPaymentReversal" x JOIN "SupplierPayment" p ON p."id" = x."paymentId")
+           + (SELECT coalesce(sum("amount"), 0) FROM "SupplierRefund") AS v`;
+    const [apLedger, apParties] = await Promise.all([glBalance("ap"), partyMismatches("supplier")]);
+    const apGl = apLedger.negated();
+    return { key: "ap", label: "أرصدة الموردين = حساب الموردين في الأستاذ", ok: D(apSub[0]?.v).equals(apGl) && apParties.length === 0, subledger: D(apSub[0]?.v).toFixed(2), ledger: apGl.toFixed(2), difference: D(apSub[0]?.v).minus(apGl).toFixed(2), detail: apParties.slice(0, 20) };
+  })(),
   // Inventory: the stock ledger's value vs the inventory account. Each posting rounds to
   // the piastre, so a difference of a few piastres over thousands of movements is rounding.
-  const [inv] = await prisma.$queryRaw<{ v: Prisma.Decimal | null; n: bigint }[]>`SELECT sum("value") AS v, count(*) AS n FROM "StockValuationLayer"`;
-  const invGl = await glBalance("inventory");
-  const invDiff = D(inv?.v).minus(invGl);
-  const tolerance = D(Number(inv?.n ?? 0)).times("0.005");
-  checks.push({ key: "inventory", label: "قيمة المخزون = حساب المخزون في الأستاذ", ok: invDiff.abs().lessThanOrEqualTo(Prisma.Decimal.max(tolerance, D("0.01"))), subledger: D(inv?.v).toFixed(2), ledger: invGl.toFixed(2), difference: invDiff.toFixed(2) });
-
+  (async (): Promise<Check> => {
+    const [inv] = await prisma.$queryRaw<{ v: Prisma.Decimal | null; n: bigint }[]>`SELECT sum("value") AS v, count(*) AS n FROM "StockValuationLayer"`;
+    const invGl = await glBalance("inventory");
+    const invDiff = D(inv?.v).minus(invGl);
+    const tolerance = D(Number(inv?.n ?? 0)).times("0.005");
+    return { key: "inventory", label: "قيمة المخزون = حساب المخزون في الأستاذ", ok: invDiff.abs().lessThanOrEqualTo(Prisma.Decimal.max(tolerance, D("0.01"))), subledger: D(inv?.v).toFixed(2), ledger: invGl.toFixed(2), difference: invDiff.toFixed(2) };
+  })(),
   // Received but not yet billed (informational: it is normal to carry some).
-  const grni = (await glBalance("grni")).negated();
-  checks.push({ key: "grni", label: "بضاعة مستلمة لسه فواتيرها مجتش (معلومة)", ok: true, ledger: grni.toFixed(2) });
-
+  (async (): Promise<Check> => {
+    const grni = (await glBalance("grni")).negated();
+    return { key: "grni", label: "بضاعة مستلمة لسه فواتيرها مجتش (معلومة)", ok: true, ledger: grni.toFixed(2) };
+  })(),
   // Payroll: what posted runs still owe their employees (net payable less payments, reversed
   // runs and payments left out) against the net-salaries account(s) the runs posted to.
-  const [pay] = await prisma.$queryRaw<{ sub: Prisma.Decimal | null; runs: bigint }[]>`
-    SELECT (SELECT coalesce(sum(r."netPayable"), 0) FROM "PayrollRun" r WHERE r."status" = 'posted')
-         - (SELECT coalesce(sum(p."amount"), 0) FROM "PayrollPayment" p JOIN "PayrollRun" r ON r."id" = p."runId" WHERE r."status" = 'posted' AND p."reversedAt" IS NULL) AS sub,
-           (SELECT count(*) FROM "PayrollRun" r WHERE r."status" IN ('posted', 'reversed')) AS runs`;
-  const [payGl] = await prisma.$queryRaw<{ gl: Prisma.Decimal | null }[]>`
-    SELECT coalesce(sum(l."credit" - l."debit"), 0) AS gl FROM "JournalLine" l
-    WHERE l."accountId" IN (SELECT DISTINCT "netPayAccountId" FROM "PayrollRun" WHERE "netPayAccountId" IS NOT NULL)`;
-  const paySub = D(pay?.sub);
-  const payLedger = D(payGl?.gl);
-  checks.push({ key: "payroll", label: "صافي المرتبات المستحقة = حسابها في الأستاذ", ok: paySub.equals(payLedger), subledger: paySub.toFixed(2), ledger: payLedger.toFixed(2), difference: paySub.minus(payLedger).toFixed(2), count: Number(pay?.runs ?? 0) });
-
+  (async (): Promise<Check> => {
+    const [pay] = await prisma.$queryRaw<{ sub: Prisma.Decimal | null; runs: bigint }[]>`
+      SELECT (SELECT coalesce(sum(r."netPayable"), 0) FROM "PayrollRun" r WHERE r."status" = 'posted')
+           - (SELECT coalesce(sum(p."amount"), 0) FROM "PayrollPayment" p JOIN "PayrollRun" r ON r."id" = p."runId" WHERE r."status" = 'posted' AND p."reversedAt" IS NULL) AS sub,
+             (SELECT count(*) FROM "PayrollRun" r WHERE r."status" IN ('posted', 'reversed')) AS runs`;
+    const [payGl] = await prisma.$queryRaw<{ gl: Prisma.Decimal | null }[]>`
+      SELECT coalesce(sum(l."credit" - l."debit"), 0) AS gl FROM "JournalLine" l
+      WHERE l."accountId" IN (SELECT DISTINCT "netPayAccountId" FROM "PayrollRun" WHERE "netPayAccountId" IS NOT NULL)`;
+    const paySub = D(pay?.sub);
+    const payLedger = D(payGl?.gl);
+    return { key: "payroll", label: "صافي المرتبات المستحقة = حسابها في الأستاذ", ok: paySub.equals(payLedger), subledger: paySub.toFixed(2), ledger: payLedger.toFixed(2), difference: paySub.minus(payLedger).toFixed(2), count: Number(pay?.runs ?? 0) };
+  })(),
   // Waste still on the books (informational): grading sends waste to the waste location at
   // cost and it stays in inventory until a scrap document writes it off. Whether and when to
   // write it off is the accountant's policy; this shows what is waiting.
-  const waste = await prisma.$queryRaw<{ productId: string; name: string; nameAr: string | null; unit: string; qty: Prisma.Decimal; value: Prisma.Decimal }[]>`
-    SELECT m."productId", p."name", p."nameAr", p."unit", sum(m."quantity") AS qty, coalesce(sum(v."value"), 0) AS value
-    FROM "StockMovement" m
-    JOIN "StorageLocation" l ON l."id" = m."locationId"
-    JOIN "StockProduct" p ON p."id" = m."productId"
-    LEFT JOIN "StockValuationLayer" v ON v."movementId" = m."id"
-    WHERE l."type" = 'waste'
-    GROUP BY m."productId", p."name", p."nameAr", p."unit"
-    HAVING sum(m."quantity") <> 0 OR coalesce(sum(v."value"), 0) <> 0
-    ORDER BY value DESC`;
-  const wasteValue = waste.reduce((sum, w) => sum.plus(w.value), D(0));
-  checks.push({
-    key: "waste_pending", label: "هالك لسه في المخزون مستني الإعدام (معلومة)", ok: true, ledger: wasteValue.toFixed(2), count: waste.length,
-    detail: waste.slice(0, 20).map((w) => ({ productId: w.productId, name: w.name, nameAr: w.nameAr, unit: w.unit, quantity: D(w.qty).toString(), value: D(w.value).toFixed(2) })),
-  });
+  (async (): Promise<Check> => {
+    const waste = await prisma.$queryRaw<{ productId: string; name: string; nameAr: string | null; unit: string; qty: Prisma.Decimal; value: Prisma.Decimal }[]>`
+      SELECT m."productId", p."name", p."nameAr", p."unit", sum(m."quantity") AS qty, coalesce(sum(v."value"), 0) AS value
+      FROM "StockMovement" m
+      JOIN "StorageLocation" l ON l."id" = m."locationId"
+      JOIN "StockProduct" p ON p."id" = m."productId"
+      LEFT JOIN "StockValuationLayer" v ON v."movementId" = m."id"
+      WHERE l."type" = 'waste'
+      GROUP BY m."productId", p."name", p."nameAr", p."unit"
+      HAVING sum(m."quantity") <> 0 OR coalesce(sum(v."value"), 0) <> 0
+      ORDER BY value DESC`;
+    const wasteValue = waste.reduce((sum, w) => sum.plus(w.value), D(0));
+    return {
+      key: "waste_pending", label: "هالك لسه في المخزون مستني الإعدام (معلومة)", ok: true, ledger: wasteValue.toFixed(2), count: waste.length,
+      detail: waste.slice(0, 20).map((w) => ({ productId: w.productId, name: w.name, nameAr: w.nameAr, unit: w.unit, quantity: D(w.qty).toString(), value: D(w.value).toFixed(2) })),
+    };
+  })(),
+  ]);
 
   return { ok: checks.every((c) => c.ok), checkedAt: new Date().toISOString(), checks };
 }

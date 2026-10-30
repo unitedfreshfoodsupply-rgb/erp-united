@@ -37,24 +37,62 @@ function range(from?: string, to?: string) {
 export async function financeReport(opts: { from?: string; to?: string }) {
   const { from, to } = range(opts.from, opts.to);
 
+  // Every query below is independent: they run together (the pool caps concurrency at
+  // connection_limit) instead of one after another.
   // Revenue by product: invoice lines − credit note lines, net of discount, before tax.
-  const revenue = await prisma.$queryRaw<{ productId: string | null; description: string; net: Prisma.Decimal; qty: Prisma.Decimal }[]>`
+  const revenueQ = prisma.$queryRaw<{ productId: string | null; description: string; net: Prisma.Decimal; qty: Prisma.Decimal }[]>`
     SELECT l."productId", min(l."description") AS description, sum(l."net") AS net, sum(l."quantity") AS qty
     FROM "SalesInvoiceLine" l JOIN "SalesInvoice" i ON i."id" = l."invoiceId"
     WHERE i."status" = 'issued' AND i."issueDate" BETWEEN ${from} AND ${to}
     GROUP BY l."productId"`;
-  const credits = await prisma.$queryRaw<{ productId: string | null; net: Prisma.Decimal }[]>`
+  const creditsQ = prisma.$queryRaw<{ productId: string | null; net: Prisma.Decimal }[]>`
     SELECT il."productId", sum(cl."net") AS net
     FROM "CreditNoteLine" cl JOIN "CreditNote" c ON c."id" = cl."creditNoteId" JOIN "SalesInvoiceLine" il ON il."id" = cl."invoiceLineId"
     WHERE c."issueDate" BETWEEN ${from} AND ${to}
     GROUP BY il."productId"`;
   // Cost of what left (issues) less what came back (customer returns), by product.
-  const cogs = await prisma.$queryRaw<{ productId: string; cost: Prisma.Decimal }[]>`
+  const cogsQ = prisma.$queryRaw<{ productId: string; cost: Prisma.Decimal }[]>`
     SELECT v."productId", -sum(v."value") AS cost
     FROM "StockValuationLayer" v JOIN "StockMovement" m ON m."id" = v."movementId"
     WHERE m."kind" IN ('issue', 'customer_return') AND m."effectiveDate" BETWEEN ${from} AND ${to}
     GROUP BY v."productId"`;
-  const cards = new Map((await prisma.stockProduct.findMany({ select: { id: true, name: true, nameAr: true } })).map((p) => [p.id, p]));
+  const cardsQ = prisma.stockProduct.findMany({ select: { id: true, name: true, nameAr: true } });
+  // Quantity issued at an UNKNOWN cost (received without a price, sold before the
+  // supplier cost was recorded). Its COGS is zero, so the margin above is provisional
+  // for exactly this quantity — surface it instead of letting a zero-cost sale pass
+  // as confirmed actual cost.
+  const unknownCostQ = prisma.$queryRaw<{ productId: string; qty: Prisma.Decimal }[]>`
+    SELECT v."productId", sum(CASE m."kind" WHEN 'customer_return' THEN v."quantity" ELSE -v."quantity" END) AS qty
+    FROM "StockValuationLayer" v JOIN "StockMovement" m ON m."id" = v."movementId"
+    WHERE m."kind" IN ('issue', 'customer_return') AND v."costSource" = 'unknown' AND m."effectiveDate" BETWEEN ${from} AND ${to}
+    GROUP BY v."productId"`;
+  // Sales by customer.
+  const byCustomerQ = prisma.$queryRaw<{ customerId: string; name: string; nameAr: string | null; nameEn: string; net: Prisma.Decimal; invoices: bigint }[]>`
+    SELECT i."customerId", coalesce(c."nameAr", c."name") AS name, c."nameAr" AS "nameAr", c."name" AS "nameEn", sum(i."net") AS net, count(*) AS invoices
+    FROM "SalesInvoice" i JOIN "Customer" c ON c."id" = i."customerId"
+    WHERE i."status" = 'issued' AND i."issueDate" BETWEEN ${from} AND ${to}
+    GROUP BY i."customerId", c."nameAr", c."name" ORDER BY sum(i."net") DESC LIMIT 15`;
+  // Profit and loss from the journal (what has been posted).
+  const plQ = prisma.$queryRaw<{ type: string; systemKey: string | null; code: string; name: string; nameAr: string; nameEn: string; amount: Prisma.Decimal }[]>`
+    SELECT a."type", a."systemKey", a."code", a."nameAr" AS name, a."nameAr" AS "nameAr", a."name" AS "nameEn", sum(l."credit" - l."debit") AS amount
+    FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId" JOIN "Account" a ON a."id" = l."accountId"
+    WHERE a."type" IN ('revenue', 'expense') AND e."date" BETWEEN ${from} AND ${to}
+    GROUP BY a."type", a."systemKey", a."code", a."nameAr", a."name" ORDER BY a."code"`;
+
+  const [revenue, credits, cogs, cardRows, unknownCost, byCustomer, pl, valuation, ar, ap, cash, movement] = await Promise.all([
+    revenueQ, creditsQ, cogsQ, cardsQ, unknownCostQ, byCustomerQ, plQ,
+    valuationReport(),
+    agingReport(to),
+    apAgingReport(to),
+    cashPosition(),
+    prisma.$queryRaw<{ kind: string; qty: Prisma.Decimal; value: Prisma.Decimal }[]>`
+      SELECT m."kind", sum(m."quantity") AS qty, coalesce(sum(v."value"), 0) AS value
+      FROM "StockMovement" m LEFT JOIN "StockValuationLayer" v ON v."movementId" = m."id"
+      WHERE m."effectiveDate" BETWEEN ${from} AND ${to}
+      GROUP BY m."kind" ORDER BY m."kind"`,
+  ]);
+
+  const cards = new Map(cardRows.map((p) => [p.id, p]));
   const products = new Map([...cards].map(([id, p]) => [id, p.nameAr ?? p.name]));
   // `name` keeps its Arabic-first value for existing consumers (exports); nameAr/nameEn
   // let the screen show the product in the selected language.
@@ -69,47 +107,13 @@ export async function financeReport(opts: { from?: string; to?: string }) {
   for (const r of revenue) { const x = row(r.productId, r.description); x.revenue = x.revenue.plus(r.net); x.qty = x.qty.plus(r.qty); }
   for (const c of credits) { const x = row(c.productId, "—"); x.revenue = x.revenue.minus(c.net); }
   for (const c of cogs) { const x = row(c.productId, products.get(c.productId) ?? "—"); x.cost = x.cost.plus(c.cost); }
-  // Quantity issued at an UNKNOWN cost (received without a price, sold before the
-  // supplier cost was recorded). Its COGS is zero, so the margin above is provisional
-  // for exactly this quantity — surface it instead of letting a zero-cost sale pass
-  // as confirmed actual cost.
-  const unknownCost = await prisma.$queryRaw<{ productId: string; qty: Prisma.Decimal }[]>`
-    SELECT v."productId", sum(CASE m."kind" WHEN 'customer_return' THEN v."quantity" ELSE -v."quantity" END) AS qty
-    FROM "StockValuationLayer" v JOIN "StockMovement" m ON m."id" = v."movementId"
-    WHERE m."kind" IN ('issue', 'customer_return') AND v."costSource" = 'unknown' AND m."effectiveDate" BETWEEN ${from} AND ${to}
-    GROUP BY v."productId"`;
   const unknownQty = new Map(unknownCost.map((u) => [u.productId, D(u.qty)]));
   const lines = [...byProduct.entries()].map(([k, r]) => ({ product: r.name, productNameAr: r.nameAr, productNameEn: r.nameEn, quantity: r.qty.toString(), revenue: f2(r.revenue), cost: f2(r.cost), margin: f2(r.revenue.minus(r.cost)), marginPct: r.revenue.gt(0) ? r.revenue.minus(r.cost).dividedBy(r.revenue).times(100).toFixed(1) : null, costUnknownQty: f2(k.startsWith("—") ? D(0) : unknownQty.get(k) ?? D(0)) })).sort((a, b) => Number(b.revenue) - Number(a.revenue));
   const totalRevenue = [...byProduct.values()].reduce((s, r) => s.plus(r.revenue), D(0));
   const totalCost = [...byProduct.values()].reduce((s, r) => s.plus(r.cost), D(0));
 
-  // Sales by customer.
-  const byCustomer = await prisma.$queryRaw<{ customerId: string; name: string; nameAr: string | null; nameEn: string; net: Prisma.Decimal; invoices: bigint }[]>`
-    SELECT i."customerId", coalesce(c."nameAr", c."name") AS name, c."nameAr" AS "nameAr", c."name" AS "nameEn", sum(i."net") AS net, count(*) AS invoices
-    FROM "SalesInvoice" i JOIN "Customer" c ON c."id" = i."customerId"
-    WHERE i."status" = 'issued' AND i."issueDate" BETWEEN ${from} AND ${to}
-    GROUP BY i."customerId", c."nameAr", c."name" ORDER BY sum(i."net") DESC LIMIT 15`;
-
-  // Profit and loss from the journal (what has been posted).
-  const pl = await prisma.$queryRaw<{ type: string; systemKey: string | null; code: string; name: string; nameAr: string; nameEn: string; amount: Prisma.Decimal }[]>`
-    SELECT a."type", a."systemKey", a."code", a."nameAr" AS name, a."nameAr" AS "nameAr", a."name" AS "nameEn", sum(l."credit" - l."debit") AS amount
-    FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId" JOIN "Account" a ON a."id" = l."accountId"
-    WHERE a."type" IN ('revenue', 'expense') AND e."date" BETWEEN ${from} AND ${to}
-    GROUP BY a."type", a."systemKey", a."code", a."nameAr", a."name" ORDER BY a."code"`;
   const plRevenue = pl.filter((x) => x.type === "revenue").reduce((s, x) => s.plus(x.amount), D(0));
   const plExpense = pl.filter((x) => x.type === "expense").reduce((s, x) => s.minus(x.amount), D(0));
-
-  const [valuation, ar, ap, cash, movement] = await Promise.all([
-    valuationReport(),
-    agingReport(to),
-    apAgingReport(to),
-    cashPosition(),
-    prisma.$queryRaw<{ kind: string; qty: Prisma.Decimal; value: Prisma.Decimal }[]>`
-      SELECT m."kind", sum(m."quantity") AS qty, coalesce(sum(v."value"), 0) AS value
-      FROM "StockMovement" m LEFT JOIN "StockValuationLayer" v ON v."movementId" = m."id"
-      WHERE m."effectiveDate" BETWEEN ${from} AND ${to}
-      GROUP BY m."kind" ORDER BY m."kind"`,
-  ]);
 
   return {
     from, to,
