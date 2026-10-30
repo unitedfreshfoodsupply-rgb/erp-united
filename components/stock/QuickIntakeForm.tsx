@@ -350,7 +350,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
         </span>
       </div>
 
-      <button type="button" className="text-sm font-extrabold text-united-green self-start underline" onClick={() => setShowMore(!showMore)}>
+      <button type="button" className="min-h-10 text-sm font-extrabold text-united-green self-start underline" onClick={() => setShowMore(!showMore)}>
         {showMore ? t("stock.hide-details") : t("stock.more-details-btn")}
       </button>
       {showMore && (

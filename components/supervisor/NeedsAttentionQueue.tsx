@@ -85,7 +85,7 @@ export function NeedsAttentionQueue({ items }: { items: ClassifiedOrderDTO[] }) 
       </ul>
       {items.length > 4 && (
         <div className="border-t border-united-border px-5 py-2.5">
-          <button type="button" onClick={() => setExpanded((e) => !e)} aria-expanded={expanded} className="text-sm font-semibold text-united-green hover:underline">
+          <button type="button" onClick={() => setExpanded((e) => !e)} aria-expanded={expanded} className="min-h-10 px-1 text-sm font-semibold text-united-green hover:underline">
             {expanded ? t("attention.show-less") : t("attention.show-all", { count: items.length })}
           </button>
         </div>

@@ -82,7 +82,7 @@ function Invoices({ data }: { data: Overview }) {
       {data.invoices.length === 0 && <li className="card p-4 text-sm font-bold text-united-muted">{t("eta.empty-invoices")}</li>}
       {data.invoices.map((i) => (
         <li key={i.id} className="card p-3 flex flex-col gap-2">
-          <button type="button" className="flex justify-between gap-2 text-sm font-bold text-start" onClick={() => setOpen(open === i.id ? null : i.id)}>
+          <button type="button" className="flex min-h-10 items-center justify-between gap-2 text-sm font-bold text-start" onClick={() => setOpen(open === i.id ? null : i.id)}>
             <span><span dir="ltr">{i.number}</span> · {i.buyerName} · {i.issueDate}</span>
             <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(i.total)}</span><span className={`rounded-full px-2 py-0.5 text-xs ${TONE[i.etaStatus ?? ""] ?? "bg-united-dark/5 text-united-muted"}`}>{statusLabel(t, i)}</span></span>
           </button>
@@ -103,7 +103,7 @@ function CreditNotes({ data }: { data: Overview }) {
       {rows.length === 0 && <li className="card p-4 text-sm font-bold text-united-muted">{t("eta.empty-credit-notes")}</li>}
       {rows.map((c) => (
         <li key={c.id} className="card p-3 flex flex-col gap-2">
-          <button type="button" className="flex justify-between gap-2 text-sm font-bold text-start" onClick={() => setOpen(open === c.id ? null : c.id)}>
+          <button type="button" className="flex min-h-10 items-center justify-between gap-2 text-sm font-bold text-start" onClick={() => setOpen(open === c.id ? null : c.id)}>
             <span><span dir="ltr">{c.number}</span> · {t("eta.credit-note-on")} <span dir="ltr">{c.invoiceNumber}</span> · {c.buyerName} · {c.issueDate}</span>
             <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(c.total)}</span><span className={`rounded-full px-2 py-0.5 text-xs ${TONE[c.etaStatus ?? ""] ?? "bg-united-dark/5 text-united-muted"}`}>{statusLabel(t, c)}</span></span>
           </button>

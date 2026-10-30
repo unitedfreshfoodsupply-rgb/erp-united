@@ -158,7 +158,7 @@ export function StockDashboard() {
           <section className="card p-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-extrabold text-united-dark">{t("stock.last-movements-title")}</h2>
-              <Link href="/stock/ledger" className="text-sm font-extrabold text-united-green">
+              <Link href="/stock/ledger" className="inline-flex min-h-10 items-center text-sm font-extrabold text-united-green">
                 {t("stock.full-ledger-link")}
               </Link>
             </div>

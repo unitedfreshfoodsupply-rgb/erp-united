@@ -22,6 +22,7 @@ import { useNewOrderAlert, useAttentionAlert, useStalledAlert } from "@/lib/live
 import { useOperationalSettings } from "@/lib/use-operational-settings";
 import { Search } from "lucide-react";
 import { useLocale } from "@/lib/locale";
+import { SkeletonLine } from "@/components/Skeleton";
 
 type QuickFilter = "all" | "attention" | "waiting" | "stalled" | "cancelled";
 
@@ -131,6 +132,20 @@ export function SupervisorBoard() {
         </div>
       </div>
 
+      {/* Same footprint as the funnel and health banner below, so the toolbar and the
+          list do not jump down when the first poll lands. */}
+      {isLoading && (
+        <div aria-hidden>
+          <div className="mt-4 grid grid-cols-4 sm:grid-cols-7 gap-2">
+            {Array.from({ length: 7 }).map((_, i) => <SkeletonLine key={i} className="h-[84px] lg:h-[69px] rounded-2xl" />)}
+          </div>
+          <div className="mt-5 flex flex-col gap-3">
+            <SkeletonLine className="h-[150px] sm:h-[98px] lg:h-[78px] rounded-2xl" />
+            <SkeletonLine className="h-40 rounded-2xl" />
+          </div>
+        </div>
+      )}
+
       {!isLoading && !isError && (
         <div className="mt-4">
           <PipelineFunnel
@@ -172,6 +187,7 @@ export function SupervisorBoard() {
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value as typeof sort)}
+          aria-label={t("supervisor.sort-label")}
           className="field field-sm sm:w-44"
         >
           <option value="">{t("supervisor.sort-label")}</option>

@@ -47,7 +47,7 @@ function activeHrefFor(links: NavLink[], pathname: string | null) {
 function Brand({ href, compact = false }: { href: string; compact?: boolean }) {
   return (
     <Link href={href} className="flex items-center gap-2.5 shrink-0 rounded-lg" aria-label="UNITED">
-      <Image src="/brand/united-mark.png" alt="" width={34} height={34} className="shrink-0" priority />
+      <Image src="/brand/united-mark.webp" alt="" width={34} height={34} className="shrink-0" priority />
       {!compact && (
         <span className="flex flex-col leading-none" dir="ltr">
           <span className="font-bold tracking-wide text-united-dark">UNITED</span>
@@ -99,7 +99,7 @@ function GroupedLinks({ links, activeHref, onNavigate }: { links: NavLink[]; act
 }
 
 export function Nav() {
-  const { data } = useSession();
+  const { data, isLoading } = useSession();
   const { permissions } = usePermissions();
   const { t, locale, toggleLocale } = useLocale();
   const pathname = usePathname();
@@ -148,7 +148,9 @@ export function Nav() {
     }
   }
 
-  if (!user) return null;
+  // Hold the bar's height while the session loads, so the page does not drop by a bar's
+  // height once it arrives (it was most of the layout shift on every screen).
+  if (!user) return isLoading ? <div aria-hidden className="sticky top-0 z-20 h-14 box-content border-b border-united-border bg-white/95" /> : null;
 
   // Links come from the shared NAV_LINKS definition filtered by effective permissions,
   // so the shell can never offer a module the server would refuse.
