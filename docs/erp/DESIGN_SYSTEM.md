@@ -50,6 +50,7 @@ Identity: the existing UNITED logo and green family are kept. Every in-app brand
 | `public/brand/united-mark.png` (512 px, transparent) | the "U" mark | sidebar / top bar (34 px), print headers beside the "UNITED · Fruits & Vegetables" text, browser tab (`app/icon.png`, 256 px) |
 | `public/brand/united-lockup.png` (321×333, transparent) | mark + UNITED + "Fruits & Vegetables" (the tagline is left out: it would be ≈7 px at login size) | login (160 px wide) |
 | `public/logo-united.png` | the full original, untouched | source only |
+| `public/brand/united-mark.webp` (256 px), `united-lockup.webp` | WebP copies of the two crops above (quality 90; 17 KB and 30 KB instead of 178 KB and 159 KB) | what the app actually serves — the PNGs stay as the editable crops |
 
 The lockup's dark wordmark is for light surfaces; the mark reads on light and dark. The earlier mark was an opaque crop with the wordmark cut off along its bottom edge; it was replaced by the clean crop (29 Oct).
 

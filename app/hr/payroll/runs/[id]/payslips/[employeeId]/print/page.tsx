@@ -63,7 +63,7 @@ export default async function PayslipPrint({ params, searchParams }: { params: {
       {run.status === "reversed" && <div className="mb-3 rounded border-2 border-united-danger p-2 text-center font-extrabold text-united-danger">{L("المسير ده اتعكس — القسيمة دي ملغية", "This run was reversed — this payslip is void")}</div>}
       <header className="flex items-start justify-between gap-6 pb-4 border-b-4 border-united-dark">
         <div className="flex items-start gap-3">
-          <Image src="/brand/united-mark.png" alt="" width={48} height={48} className="shrink-0" />
+          <Image src="/brand/united-mark.webp" alt="" width={48} height={48} className="shrink-0" />
           <div>
             <div className="text-xl font-extrabold tracking-wide">UNITED</div>
             {company && <div className="text-xs text-united-dark/70">{company.legalName}</div>}
