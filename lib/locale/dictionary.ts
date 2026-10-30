@@ -991,6 +991,7 @@ const orders = {
   "orders.detail": { ar: "تفاصيل الأوردر", en: "Order Details" },
   "orders.order-number": { ar: "رقم الأوردر", en: "Order No." },
   "orders.customer": { ar: "العميل", en: "Customer" },
+  "orders.delivery-time-label": { ar: "ميعاد التوصيل", en: "Delivery time" },
   "orders.delivery-date": { ar: "تاريخ التوصيل", en: "Delivery Date" },
   "orders.status": { ar: "الحالة", en: "Status" },
   "orders.items": { ar: "الأصناف", en: "Items" },

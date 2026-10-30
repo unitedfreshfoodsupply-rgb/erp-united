@@ -388,17 +388,17 @@ function Journals() {
           <summary className="font-extrabold cursor-pointer">{t("accounting.button.manual-journal")}</summary>
           <div className="flex flex-col gap-2 mt-2">
             <div className="grid grid-cols-2 gap-2">
-              <input type="date" className="field" value={m.date} onChange={(e) => setM({ ...m, date: e.target.value })} />
+              <input type="date" className="field" aria-label={t("accounting.form.date")} value={m.date} onChange={(e) => setM({ ...m, date: e.target.value })} />
               <input className="field" placeholder={t("accounting.description")} value={m.description} onChange={(e) => setM({ ...m, description: e.target.value })}  aria-label={t("accounting.description")}/>
             </div>
             {m.lines.map((l, i) => (
               <div key={i} className="grid grid-cols-[1fr_6rem_6rem] gap-2">
-                <select className="field" value={l.account_id} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, account_id: e.target.value } : x)) })}>
+                <select className="field" aria-label={t("accounting.account-select")} value={l.account_id} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, account_id: e.target.value } : x)) })}>
                   <option value="">{t("accounting.account-select")}</option>
                   {accounts.data?.accounts.filter((a) => a.postable).map((a) => <option key={a.id} value={a.id}>{a.code} · {localName(a, locale)}</option>)}
                 </select>
-                <input className="field" dir="ltr" placeholder={t("accounting.debit-placeholder")} value={l.debit} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, debit: e.target.value } : x)) })} />
-                <input className="field" dir="ltr" placeholder={t("accounting.credit-placeholder")} value={l.credit} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, credit: e.target.value } : x)) })} />
+                <input className="field" dir="ltr" placeholder={t("accounting.debit-placeholder")} aria-label={t("accounting.debit-placeholder")} value={l.debit} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, debit: e.target.value } : x)) })} />
+                <input className="field" dir="ltr" placeholder={t("accounting.credit-placeholder")} aria-label={t("accounting.credit-placeholder")} value={l.credit} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, credit: e.target.value } : x)) })} />
               </div>
             ))}
             <div className="flex gap-2">

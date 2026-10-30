@@ -1291,6 +1291,7 @@ export async function dailyProduction() {
         });
       }
       const agg = byProduct.get(key)!;
+      agg.productId ??= item.stockProductId ?? null; // any linked line names the product
       agg.required += item.requiredQuantity;
       agg.prepared += item.preparedQuantity ?? 0;
       agg.orders.add(order.id);

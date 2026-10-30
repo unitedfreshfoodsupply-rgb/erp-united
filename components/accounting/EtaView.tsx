@@ -234,7 +234,7 @@ function CodeRow({ label, value, placeholder, manage, onSave }: { label: string;
   return (
     <li className="flex items-center justify-between gap-2 text-sm font-bold">
       <span>{value ? "✓" : "✗"} {label}</span>
-      <span className="flex gap-1"><input className="field w-32" dir="ltr" placeholder={placeholder} disabled={!manage} value={v} onChange={(e) => setV(e.target.value)} />{manage && <button type="button" className="btn-secondary" disabled={!v.trim() || v === value} onClick={() => onSave(v.trim())}>{t("orders.edit.save")}</button>}</span>
+      <span className="flex gap-1"><input className="field w-32" dir="ltr" placeholder={placeholder} aria-label={`${label} — ${placeholder}`} disabled={!manage} value={v} onChange={(e) => setV(e.target.value)} />{manage && <button type="button" className="btn-secondary" disabled={!v.trim() || v === value} onClick={() => onSave(v.trim())}>{t("orders.edit.save")}</button>}</span>
     </li>
   );
 }

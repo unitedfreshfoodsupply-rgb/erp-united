@@ -245,8 +245,8 @@ export function CustomerStatement({ customerId }: { customerId: string }) {
     <section className="card p-4 flex flex-col gap-2">
       <h3 className="font-extrabold">{t("sales.invoice.statement_title")}</h3>
       <div className="grid grid-cols-2 gap-2">
-        <input type="date" className="field" value={from} onChange={(e) => setFrom(e.target.value)} />
-        <input type="date" className="field" value={to} onChange={(e) => setTo(e.target.value)} />
+        <input type="date" className="field" aria-label={t("accounting.date-from")} value={from} onChange={(e) => setFrom(e.target.value)} />
+        <input type="date" className="field" aria-label={t("accounting.date-to")} value={to} onChange={(e) => setTo(e.target.value)} />
       </div>
       {q.data && (
         <div className="overflow-x-auto">

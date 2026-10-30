@@ -123,8 +123,8 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
       {catalog.data && catalog.data.products.length === 0 && <p className="text-sm text-united-warn">{t("create.no-products")}</p>}
       {accountId && <p className="text-sm text-united-muted">{t("create.account-info")}</p>}
       <div className="flex gap-3">
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="field flex-1" />
-        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="field flex-1" />
+        <input type="date" aria-label={t("orders.delivery-date")} value={date} onChange={(e) => setDate(e.target.value)} className="field flex-1" />
+        <input type="time" aria-label={t("orders.delivery-time-label")} value={time} onChange={(e) => setTime(e.target.value)} className="field flex-1" />
       </div>
       <input
         placeholder={t("create.notes-placeholder")}
