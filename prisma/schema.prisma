@@ -547,6 +547,8 @@ model StockMovement {
   @@index([intakeId])
   @@index([kind])
   @@index([lotId])
+  @@index([locationId])
+  @@index([warehouseId])
 }
 
 // ---------------------------------------------------------------------------
@@ -1503,6 +1505,7 @@ model CreditNoteLine {
   invoiceLine SalesInvoiceLine @relation(fields: [invoiceLineId], references: [id], onDelete: Restrict)
 
   @@index([invoiceLineId])
+  @@index([creditNoteId])
 }
 
 // ---------------------------------------------------------------------------
@@ -1836,6 +1839,7 @@ model DebitNoteLine {
   billLine  SupplierBillLine @relation(fields: [billLineId], references: [id], onDelete: Restrict)
 
   @@index([billLineId])
+  @@index([debitNoteId])
 }
 
 // ---------------------------------------------------------------------------
@@ -1942,6 +1946,7 @@ model DeliveryLine {
   orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
 
   @@unique([stopId, orderItemId])
+  @@index([orderItemId])
 }
 
 /// One place for what went wrong on the floor or the road: shortage, damage, customer
@@ -2161,6 +2166,7 @@ model ReceiptAllocation {
 
   @@index([invoiceId])
   @@index([openingBalanceId])
+  @@index([receiptId])
 }
 
 model SupplierPayment {
@@ -2219,6 +2225,7 @@ model PaymentAllocation {
 
   @@index([billId])
   @@index([openingBalanceId])
+  @@index([paymentId])
 }
 
 /// A bank (or cash) account matched against a statement up to a date.
@@ -2294,6 +2301,8 @@ model Employee {
   compensations      EmployeeCompensation[]
   payslips           PayrollRunEmployee[]
   payrollAdjustments PayrollAdjustment[]
+
+  @@index([departmentId])
 }
 
 /// Effective-dated employment record (docs/erp/HR_PAYROLL_GAP_AUDIT.md §3.2). Append-only:
@@ -2944,6 +2953,7 @@ model PayrollRunEmployee {
   paymentLines PayrollPaymentLine[]
 
   @@unique([runId, employeeId])
+  @@index([employeeId])
 }
 
 model PayrollRunLine {
