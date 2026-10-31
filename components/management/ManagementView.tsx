@@ -137,11 +137,14 @@ function Finance({ r, t, kinds }: { r: FinanceReport; t: (k: string) => string; 
 function CashFlow({ r, t }: { r: CashFlowReport; t: (k: string) => string }) {
   const { locale } = useLocale();
   const lineLabel = (l: CashFlowReport["sections"][string]["lines"][number]) =>
-    l.kind === "net_income" ? t("mgmt.cf.row.net_income") : t("mgmt.cf.row.change_in").replace("{}", `${l.accountCode ?? ""} ${localName({ name: l.accountName ?? l.label, nameAr: l.accountNameAr }, locale)}`.trim());
+    l.kind === "net_income" ? t("mgmt.cf.row.net_income") : `${t("mgmt.cf.row.change_in").replace("{}", `${l.accountCode ?? ""} ${localName({ name: l.accountName ?? l.label, nameAr: l.accountNameAr }, locale)}`.trim())}${l.unclassified ? ` — ${t("mgmt.cf.unclassified-tag")}` : ""}`;
   const cashName = (a: CashFlowReport["cashAccounts"][number]) => localName(a, locale);
   const sectionLabels: Record<string, string> = { operating: t("mgmt.cf.section.operating"), investing: t("mgmt.cf.section.investing"), financing: t("mgmt.cf.section.financing") };
   return (
     <>
+      {r.unclassified.length > 0 && (
+        <p role="note" className="card p-3 text-sm font-bold text-united-warn">{t("mgmt.cf.unclassified-note").replace("{}", r.unclassified.map((u) => `${u.code} ${localName(u, locale)}`).join("، "))}</p>
+      )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Tile label={t("mgmt.cf.tile.op_total")} value={fmtMoney(r.sections.operating.total)} tone={Number(r.sections.operating.total) >= 0 ? "good" : "bad"} />
         <Tile label={t("mgmt.cf.tile.inv_total")} value={fmtMoney(r.sections.investing.total)} tone={Number(r.sections.investing.total) >= 0 ? "good" : "bad"} />

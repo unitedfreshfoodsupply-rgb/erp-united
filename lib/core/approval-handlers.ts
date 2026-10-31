@@ -16,6 +16,7 @@ import { applyCorrectionDecision } from "@/lib/hr/attendance";
 import { applyLeaveDecision } from "@/lib/hr/leave";
 import { applyCompensationDecision } from "@/lib/hr/compensation";
 import { applyRunDecision } from "@/lib/hr/payroll";
+import { applyTransferDecision } from "@/lib/accounting/treasury";
 
 /**
  * What each approval type DOES once decided. Kept apart from the engine core so the
@@ -88,6 +89,11 @@ const HANDLERS: Record<ApprovalType, Handler> = {
     // Finance accepts the risk for this one order; it may then start preparation.
     onApproved: (tx, req, decider, comment) => applyCreditDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyCreditDecision(tx, req.entityId, false, decider, comment),
+  },
+  "accounting.cash_transfer": {
+    // Approved: posted, by someone other than whoever recorded it. Rejected: nothing moves.
+    onApproved: (tx, req, decider) => applyTransferDecision(tx, req.entityId, true, decider),
+    onRejected: (tx, req, decider) => applyTransferDecision(tx, req.entityId, false, decider),
   },
 };
 

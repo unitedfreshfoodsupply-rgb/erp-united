@@ -111,7 +111,7 @@ async function resolveDeductions(
     const account = await tx.account.findUnique({ where: { code } });
     const wanted = (DEDUCTION_TYPE[side] as Record<string, string>)[d.kind];
     if (!account || !account.active || !account.postable) throw new ApiError(400, `حساب ${DEDUCTION_LABEL[d.kind]} (${code}) مش موجود أو موقوف أو حساب رئيسي — راجع الإعدادات`);
-    if (account.type !== wanted || controlAccountMovedBy(account.systemKey) || (await tx.cashAccount.findFirst({ where: { accountId: account.id } }))) {
+    if (account.type !== wanted || controlAccountMovedBy(account.systemKey, account.controlledBy) || (await tx.cashAccount.findFirst({ where: { accountId: account.id } }))) {
       throw new ApiError(400, `حساب ${DEDUCTION_LABEL[d.kind]} (${code}) مش مناسب — راجع الإعدادات`);
     }
     if (d.kind === "write_off") {

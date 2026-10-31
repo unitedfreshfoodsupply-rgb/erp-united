@@ -61,6 +61,11 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `accounting.receipts.manage` — تحصيل من العملاء | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | `accounting.payments.manage` — سداد للموردين | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | `accounting.periods.close` — قفل الفترات المحاسبية | ✓ |  |  |  |  |  | ✓ |  |  |
+| `accounting.periods.reopen` — إعادة فتح الفترات والسنوات | ✓ |  |  |  |  |  |  |  |  |
+| `accounting.journals.approve` — اعتماد القيود اليدوية | ✓ |  |  |  |  |  | ✓ |  |  |
+| `accounting.opening.approve` — اعتماد الأرصدة الافتتاحية | ✓ |  |  |  |  |  |  |  |  |
+| `assets.view` — عرض الأصول الثابتة | ✓ |  |  |  |  |  | ✓ |  |  |
+| `assets.manage` — إدارة الأصول الثابتة | ✓ |  |  |  |  |  | ✓ |  |  |
 | `accounting.eta.view` — متابعة الفاتورة الإلكترونية | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | `accounting.eta.manage` — إرسال الفاتورة الإلكترونية | ✓ |  |  |  |  |  | ✓ |  |  |
 | `hr.employees.manage` — إدارة الموظفين | ✓ |  |  |  |  |  | ✓ |  |  |
@@ -125,10 +130,14 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | Method | Path | Gate | SUPER_ADMIN | SUPERVISOR | STOCK_CONTROLLER | PREPARER | LOADER | SALES | ACCOUNTANT | PURCHASER | ACCOUNTING_CLERK |
 |---|---|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | GET | `/api/accounting/accounts/[id]/ledger` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| PATCH | `/api/accounting/accounts/[id]` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/accounts` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/accounts` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/balance-sheet` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/cancelled-report` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| PATCH | `/api/accounting/cash-accounts/[id]` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/cash-accounts` | any of `accounting.view`, `accounting.receipts.manage`, `accounting.payments.manage`, `hr.expenses.submit`, `hr.advances.manage`, `hr.payroll.pay` | ✓ | ✓ |  |  |  |  | ✓ |  | ✓ |
+| POST | `/api/accounting/cash-accounts` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/cash` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/customer-refunds` | any of `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/customer-refunds` | `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
@@ -161,6 +170,9 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/accounting/supplier-refunds` | `accounting.receipts.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | GET | `/api/accounting/suppliers/[id]/open-bills` | any of `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/sync` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/transfers/[id]/reverse` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/transfers` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/transfers` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/trial-balance` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/vat-summary/export` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/vat-summary` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |

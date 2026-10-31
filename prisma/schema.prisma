@@ -1989,20 +1989,25 @@ model OperationalException {
 // ---------------------------------------------------------------------------
 
 model Account {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
-  nameAr    String
+  id               String   @id @default(cuid())
+  code             String   @unique
+  name             String
+  nameAr           String
   /// asset | liability | equity | revenue | expense
-  type      String
-  parentId  String?
+  type             String
+  parentId         String?
   /// Header accounts group others and take no postings.
-  postable  Boolean  @default(true)
+  postable         Boolean  @default(true)
   /// Stable key for accounts the system posts to (ar, ap, inventory, …).
-  systemKey String?  @unique
-  active    Boolean  @default(true)
-  version   Int      @default(1)
-  createdAt DateTime @default(now())
+  systemKey        String?  @unique
+  active           Boolean  @default(true)
+  version          Int      @default(1)
+  createdAt        DateTime @default(now())
+  /// operating | investing | financing — the cash-flow section a balance change falls in.
+  /// NULL on a postable account = not classified yet (reported under operating, flagged).
+  cashFlowCategory String?
+  /// fixed_assets — the subledger that alone moves this account (no manual journals).
+  controlledBy     String?
 
   parent       Account?      @relation("AccountTree", fields: [parentId], references: [id], onDelete: Restrict)
   children     Account[]     @relation("AccountTree")
@@ -2011,6 +2016,7 @@ model Account {
 
   receiptDeductions ReceiptDeduction[]
   paymentDeductions PaymentDeduction[]
+  transferFees      CashTransfer[]
   billServiceLines  SupplierBillServiceLine[]
 
   payComponentsExpense   PayComponent[] @relation("PayComponentExpense")
@@ -2059,6 +2065,9 @@ model JournalEntry {
 
   valuationPostings StockValuationPosting[]
 
+  cashTransfer         CashTransfer? @relation("CashTransferEntry")
+  cashTransferReversal CashTransfer? @relation("CashTransferReversal")
+
   @@index([date])
   @@index([sourceType, sourceId])
 }
@@ -2086,17 +2095,23 @@ model JournalLine {
 }
 
 model CashAccount {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
-  nameAr    String?
+  id            String   @id @default(cuid())
+  code          String   @unique
+  name          String
+  nameAr        String?
   /// cash | bank
-  type      String
-  accountId String
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
+  type          String
+  accountId     String   @unique
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  bankName      String?
+  accountNumber String?
+  notes         String?
+  version       Int      @default(1)
 
   account         Account              @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  transfersOut    CashTransfer[]       @relation("TransferFrom")
+  transfersIn     CashTransfer[]       @relation("TransferTo")
   receipts        CustomerReceipt[]
   payments        SupplierPayment[]
   customerRefunds CustomerRefund[]
@@ -3454,4 +3469,46 @@ model EtaDocumentEvent {
   etaDocument EtaDocument @relation(fields: [etaDocumentId], references: [id], onDelete: Restrict)
 
   @@index([etaDocumentId, createdAt])
+}
+
+/// A transfer between two cash boxes / bank accounts: Dr destination, Cr source (a bank fee,
+/// if any, Dr the fee account, Cr source). Above the approval threshold it waits for a second
+/// person and posts on approval. Permanent; a posted transfer is undone by one reversal.
+model CashTransfer {
+  id                String    @id @default(cuid())
+  /// CT-YYYY-#####
+  number            String    @unique
+  date              String
+  fromCashAccountId String
+  toCashAccountId   String
+  amount            Decimal   @db.Decimal(18, 2)
+  fee               Decimal   @default(0) @db.Decimal(18, 2)
+  feeAccountId      String?
+  reference         String?
+  notes             String?
+  /// pending_approval | posted | rejected
+  status            String
+  entryId           String?   @unique
+  idempotencyKey    String?   @unique
+  requestHash       String?
+  createdById       String?
+  createdBy         String
+  createdAt         DateTime  @default(now())
+  decidedBy         String?
+  decidedAt         DateTime?
+  reversedAt        DateTime?
+  reversedBy        String?
+  reversalReason    String?
+  reversalEntryId   String?   @unique
+  version           Int       @default(1)
+
+  from          CashAccount   @relation("TransferFrom", fields: [fromCashAccountId], references: [id], onDelete: Restrict)
+  to            CashAccount   @relation("TransferTo", fields: [toCashAccountId], references: [id], onDelete: Restrict)
+  feeAccount    Account?      @relation(fields: [feeAccountId], references: [id], onDelete: Restrict)
+  entry         JournalEntry? @relation("CashTransferEntry", fields: [entryId], references: [id], onDelete: Restrict)
+  reversalEntry JournalEntry? @relation("CashTransferReversal", fields: [reversalEntryId], references: [id], onDelete: Restrict)
+
+  @@index([date])
+  @@index([fromCashAccountId])
+  @@index([toCashAccountId])
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CashAccountSelect } from "@/components/accounting/CashAccountSelect";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookCheck, Download, Landmark, Undo2, Wallet } from "lucide-react";
 import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
@@ -145,7 +146,7 @@ export function PaymentsPanel({ run }: { run: PostingRun }) {
       {canPay && (
         <div className="grid grid-cols-2 gap-3 border-b border-united-border px-5 py-4 sm:grid-cols-4">
           <Field label={t("pay.payment_date")}><input type="date" className="field" max={todayLocalISO()} value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
-          <Field label={t("accounting.form.account.label")}><select className="field" value={f.cash_account_id} onChange={(e) => setF({ ...f, cash_account_id: e.target.value })}><option value="bank_main">{t("accounting.form.account.bank")}</option><option value="cash_main">{t("accounting.form.account.treasury")}</option></select></Field>
+          <Field label={t("accounting.form.account.label")}><CashAccountSelect value={f.cash_account_id} onChange={(id) => setF({ ...f, cash_account_id: id })} /></Field>
           <Field label={t("accounting.form.method")}><select className="field" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}>{METHODS.map((m) => <option key={m} value={m}>{t(`accounting.method.${m.replace("_", "-")}`)}</option>)}</select></Field>
           <Field label={t("accounting.form.reference")}><input className="field" dir="ltr" value={f.reference} onChange={(e) => setF({ ...f, reference: e.target.value })} /></Field>
         </div>

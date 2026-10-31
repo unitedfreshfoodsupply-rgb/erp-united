@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { CashAccountSelect } from "@/components/accounting/CashAccountSelect";
 import { systemText } from "@/lib/locale/system-text";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -150,10 +151,7 @@ function Expenses() {
             </Field>
           ) : (
             <Field label={t("hr.label.cash_register")} required>
-              <select className="field" value={f.cash_account_id} onChange={(e) => setF({ ...f, cash_account_id: e.target.value })}>
-                <option value="cash_main">{t("hr.treasury.main")}</option>
-                <option value="bank_main">{t("hr.treasury.bank")}</option>
-              </select>
+              <CashAccountSelect value={f.cash_account_id} onChange={(id) => setF({ ...f, cash_account_id: id })} />
             </Field>
           )}
           <div className="flex flex-wrap items-center justify-end gap-3 sm:col-span-2 lg:col-span-3">
@@ -494,10 +492,7 @@ function MoneyDialog({ employee, onClose }: { employee: Emp; onClose: () => void
           <input className="field" required autoFocus dir="ltr" inputMode="decimal" autoComplete="off" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
         </Field>
         <Field label={t("hr.label.cash_register")} required>
-          <select className="field" value={f.cash_account_id} onChange={(e) => setF({ ...f, cash_account_id: e.target.value })}>
-            <option value="cash_main">{t("hr.treasury.main")}</option>
-            <option value="bank_main">{t("hr.treasury.bank")}</option>
-          </select>
+          <CashAccountSelect value={f.cash_account_id} onChange={(id) => setF({ ...f, cash_account_id: id })} />
         </Field>
         <Field label={t("hr.label.date")} required>
           <input type="date" className="field" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value || todayLocalISO() })} />

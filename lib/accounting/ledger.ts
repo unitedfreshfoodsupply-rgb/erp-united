@@ -44,7 +44,8 @@ type Actorish = { id: string | null; name: string; role: string; deviceId?: stri
 
 export type SystemKey =
   | "cash" | "bank" | "ar" | "inventory" | "vat_input" | "employee_advances" | "ap" | "grni" | "vat_output" | "employee_payable"
-  | "capital" | "retained_earnings" | "opening_equity" | "sales" | "sales_returns" | "cogs" | "inventory_adjustment" | "ppv" | "general_expenses" | "transport_expenses" | "salaries";
+  | "capital" | "retained_earnings" | "opening_equity" | "sales" | "sales_returns" | "cogs" | "inventory_adjustment" | "ppv" | "general_expenses" | "transport_expenses" | "salaries"
+  | "vat_payable" | "fa_disposal_gain" | "fa_depreciation" | "fa_disposal_loss";
 
 export type PostLine = {
   key?: SystemKey;
@@ -55,7 +56,9 @@ export type PostLine = {
   description?: string;
 };
 
-export type SourceType = "manual" | "sales_invoice" | "credit_note" | "supplier_bill" | "debit_note" | "customer_receipt" | "supplier_payment" | "stock_valuation" | "reversal" | "expense" | "employee_transaction" | "opening_balance" | "receipt_reversal" | "payment_reversal" | "customer_refund" | "supplier_refund" | "payroll_run" | "payroll_payment";
+export type SourceType = "manual" | "sales_invoice" | "credit_note" | "supplier_bill" | "debit_note" | "customer_receipt" | "supplier_payment" | "stock_valuation" | "reversal" | "expense" | "employee_transaction" | "opening_balance" | "receipt_reversal" | "payment_reversal" | "customer_refund" | "supplier_refund" | "payroll_run" | "payroll_payment"
+  | "cash_transfer" | "cash_transfer_reversal" | "vat_settlement" | "vat_payment" | "year_end_close" | "year_end_reopen"
+  | "asset_acquisition" | "asset_improvement" | "asset_depreciation" | "asset_disposal" | "opening_batch";
 
 async function accountIds(tx: Tx, keys: SystemKey[]) {
   const rows = await tx.account.findMany({ where: { systemKey: { in: keys } }, select: { id: true, systemKey: true } });
@@ -396,11 +399,18 @@ const CONTROL_ACCOUNTS: Record<string, string> = {
   grni: "استلام بضاعة أو فاتورة مورد",
   employee_advances: "حركة موظف (سلفة / تسوية)",
   employee_payable: "مصروف موظف أو حركة موظف",
+  vat_input: "فاتورة مورد أو إشعار مدين أو إقرار ضريبة القيمة المضافة",
+  vat_output: "فاتورة مبيعات أو إشعار دائن أو بيع أصل أو إقرار ضريبة القيمة المضافة",
+  vat_payable: "إقرار ضريبة القيمة المضافة وسداده",
+};
+/** Accounts owned by a subledger through their own column (category accounts of fixed assets). */
+const CONTROLLED_BY: Record<string, string> = {
+  fixed_assets: "سجل الأصول الثابتة (شراء، إهلاك، استبعاد)",
 };
 
 /** The document that moves a control account, or undefined for an ordinary account. */
-export function controlAccountMovedBy(systemKey: string | null | undefined): string | undefined {
-  return systemKey ? CONTROL_ACCOUNTS[systemKey] : undefined;
+export function controlAccountMovedBy(systemKey: string | null | undefined, controlledBy?: string | null): string | undefined {
+  return (systemKey ? CONTROL_ACCOUNTS[systemKey] : undefined) ?? (controlledBy ? CONTROLLED_BY[controlledBy] : undefined);
 }
 
 export async function createManualJournal(input: unknown, actor: ServiceActor) {
@@ -432,7 +442,7 @@ export async function createManualJournal(input: unknown, actor: ServiceActor) {
       const a = accounts.find((x) => x.id === l.account_id);
       if (!a) throw new ApiError(404, "حساب مش موجود");
       if (!a.postable || !a.active) throw new ApiError(400, `الحساب ${a.code} حساب رئيسي أو موقوف — مينفعش الترحيل عليه`);
-      const via = controlAccountMovedBy(a.systemKey);
+      const via = controlAccountMovedBy(a.systemKey, a.controlledBy);
       if (via) throw new ApiError(400, `الحساب ${a.code} (${a.nameAr}) حساب مراقبة — بيتحرك بس من ${via}، عشان كشف الحساب والأستاذ يفضلوا متطابقين`);
     }
     const lines: PostLine[] = v.lines.map((l) => ({ accountId: l.account_id, amount: l.debit.gt(0) ? l.debit : l.credit.negated(), party: l.party_type ? { type: l.party_type, id: l.party_id! } : undefined, description: l.description }));
@@ -655,22 +665,82 @@ export async function listJournals(filters: { from?: string; to?: string; source
   };
 }
 
+export const CASH_FLOW_CATEGORIES = ["operating", "investing", "financing"] as const;
+export type CashFlowCategory = (typeof CASH_FLOW_CATEGORIES)[number];
+const cashFlowField = z.enum(CASH_FLOW_CATEGORIES, { errorMap: () => ({ message: "تصنيف التدفق النقدي: تشغيلي أو استثماري أو تمويلي" }) });
+
+/**
+ * The cash-flow section of a new balance-sheet account: what the accountant chose, else
+ * what its header carries (a header under "Fixed assets" is investing), else operating for
+ * assets and liabilities (working capital is by far the commonest new account) and
+ * financing for equity. P&L accounts carry none — they reach the statement as net income.
+ */
+export function defaultCashFlowCategory(type: string, chosen?: CashFlowCategory | null, parentCategory?: string | null): CashFlowCategory | null {
+  if (type === "revenue" || type === "expense") return null;
+  if (chosen) return chosen;
+  if (parentCategory && (CASH_FLOW_CATEGORIES as readonly string[]).includes(parentCategory)) return parentCategory as CashFlowCategory;
+  return type === "equity" ? "financing" : "operating";
+}
+
 /** A new postable sub-account under a header (e.g. a second bank, an expense line). */
 export async function createAccount(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.manage");
-  const v = parse(z.object({ code: z.string().regex(/^[0-9]{3,8}$/, "الكود أرقام بس (3–8)"), name: text("الاسم", 100), name_ar: text("الاسم بالعربي", 100), parent_id: text("الحساب الرئيسي") }), input);
+  const v = parse(z.object({ code: z.string().regex(/^[0-9]{3,8}$/, "الكود أرقام بس (3–8)"), name: text("الاسم", 100), name_ar: text("الاسم بالعربي", 100), parent_id: text("الحساب الرئيسي"), cash_flow_category: cashFlowField.optional() }), input);
   return inTx(async (tx) => {
     const parent = await tx.account.findUnique({ where: { id: v.parent_id } });
     if (!parent) throw new ApiError(404, "الحساب الرئيسي مش موجود");
     if (parent.postable) throw new ApiError(400, "الحساب الرئيسي لازم يكون حساب تجميعي");
+    if (parent.id === "acc_1700") throw new ApiError(400, "حسابات الأصول الثابتة بتتعمل من فئات الأصول (شاشة الأصول الثابتة)، مش يدوي");
+    if ((parent.type === "revenue" || parent.type === "expense") && v.cash_flow_category) throw new ApiError(400, "حسابات الإيرادات والمصروفات مالهاش تصنيف تدفق نقدي — بتدخل في صافي الدخل");
     let a;
     try {
-      a = await tx.account.create({ data: { code: v.code, name: v.name, nameAr: v.name_ar, type: parent.type, parentId: parent.id } });
+      a = await tx.account.create({ data: { code: v.code, name: v.name, nameAr: v.name_ar, type: parent.type, parentId: parent.id, cashFlowCategory: defaultCashFlowCategory(parent.type, v.cash_flow_category, parent.cashFlowCategory) } });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") throw new ApiError(409, "الكود مستخدم");
       throw err;
     }
-    await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "account_created", entityType: "journal_entry", entityId: a.id, fieldChanged: a.code, newValue: `${a.code} · ${a.nameAr}`, source: "user", deviceId: actor.deviceId }, tx);
+    await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "account_created", entityType: "account", entityId: a.id, fieldChanged: a.code, newValue: `${a.code} · ${a.nameAr}`, source: "user", deviceId: actor.deviceId }, tx);
     return a;
+  });
+}
+
+/**
+ * Rename an account, classify it for the cash-flow statement, or retire it. Retiring needs
+ * a zero balance and is refused for system accounts, cash/bank accounts (retired from
+ * their own screen) and subledger-owned accounts; the type and parent never change.
+ */
+export async function updateAccount(id: string, input: unknown, actor: ServiceActor) {
+  assertPermission(actor, "accounting.manage");
+  const v = parse(z.object({ name: text("الاسم", 100).optional(), name_ar: text("الاسم بالعربي", 100).optional(), cash_flow_category: cashFlowField.nullable().optional(), active: z.boolean().optional(), version: z.number().int().optional() }), input);
+  return inTx(async (tx) => {
+    const a = await tx.account.findUnique({ where: { id } });
+    if (!a) throw new ApiError(404, "الحساب مش موجود");
+    if (v.version !== undefined && v.version !== a.version) throw new ApiError(409, "الحساب اتعدّل من واحد تاني — حدّث الشاشة");
+    if (v.cash_flow_category !== undefined) {
+      if (a.type === "revenue" || a.type === "expense") throw new ApiError(400, "حسابات الإيرادات والمصروفات مالهاش تصنيف تدفق نقدي — بتدخل في صافي الدخل");
+      if (await tx.cashAccount.findFirst({ where: { accountId: a.id } })) throw new ApiError(400, "حساب خزينة أو بنك — هو نفسه النقدية اللي القائمة بتقيس تغيّرها");
+      if (a.systemKey && v.cash_flow_category === null) throw new ApiError(400, "حسابات النظام لازم يكون لها تصنيف");
+    }
+    if (v.active === false && a.active) {
+      if (a.systemKey || a.controlledBy) throw new ApiError(400, "حساب نظام أو حساب سجل فرعي — مينفعش يتوقف");
+      if (await tx.cashAccount.findFirst({ where: { accountId: a.id } })) throw new ApiError(400, "حساب خزينة أو بنك — اوقفه من شاشة الخزائن والبنوك");
+      if (!a.postable && (await tx.account.count({ where: { parentId: a.id, active: true } }))) throw new ApiError(409, "الحساب الرئيسي ده تحته حسابات شغالة");
+      const bal = await tx.journalLine.aggregate({ where: { accountId: a.id }, _sum: { debit: true, credit: true } });
+      if (!D(bal._sum.debit ?? 0).equals(D(bal._sum.credit ?? 0))) throw new ApiError(409, "رصيد الحساب مش صفر — حوّل رصيده الأول");
+    }
+    const data: Prisma.AccountUpdateInput = { version: { increment: 1 } };
+    if (v.name !== undefined) data.name = v.name;
+    if (v.name_ar !== undefined) data.nameAr = v.name_ar;
+    if (v.cash_flow_category !== undefined) data.cashFlowCategory = v.cash_flow_category;
+    if (v.active !== undefined) data.active = v.active;
+    const updated = await tx.account.update({ where: { id, version: a.version }, data });
+    const changes = [
+      v.name !== undefined && v.name !== a.name ? `name: ${a.name} → ${v.name}` : null,
+      v.name_ar !== undefined && v.name_ar !== a.nameAr ? `nameAr: ${a.nameAr} → ${v.name_ar}` : null,
+      v.cash_flow_category !== undefined && v.cash_flow_category !== a.cashFlowCategory ? `cashFlow: ${a.cashFlowCategory ?? "—"} → ${v.cash_flow_category ?? "—"}` : null,
+      v.active !== undefined && v.active !== a.active ? `active: ${a.active} → ${v.active}` : null,
+    ].filter(Boolean).join(" · ");
+    if (changes) await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "account_updated", entityType: "account", entityId: a.id, fieldChanged: a.code, newValue: changes, source: "user", deviceId: actor.deviceId }, tx);
+    return updated;
   });
 }

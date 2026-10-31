@@ -170,6 +170,8 @@ export async function integrityReport() {
         OR (e."sourceType" = 'opening_balance' AND NOT EXISTS (SELECT 1 FROM "PartyOpeningBalance" d WHERE d."id" = e."sourceId"))
         OR (e."sourceType" = 'payroll_run' AND NOT EXISTS (SELECT 1 FROM "PayrollRun" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
         OR (e."sourceType" = 'payroll_payment' AND NOT EXISTS (SELECT 1 FROM "PayrollPayment" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
+        OR (e."sourceType" = 'cash_transfer' AND NOT EXISTS (SELECT 1 FROM "CashTransfer" d WHERE d."id" = e."sourceId" AND d."entryId" = e."id"))
+        OR (e."sourceType" = 'cash_transfer_reversal' AND NOT EXISTS (SELECT 1 FROM "CashTransfer" d WHERE d."id" = e."sourceId" AND d."reversalEntryId" = e."id"))
         OR (e."sourceType" = 'stock_valuation' AND NOT EXISTS (SELECT 1 FROM "StockValuationPosting" p WHERE p."entryId" = e."id") AND e."sourceId" NOT LIKE '%|%')`;
     return { key: "traceable", label: "كل قيد له مستند مصدر", ok: Number(orphans?.n ?? 0) === 0, count: Number(orphans?.n ?? 0) };
   })(),

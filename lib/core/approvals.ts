@@ -106,6 +106,13 @@ export const APPROVAL_TYPES = {
     levels: 1,
     link: (id) => `/orders/${id}`,
   },
+  "accounting.cash_transfer": {
+    label: "اعتماد تحويل بين الخزائن والبنوك",
+    entityType: "cash_transfer",
+    approvePermission: "accounting.manage",
+    levels: 1,
+    link: () => "/accounting?tab=treasury",
+  },
 } satisfies Record<string, ApprovalTypeDef>;
 
 export type ApprovalType = keyof typeof APPROVAL_TYPES;

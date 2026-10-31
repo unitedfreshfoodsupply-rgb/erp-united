@@ -66,13 +66,13 @@ async function lockRun(tx: Tx, id: string) {
 // ---------------------------------------------------------------------------
 
 type Db = Tx | typeof prisma;
-type AccountRow = { id: string; code: string; name: string; nameAr: string | null; type: string; active: boolean; postable: boolean; systemKey: string | null };
+type AccountRow = { id: string; code: string; name: string; nameAr: string | null; type: string; active: boolean; postable: boolean; systemKey: string | null; controlledBy?: string | null };
 export type PostingProblem = { code: "net_pay_account_missing" | "net_pay_account_invalid" | "expense_account_missing" | "liability_account_missing" | "deduction_account_missing" | "account_invalid" | "line_without_component"; params: Record<string, string> };
 export type PreviewLine = { side: "debit" | "credit"; role: "component" | "recovery" | "net"; accountId: string | null; accountCode: string | null; accountName: string | null; accountNameAr: string | null; amount: string; label: string; component: string | null };
 
 /** An account a payroll line may post to: active, postable, of the wanted type, not a control account and not a cash/bank account. */
 async function usable(db: Db, a: AccountRow | null | undefined, types: string[]) {
-  if (!a || !a.active || !a.postable || !types.includes(a.type) || controlAccountMovedBy(a.systemKey)) return false;
+  if (!a || !a.active || !a.postable || !types.includes(a.type) || controlAccountMovedBy(a.systemKey, a.controlledBy)) return false;
   return !(await db.cashAccount.findFirst({ where: { accountId: a.id }, select: { id: true } }));
 }
 

@@ -147,26 +147,29 @@ export const DEFAULT_ORG = {
 
 /** The default chart of accounts — the same rows the accounting_core migration inserts.
  * Parents come before children. */
-export const CHART_OF_ACCOUNTS: { id: string; code: string; name: string; nameAr: string; type: string; parentId: string | null; postable: boolean; systemKey: string | null }[] = [
-  { id: "acc_1000", code: "1000", name: "Assets", nameAr: "الأصول", type: "asset", parentId: null, postable: false, systemKey: null },
+export const CHART_OF_ACCOUNTS: { id: string; code: string; name: string; nameAr: string; type: string; parentId: string | null; postable: boolean; systemKey: string | null; cashFlowCategory?: "operating" | "investing" | "financing" | null }[] = [
+  { id: "acc_1000", code: "1000", name: "Assets", nameAr: "الأصول", type: "asset", parentId: null, postable: false, systemKey: null, cashFlowCategory: "operating" },
   { id: "acc_1100", code: "1100", name: "Cash on hand", nameAr: "النقدية بالخزينة", type: "asset", parentId: "acc_1000", postable: true, systemKey: "cash" },
   { id: "acc_1200", code: "1200", name: "Bank", nameAr: "البنك", type: "asset", parentId: "acc_1000", postable: true, systemKey: "bank" },
-  { id: "acc_1300", code: "1300", name: "Accounts receivable", nameAr: "العملاء (ذمم مدينة)", type: "asset", parentId: "acc_1000", postable: true, systemKey: "ar" },
-  { id: "acc_1400", code: "1400", name: "Inventory", nameAr: "المخزون", type: "asset", parentId: "acc_1000", postable: true, systemKey: "inventory" },
-  { id: "acc_1500", code: "1500", name: "VAT input", nameAr: "ضريبة القيمة المضافة — مشتريات", type: "asset", parentId: "acc_1000", postable: true, systemKey: "vat_input" },
-  { id: "acc_1600", code: "1600", name: "Employee advances", nameAr: "سلف العاملين", type: "asset", parentId: "acc_1000", postable: true, systemKey: "employee_advances" },
-  { id: "acc_2000", code: "2000", name: "Liabilities", nameAr: "الخصوم", type: "liability", parentId: null, postable: false, systemKey: null },
-  { id: "acc_2100", code: "2100", name: "Accounts payable", nameAr: "الموردين (ذمم دائنة)", type: "liability", parentId: "acc_2000", postable: true, systemKey: "ap" },
-  { id: "acc_2150", code: "2150", name: "Goods received not invoiced", nameAr: "بضاعة مستلمة لم تصل فواتيرها", type: "liability", parentId: "acc_2000", postable: true, systemKey: "grni" },
-  { id: "acc_2200", code: "2200", name: "VAT output", nameAr: "ضريبة القيمة المضافة — مبيعات", type: "liability", parentId: "acc_2000", postable: true, systemKey: "vat_output" },
-  { id: "acc_2300", code: "2300", name: "Employee reimbursements payable", nameAr: "مستحقات العاملين", type: "liability", parentId: "acc_2000", postable: true, systemKey: "employee_payable" },
-  { id: "acc_3000", code: "3000", name: "Equity", nameAr: "حقوق الملكية", type: "equity", parentId: null, postable: false, systemKey: null },
-  { id: "acc_3100", code: "3100", name: "Capital", nameAr: "رأس المال", type: "equity", parentId: "acc_3000", postable: true, systemKey: "capital" },
-  { id: "acc_3300", code: "3300", name: "Opening balance equity", nameAr: "أرصدة افتتاحية", type: "equity", parentId: "acc_3000", postable: true, systemKey: "opening_equity" },
-  { id: "acc_3200", code: "3200", name: "Retained earnings", nameAr: "الأرباح المحتجزة", type: "equity", parentId: "acc_3000", postable: true, systemKey: "retained_earnings" },
+  { id: "acc_1300", code: "1300", name: "Accounts receivable", nameAr: "العملاء (ذمم مدينة)", type: "asset", parentId: "acc_1000", postable: true, systemKey: "ar", cashFlowCategory: "operating" },
+  { id: "acc_1400", code: "1400", name: "Inventory", nameAr: "المخزون", type: "asset", parentId: "acc_1000", postable: true, systemKey: "inventory", cashFlowCategory: "operating" },
+  { id: "acc_1500", code: "1500", name: "VAT input", nameAr: "ضريبة القيمة المضافة — مشتريات", type: "asset", parentId: "acc_1000", postable: true, systemKey: "vat_input", cashFlowCategory: "operating" },
+  { id: "acc_1700", code: "1700", name: "Fixed assets", nameAr: "الأصول الثابتة", type: "asset", parentId: "acc_1000", postable: false, systemKey: null, cashFlowCategory: "investing" },
+  { id: "acc_1600", code: "1600", name: "Employee advances", nameAr: "سلف العاملين", type: "asset", parentId: "acc_1000", postable: true, systemKey: "employee_advances", cashFlowCategory: "operating" },
+  { id: "acc_2000", code: "2000", name: "Liabilities", nameAr: "الخصوم", type: "liability", parentId: null, postable: false, systemKey: null, cashFlowCategory: "operating" },
+  { id: "acc_2100", code: "2100", name: "Accounts payable", nameAr: "الموردين (ذمم دائنة)", type: "liability", parentId: "acc_2000", postable: true, systemKey: "ap", cashFlowCategory: "operating" },
+  { id: "acc_2150", code: "2150", name: "Goods received not invoiced", nameAr: "بضاعة مستلمة لم تصل فواتيرها", type: "liability", parentId: "acc_2000", postable: true, systemKey: "grni", cashFlowCategory: "operating" },
+  { id: "acc_2200", code: "2200", name: "VAT output", nameAr: "ضريبة القيمة المضافة — مبيعات", type: "liability", parentId: "acc_2000", postable: true, systemKey: "vat_output", cashFlowCategory: "operating" },
+  { id: "acc_2300", code: "2300", name: "Employee reimbursements payable", nameAr: "مستحقات العاملين", type: "liability", parentId: "acc_2000", postable: true, systemKey: "employee_payable", cashFlowCategory: "operating" },
+  { id: "acc_2250", code: "2250", name: "VAT payable to the tax authority", nameAr: "ضريبة القيمة المضافة المستحقة للمصلحة", type: "liability", parentId: "acc_2000", postable: true, systemKey: "vat_payable", cashFlowCategory: "operating" },
+  { id: "acc_3000", code: "3000", name: "Equity", nameAr: "حقوق الملكية", type: "equity", parentId: null, postable: false, systemKey: null, cashFlowCategory: "financing" },
+  { id: "acc_3100", code: "3100", name: "Capital", nameAr: "رأس المال", type: "equity", parentId: "acc_3000", postable: true, systemKey: "capital", cashFlowCategory: "financing" },
+  { id: "acc_3300", code: "3300", name: "Opening balance equity", nameAr: "أرصدة افتتاحية", type: "equity", parentId: "acc_3000", postable: true, systemKey: "opening_equity", cashFlowCategory: "financing" },
+  { id: "acc_3200", code: "3200", name: "Retained earnings", nameAr: "الأرباح المحتجزة", type: "equity", parentId: "acc_3000", postable: true, systemKey: "retained_earnings", cashFlowCategory: "financing" },
   { id: "acc_4000", code: "4000", name: "Revenue", nameAr: "الإيرادات", type: "revenue", parentId: null, postable: false, systemKey: null },
   { id: "acc_4100", code: "4100", name: "Sales", nameAr: "المبيعات", type: "revenue", parentId: "acc_4000", postable: true, systemKey: "sales" },
   { id: "acc_4200", code: "4200", name: "Sales returns and allowances", nameAr: "مردودات ومسموحات المبيعات", type: "revenue", parentId: "acc_4000", postable: true, systemKey: "sales_returns" },
+  { id: "acc_4300", code: "4300", name: "Gain on disposal of fixed assets", nameAr: "أرباح بيع واستبعاد الأصول الثابتة", type: "revenue", parentId: "acc_4000", postable: true, systemKey: "fa_disposal_gain" },
   { id: "acc_5000", code: "5000", name: "Cost of sales", nameAr: "تكلفة المبيعات", type: "expense", parentId: null, postable: false, systemKey: null },
   { id: "acc_5100", code: "5100", name: "Cost of goods sold", nameAr: "تكلفة البضاعة المباعة", type: "expense", parentId: "acc_5000", postable: true, systemKey: "cogs" },
   { id: "acc_5200", code: "5200", name: "Inventory adjustments and write-offs", nameAr: "تسويات وهالك المخزون", type: "expense", parentId: "acc_5000", postable: true, systemKey: "inventory_adjustment" },
@@ -175,6 +178,8 @@ export const CHART_OF_ACCOUNTS: { id: string; code: string; name: string; nameAr
   { id: "acc_6100", code: "6100", name: "General expenses", nameAr: "مصروفات عمومية", type: "expense", parentId: "acc_6000", postable: true, systemKey: "general_expenses" },
   { id: "acc_6200", code: "6200", name: "Transport and fuel", nameAr: "نقل ووقود", type: "expense", parentId: "acc_6000", postable: true, systemKey: "transport_expenses" },
   { id: "acc_6300", code: "6300", name: "Salaries and wages", nameAr: "مرتبات وأجور", type: "expense", parentId: "acc_6000", postable: true, systemKey: "salaries" },
+  { id: "acc_6400", code: "6400", name: "Depreciation", nameAr: "إهلاك الأصول الثابتة", type: "expense", parentId: "acc_6000", postable: true, systemKey: "fa_depreciation" },
+  { id: "acc_6500", code: "6500", name: "Loss on disposal of fixed assets", nameAr: "خسائر بيع واستبعاد الأصول الثابتة", type: "expense", parentId: "acc_6000", postable: true, systemKey: "fa_disposal_loss" },
 ];
 
 export const CASH_ACCOUNTS = [

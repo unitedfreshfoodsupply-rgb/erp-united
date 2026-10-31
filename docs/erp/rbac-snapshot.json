@@ -54,6 +54,11 @@
     "accounting.receipts.manage",
     "accounting.payments.manage",
     "accounting.periods.close",
+    "accounting.periods.reopen",
+    "accounting.journals.approve",
+    "accounting.opening.approve",
+    "assets.view",
+    "assets.manage",
     "accounting.eta.view",
     "accounting.eta.manage",
     "hr.employees.manage",
@@ -151,11 +156,14 @@
     "ACCOUNTANT": [
       "accounting.eta.manage",
       "accounting.eta.view",
+      "accounting.journals.approve",
       "accounting.manage",
       "accounting.payments.manage",
       "accounting.periods.close",
       "accounting.receipts.manage",
       "accounting.view",
+      "assets.manage",
+      "assets.view",
       "audit.view",
       "hr.advances.manage",
       "hr.compensation.manage",
@@ -220,6 +228,16 @@
       }
     },
     {
+      "method": "PATCH",
+      "path": "/api/accounting/accounts/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
       "method": "GET",
       "path": "/api/accounting/accounts",
       "gate": {
@@ -252,6 +270,41 @@
     {
       "method": "GET",
       "path": "/api/accounting/cancelled-report",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/accounting/cash-accounts/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/cash-accounts",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "accounting.view",
+          "accounting.receipts.manage",
+          "accounting.payments.manage",
+          "hr.expenses.submit",
+          "hr.advances.manage",
+          "hr.payroll.pay"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/cash-accounts",
       "gate": {
         "kind": "all",
         "permissions": [
@@ -578,6 +631,36 @@
     {
       "method": "POST",
       "path": "/api/accounting/sync",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/transfers/[id]/reverse",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/transfers",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/transfers",
       "gate": {
         "kind": "all",
         "permissions": [

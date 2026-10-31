@@ -3,14 +3,14 @@ import { AccessDenied } from "@/components/AccessDenied";
 import { Nav } from "@/components/Nav";
 import { AccountingView } from "@/components/accounting/AccountingView";
 
-export default async function AccountingPage() {
+export default async function AccountingPage({ searchParams }: { searchParams?: { tab?: string } }) {
   // Full visibility, or one of the workflows a clerk is given (the view shows only those tabs).
   const gate = await requireAnyPagePermission(["accounting.view", "accounting.receipts.manage", "accounting.payments.manage"]);
   if (!gate.ok) return <AccessDenied missing={gate.missing} role={gate.user.role} />;
   return (
     <main className="min-h-screen">
       <Nav />
-      <AccountingView />
+      <AccountingView initialTab={typeof searchParams?.tab === "string" ? searchParams.tab : undefined} />
     </main>
   );
 }

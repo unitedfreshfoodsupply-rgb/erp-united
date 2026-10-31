@@ -192,14 +192,16 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
     prisma.$queryRaw<{ accountId: string; balance: Prisma.Decimal }[]>`
       SELECT l."accountId", coalesce(sum(l."debit" - l."credit"), 0) AS balance
       FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId"
-      WHERE e."date" <= ${fromDay}
+      WHERE e."date" <= ${fromDay} AND e."sourceType" NOT IN ('year_end_close', 'year_end_reopen')
       GROUP BY l."accountId"`,
     prisma.$queryRaw<{ accountId: string; balance: Prisma.Decimal }[]>`
       SELECT l."accountId", coalesce(sum(l."debit" - l."credit"), 0) AS balance
       FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId"
-      WHERE e."date" <= ${to}
+      WHERE e."date" <= ${to} AND e."sourceType" NOT IN ('year_end_close', 'year_end_reopen')
       GROUP BY l."accountId"`,
   ]);
+  // Year-end closing entries only move P&L balances into retained earnings — no cash, no
+  // working capital — so they are left out of both snapshots (net income still counts once).
   // Period change per account: closing − opening = debit-style change.
   // We store the signed balance (debit minus credit) at each point.
   const open = new Map(openRows.map((r) => [r.accountId, D(r.balance)]));
@@ -213,14 +215,16 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
     if (a.systemKey) byKey.set(a.systemKey, { id: a.id, type: a.type, systemKey: a.systemKey });
   }
 
+  // Cash = every account behind a cash box or bank account (not only the two seeded ones).
+  const cashIds = new Set((await prisma.cashAccount.findMany({ select: { accountId: true } })).map((c) => c.accountId));
+  for (const a of accounts.values()) if (a.systemKey && CASH_ACCOUNT_KEYS.has(a.systemKey)) cashIds.add(a.id);
+  const isCash = (id: string) => cashIds.has(id);
+
   // Net change in each account (debit-style: positive = more debit / less credit).
   const changes = new Map<string, Prisma.Decimal>();
-  let totalCashChange = D(0);
   for (const id of allIds) {
     const delta = (close.get(id) ?? D(0)).minus(open.get(id) ?? D(0));
     if (!delta.isZero()) changes.set(id, delta);
-    const a = accounts.get(id);
-    if (a && a.systemKey && CASH_ACCOUNT_KEYS.has(a.systemKey)) totalCashChange = totalCashChange.plus(delta);
   }
 
   // 4. Classify each account's change into operating / investing / financing.
@@ -237,7 +241,8 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
   //   Financing CF = decrease in financing assets + increase in financing liabilities
 
   const operating = await operatingAccountIds();
-  type CfLine = { kind: "net_income" | "change"; label: string; amount: string; accountCode?: string; accountName?: string; accountNameAr?: string | null };
+  type CfLine = { kind: "net_income" | "change"; label: string; amount: string; accountCode?: string; accountName?: string; accountNameAr?: string | null; unclassified?: boolean };
+  const unclassified: { code: string; name: string; nameAr: string }[] = [];
   const sections: Record<string, { lines: CfLine[]; total: string }> = {
     operating: { lines: [], total: "0.00" },
     investing: { lines: [], total: "0.00" },
@@ -248,25 +253,26 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
     const a = accounts.get(accountId);
     if (!a) continue;
     // Skip cash accounts themselves — we track these separately.
-    if (a.systemKey && CASH_ACCOUNT_KEYS.has(a.systemKey)) continue;
+    if (isCash(a.id)) continue;
 
     const sk = a.systemKey;
     const acctLabel = `${a.code} ${a.nameAr}`;
 
-    // Determine classification.
+    // Classification: what the accountant set on the account; else the system key's; else
+    // an account the configuration names as working capital; else not classified — shown
+    // under operating and flagged, never guessed from the account type (a prepaid expense
+    // is not an investment, an accrual is not financing).
     let cf: "operating" | "investing" | "financing";
-    if (sk && CF_CLASSIFY[sk]) {
+    let flagged = false;
+    if (a.cashFlowCategory === "operating" || a.cashFlowCategory === "investing" || a.cashFlowCategory === "financing") {
+      cf = a.cashFlowCategory;
+    } else if (sk && CF_CLASSIFY[sk]) {
       cf = CF_CLASSIFY[sk];
     } else if (operating.has(a.id)) {
       cf = "operating";
     } else {
-      // Default by account type.
-      if (a.type === "asset") cf = "investing";
-      else if (a.type === "liability") cf = "financing";
-      else if (a.type === "equity") cf = "financing";
-      else if (a.type === "expense") cf = "operating";
-      else if (a.type === "revenue") cf = "operating";
-      else cf = "operating";
+      cf = "operating";
+      flagged = a.type === "asset" || a.type === "liability" || a.type === "equity";
     }
 
     // Convert balance-sheet change to cash-flow effect.
@@ -293,7 +299,9 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
       accountCode: a.code,
       accountName: a.name,
       accountNameAr: a.nameAr,
+      ...(flagged ? { unclassified: true } : {}),
     });
+    if (flagged) unclassified.push({ code: a.code, name: a.name, nameAr: a.nameAr });
   }
 
   // Add net income as the first operating line.
@@ -316,7 +324,7 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
   const cashAccountEntries = allIds
     .map((id) => {
       const a = accounts.get(id);
-      if (!a || !a.systemKey || !CASH_ACCOUNT_KEYS.has(a.systemKey)) return null;
+      if (!a || !isCash(id)) return null;
       return {
         accountId: id,
         code: a.code,
@@ -341,6 +349,7 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
     netCashFlow: netCashFlow.toFixed(2),
     cashAccounts: cashAccountEntries,
     cashTotal: { opening: totalOpening, closing: totalClosing, change: totalChange },
+    unclassified,
     _balanced: netCashFlow.toFixed(2) === totalChange,
   };
 }

@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { CashAccountSelect } from "@/components/accounting/CashAccountSelect";
+import { TreasuryView } from "@/components/accounting/TreasuryView";
+import { ChartView } from "@/components/accounting/ChartView";
 import { systemText } from "@/lib/locale/system-text";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, errorMessage } from "@/lib/api-client";
@@ -23,7 +26,7 @@ import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
  * ledger the documents post to; nothing on this screen is computed twice.
  */
 
-type Tab = "health" | "cash" | "receipts" | "payments" | "journals" | "trial" | "vat" | "periods" | "reconcile" | "opening";
+type Tab = "health" | "treasury" | "chart" | "receipts" | "payments" | "journals" | "trial" | "vat" | "periods" | "reconcile" | "opening";
 const yearStart = () => `${todayLocalISO().slice(0, 4)}-01-01`;
 
 // Document source types — translated via t() template key at render time
@@ -44,6 +47,19 @@ const SOURCE_TYPES: Record<string, string> = {
   payment_reversal: "accounting.source.payment-reversal",
   customer_refund: "accounting.source.customer-refund",
   supplier_refund: "accounting.source.supplier-refund",
+  payroll_run: "accounting.source.payroll-run",
+  payroll_payment: "accounting.source.payroll-payment",
+  cash_transfer: "accounting.source.cash-transfer",
+  cash_transfer_reversal: "accounting.source.cash-transfer-reversal",
+  vat_settlement: "accounting.source.vat-settlement",
+  vat_payment: "accounting.source.vat-payment",
+  year_end_close: "accounting.source.year-end-close",
+  year_end_reopen: "accounting.source.year-end-reopen",
+  asset_acquisition: "accounting.source.asset-acquisition",
+  asset_improvement: "accounting.source.asset-improvement",
+  asset_depreciation: "accounting.source.asset-depreciation",
+  asset_disposal: "accounting.source.asset-disposal",
+  opening_batch: "accounting.source.opening-batch",
 };
 
 // Payment method labels — used by METHOD dict in templates
@@ -79,17 +95,18 @@ function getPartyName(party: LocalizedNameSource | null | undefined, locale: str
   return party ? localName(party, locale === "en" ? "en" : "ar") : "";
 }
 
-export function AccountingView() {
+export function AccountingView({ initialTab }: { initialTab?: string } = {}) {
   const { can } = usePermissions();
   const { t } = useLocale();
   // Financial visibility (balances, journals, reports) is accounting.view; a clerk holding
   // only the receipts or payments workflow sees just those tabs. The API enforces the same.
   const full = can("accounting.view");
   const items: { key: Tab; label: string }[] = [
-    ...(full ? [{ key: "health" as Tab, label: t("accounting.tab.health") }, { key: "cash" as Tab, label: t("accounting.tab.cash") }] : []),
+    ...(full ? [{ key: "health" as Tab, label: t("accounting.tab.health") }, { key: "treasury" as Tab, label: t("accounting.tab.treasury") }] : []),
     ...(full || can("accounting.receipts.manage") ? [{ key: "receipts" as Tab, label: t("accounting.tab.receipts") }] : []),
     ...(full || can("accounting.payments.manage") ? [{ key: "payments" as Tab, label: t("accounting.tab.payments") }] : []),
     ...(full ? [
+      { key: "chart" as Tab, label: t("accounting.tab.chart") },
       { key: "journals" as Tab, label: t("accounting.tab.journals") },
       { key: "trial" as Tab, label: t("accounting.tab.trial") },
       { key: "vat" as Tab, label: t("accounting.tab.vat") },
@@ -97,36 +114,14 @@ export function AccountingView() {
     ] : []),
     ...(can("accounting.manage") ? [{ key: "reconcile" as Tab, label: t("accounting.tab.reconcile") }, { key: "opening" as Tab, label: t("accounting.tab.opening") }] : []),
   ];
-  const [chosen, setTab] = useState<Tab>("health");
+  const [chosen, setTab] = useState<Tab>((initialTab === "cash" ? "treasury" : initialTab) as Tab ?? "health");
   const tab: Tab = items.some((i) => i.key === chosen) ? chosen : items[0]?.key ?? "receipts";
   return (
     <div className="page-container">
       <h1 className="page-title">{t("accounting.title")}</h1>
       <Tabs value={tab} onChange={setTab} items={items} />
-      {tab === "health" ? <Health /> : tab === "opening" ? <Opening /> : tab === "cash" ? <Cash /> : tab === "receipts" ? <><MoneyIn kind="receipts" />{(full || can("accounting.payments.manage")) && <Refunds kind="customer" />}</> : tab === "payments" ? <><MoneyIn kind="payments" />{(full || can("accounting.receipts.manage")) && <Refunds kind="supplier" />}</> : tab === "journals" ? <Journals /> : tab === "trial" ? <Trial /> : tab === "vat" ? <VatSummary /> : tab === "periods" ? <Periods /> : <Reconcile />}
+      {tab === "health" ? <Health /> : tab === "opening" ? <Opening /> : tab === "treasury" ? <TreasuryView /> : tab === "chart" ? <ChartView /> : tab === "receipts" ? <><MoneyIn kind="receipts" />{(full || can("accounting.payments.manage")) && <Refunds kind="customer" />}</> : tab === "payments" ? <><MoneyIn kind="payments" />{(full || can("accounting.receipts.manage")) && <Refunds kind="supplier" />}</> : tab === "journals" ? <Journals /> : tab === "trial" ? <Trial /> : tab === "vat" ? <VatSummary /> : tab === "periods" ? <Periods /> : <Reconcile />}
     </div>
-  );
-}
-
-function Cash() {
-  const { t, locale } = useLocale();
-  const q = useQuery({ queryKey: ["acc", "cash"], queryFn: () => apiFetch<{ cash: { rows: { id: string; name: string; nameAr: string | null; type: string; glCode: string; balance: string }[]; total: string } }>("/api/accounting/cash") });
-  if (q.isLoading) return <LoadingState />;
-  if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
-  return (
-    <section className="grid gap-2 sm:grid-cols-3">
-      {q.data.cash.rows.map((r) => (
-        <div key={r.id} className="card p-4">
-          <div className="text-sm font-bold text-united-muted">{localName(r, locale)}</div>
-          <div className="text-2xl font-extrabold" dir="ltr">{fmtMoney(r.balance)}</div>
-          <div className="mt-1 text-xs text-united-muted">{t("accounting.gl-account")} <bdi dir="ltr">{r.glCode}</bdi></div>
-        </div>
-      ))}
-      <div className="card p-4 bg-united-green/10">
-        <div className="text-sm font-bold text-united-muted">{t("accounting.total-cash")}</div>
-        <div className="text-2xl font-extrabold text-united-green" dir="ltr">{fmtMoney(q.data.cash.total)}</div>
-      </div>
-    </section>
   );
 }
 
@@ -190,7 +185,7 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
             <Field label={t("accounting.form.amount")}><input className="field" dir="ltr" inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
             <Field label={t("accounting.form.date")}><input type="date" className="field" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
             <Field label={t("accounting.form.method")}><select className="field" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>{Object.entries(METHOD_LABELS).map(([k, vk]) => <option key={k} value={k}>{t(vk)}</option>)}</select></Field>
-            <Field label={t("accounting.form.account.label")}><select className="field" value={form.cash_account_id} onChange={(e) => setForm({ ...form, cash_account_id: e.target.value })}><option value="cash_main">{t("accounting.form.account.treasury")}</option><option value="bank_main">{t("accounting.form.account.bank")}</option></select></Field>
+            <Field label={t("accounting.form.account.label")}><CashAccountSelect value={form.cash_account_id} onChange={(id) => setForm({ ...form, cash_account_id: id })} /></Field>
             <Field label={t("accounting.form.reference-hint")}><input className="field" dir="ltr" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></Field>
           </div>
           <details className="rounded-xl border border-united-border p-2" open={deductions.length > 0}>
@@ -335,7 +330,7 @@ function Refunds({ kind }: { kind: "customer" | "supplier" }) {
             </Field>
             <Field label={t("accounting.form.amount")}><input className="field" dir="ltr" inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
             <Field label={t("accounting.form.method")}><select className="field" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>{Object.entries(METHOD_LABELS).map(([k, vk]) => <option key={k} value={k}>{t(vk)}</option>)}</select></Field>
-            <Field label={t("accounting.form.account.label")}><select className="field" value={form.cash_account_id} onChange={(e) => setForm({ ...form, cash_account_id: e.target.value })}><option value="cash_main">{t("accounting.form.account.treasury")}</option><option value="bank_main">{t("accounting.form.account.bank")}</option></select></Field>
+            <Field label={t("accounting.form.account.label")}><CashAccountSelect value={form.cash_account_id} onChange={(id) => setForm({ ...form, cash_account_id: id })} /></Field>
             <Field label={t("accounting.form.reference")}><input className="field" dir="ltr" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></Field>
             <Field label={t("accounting.form.reason")}><input className="field" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></Field>
           </div>
@@ -633,7 +628,7 @@ function Reconcile() {
   if (!recId) {
     return (
       <section className="card p-4 grid grid-cols-1 sm:grid-cols-4 gap-2">
-        <Field label={t("accounting.rec-account")}><select className="field" value={form.cash_account_id} onChange={(e) => setForm({ ...form, cash_account_id: e.target.value })}><option value="bank_main">{t("accounting.rec-account-bank")}</option><option value="cash_main">{t("accounting.rec-account-treasury")}</option></select></Field>
+        <Field label={t("accounting.rec-account")}><CashAccountSelect value={form.cash_account_id} onChange={(id) => setForm({ ...form, cash_account_id: id })} /></Field>
         <Field label={t("accounting.rec-statement-date")}><input type="date" className="field" value={form.statement_date} onChange={(e) => setForm({ ...form, statement_date: e.target.value })} /></Field>
         <Field label={t("accounting.rec-statement-balance")}><input className="field" dir="ltr" inputMode="decimal" value={form.statement_balance} onChange={(e) => setForm({ ...form, statement_balance: e.target.value })} /></Field>
         <button type="button" className="btn-primary self-end" onClick={async () => {
