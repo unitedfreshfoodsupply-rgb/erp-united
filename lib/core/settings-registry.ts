@@ -298,6 +298,14 @@ export const SETTING_DEFS = {
     schema: accountCode,
     default: "",
   }),
+  "accounting.fiscal_year_start_month": def({
+    group: "accounting",
+    label: "شهر بداية السنة المالية",
+    description: "رقم الشهر اللي السنة المالية بتبدأ فيه (1 = يناير، سنة ميلادية). متغيّروش بعد أول إقفال سنة.",
+    unit: "",
+    schema: z.number().int().min(1).max(12),
+    default: 1,
+  }),
   "accounting.manual_journal_approval": def({
     group: "accounting",
     label: "القيود اليدوية محتاجة اعتماد",
@@ -435,6 +443,7 @@ export const SETTING_EN: Record<SettingKey, { label: string; description: string
   "accounting.write_off_account": { label: "Receipt differences account", description: "Code of the expense account for a small difference forgiven on a receipt. Empty = not offered." },
   "accounting.write_off_limit": { label: "Largest receipt difference", description: "The most that may be forgiven on one receipt, and only with accounting management permission. Zero = not allowed." },
   "hr.payroll_net_pay_account": { label: "Net salaries payable account", description: "Code of the liability account net salaries are credited to when a run is posted, and cleared from when paid. Empty = payroll posting stays blocked until the accountant sets it." },
+  "accounting.fiscal_year_start_month": { label: "Fiscal year start month", description: "The month the fiscal year starts in (1 = January, calendar year). Do not change it after the first year-end close." },
   "accounting.manual_journal_approval": { label: "Manual journals need approval", description: "When on, a manual journal above the threshold waits for someone else with journal-approval permission before it posts. Off by default until management decides." },
   "accounting.manual_journal_approval_threshold": { label: "Manual journal approval threshold", description: "When approval is on: a journal whose total is above this waits for approval. Zero = every manual journal." },
   "accounting.transfer_approval": { label: "Cash and bank transfers need approval", description: "When on, a transfer above the threshold waits for someone else's approval before it posts. Off by default until management decides." },

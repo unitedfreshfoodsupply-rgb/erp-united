@@ -2025,16 +2025,21 @@ model Account {
 }
 
 model AccountingPeriod {
-  id        String    @id @default(cuid())
+  id           String    @id @default(cuid())
   /// YYYY-MM
-  code      String    @unique
-  startDate String
-  endDate   String
+  code         String    @unique
+  startDate    String
+  endDate      String
   /// open | closed
-  status    String    @default("open")
-  closedBy  String?
-  closedAt  DateTime?
-  version   Int       @default(1)
+  status       String    @default("open")
+  closedBy     String?
+  closedAt     DateTime?
+  version      Int       @default(1)
+  /// Reopened only through an approved request (reason, approver) — the last one is kept here, every one in the audit log.
+  reopenCount  Int       @default(0)
+  reopenedAt   DateTime?
+  reopenedBy   String?
+  reopenReason String?
 }
 
 model JournalEntry {
@@ -2071,6 +2076,7 @@ model JournalEntry {
   vatReturnPayment     VatReturn?      @relation("VatReturnPayment")
   vatReturnVoid        VatReturn?      @relation("VatReturnVoid")
   journalRequest       JournalRequest?
+  fiscalYearClosing    FiscalYear?
 
   @@index([date])
   @@index([sourceType, sourceId])
@@ -3592,4 +3598,29 @@ model JournalRequest {
   entry JournalEntry? @relation(fields: [entryId], references: [id], onDelete: Restrict)
 
   @@index([status])
+}
+
+/// A fiscal year. Closing it posts one entry on its last day that brings every revenue and
+/// expense account to zero against retained earnings, then locks its last month; balance-
+/// sheet accounts simply carry on (the next year opens with them). Reopening goes through
+/// an approved request and reverses the closing entry.
+model FiscalYear {
+  id             String    @id @default(cuid())
+  /// YYYY — the calendar year it starts in
+  code           String    @unique
+  startDate      String
+  endDate        String
+  /// open | closed
+  status         String    @default("open")
+  closedAt       DateTime?
+  closedBy       String?
+  closingEntryId String?   @unique
+  netIncome      Decimal?  @db.Decimal(18, 2)
+  closeCount     Int       @default(0)
+  reopenedAt     DateTime?
+  reopenedBy     String?
+  reopenReason   String?
+  version        Int       @default(1)
+
+  closingEntry JournalEntry? @relation(fields: [closingEntryId], references: [id], onDelete: Restrict)
 }

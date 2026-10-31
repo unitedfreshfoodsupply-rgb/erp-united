@@ -76,7 +76,7 @@ export async function financeReport(opts: { from?: string; to?: string }) {
   const plQ = prisma.$queryRaw<{ type: string; systemKey: string | null; code: string; name: string; nameAr: string; nameEn: string; amount: Prisma.Decimal }[]>`
     SELECT a."type", a."systemKey", a."code", a."nameAr" AS name, a."nameAr" AS "nameAr", a."name" AS "nameEn", sum(l."credit" - l."debit") AS amount
     FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId" JOIN "Account" a ON a."id" = l."accountId"
-    WHERE a."type" IN ('revenue', 'expense') AND e."date" BETWEEN ${from} AND ${to}
+    WHERE a."type" IN ('revenue', 'expense') AND e."date" BETWEEN ${from} AND ${to} AND e."sourceType" NOT IN ('year_end_close', 'year_end_reopen')
     GROUP BY a."type", a."systemKey", a."code", a."nameAr", a."name" ORDER BY a."code"`;
 
   const [revenue, credits, cogs, cardRows, unknownCost, byCustomer, pl, valuation, ar, ap, cash, movement] = await Promise.all([

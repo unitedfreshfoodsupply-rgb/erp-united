@@ -142,6 +142,10 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/accounting/customer-refunds` | any of `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/customer-refunds` | `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | GET | `/api/accounting/customers/[id]/open-invoices` | any of `accounting.view`, `accounting.receipts.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
+| POST | `/api/accounting/fiscal-years/[code]/close` | `accounting.periods.close` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/fiscal-years/[code]/reopen` | `accounting.periods.close` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/fiscal-years/[code]` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/fiscal-years` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/integrity` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/journal-requests/[id]/cancel` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/journal-requests` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
@@ -157,6 +161,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/accounting/payments` | any of `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/payments` | `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/periods/[code]/close` | `accounting.periods.close` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/periods/[code]/reopen` | `accounting.periods.close` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/periods` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/pnl` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/receipts/[id]/allocate` | `accounting.receipts.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |

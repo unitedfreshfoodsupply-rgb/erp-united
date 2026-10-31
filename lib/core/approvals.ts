@@ -106,6 +106,20 @@ export const APPROVAL_TYPES = {
     levels: 1,
     link: (id) => `/orders/${id}`,
   },
+  "accounting.period_reopen": {
+    label: "إعادة فتح شهر محاسبي مقفول",
+    entityType: "accounting_period",
+    approvePermission: "accounting.periods.reopen",
+    levels: 1,
+    link: () => "/accounting?tab=periods",
+  },
+  "accounting.year_reopen": {
+    label: "إعادة فتح سنة مالية مقفولة",
+    entityType: "fiscal_year",
+    approvePermission: "accounting.periods.reopen",
+    levels: 1,
+    link: () => "/accounting?tab=periods",
+  },
   "accounting.manual_journal": {
     label: "اعتماد قيد يدوي",
     entityType: "journal_request",

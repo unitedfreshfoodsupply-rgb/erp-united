@@ -18,6 +18,7 @@ import { applyCompensationDecision } from "@/lib/hr/compensation";
 import { applyRunDecision } from "@/lib/hr/payroll";
 import { applyTransferDecision } from "@/lib/accounting/treasury";
 import { applyJournalRequestDecision } from "@/lib/accounting/ledger";
+import { applyPeriodReopen, applyYearReopen } from "@/lib/accounting/fiscal-years";
 
 /**
  * What each approval type DOES once decided. Kept apart from the engine core so the
@@ -29,6 +30,9 @@ type Handler = {
   /** Optional: most rejections simply leave the thing blocked. */
   onRejected?: (tx: Tx, request: { entityId: string; payload: unknown }, decider: Decider, comment?: string) => Promise<unknown>;
 };
+
+/** The requester of a request (the engine passes the full row). */
+const requesterOf = (req: { entityId: string; payload: unknown }) => (req as { requestedById?: string | null }).requestedById ?? null;
 
 /** Deciders always come from an authenticated context, so their role is a real Role. */
 const asActor = (d: Decider): ServiceActor => ({ ...d, role: d.role as Role });
@@ -90,6 +94,14 @@ const HANDLERS: Record<ApprovalType, Handler> = {
     // Finance accepts the risk for this one order; it may then start preparation.
     onApproved: (tx, req, decider, comment) => applyCreditDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyCreditDecision(tx, req.entityId, false, decider, comment),
+  },
+  "accounting.period_reopen": {
+    // Approved by someone other than the requester: the month opens again (its year must be open).
+    onApproved: (tx, req, decider) => applyPeriodReopen(tx, req.entityId, req.payload, decider, requesterOf(req)),
+  },
+  "accounting.year_reopen": {
+    // Approved by someone other than the requester: the closing entry is reversed and the last month opens.
+    onApproved: (tx, req, decider) => applyYearReopen(tx, req.entityId, req.payload, decider, requesterOf(req)),
   },
   "accounting.manual_journal": {
     // Approved: posted as a manual journal, by someone other than the requester. Rejected: nothing posts.

@@ -6,6 +6,20 @@
  * message has no entry here.
  */
 export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
+  ["اقفل الشهور دي الأول: {}", "Close these months first: {0}"],
+  ["اكتب سبب واضح (10 حروف على الأقل)", "Write a clear reason (at least 10 characters)"],
+  ["السنة {} اللي بعدها مقفولة — افتحها الأول", "The following year {0} is closed — reopen it first"],
+  ["السنة المالية {} مقفولة بالفعل", "Fiscal year {0} is already closed"],
+  ["السنة المالية {} مقفولة — اطلب إعادة فتح السنة", "Fiscal year {0} is closed — request reopening the year"],
+  ["السنة المالية دي مش مقفولة", "This fiscal year is not closed"],
+  ["السنة المالية لازم تكون YYYY", "The fiscal year must be YYYY"],
+  ["السنة المالية لسه مخلصتش (آخرها {})", "The fiscal year has not ended yet (it ends {0})"],
+  ["السنة المالية مفتوحة بالفعل", "The fiscal year is already open"],
+  ["الشهر الأخير {} مقفول — قيد الإقفال بيترحّل فيه، فاطلب إعادة فتحه الأول", "The last month {0} is closed — the closing entry posts in it, so request its reopening first"],
+  ["الفترة مش موجودة", "Period not found"],
+  ["الفترة مفتوحة بالفعل", "The period is already open"],
+  ["اللي طلب إعادة الفتح مينفعش يوافق عليها بنفسه", "Whoever requested the reopening cannot approve it themselves"],
+  ["سبب إعادة الفتح", "Reason for reopening"],
   ["{} لازم يكون YYYY-MM-DD", "{0} must be YYYY-MM-DD"],
   ["الإقرار اتسدد قبل كده", "The return is already paid"],
   ["الإقرار اتسدد — مينفعش يتلغي (التصحيح بإقرار معدّل عند المصلحة)", "The return is paid — it cannot be voided (correct it with an amended return at the tax authority)"],

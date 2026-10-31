@@ -5,6 +5,7 @@ import { CashAccountSelect } from "@/components/accounting/CashAccountSelect";
 import { TreasuryView } from "@/components/accounting/TreasuryView";
 import { ChartView } from "@/components/accounting/ChartView";
 import { VatReturnsView } from "@/components/accounting/VatReturnsView";
+import { PeriodsView } from "@/components/accounting/PeriodsView";
 import { JournalRequests } from "@/components/accounting/JournalRequests";
 import { controlAccountMovedBy } from "@/lib/accounting/control-accounts";
 import { systemText } from "@/lib/locale/system-text";
@@ -123,7 +124,7 @@ export function AccountingView({ initialTab }: { initialTab?: string } = {}) {
     <div className="page-container">
       <h1 className="page-title">{t("accounting.title")}</h1>
       <Tabs value={tab} onChange={setTab} items={items} />
-      {tab === "health" ? <Health /> : tab === "opening" ? <Opening /> : tab === "treasury" ? <TreasuryView /> : tab === "chart" ? <ChartView /> : tab === "receipts" ? <><MoneyIn kind="receipts" />{(full || can("accounting.payments.manage")) && <Refunds kind="customer" />}</> : tab === "payments" ? <><MoneyIn kind="payments" />{(full || can("accounting.receipts.manage")) && <Refunds kind="supplier" />}</> : tab === "journals" ? <Journals /> : tab === "trial" ? <Trial /> : tab === "vat" ? <><VatSummary /><VatReturnsView /></> : tab === "periods" ? <Periods /> : <Reconcile />}
+      {tab === "health" ? <Health /> : tab === "opening" ? <Opening /> : tab === "treasury" ? <TreasuryView /> : tab === "chart" ? <ChartView /> : tab === "receipts" ? <><MoneyIn kind="receipts" />{(full || can("accounting.payments.manage")) && <Refunds kind="customer" />}</> : tab === "payments" ? <><MoneyIn kind="payments" />{(full || can("accounting.receipts.manage")) && <Refunds kind="supplier" />}</> : tab === "journals" ? <Journals /> : tab === "trial" ? <Trial /> : tab === "vat" ? <><VatSummary /><VatReturnsView /></> : tab === "periods" ? <PeriodsView /> : <Reconcile />}
     </div>
   );
 }
@@ -586,36 +587,6 @@ function VatSummary() {
         <section className="card p-3 flex flex-wrap justify-between gap-2 text-sm font-extrabold"><span>{t("accounting.net-payable")}</span><span dir="ltr">{fmtMoney(q.data.summary.totals.netPayable)}</span></section>
         <p className="text-xs font-bold text-united-muted">{t("accounting.comparison-note")}</p>
       </>}
-    </div>
-  );
-}
-
-function Periods() {
-  const { can } = usePermissions();
-  const toast = useToast();
-  const qc = useQueryClient();
-  const { t } = useLocale();
-  const q = useQuery({ queryKey: ["acc", "periods"], queryFn: () => apiFetch<{ periods: { id: string; code: string; status: string; closedBy: string | null }[] }>("/api/accounting/periods") });
-  const run = async (path: string, doneMsg: string) => {
-    try { await apiPost(path, {}); toast.show(doneMsg, "success"); void qc.invalidateQueries({ queryKey: ["acc"] }); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
-  };
-  return (
-    <div className="flex flex-col gap-3">
-      {can("accounting.manage") && (
-        <section className="card p-4 flex flex-wrap gap-2">
-          <button type="button" className="btn-secondary" onClick={() => run("/api/accounting/stock-valuation", t("accounting-toast-stock-valued"))}>{t("accounting.button.post-stock-val")}</button>
-          <button type="button" className="btn-secondary" onClick={() => run("/api/accounting/sync", t("accounting-toast-docs-synced"))}>{t("accounting.button.sync-docs")}</button>
-        </section>
-      )}
-      <ul className="flex flex-col gap-2">
-        {q.data?.periods.map((p) => (
-          <li key={p.id} className="card p-3 flex justify-between items-center font-bold">
-            <span dir="ltr">{p.code}</span>
-            <span className={p.status === "open" ? "text-united-green" : "text-united-muted"}>{p.status === "open" ? t("accounting.period.open") : t("accounting.period.closed", { by: p.closedBy ?? "" })}</span>
-            {p.status === "open" && can("accounting.periods.close") && <button type="button" className="btn-danger" onClick={() => run(`/api/accounting/periods/${p.code}/close`, t("accounting-toast-period-closed", { code: p.code }))}>{t("accounting.button.close")}</button>}
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

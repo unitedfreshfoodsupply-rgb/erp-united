@@ -590,7 +590,7 @@ export async function profitLoss(from: string, to: string) {
     SELECT a."type", a."code", a."nameAr",
       sum(CASE WHEN a."type" IN ('revenue') THEN l."credit" - l."debit" ELSE l."debit" - l."credit" END) AS amount
     FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId" JOIN "Account" a ON a."id" = l."accountId"
-    WHERE a."type" IN ('revenue', 'expense') AND e."date" BETWEEN ${from} AND ${to}
+    WHERE a."type" IN ('revenue', 'expense') AND e."date" BETWEEN ${from} AND ${to} AND e."sourceType" NOT IN ('year_end_close', 'year_end_reopen')
     GROUP BY a."type", a."code", a."nameAr" ORDER BY a."type", a."code"`;
   const plLines = rows.map((r) => ({ type: r.type, code: r.code, name: r.nameAr, amount: D(r.amount).toFixed(2) }));
   const rev = plLines.filter((l) => l.type === "revenue").reduce((s, l) => s.plus(D(l.amount)), D(0));

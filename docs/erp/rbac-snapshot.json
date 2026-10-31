@@ -355,6 +355,46 @@
       }
     },
     {
+      "method": "POST",
+      "path": "/api/accounting/fiscal-years/[code]/close",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.periods.close"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/fiscal-years/[code]/reopen",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.periods.close"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/fiscal-years/[code]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/fiscal-years",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
       "method": "GET",
       "path": "/api/accounting/integrity",
       "gate": {
@@ -498,6 +538,16 @@
     {
       "method": "POST",
       "path": "/api/accounting/periods/[code]/close",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.periods.close"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/periods/[code]/reopen",
       "gate": {
         "kind": "all",
         "permissions": [
