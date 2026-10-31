@@ -124,13 +124,13 @@ export function OverviewView() {
               </Kpi>
             </div>
 
-            <ChartCard title={t("mgmt.overview.trend.title")} subtitle={t("mgmt.overview.trend.subtitle")} legend={trend}
+            <ChartCard title={t("mgmt.overview.trend.title")} subtitle={t("mgmt.overview.trend.subtitle")} legend={noTrade ? undefined : trend}
               table={<ChartTable caption={t("mgmt.overview.trend.title")} labels={labels} series={trend} format={f.full} total />}>
               {noTrade ? <EmptyState icon={ChartLine} title={t("mgmt.overview.empty.trade")} /> : <LineChart labels={labels} series={trend} format={egp} label={t("mgmt.overview.trend.title")} />}
             </ChartCard>
 
             <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-              <ChartCard title={t("mgmt.overview.grading.title")} subtitle={t("mgmt.overview.grading.subtitle")} legend={grading}
+              <ChartCard title={t("mgmt.overview.grading.title")} subtitle={t("mgmt.overview.grading.subtitle")} legend={noIntake ? undefined : grading}
                 table={<ChartTable caption={t("mgmt.overview.grading.title")} labels={labels} series={grading} format={f.full} total />}>
                 {noIntake ? <EmptyState icon={ChartLine} title={t("mgmt.overview.empty.intake")} /> : <ColumnChart stacked labels={labels} series={grading} format={kg} label={t("mgmt.overview.grading.title")} />}
               </ChartCard>

@@ -262,3 +262,56 @@ desk density.
 Every input has an accessible name: a visible `<label>`/`Field` first; where a compact row keeps
 the placeholder as the only visible text, the same text is also the `aria-label`. A select whose
 first option is a generic "— Choose —" is labelled by its field name, never by that option.
+
+## 10. Navigation, home and the consolidated system (Oct 2026, `ui/enterprise-ux`)
+
+### 10.1 Research basis
+
+Read directly from the design systems' own published sources (their websites are blocked by this
+environment's network policy; their documentation repositories are not):
+
+| Source | Guidance taken | Where it shows |
+|---|---|---|
+| GitHub Primer — *NavList* (`primer/design`, `content/components/nav-list.mdx`) | Nav list items are links only; leading visuals on all items or none; a distinct *current* state; related items grouped | Every sidebar item has a line icon; `aria-current="page"` drives the current style; groups by department |
+| IBM Carbon — *UI shell left panel* (`carbon-website`, `UI-shell-left-panel/usage.mdx`) | Use a left panel past five items or for frequent switching; sub-menus expand with a chevron and push items down; never three tiers — use tabs inside the page | Groups fold with a chevron; modules use in-page tabs, never a third nav level |
+| Primer primitives / Carbon layout / Polaris tokens (packages, §2) | Spacing, control sizes, coarse-pointer 44px, type weights | Tokens below |
+
+### 10.2 Shell and navigation
+
+| Element | Rule |
+|---|---|
+| Desk shell (more than seven links over two or more departments) | Fixed sidebar at the inline start: **Home**, then Operations · Control · Sales · Purchasing · Stock · Finance · **People** (HR) · Administration (system settings only). A line icon per module (Lucide, 1.75 stroke, 2.25 when current). |
+| Current page | Green tint, 3px inline-start bar, `aria-current="page"`; the top bar repeats department / page (a department named like its only page is not repeated). |
+| Groups | Fold with a chevron; the choice is remembered per browser; the group holding the current page cannot fold, so the current page is never hidden. |
+| Icon rail | Desktop sidebar folds to 4.25rem icons with tooltips and accessible names; remembered in the `u_rail` cookie, read by the root layout as `data-rail`, so the page offset is right before scripts run. |
+| Below 1024px | The same grouped list in a drawer (native dialog). |
+| Floor shell (preparation, loading) | One row of large tabs under the top bar on every size — nothing to open on a tablet. |
+| Permissions | Links come only from `visibleNavLinks(permissions)`; the security suite renders every nav page for every role and expects access exactly where the permission is held. |
+
+### 10.3 Home (`/home`)
+
+Landing page for administrators and accountants; open to every desk role. Order of importance:
+1. **Waiting for you** — approvals the viewer may decide (not their own), orders stopped for
+   supervisor approval, delivered orders without an invoice, draft invoices and bills, invoices
+   not yet sent to the Tax Authority. Each row: icon, count in words, why it matters, count, link.
+   Empty state: "Nothing is waiting for you".
+2. **Shortcuts** — only the actions the viewer may perform.
+3. **Snapshots** — open orders by stage (late ones in red), month-to-date sales against the same
+   days last month, collections, receivables and overdue, today's receipts.
+
+Each section is computed only when the viewer holds its permission (`lib/home/summary.ts`);
+`tests/home.test.ts` proves sections never leak and figures equal the detailed screens.
+
+### 10.4 Consolidated tokens
+
+| Token | Values |
+|---|---|
+| Type | IBM Plex Sans Arabic, both scripts. Page title 1.25–1.5rem/700; section 1rem/600; body 0.875rem/400; labels 0.75rem/500; KPI 1.5–1.875rem/700; tabular figures everywhere |
+| Colour | Ink `#1F3D24`, primary `#227C43`, muted `#5B6B5D`, page `#F5F7F4`, surface `#FFFFFF`, subtle `#EEF2ED`, borders `#DFE5DE`/`#C3CDC2`; status warn `#B45309`, danger `#B42318`, info `#1D5FA0`; charts §9.1 |
+| Spacing | 4px base: 4 · 8 · 12 · 16 · 20 · 24 · 32; page gutter 16px (24px ≥640px); card padding 16–20px; grid gaps 12–16px |
+| Controls | Desk 36–44px (compact `btn-sm`/`field-sm` 36px); touch pointers 44px minimum (`coarse:`) |
+| Radius | Controls 0.5rem; cards 0.625–0.75rem; pills full |
+| Elevation | `card` hairline; `card-hover`; `pop` for menus, dialogs, toasts, tooltips. No glass, no gradients |
+| Icons | Lucide line icons only, 14–18px in UI, 22–28px in empty states; directional icons mirror in RTL (`rtl:-scale-x-100` / `ltr:rotate-180`) |
+| States | Hover: subtle fill; focus: 2px green outline (`:focus-visible`); disabled: 40% opacity + `cursor-not-allowed`, and a reason where the user could otherwise act; loading: skeletons, not spinners; destructive: red, always confirmed in a dialog with focus on Cancel |
+| Motion | Only state changes (dialog/toast enter, chevron, skeleton pulse); off under reduced motion |
