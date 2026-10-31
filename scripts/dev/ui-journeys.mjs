@@ -118,7 +118,53 @@ await step("J10 home: an action row leads to the screen that holds its records",
     await link.click(); await p.waitForURL(`**${href}`); await p.waitForLoadState("networkidle");
   }
 });
+await step("J13 accounting: every finance tab opens (cash & banks, chart, cost centers, VAT, periods, opening)", async () => {
+  await p.goto(`${BASE}/accounting`, { waitUntil: "networkidle" });
+  for (const name of ["الخزائن والبنوك", "دليل الحسابات", "مراكز التكلفة", "ملخص الضريبة", "الفترات", "الأرصدة الافتتاحية"]) {
+    const tab = p.getByRole("tab", { name: new RegExp(name) });
+    if (!(await tab.count())) throw new Error(`no tab ${name}`);
+    await tab.first().click(); await p.waitForLoadState("networkidle");
+    expect(await p.locator(".page-container").innerText().then((x) => x.length > 50), `${name} rendered nothing`);
+  }
+});
+await step("J14 cash & banks: add a bank account through the form", async () => {
+  await p.goto(`${BASE}/accounting?tab=treasury`, { waitUntil: "networkidle" });
+  await p.getByRole("button", { name: /إضافة خزينة أو بنك/ }).click();
+  const name = `Journey Bank ${Date.now() % 100000}`;
+  await p.getByLabel("الاسم بالعربي").first().fill(name);
+  await p.getByLabel("الاسم بالإنجليزي").first().fill(name);
+  await p.locator("form").getByRole("button", { name: /إضافة خزينة أو بنك/ }).click();
+  await p.getByText(name).first().waitFor({ timeout: 10000 });
+});
+await step("J15 fixed assets: the register, categories, depreciation and reports tabs open", async () => {
+  await p.goto(`${BASE}/assets`, { waitUntil: "networkidle" });
+  await p.getByRole("heading", { level: 1, name: /الأصول الثابتة/ }).waitFor();
+  for (const name of ["الفئات", "الإهلاك الشهري", "التقارير", "سجل الأصول"]) { await p.getByRole("tab", { name }).click(); await p.waitForLoadState("networkidle"); }
+});
+await step("J16 the new finance screens in English, left to right, with no Arabic labels leaking", async () => {
+  // The context's init script sets Arabic on every page load, so switch after each navigation.
+  const english = async () => { await p.getByRole("button", { name: /English/ }).first().click(); await p.waitForTimeout(300); };
+  await p.goto(`${BASE}/assets`, { waitUntil: "networkidle" }); await english();
+  expect(await p.evaluate(() => document.documentElement.dir) === "ltr", "not LTR");
+  expect((await p.getByRole("heading", { level: 1 }).innerText()).includes("Fixed assets"), "assets title not English");
+  await p.goto(`${BASE}/accounting?tab=periods`, { waitUntil: "networkidle" }); await english();
+  const text = await p.locator(".page-container").innerText();
+  expect(/Fiscal years/.test(text) && !/السنوات المالية/.test(text), "periods tab not English");
+  await p.getByRole("button", { name: /العربية/ }).first().click(); await p.waitForTimeout(300);
+});
 await ctx.close();
+
+// --- Tablet: finance screens fit without sideways scrolling ------------------------------
+const tab = await browser.newContext({ viewport: { width: 820, height: 1180 }, hasTouch: true });
+await tab.addInitScript(() => { try { localStorage.setItem("united_locale", "ar"); } catch {} });
+await step("J17 tablet: cash & banks, assets and opening batch fit the screen", async () => {
+  const q = await signIn(tab, "admin"); watch(q);
+  for (const path of ["/accounting?tab=treasury", "/assets", "/accounting?tab=opening", "/accounting?tab=costcenters"]) {
+    await q.goto(`${BASE}${path}`, { waitUntil: "networkidle" });
+    expect(await q.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `horizontal overflow on ${path}`);
+  }
+});
+await tab.close();
 
 // --- Floor: preparer on a phone ---------------------------------------------------------
 const floor = await browser.newContext({ ...devices["Pixel 7"] });

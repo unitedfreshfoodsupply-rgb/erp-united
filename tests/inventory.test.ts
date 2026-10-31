@@ -2,10 +2,11 @@
    transfers, counts, scrap, returns, reservations, approvals, reports — and who may
    see and do what. */
 import { call, login, makeChecker } from "./_harness";
+import { todayBiz } from "./_days";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZINVE-${Date.now()}`;
-const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+const today = todayBiz(); // the Cairo business day the server books on (tests/_days.ts)
 let r: any;
 
 async function main() {

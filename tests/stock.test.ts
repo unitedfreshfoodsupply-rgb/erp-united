@@ -1,11 +1,12 @@
 /* Stock module: role isolation, CRUD, derived calculations, ledger integrity,
    adjustments, concurrency, aggregation, supplier performance, audit. */
 import { call, page, login, BASE, makeChecker } from "./_harness";
+import { todayBiz } from "./_days";
 
 const TAG = `ZZTEST-${Date.now()}`;
 const { check, section, finish } = makeChecker();
 const near = (a: number, b: number, eps = 0.0005) => Math.abs(a - b) < eps;
-const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+const today = todayBiz(); // the Cairo business day the server books on (tests/_days.ts)
 const shift = (iso: string, days: number) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate()+days); return d.toISOString().slice(0,10); };
 const isDenied = (p: { status: number; html: string }) => p.status === 200 && p.html.includes("مالكش صلاحية للصفحة دي");
 

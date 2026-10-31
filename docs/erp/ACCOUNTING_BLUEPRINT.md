@@ -1,6 +1,9 @@
 # UNITED ERP — Accounting Blueprint
 
-Status: **research and audit — no accounting feature was implemented for this document.**
+Status: **research and audit** (31 Oct 2026). The findings below have since been implemented on this
+branch — see `ACCOUNTING_GAP_CLOSURE.md` for what was built, tested and what remains.
+
+Original status: research and audit — no accounting feature was implemented for this document.
 Branch `ui/enterprise-ux` at the time of writing (`2f9e60c`). Evidence is the repository itself
 (schema, migrations, services, routes, screens, tests) and, for the benchmark, the vendors' own
 documentation sources.

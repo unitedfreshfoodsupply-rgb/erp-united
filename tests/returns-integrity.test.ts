@@ -4,10 +4,11 @@
    never exceeds the invoiced quantity. Uses its own products/customer so the
    tightly-coupled UAT totals are untouched. */
 import { call, login, makeChecker } from "./_harness";
+import { todayBiz } from "./_days";
 
 const TAG = `ZZRET-${Date.now()}`;
 const { check, section, finish } = makeChecker();
-const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+const today = todayBiz(); // the Cairo business day the server books on (tests/_days.ts)
 const n = (v: any) => Number(v ?? 0);
 const product = async (id: string) => (await call("karim", "GET", `/api/inventory/products/${id}`)).body;
 const onHand = async (id: string) => n((await product(id)).onHand);

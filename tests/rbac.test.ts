@@ -21,7 +21,7 @@ async function main() {
   // sales.quotations.view/manage, sales.invoices.view/manage (Phase 3),
   // sales.tax.manage (RBAC audit), 10 purchasing.* (Phase 4). Update deliberately
   // when the catalogue grows.
-  check("session exposes all 79 permissions for SUPER_ADMIN", me.body?.user?.permissions?.length === 79, me.body?.user?.permissions?.length);
+  check("session exposes all 84 permissions for SUPER_ADMIN", me.body?.user?.permissions?.length === 84, me.body?.user?.permissions?.length);
   check("PREPARER has exactly orders.view + orders.prepare",
     JSON.stringify((await call("ahmed","GET","/api/auth/me")).body.user.permissions.sort()) === JSON.stringify(["orders.prepare","orders.view"]));
   check("LOADER has exactly view/load/dispatch",
@@ -47,7 +47,7 @@ async function main() {
   // HR: prepares payroll, keeps compensation and statutory rules, posts and pays approved runs;
   // never approves payroll or reads private data.
   check("ACCOUNTANT: reads orders, stock value, customers; owns credit; cannot move stock or orders",
-    JSON.stringify(karimPerms) === JSON.stringify(["accounting.eta.manage","accounting.eta.view","accounting.manage","accounting.payments.manage","accounting.periods.close","accounting.receipts.manage","accounting.view","audit.view","hr.advances.manage","hr.compensation.manage","hr.compensation.view","hr.employees.manage","hr.employees.view","hr.expenses.submit","hr.leave.request","hr.payroll.pay","hr.payroll.post","hr.payroll.prepare","hr.payroll.view","hr.statutory.manage","orders.view","purchasing.bills.manage","purchasing.bills.view","purchasing.orders.approve","purchasing.orders.view","purchasing.prices.view","purchasing.suppliers.manage","purchasing.suppliers.view","reports.finance","sales.credit.manage","sales.customers.view","sales.invoices.manage","sales.invoices.view","sales.pricing.view","sales.quotations.view","sales.tax.manage","stock.valuation.view","stock.view"]), karimPerms);
+    JSON.stringify(karimPerms) === JSON.stringify(["accounting.assets.manage","accounting.assets.view","accounting.eta.manage","accounting.eta.view","accounting.journals.approve","accounting.manage","accounting.payments.manage","accounting.periods.close","accounting.receipts.manage","accounting.view","audit.view","hr.advances.manage","hr.compensation.manage","hr.compensation.view","hr.employees.manage","hr.employees.view","hr.expenses.submit","hr.leave.request","hr.payroll.pay","hr.payroll.post","hr.payroll.prepare","hr.payroll.view","hr.statutory.manage","orders.view","purchasing.bills.manage","purchasing.bills.view","purchasing.orders.approve","purchasing.orders.view","purchasing.prices.view","purchasing.suppliers.manage","purchasing.suppliers.view","reports.finance","sales.credit.manage","sales.customers.view","sales.invoices.manage","sales.invoices.view","sales.pricing.view","sales.quotations.view","sales.tax.manage","stock.valuation.view","stock.view"]), karimPerms);
 
   section("1. DIRECT API ACCESS MATRIX");
   const probes: { label: string; method: string; path: string; body?: any; allowed: string[] }[] = [
@@ -217,11 +217,11 @@ async function main() {
   check("passwords never written in clear", ov.body.audit.filter((l: any) => l.fieldChanged === "password").every((l: any) => l.oldValue === null && l.newValue === "(اتغيّرت)"));
   check("non-admin cannot read the security audit", (await call("sara","GET","/api/admin/overview")).status === 403);
   const m = ov.body.matrix;
-  check("catalogue has 79 permissions", m.permissions.length === 79, m.permissions.length);
+  check("catalogue has 84 permissions (79 + 5 accounting: reopen, journal and opening approval, fixed assets)", m.permissions.length === 84, m.permissions.length);
   check("all 9 roles present (SALES, ACCOUNTANT in Phase 3; PURCHASER in Phase 4; ACCOUNTING_CLERK)", m.roles.length === 9);
   check("database bundles match the code", m.catalogueInSync === true, m.roles.filter((r: any) => !r.inSync));
   const byRole = Object.fromEntries(m.roles.map((r: any) => [r.role, r.permissions]));
-  check("SUPER_ADMIN holds everything", byRole.SUPER_ADMIN.length === 79);
+  check("SUPER_ADMIN holds everything", byRole.SUPER_ADMIN.length === 84);
   check("only SUPER_ADMIN approves supplier-bill variances by default (the accountant books them)", m.roles.filter((r: any) => r.permissions.includes("purchasing.bills.approve")).map((r: any) => r.role).join() === "SUPER_ADMIN");
   check("only SUPER_ADMIN manages master data", m.roles.filter((r: any) => r.permissions.includes("core.masterdata.manage")).length === 1);
   check("only SUPER_ADMIN has settings.manage", m.roles.filter((r: any) => r.permissions.includes("settings.manage")).length === 1);

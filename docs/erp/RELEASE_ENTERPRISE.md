@@ -32,7 +32,11 @@ item-level "reject preparation" and form-draft persistence — and are listed as
 | `20261030131000_function_search_path` | `ALTER FUNCTION … SET search_path = public, extensions, pg_temp` on 35 trigger functions | Additive (function setting only, bodies unchanged); verified on a fresh chain with zero drift | `ALTER FUNCTION … RESET search_path` |
 
 No data migration, no column change, no destructive statement. Production history today: 69 applied
-migrations matching the repository; after this release: 71.
+migrations matching the repository; after these two: 71.
+
+The accounting gap-closure work on the same branch adds six more additive migrations (cash & banks,
+VAT returns + journal approval, fiscal years, fixed assets, opening batches, cost centers) — 77 in all.
+Their inventory, pre-checks, deployment and rollback are in `ACCOUNTING_GAP_CLOSURE.md` §6 and §13.
 
 ## 3. Data compatibility
 

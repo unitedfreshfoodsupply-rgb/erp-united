@@ -2,10 +2,11 @@
 // Each order can consume its reserved quantity; other orders' reservations
 // remain protected.
 import { call, login, makeChecker } from "./_harness";
+import { todayBiz } from "./_days";
 
 const TAG = `ZZSR${Date.now() % 1_000_000_000}`;
 const { check, section, finish } = makeChecker();
-const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
+const today = todayBiz(); // the Cairo business day the server books on (tests/_days.ts)
 
 async function main() {
   for (const u of ["admin", "sara", "hossam", "mona", "mostafa", "ahmed", "karim"]) await login(u);

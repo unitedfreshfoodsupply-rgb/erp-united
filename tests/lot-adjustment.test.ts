@@ -1,10 +1,11 @@
 // F-?? — Adjustment lot validation: lot-tracked products MUST specify lot_id
 // in adjustments; omitting it would silently create/modify a null-lot bucket.
 import { call, login, makeChecker } from "./_harness";
+import { todayBiz } from "./_days";
 
 const TAG = `ZZLOT${Date.now() % 1_000_000_000}`;
 const { check, section, finish } = makeChecker();
-const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
+const today = todayBiz(); // the Cairo business day the server books on (tests/_days.ts)
 const n = (v: any) => Number(v ?? 0);
 
 async function main() {

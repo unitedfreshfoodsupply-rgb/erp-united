@@ -1,10 +1,11 @@
 // F-17 — shortage approval integrity: the same variance at prep → loading must NOT
 // create a second approval request or a duplicate issue exception.
 import { call, login, makeChecker } from "./_harness";
+import { todayBiz } from "./_days";
 
 const TAG = `ZZF17${Date.now() % 1_000_000_000}`;
 const { check, section, finish } = makeChecker();
-const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
+const today = todayBiz(); // the Cairo business day the server books on (tests/_days.ts)
 const n = (v: any) => Number(v ?? 0);
 
 async function main() {

@@ -2,10 +2,11 @@
 // permissions, reconciliation, rollback, legacy grade B, idempotency.
 
 import { call, login, makeChecker } from "./_harness";
+import { todayBiz } from "./_days";
 
 const TAG = `ZZPL-${Date.now()}`;
 const { check, section, finish } = makeChecker();
-const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+const today = todayBiz(); // the Cairo business day the server books on (tests/_days.ts)
 
 const n = (v: any) => Number(v ?? 0);
 

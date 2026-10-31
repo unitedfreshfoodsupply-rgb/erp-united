@@ -2,10 +2,11 @@
 // good-grade, Grade B (separate SKU), and waste with exact reconciliation.
 
 import { call, login, makeChecker } from "./_harness";
+import { todayBiz } from "./_days";
 
 const TAG = `ZZSRT-${Date.now()}`;
 const { check, section, finish } = makeChecker();
-const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+const today = todayBiz(); // the Cairo business day the server books on (tests/_days.ts)
 
 export async function main() {
   await login("hossam");
