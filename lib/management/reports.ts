@@ -241,7 +241,7 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
   //   Financing CF = decrease in financing assets + increase in financing liabilities
 
   const operating = await operatingAccountIds();
-  type CfLine = { kind: "net_income" | "change"; label: string; amount: string; accountCode?: string; accountName?: string; accountNameAr?: string | null; unclassified?: boolean };
+  type CfLine = { kind: "net_income" | "change" | "adjustment"; label: string; amount: string; accountCode?: string; accountName?: string; accountNameAr?: string | null; unclassified?: boolean; adjustment?: "disposal_noncash" | "disposal_proceeds" };
   const unclassified: { code: string; name: string; nameAr: string }[] = [];
   const sections: Record<string, { lines: CfLine[]; total: string }> = {
     operating: { lines: [], total: "0.00" },
@@ -310,6 +310,17 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
     label: "صافي الدخل",
     amount: netIncome.toFixed(2),
   });
+
+  // Asset disposals: the balance changes put the asset's cost under investing and its
+  // accumulated depreciation (with the gain or loss, inside net income) under operating.
+  // Move them so investing shows what the sale brought in and operating nothing of it.
+  const [disp] = await prisma.$queryRaw<{ acc: Prisma.Decimal | null; gain: Prisma.Decimal | null }[]>`
+    SELECT coalesce(sum(-"accumulatedDelta"), 0) AS acc, coalesce(sum("gainLoss"), 0) AS gain FROM "AssetEvent" WHERE "type" = 'disposal' AND "date" BETWEEN ${from} AND ${to}`;
+  const shift = D(disp?.acc ?? 0).minus(D(disp?.gain ?? 0));
+  if (!shift.isZero()) {
+    sections.operating.lines.push({ kind: "adjustment", adjustment: "disposal_noncash", label: "استبعاد أصول: مجمع الإهلاك والربح/الخسارة (غير نقدي)", amount: shift.toFixed(2) });
+    sections.investing.lines.push({ kind: "adjustment", adjustment: "disposal_proceeds", label: "استبعاد أصول: الفرق بين التكلفة وثمن البيع", amount: shift.negated().toFixed(2) });
+  }
 
   // Compute section totals.
   for (const key of ["operating", "investing", "financing"] as const) {

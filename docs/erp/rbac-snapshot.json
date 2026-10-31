@@ -1046,6 +1046,156 @@
       }
     },
     {
+      "method": "POST",
+      "path": "/api/assets/[id]/dispose",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/assets/[id]/estimate",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/assets/[id]/improve",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/assets/[id]/place-in-service",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/assets/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/assets/[id]/transfer",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.manage"
+        ]
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/assets/categories/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/assets/categories",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/assets/categories",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/assets/depreciation",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/assets/depreciation",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/assets/depreciation/runs",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.view"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/assets/reports/roll-forward",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.view"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/assets",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/assets",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "assets.manage"
+        ]
+      }
+    },
+    {
       "method": "GET",
       "path": "/api/attachments/[id]/download",
       "gate": {
@@ -3978,7 +4128,11 @@
         "hr.expenses.approve",
         "hr.attendance.approve",
         "hr.leave.approve",
-        "hr.payroll.approve"
+        "hr.payroll.approve",
+        "accounting.manage",
+        "accounting.journals.approve",
+        "accounting.periods.reopen",
+        "accounting.opening.approve"
       ],
       "pageOpenToAll": true
     },
@@ -3999,6 +4153,11 @@
         "accounting.receipts.manage",
         "accounting.payments.manage"
       ],
+      "pageOpenToAll": false
+    },
+    {
+      "href": "/assets",
+      "permission": "assets.view",
       "pageOpenToAll": false
     },
     {

@@ -116,6 +116,10 @@ export async function closeFiscalYear(code: string, actor: ServiceActor) {
   const b = await fiscalYearBounds(code);
   // The stock value of the year reaches the ledger before its result is taken.
   await postStockValuation(actor);
+  // The last month's depreciation belongs to the year's result: posted before the result is taken.
+  const { depreciationForClose } = await import("@/lib/accounting/fixed-assets");
+  const last = await prisma.accountingPeriod.findUnique({ where: { code: b.months[11] }, select: { status: true } });
+  if (last?.status !== "closed" && b.endDate < todayLocalISO()) await inTx((tx) => depreciationForClose(tx, b.months[11], actor));
   return inTx(async (tx) => {
     await advisoryXactLock(tx, "accounting:fiscal-year");
     const p = await previewYearClose(code);

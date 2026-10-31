@@ -320,7 +320,13 @@ const serviceInput = z.object({
   due_date: isoDate("تاريخ الاستحقاق").nullable().optional(),
   notes: optText("ملاحظات", 2000).optional(),
   lines: z
-    .array(z.object({ account_id: text("الحساب"), description: text("البيان", 200), amount: amount2, tax_code: text("كود الضريبة", 40) }))
+    .array(z.object({
+      account_id: z.string().optional(), description: text("البيان", 200), amount: amount2, tax_code: text("كود الضريبة", 40),
+      // A capital line: buys a new fixed asset of this category (charged to its cost account) …
+      asset_category_id: z.string().optional().nullable(), asset_name: optText("اسم الأصل", 200).optional(),
+      // … or improves an asset already in the register.
+      improves_asset_id: z.string().optional().nullable(),
+    }))
     .min(1, "لازم سطر واحد على الأقل")
     .max(100),
   expected_version: version,
@@ -343,12 +349,30 @@ async function buildServiceLines(tx: Tx, v: z.infer<typeof serviceInput>) {
   const amounts: LineAmounts[] = [];
   const lines: Prisma.SupplierBillServiceLineCreateManyBillInput[] = [];
   for (const [i, l] of v.lines.entries()) {
-    const account = await serviceAccount(tx, l.account_id);
     const rate = taxes.get(l.tax_code);
     if (!rate) throw new ApiError(400, `كود ضريبة غير معروف: ${l.tax_code}`);
     const a = lineAmounts({ quantity: 1, unitPrice: l.amount, discountPct: 0, taxRate: rate });
+    let accountId: string;
+    let capital: { assetCategoryId?: string | null; assetName?: string | null; improvesAssetId?: string | null } = {};
+    if (l.asset_category_id && l.improves_asset_id) throw new ApiError(400, "السطر يا يشتري أصل جديد يا يحسّن أصل موجود، مش الاتنين");
+    if (l.asset_category_id) {
+      const c = await tx.assetCategory.findUnique({ where: { id: l.asset_category_id } });
+      if (!c?.active) throw new ApiError(400, "فئة الأصل مش موجودة أو موقوفة");
+      if (a.net.lessThan(c.capitalizationThreshold)) throw new ApiError(400, `${l.description}: أقل من حد الرسملة للفئة (${c.capitalizationThreshold.toFixed(2)}) — يتسجل على حساب مصروف`);
+      accountId = c.assetAccountId;
+      capital = { assetCategoryId: c.id, assetName: l.asset_name ?? l.description };
+    } else if (l.improves_asset_id) {
+      const asset = await tx.fixedAsset.findUnique({ where: { id: l.improves_asset_id }, include: { category: true } });
+      if (!asset) throw new ApiError(404, "الأصل مش موجود");
+      if (asset.status === "disposed") throw new ApiError(409, `الأصل ${asset.number} اتستبعد`);
+      accountId = asset.category.assetAccountId;
+      capital = { improvesAssetId: asset.id };
+    } else {
+      if (!l.account_id) throw new ApiError(400, "الحساب مطلوب");
+      accountId = (await serviceAccount(tx, l.account_id)).id;
+    }
     amounts.push(a);
-    lines.push({ lineNo: i + 1, accountId: account.id, description: l.description, taxCode: l.tax_code, taxRate: rate, net: a.net, tax: a.tax, total: a.total });
+    lines.push({ lineNo: i + 1, accountId, description: l.description, taxCode: l.tax_code, taxRate: rate, net: a.net, tax: a.tax, total: a.total, ...capital });
   }
   return { lines, totals: sumAmounts(amounts) };
 }
@@ -822,6 +846,9 @@ export async function getBill(id: string) {
       tax: l.tax.toFixed(2),
       total: l.total.toFixed(2),
       debitedNet: l.debitLines.reduce((s, d) => s.plus(d.net), D(0)).toFixed(2),
+      assetCategoryId: l.assetCategoryId,
+      assetName: l.assetName,
+      improvesAssetId: l.improvesAssetId,
     })),
     debitNotes: b.debitNotes.map((dn) => ({ id: dn.id, number: dn.number, issueDate: dn.issueDate, reason: dn.reason, total: dn.total.toFixed(2), createdBy: dn.createdBy })),
   };

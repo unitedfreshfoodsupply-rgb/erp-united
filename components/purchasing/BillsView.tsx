@@ -42,7 +42,7 @@ const MATCH: Record<string, { label: string; cls: string }> = {
 
 type BillRow = { id: string; number: string; status: string; kind?: string; supplier: { id: string; code: string; name: string; nameAr?: string | null }; supplierInvoiceNo: string; billDate: string; dueDate: string; lineCount: number; total: string; variance: string; matchStatus: string; open: string | null };
 type BillLine = { id: string; lineNo: number; intakeId: string; receiptNumber: string; receivedDate: string; poNumber: string | null; description: string; uomCode: string; receivedQty: string; quantity: string; unitPrice: string; expectedUnitPrice: string | null; expectedNet: string | null; lineVariance: string | null; taxCode: string; net: string; tax: string; total: string; debitedQty: string };
-type ServiceLine = { id: string; lineNo: number; accountId: string; account: { code: string; name: string; nameAr: string }; description: string; taxCode: string; taxRate: string; net: string; tax: string; total: string; debitedNet: string };
+type ServiceLine = { id: string; lineNo: number; accountId: string; account: { code: string; name: string; nameAr: string }; description: string; taxCode: string; taxRate: string; net: string; tax: string; total: string; debitedNet: string; assetCategoryId: string | null; assetName: string | null; improvesAssetId: string | null };
 type Bill = Omit<BillRow, "lineCount"> & { currencyCode: string; notes: string | null; cancelReason: string | null; expectedNet: string; net: string; taxTotal: string; debited: string; approvalId: string | null; createdBy: string; postedBy: string | null; approvedBy: string | null; version: number; lines: BillLine[]; serviceLines: ServiceLine[]; debitNotes: { id: string; number: string; issueDate: string; reason: string; total: string; createdBy: string }[] };
 type Billable = { intakeId: string; receiptNumber: string; receivedDate: string; product: { id: string; name: string; unit: string }; poNumber: string | null; goodQty: string; expectedUnitPrice: string | null; priceSource: string | null; expectedNet: string | null; taxCode: string; taxRate: string };
 
@@ -202,7 +202,9 @@ function NewBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill 
   );
 }
 
-type DraftServiceLine = { account_id: string; description: string; amount: string; tax_code: string };
+/** kind: an expense (or ordinary asset account), a new fixed asset of a category, or an improvement of one. */
+type DraftServiceLine = { kind: "expense" | "asset" | "improvement"; account_id: string; description: string; amount: string; tax_code: string; asset_category_id: string; asset_name: string; improves_asset_id: string };
+const blankLine = (tax = ""): DraftServiceLine => ({ kind: "expense", account_id: "", description: "", amount: "", tax_code: tax, asset_category_id: "", asset_name: "", improves_asset_id: "" });
 
 /** A supplier invoice with no goods receipt behind it: each line is an account, an amount before tax, and its tax. */
 function NewServiceBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill }) {
@@ -224,19 +226,24 @@ function NewServiceBill({ onDone, bill }: { onDone: (id?: string) => void; bill?
   const [billDate, setBillDate] = useState(bill?.billDate ?? todayLocalISO());
   const [dueDate, setDueDate] = useState(bill?.dueDate ?? "");
   const [notes, setNotes] = useState(bill?.notes ?? "");
-  const [lines, setLines] = useState<DraftServiceLine[]>(() => bill?.serviceLines.length ? bill.serviceLines.map((l) => ({ account_id: l.accountId, description: l.description, amount: l.net, tax_code: l.taxCode })) : [{ account_id: "", description: "", amount: "", tax_code: "" }]);
+  const [lines, setLines] = useState<DraftServiceLine[]>(() => bill?.serviceLines.length ? bill.serviceLines.map((l) => ({ ...blankLine(l.taxCode), kind: l.assetCategoryId ? "asset" : l.improvesAssetId ? "improvement" : "expense", account_id: l.assetCategoryId || l.improvesAssetId ? "" : l.accountId, description: l.description, amount: l.net, asset_category_id: l.assetCategoryId ?? "", asset_name: l.assetName ?? "", improves_asset_id: l.improvesAssetId ?? "" })) : [blankLine()]);
+  // Capital lines need the fixed-asset register (assets.view); without it only expense lines are offered.
+  const { can } = usePermissions();
+  const assetCats = useQuery({ queryKey: ["assets", "categories"], enabled: can("assets.view"), queryFn: () => apiFetch<{ categories: { id: string; code: string; name: string; nameAr: string; active: boolean; capitalizationThreshold: string }[] }>("/api/assets/categories").then((r) => r.categories.filter((c) => c.active)) });
+  const liveAssets = useQuery({ queryKey: ["assets", "list", "live"], enabled: can("assets.view"), queryFn: () => apiFetch<{ assets: { id: string; number: string; name: string; nameAr: string | null; status: string }[] }>("/api/assets").then((r) => r.assets.filter((a) => a.status !== "disposed")) });
   const [busy, setBusy] = useState(false);
   const rate = (code: string) => Number(taxes.data?.find((x) => x.code === code)?.rate ?? 0);
   const net = lines.reduce((a, l) => a + Number(l.amount || 0), 0);
   const tax = lines.reduce((a, l) => a + Math.round(Number(l.amount || 0) * rate(l.tax_code)) / 100, 0);
   const setLine = (i: number, patch: Partial<DraftServiceLine>) => setLines(lines.map((l, j) => (j === i ? { ...l, ...patch } : l)));
-  const ready = supplierId && invoiceNo.trim() && lines.length > 0 && lines.every((l) => l.account_id && l.description.trim() && Number(l.amount) > 0 && l.tax_code);
+  const ready = supplierId && invoiceNo.trim() && lines.length > 0 && lines.every((l) => (l.kind === "expense" ? l.account_id : l.kind === "asset" ? l.asset_category_id : l.improves_asset_id) && l.description.trim() && Number(l.amount) > 0 && l.tax_code);
 
   async function save() {
     if (busy) return;
     setBusy(true);
     try {
-      const payload = { kind: "service", supplier_id: supplierId, supplier_invoice_no: invoiceNo, bill_date: billDate, due_date: dueDate || null, notes: notes || null, lines, ...(bill ? { expected_version: bill.version } : {}) };
+      const payloadLines = lines.map((l) => ({ description: l.description, amount: l.amount, tax_code: l.tax_code, ...(l.kind === "expense" ? { account_id: l.account_id } : l.kind === "asset" ? { asset_category_id: l.asset_category_id, asset_name: l.asset_name || undefined } : { improves_asset_id: l.improves_asset_id }) }));
+      const payload = { kind: "service", supplier_id: supplierId, supplier_invoice_no: invoiceNo, bill_date: billDate, due_date: dueDate || null, notes: notes || null, lines: payloadLines, ...(bill ? { expected_version: bill.version } : {}) };
       const res = bill ? await apiPut<{ bill: Bill }>(`/api/purchasing/bills/${bill.id}`, payload) : await apiPost<{ bill: Bill }>("/api/purchasing/bills", payload);
       void qc.invalidateQueries({ queryKey: ["purchasing"] });
       toast.show(res.bill.number, "success");
@@ -266,13 +273,36 @@ function NewServiceBill({ onDone, bill }: { onDone: (id?: string) => void; bill?
       <section className="card p-4 flex flex-col gap-2">
         <h3 className="font-extrabold">{t("purchasing.bill.service_lines_header")}</h3>
         {lines.map((l, i) => (
-          <div key={i} className="grid grid-cols-2 sm:grid-cols-[2fr_2fr_1fr_1fr_auto] gap-2 items-end">
-            <Field label={t("purchasing.bill.field.account")}>
-              <select className="field" value={l.account_id} onChange={(e) => setLine(i, { account_id: e.target.value })}>
-                <option value="">—</option>
-                {chargeable.map((a) => <option key={a.id} value={a.id}>{a.code} · {localName({ name: a.name, nameAr: a.nameAr }, locale)}</option>)}
+          <div key={i} className="grid grid-cols-2 sm:grid-cols-[1fr_2fr_2fr_1fr_1fr_auto] gap-2 items-end">
+            <Field label={t("purchasing.bill.field.line_kind")}>
+              <select className="field" value={l.kind} onChange={(e) => setLine(i, { kind: e.target.value as DraftServiceLine["kind"] })}>
+                <option value="expense">{t("purchasing.bill.kind.expense")}</option>
+                {!!assetCats.data?.length && <option value="asset">{t("purchasing.bill.kind.asset")}</option>}
+                {!!liveAssets.data?.length && <option value="improvement">{t("purchasing.bill.kind.improvement")}</option>}
               </select>
             </Field>
+            {l.kind === "expense" ? (
+              <Field label={t("purchasing.bill.field.account")}>
+                <select className="field" value={l.account_id} onChange={(e) => setLine(i, { account_id: e.target.value })}>
+                  <option value="">—</option>
+                  {chargeable.map((a) => <option key={a.id} value={a.id}>{a.code} · {localName({ name: a.name, nameAr: a.nameAr }, locale)}</option>)}
+                </select>
+              </Field>
+            ) : l.kind === "asset" ? (
+              <Field label={t("purchasing.bill.field.asset_category")} hint={l.asset_category_id ? t("purchasing.bill.asset_threshold", { amount: fmtMoney(assetCats.data?.find((c) => c.id === l.asset_category_id)?.capitalizationThreshold ?? "0") }) : undefined}>
+                <select className="field" value={l.asset_category_id} onChange={(e) => setLine(i, { asset_category_id: e.target.value })}>
+                  <option value="">—</option>
+                  {assetCats.data?.map((c) => <option key={c.id} value={c.id}>{localName(c, locale)}</option>)}
+                </select>
+              </Field>
+            ) : (
+              <Field label={t("purchasing.bill.field.improves_asset")}>
+                <select className="field" value={l.improves_asset_id} onChange={(e) => setLine(i, { improves_asset_id: e.target.value })}>
+                  <option value="">—</option>
+                  {liveAssets.data?.map((a) => <option key={a.id} value={a.id}>{a.number} · {localName(a, locale)}</option>)}
+                </select>
+              </Field>
+            )}
             <Field label={t("purchasing.bill.field.description")}><input className="field" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} /></Field>
             <Field label={t("purchasing.bill.before_tax")}><input className="field" dir="ltr" inputMode="decimal" value={l.amount} onChange={(e) => setLine(i, { amount: e.target.value })} /></Field>
             <Field label={t("purchasing.bill.tax")}>
@@ -284,7 +314,7 @@ function NewServiceBill({ onDone, bill }: { onDone: (id?: string) => void; bill?
             <button type="button" className="btn-ghost text-united-danger" disabled={lines.length === 1} aria-label={t("purchasing.bill.remove_line")} onClick={() => setLines(lines.filter((_, j) => j !== i))}>✕</button>
           </div>
         ))}
-        <button type="button" className="btn-secondary self-start" onClick={() => setLines([...lines, { account_id: "", description: "", amount: "", tax_code: lines[lines.length - 1]?.tax_code ?? "" }])}>{t("purchasing.bill.add_line")}</button>
+        <button type="button" className="btn-secondary self-start" onClick={() => setLines([...lines, blankLine(lines[lines.length - 1]?.tax_code ?? "")])}>{t("purchasing.bill.add_line")}</button>
         <div className="flex flex-wrap justify-between gap-2 font-extrabold border-t border-united-dark/10 pt-2">
           <span>{t("purchasing.bill.before_tax")}: <span dir="ltr">{fmtMoney(net)}</span></span>
           <span>{t("purchasing.bill.tax")}: <span dir="ltr">{fmtMoney(tax)}</span></span>

@@ -106,10 +106,11 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `/supervisor/exceptions` نواقص التجهيز (`reports.view`) | ✓ | ✓ |  |  |  |  |  |  |  |
 | `/supervisor/report` تقرير اليوم (`reports.view`) | ✓ | ✓ |  |  |  |  |  |  |  |
 | `/supervisor/audit` سجل المراجعة (`audit.view`) | ✓ | ✓ |  |  |  |  | ✓ |  |  |
-| `/approvals` الموافقات (`orders.approve` / `stock.approve_adjustments` / `sales.credit.manage` / `purchasing.orders.approve` / `purchasing.bills.approve` / `hr.expenses.approve` / `hr.attendance.approve` / `hr.leave.approve` / `hr.payroll.approve`; page open to all, filters itself) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `/approvals` الموافقات (`orders.approve` / `stock.approve_adjustments` / `sales.credit.manage` / `purchasing.orders.approve` / `purchasing.bills.approve` / `hr.expenses.approve` / `hr.attendance.approve` / `hr.leave.approve` / `hr.payroll.approve` / `accounting.manage` / `accounting.journals.approve` / `accounting.periods.reopen` / `accounting.opening.approve`; page open to all, filters itself) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `/sales` العملاء (`sales.customers.view`) | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | `/purchasing` المشتريات (`purchasing.orders.view`) | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |
 | `/accounting` الحسابات (`accounting.view` / `accounting.receipts.manage` / `accounting.payments.manage`) | ✓ |  |  |  |  |  | ✓ |  | ✓ |
+| `/assets` الأصول الثابتة (`assets.view`) | ✓ |  |  |  |  |  | ✓ |  |  |
 | `/eta` الفاتورة الإلكترونية (`accounting.eta.view`) | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | `/hr` الموظفين والمصروفات (`hr.expenses.submit`) | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | `/hr/attendance` الحضور والانصراف (`hr.attendance.record` / `hr.attendance.approve` / `hr.employees.manage`) | ✓ | ✓ |  |  |  |  | ✓ |  |  |
@@ -210,6 +211,21 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/admin/users` | `users.create` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/approvals/[id]/decide` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | GET | `/api/approvals` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| POST | `/api/assets/[id]/dispose` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/[id]/estimate` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/[id]/improve` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/[id]/place-in-service` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/assets/[id]` | `assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/[id]/transfer` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| PATCH | `/api/assets/categories/[id]` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/assets/categories` | `assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/categories` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/assets/depreciation` | `assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/depreciation` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/assets/depreciation/runs` | `assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/assets/reports/roll-forward` | `assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/assets` | `assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/attachments/[id]/download` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | DELETE | `/api/attachments/[id]` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | GET | `/api/attachments` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

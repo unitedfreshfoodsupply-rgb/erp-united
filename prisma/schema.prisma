@@ -275,8 +275,9 @@ model Supplier {
   bills      SupplierBill[]
   debitNotes DebitNote[]
 
-  payments SupplierPayment[]
-  refunds  SupplierRefund[]
+  payments    SupplierPayment[]
+  refunds     SupplierRefund[]
+  fixedAssets FixedAsset[]
 
   @@index([active])
 }
@@ -672,6 +673,7 @@ model Warehouse {
   reservations   StockReservation[]
   rfqs           Rfq[]
   purchaseOrders PurchaseOrder[]
+  fixedAssets    FixedAsset[]
 
   @@index([branchId])
   @@index([active])
@@ -1801,9 +1803,17 @@ model SupplierBillServiceLine {
   tax         Decimal @db.Decimal(18, 2)
   total       Decimal @db.Decimal(18, 2)
 
-  bill       SupplierBill           @relation(fields: [billId], references: [id], onDelete: Restrict)
-  account    Account                @relation(fields: [accountId], references: [id], onDelete: Restrict)
-  debitLines DebitNoteServiceLine[]
+  /// A capital line: buys a new asset of this category (posted to its cost account) …
+  assetCategoryId String?
+  assetName       String?
+  /// … or improves an existing asset (added to its cost).
+  improvesAssetId String?
+
+  bill          SupplierBill           @relation(fields: [billId], references: [id], onDelete: Restrict)
+  account       Account                @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  debitLines    DebitNoteServiceLine[]
+  assetCategory AssetCategory?         @relation(fields: [assetCategoryId], references: [id], onDelete: Restrict)
+  improvesAsset FixedAsset?            @relation(fields: [improvesAssetId], references: [id], onDelete: Restrict)
 
   @@unique([billId, lineNo])
 }
@@ -1849,16 +1859,17 @@ model DebitNoteLine {
 // ---------------------------------------------------------------------------
 
 model Vehicle {
-  id           String   @id @default(cuid())
-  code         String   @unique
-  plate        String   @unique
+  id           String       @id @default(cuid())
+  fixedAssets  FixedAsset[]
+  code         String       @unique
+  plate        String       @unique
   /// van | truck | pickup | other
-  type         String   @default("truck")
-  capacityKg   Decimal? @db.Decimal(12, 2)
-  refrigerated Boolean  @default(false)
-  active       Boolean  @default(true)
-  version      Int      @default(1)
-  createdAt    DateTime @default(now())
+  type         String       @default("truck")
+  capacityKg   Decimal?     @db.Decimal(12, 2)
+  refrigerated Boolean      @default(false)
+  active       Boolean      @default(true)
+  version      Int          @default(1)
+  createdAt    DateTime     @default(now())
 
   trips Trip[]
 }
@@ -2014,10 +2025,13 @@ model Account {
   lines        JournalLine[]
   cashAccounts CashAccount[]
 
-  receiptDeductions ReceiptDeduction[]
-  paymentDeductions PaymentDeduction[]
-  transferFees      CashTransfer[]
-  billServiceLines  SupplierBillServiceLine[]
+  receiptDeductions          ReceiptDeduction[]
+  paymentDeductions          PaymentDeduction[]
+  transferFees               CashTransfer[]
+  assetCategoriesCost        AssetCategory[]           @relation("AssetCategoryCost")
+  assetCategoriesAccumulated AssetCategory[]           @relation("AssetCategoryAccumulated")
+  assetCategoriesExpense     AssetCategory[]           @relation("AssetCategoryExpense")
+  billServiceLines           SupplierBillServiceLine[]
 
   payComponentsExpense   PayComponent[] @relation("PayComponentExpense")
   payComponentsLiability PayComponent[] @relation("PayComponentLiability")
@@ -2070,13 +2084,16 @@ model JournalEntry {
 
   valuationPostings StockValuationPosting[]
 
-  cashTransfer         CashTransfer?   @relation("CashTransferEntry")
-  cashTransferReversal CashTransfer?   @relation("CashTransferReversal")
-  vatReturn            VatReturn?      @relation("VatReturnEntry")
-  vatReturnPayment     VatReturn?      @relation("VatReturnPayment")
-  vatReturnVoid        VatReturn?      @relation("VatReturnVoid")
+  cashTransfer         CashTransfer?           @relation("CashTransferEntry")
+  cashTransferReversal CashTransfer?           @relation("CashTransferReversal")
+  vatReturn            VatReturn?              @relation("VatReturnEntry")
+  vatReturnPayment     VatReturn?              @relation("VatReturnPayment")
+  vatReturnVoid        VatReturn?              @relation("VatReturnVoid")
   journalRequest       JournalRequest?
   fiscalYearClosing    FiscalYear?
+  assetEvents          AssetEvent[]
+  depreciationRun      DepreciationRun?
+  depreciationLines    AssetDepreciationLine[]
 
   @@index([date])
   @@index([sourceType, sourceId])
@@ -2122,6 +2139,7 @@ model CashAccount {
   account         Account              @relation(fields: [accountId], references: [id], onDelete: Restrict)
   transfersOut    CashTransfer[]       @relation("TransferFrom")
   vatPayments     VatReturn[]
+  assetEvents     AssetEvent[]
   transfersIn     CashTransfer[]       @relation("TransferTo")
   receipts        CustomerReceipt[]
   payments        SupplierPayment[]
@@ -2327,6 +2345,7 @@ model Employee {
   compensations      EmployeeCompensation[]
   payslips           PayrollRunEmployee[]
   payrollAdjustments PayrollAdjustment[]
+  fixedAssets        FixedAsset[]
 
   @@index([departmentId])
 }
@@ -3623,4 +3642,164 @@ model FiscalYear {
   version        Int       @default(1)
 
   closingEntry JournalEntry? @relation(fields: [closingEntryId], references: [id], onDelete: Restrict)
+}
+
+/// An asset category: the default depreciation policy (life, method, residual, when
+/// depreciation starts, the value below which a purchase is expensed) and the GL accounts
+/// its assets post to — its own cost and accumulated-depreciation accounts under 1700.
+model AssetCategory {
+  id                      String   @id @default(cuid())
+  code                    String   @unique
+  name                    String
+  nameAr                  String
+  /// false for land and assets that keep their value
+  depreciable             Boolean  @default(true)
+  /// straight_line | declining_balance (switches to straight line when that is larger)
+  method                  String   @default("straight_line")
+  usefulLifeMonths        Int
+  residualPercent         Decimal  @default(0) @db.Decimal(5, 2)
+  /// annual rate % for declining balance
+  decliningRate           Decimal? @db.Decimal(5, 2)
+  /// same_month | next_month — the first month depreciated after the in-service date
+  depreciationStart       String
+  capitalizationThreshold Decimal  @default(0) @db.Decimal(18, 2)
+  assetAccountId          String   @unique
+  accumulatedAccountId    String?  @unique
+  expenseAccountId        String?
+  active                  Boolean  @default(true)
+  version                 Int      @default(1)
+  createdBy               String
+  createdAt               DateTime @default(now())
+
+  assetAccount       Account                   @relation("AssetCategoryCost", fields: [assetAccountId], references: [id], onDelete: Restrict)
+  accumulatedAccount Account?                  @relation("AssetCategoryAccumulated", fields: [accumulatedAccountId], references: [id], onDelete: Restrict)
+  expenseAccount     Account?                  @relation("AssetCategoryExpense", fields: [expenseAccountId], references: [id], onDelete: Restrict)
+  assets             FixedAsset[]
+  billLines          SupplierBillServiceLine[]
+}
+
+/// One asset in the register. Cost and accumulated depreciation are running totals of its
+/// events and depreciation lines (the integrity check proves they equal the GL accounts).
+model FixedAsset {
+  id                  String   @id @default(cuid())
+  /// FA-#####
+  number              String   @unique
+  name                String
+  nameAr              String?
+  categoryId          String
+  /// draft (bought, not yet in use) | in_service | disposed
+  status              String   @default("draft")
+  acquisitionDate     String
+  inServiceDate       String?
+  cost                Decimal  @db.Decimal(18, 2)
+  residualValue       Decimal  @default(0) @db.Decimal(18, 2)
+  usefulLifeMonths    Int
+  method              String
+  decliningRate       Decimal? @db.Decimal(5, 2)
+  depreciationStart   String
+  accumulated         Decimal  @default(0) @db.Decimal(18, 2)
+  /// Brought over at go-live: depreciation before the cut-over and the months it covered.
+  openingAccumulated  Decimal  @default(0) @db.Decimal(18, 2)
+  openingMonthsUsed   Int      @default(0)
+  warehouseId         String?
+  location            String?
+  custodianEmployeeId String?
+  vehicleId           String?
+  supplierId          String?
+  /// supplier_bill (sourceId = the bill line) | cash | opening (sourceId = the batch line)
+  sourceType          String
+  sourceId            String?
+  serialNumber        String?
+  plateNumber         String?
+  notes               String?
+  disposedDate        String?
+  version             Int      @default(1)
+  createdById         String?
+  createdBy           String
+  createdAt           DateTime @default(now())
+
+  category          AssetCategory             @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  warehouse         Warehouse?                @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  custodian         Employee?                 @relation(fields: [custodianEmployeeId], references: [id], onDelete: Restrict)
+  vehicle           Vehicle?                  @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  supplier          Supplier?                 @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  events            AssetEvent[]
+  depreciationLines AssetDepreciationLine[]
+  improvementLines  SupplierBillServiceLine[]
+
+  @@index([categoryId])
+  @@index([status])
+}
+
+/// What happened to an asset (append-only): acquisition, improvement, cost adjustment,
+/// placed in service, transfer, disposal, opening, change of estimate.
+model AssetEvent {
+  id               String   @id @default(cuid())
+  assetId          String
+  type             String
+  date             String
+  costDelta        Decimal  @default(0) @db.Decimal(18, 2)
+  accumulatedDelta Decimal  @default(0) @db.Decimal(18, 2)
+  proceeds         Decimal? @db.Decimal(18, 2)
+  taxCode          String?
+  taxRate          Decimal? @db.Decimal(5, 2)
+  tax              Decimal? @db.Decimal(18, 2)
+  gainLoss         Decimal? @db.Decimal(18, 2)
+  cashAccountId    String?
+  details          Json?
+  entryId          String?
+  reason           String?
+  createdById      String?
+  createdBy        String
+  createdAt        DateTime @default(now())
+
+  asset             FixedAsset              @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  entry             JournalEntry?           @relation(fields: [entryId], references: [id], onDelete: Restrict)
+  cashAccount       CashAccount?            @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  depreciationLines AssetDepreciationLine[]
+
+  @@index([assetId])
+  @@index([type, date])
+}
+
+/// A month's depreciation: one entry (Dr depreciation / Cr accumulated depreciation, per category).
+model DepreciationRun {
+  id          String   @id @default(cuid())
+  /// DEP-YYYY-####
+  number      String   @unique
+  /// YYYY-MM (a month may have several runs; each asset-month is depreciated once)
+  period      String
+  date        String
+  total       Decimal  @db.Decimal(18, 2)
+  lineCount   Int
+  entryId     String   @unique
+  createdById String?
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  entry JournalEntry            @relation(fields: [entryId], references: [id], onDelete: Restrict)
+  lines AssetDepreciationLine[]
+
+  @@index([period])
+}
+
+/// One asset's depreciation for one month (unique per asset and month), from a run or a disposal's catch-up.
+model AssetDepreciationLine {
+  id               String   @id @default(cuid())
+  assetId          String
+  period           String
+  runId            String?
+  disposalEventId  String?
+  amount           Decimal  @db.Decimal(18, 2)
+  accumulatedAfter Decimal  @db.Decimal(18, 2)
+  entryId          String
+  createdAt        DateTime @default(now())
+
+  asset         FixedAsset       @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  run           DepreciationRun? @relation(fields: [runId], references: [id], onDelete: Restrict)
+  disposalEvent AssetEvent?      @relation(fields: [disposalEventId], references: [id], onDelete: Restrict)
+  entry         JournalEntry     @relation(fields: [entryId], references: [id], onDelete: Restrict)
+
+  @@unique([assetId, period])
+  @@index([runId])
 }

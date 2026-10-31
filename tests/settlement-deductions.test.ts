@@ -5,10 +5,11 @@
    reversal brings every leg back. Settings are restored at the end so the suites that
    follow see the feature off, as shipped. */
 import { call, login, makeChecker } from "./_harness";
+import { todayBiz } from "./_days";
 
 const TAG = `ZZSETTLE-${Date.now()}`;
 const { check, section, finish } = makeChecker();
-const today = new Date().toISOString().slice(0, 10);
+const today = todayBiz();
 const n = (v: any) => Number(v ?? 0);
 const code = (prefix: string) => `${prefix}${String(Date.now()).slice(-5)}`;
 const SETTINGS = ["accounting.withholding_receivable_account", "accounting.withholding_payable_account", "accounting.bank_charges_account", "accounting.write_off_account", "accounting.write_off_limit"];

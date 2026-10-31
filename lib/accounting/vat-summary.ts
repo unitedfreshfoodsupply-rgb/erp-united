@@ -64,6 +64,9 @@ export async function vatSummary(from: string, to: string) {
       FROM "SupplierBillServiceLine" l JOIN "SupplierBill" b ON b."id" = l."billId"
       WHERE b."status" = 'posted' AND b."billDate" >= ${from} AND b."billDate" <= ${to}
       UNION ALL
+      SELECT ev."taxCode", ev."taxRate", ev."proceeds", ev."tax", 0::numeric, 0::numeric
+      FROM "AssetEvent" ev
+      WHERE ev."type" = 'disposal' AND ev."taxCode" IS NOT NULL AND ev."date" >= ${from} AND ev."date" <= ${to}      UNION ALL
       SELECT sl."taxCode", sl."taxRate", 0::numeric, 0::numeric, -l."net", -l."tax"
       FROM "DebitNoteServiceLine" l JOIN "DebitNote" n ON n."id" = l."debitNoteId" JOIN "SupplierBillServiceLine" sl ON sl."id" = l."serviceLineId"
       WHERE n."issueDate" >= ${from} AND n."issueDate" <= ${to}

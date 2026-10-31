@@ -170,6 +170,12 @@ export async function integrityReport() {
         OR (e."sourceType" = 'opening_balance' AND NOT EXISTS (SELECT 1 FROM "PartyOpeningBalance" d WHERE d."id" = e."sourceId"))
         OR (e."sourceType" = 'payroll_run' AND NOT EXISTS (SELECT 1 FROM "PayrollRun" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
         OR (e."sourceType" = 'payroll_payment' AND NOT EXISTS (SELECT 1 FROM "PayrollPayment" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
+        OR (e."sourceType" = 'asset_acquisition' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."entryId" = e."id" AND d."type" = 'acquisition'))
+        OR (e."sourceType" = 'asset_improvement' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."entryId" = e."id" AND d."type" = 'improvement'))
+        OR (e."sourceType" = 'asset_disposal' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."id" = e."sourceId" AND d."entryId" = e."id"))
+        OR (e."sourceType" = 'asset_depreciation' AND NOT EXISTS (SELECT 1 FROM "DepreciationRun" d WHERE d."id" = e."sourceId" AND d."entryId" = e."id"))
+        OR (e."sourceType" = 'year_end_close' AND NOT EXISTS (SELECT 1 FROM "FiscalYear" d WHERE e."sourceId" LIKE d."id" || ':%'))
+        OR (e."sourceType" = 'year_end_reopen' AND NOT EXISTS (SELECT 1 FROM "FiscalYear" d WHERE e."sourceId" LIKE d."id" || ':%'))
         OR (e."sourceType" = 'vat_settlement' AND NOT EXISTS (SELECT 1 FROM "VatReturn" d WHERE (d."entryId" = e."id" AND d."id" = e."sourceId") OR (d."voidEntryId" = e."id" AND 'void:' || d."id" = e."sourceId")))
         OR (e."sourceType" = 'vat_payment' AND NOT EXISTS (SELECT 1 FROM "VatReturn" d WHERE d."id" = e."sourceId" AND d."paymentEntryId" = e."id"))
         OR (e."sourceType" = 'cash_transfer' AND NOT EXISTS (SELECT 1 FROM "CashTransfer" d WHERE d."id" = e."sourceId" AND d."entryId" = e."id"))
@@ -206,6 +212,14 @@ export async function integrityReport() {
     const invDiff = D(inv?.v).minus(invGl);
     const tolerance = D(Number(inv?.n ?? 0)).times("0.005");
     return { key: "inventory", label: "قيمة المخزون = حساب المخزون في الأستاذ", ok: invDiff.abs().lessThanOrEqualTo(Prisma.Decimal.max(tolerance, D("0.01"))), subledger: D(inv?.v).toFixed(2), ledger: invGl.toFixed(2), difference: invDiff.toFixed(2) };
+  })(),
+  // Fixed assets: per category, the register's cost and accumulated depreciation against their accounts.
+  (async (): Promise<Check> => {
+    const { registerVsLedger } = await import("@/lib/accounting/fixed-assets");
+    const rows = await registerVsLedger();
+    const bad = rows.filter((r) => !r.ok);
+    const sum = (k: "registerCost" | "glCost") => rows.reduce((s, r) => s.plus(r[k]), D(0));
+    return { key: "fixed_assets", label: "سجل الأصول الثابتة = حساباتها في الأستاذ (تكلفة ومجمع إهلاك)", ok: bad.length === 0, subledger: sum("registerCost").toFixed(2), ledger: sum("glCost").toFixed(2), difference: sum("registerCost").minus(sum("glCost")).toFixed(2), count: rows.length, detail: bad };
   })(),
   // VAT owed to the authority: filed, unpaid returns against the VAT payable account.
   (async (): Promise<Check> => {

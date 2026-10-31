@@ -7,13 +7,14 @@
    harness's existing database connection via apiPost to /api/admin/users and
    other endpoints that exercise the constraint path. */
 import { call, login, makeChecker } from "./_harness";
+import { todayBiz } from "./_days";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZCON${Date.now() % 1_000_000}`;
 
 async function main() {
   for (const u of ["admin", "sara", "hossam"]) await login(u);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayBiz();
 
   // -----------------------------------------------------------------------
   section("1. Order.status constraint — app rejects invalid status");

@@ -8,7 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   BadgeCheck, BarChart3, BookOpen, CalendarCheck, CalendarDays, ChevronDown, ClipboardList, Clock, FileCheck2, FileSpreadsheet, Gauge, House, Landmark,
   Languages, LayoutDashboard, LogOut, Menu, PackageOpen, PackageSearch, PanelLeftClose, PanelLeftOpen, ReceiptText, ScrollText, Settings, ShieldAlert,
-  ShoppingCart, Sprout, Truck, UserRound, Users, Wallet, Warehouse, X, type LucideIcon,
+  ShoppingCart, Sprout, Truck, UserRound, Users, Wallet, Warehouse, X, Building2, type LucideIcon,
 } from "lucide-react";
 import { useSession, usePermissions } from "@/lib/use-session";
 import { apiPost } from "@/lib/api-client";
@@ -49,7 +49,7 @@ const GROUP_ICON: Record<NavGroup, LucideIcon> = {
 const LINK_ICON: Record<string, LucideIcon> = {
   "/home": House, "/prep": PackageOpen, "/load": Truck, "/production": Sprout, "/production/sheet": ClipboardList, "/operations": Truck,
   "/supervisor": Gauge, "/supervisor/exceptions": ShieldAlert, "/supervisor/report": FileSpreadsheet, "/supervisor/audit": ScrollText, "/approvals": BadgeCheck,
-  "/management/operations": BarChart3, "/sales": Users, "/purchasing": ShoppingCart, "/accounting": Landmark, "/eta": ReceiptText,
+  "/management/operations": BarChart3, "/sales": Users, "/purchasing": ShoppingCart, "/accounting": Landmark, "/assets": Building2, "/eta": ReceiptText,
   "/management/overview": LayoutDashboard, "/management": BarChart3, "/stock": Warehouse, "/stock/inventory": PackageSearch, "/stock/entries": FileCheck2,
   "/stock/ledger": BookOpen, "/stock/setup": ClipboardList, "/hr": Wallet, "/hr/attendance": Clock, "/hr/leave": CalendarDays, "/hr/payroll": CalendarCheck,
   "/admin": Settings,

@@ -3,10 +3,11 @@
    tax; posting is Dr those accounts / Dr input VAT / Cr the supplier, and from there the
    bill is paid, aged, stated and VAT-summarised exactly like a goods bill. */
 import { call, login, makeChecker } from "./_harness";
+import { todayBiz } from "./_days";
 
 const TAG = `ZZSVC-${Date.now()}`;
 const { check, section, finish } = makeChecker();
-const today = new Date().toISOString().slice(0, 10);
+const today = todayBiz();
 const n = (v: any) => Number(v ?? 0);
 const code = (prefix: string) => `${prefix}${String(Date.now()).slice(-5)}`;
 

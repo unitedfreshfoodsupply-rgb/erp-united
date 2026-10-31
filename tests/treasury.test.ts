@@ -12,10 +12,11 @@
 import { PrismaClient } from "@prisma/client";
 import { call, login, makeChecker } from "./_harness";
 import { assertTestDatabase } from "./_guard";
+import { todayBiz } from "./_days";
 
 const TAG = `ZZTRS${Date.now() % 1_000_000_000}`;
 const { check, section, finish } = makeChecker();
-const today = new Date().toISOString().slice(0, 10);
+const today = todayBiz();
 const n = (v: any) => Number(v ?? 0);
 const code = (prefix: string) => `${prefix}${String(Date.now()).slice(-5)}`;
 const setSetting = (key: string, value: unknown) => call("admin", "PATCH", `/api/admin/settings/${key}`, { value, reason: `${TAG} اختبار` });

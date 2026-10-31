@@ -3,10 +3,11 @@
    COGS, flagged) → supplier bill at the real price → GRNI/PPV/AP journal → the
    layer and later COGS reconcile, and nothing posted is silently rewritten. */
 import { call, login, makeChecker } from "./_harness";
+import { todayBiz } from "./_days";
 
 const TAG = `ZZCOST-${Date.now()}`;
 const { check, section, finish } = makeChecker();
-const today = new Date().toISOString().slice(0, 10);
+const today = todayBiz();
 const n = (v: any) => Number(v ?? 0);
 const product = async (id: string) => (await call("karim", "GET", `/api/inventory/products/${id}`)).body;
 const onHand = async (id: string) => n((await product(id)).onHand);

@@ -10,6 +10,7 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import { call, login, makeChecker } from "./_harness";
 import { assertTestDatabase } from "./_guard";
+import { todayBiz } from "./_days";
 import { inTx } from "@/lib/tx";
 import { postJournal } from "@/lib/accounting/ledger";
 
@@ -47,7 +48,7 @@ async function main() {
   check("the range is in the past (never today's VAT)", D1 < addDays(new Date().toISOString().slice(0, 10), -30), D1);
   const D1end = addDays(D1, 4), D2 = addDays(D1, 5), D2end = addDays(D1, 9);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayBiz();
 
   section("1. A RETURN THAT ONLY CARRIES INPUT FORWARD");
   const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مالك المخزن` })).body.supplier;

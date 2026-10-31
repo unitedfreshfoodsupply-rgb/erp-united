@@ -177,7 +177,7 @@ export async function postSupplierBill(tx: Tx, billId: string, actor: Actorish) 
     if (!bill.serviceLines.length) throw new ApiError(409, `فاتورة الخدمة ${bill.number} مفيهاش سطور`);
     const byAccount = new Map<string, Prisma.Decimal>();
     for (const l of bill.serviceLines) byAccount.set(l.accountId, (byAccount.get(l.accountId) ?? D(0)).plus(l.net));
-    return postJournal(tx, {
+    const entry = await postJournal(tx, {
       date: bill.billDate, description: `فاتورة خدمة ${bill.number} (${bill.supplierInvoiceNo})`, sourceType: "supplier_bill", sourceId: bill.id,
       lines: [
         ...[...byAccount].map(([accountId, amount]) => ({ accountId, amount })),
@@ -185,6 +185,12 @@ export async function postSupplierBill(tx: Tx, billId: string, actor: Actorish) 
         { key: "ap", amount: bill.total.negated(), party: { type: "supplier", id: bill.supplierId } },
       ],
     }, actor);
+    // Capital lines (a new asset of a category, or an improvement) enter the register in the same transaction.
+    if (entry && bill.serviceLines.some((l) => l.assetCategoryId || l.improvesAssetId)) {
+      const { capitalizeBillLines } = await import("@/lib/accounting/fixed-assets");
+      await capitalizeBillLines(tx, bill.id, entry.id, actor);
+    }
+    return entry;
   }
   // GRNI carries what the receipts were valued at in stock (the agreed price); anything
   // else the supplier charged is a purchase price variance.
@@ -202,13 +208,13 @@ export async function postSupplierBill(tx: Tx, billId: string, actor: Actorish) 
 
 export async function postDebitNote(tx: Tx, debitNoteId: string, actor: Actorish) {
   if (await posted(tx, "debit_note", debitNoteId)) return null;
-  const dn = await tx.debitNote.findUniqueOrThrow({ where: { id: debitNoteId }, include: { bill: { select: { number: true } }, serviceLines: { include: { serviceLine: { select: { accountId: true } } } } } });
+  const dn = await tx.debitNote.findUniqueOrThrow({ where: { id: debitNoteId }, include: { bill: { select: { number: true } }, serviceLines: { include: { serviceLine: { select: { accountId: true, assetCategoryId: true, improvesAssetId: true } } } } } });
   assertEgpCurrency(dn.currencyCode, `الإشعار المدين ${dn.number}`);
   if (dn.serviceLines.length) {
     // An allowance on a service bill takes back from the accounts the bill charged.
     const byAccount = new Map<string, Prisma.Decimal>();
     for (const l of dn.serviceLines) byAccount.set(l.serviceLine.accountId, (byAccount.get(l.serviceLine.accountId) ?? D(0)).plus(l.net));
-    return postJournal(tx, {
+    const entry = await postJournal(tx, {
       date: dn.issueDate, description: `إشعار مدين ${dn.number} على ${dn.bill.number}`, sourceType: "debit_note", sourceId: dn.id,
       lines: [
         { key: "ap", amount: dn.total, party: { type: "supplier", id: dn.supplierId } },
@@ -216,6 +222,11 @@ export async function postDebitNote(tx: Tx, debitNoteId: string, actor: Actorish
         { key: "vat_input", amount: dn.taxTotal.negated() },
       ],
     }, actor);
+    if (entry && dn.serviceLines.some((l) => l.serviceLine.assetCategoryId || l.serviceLine.improvesAssetId)) {
+      const { adjustForDebitNote } = await import("@/lib/accounting/fixed-assets");
+      await adjustForDebitNote(tx, dn.id, entry.id, actor);
+    }
+    return entry;
   }
   // Goods returned left stock against GRNI at what they were carried at; anything the
   // supplier credits beyond that (or a pure allowance) is a purchase price variance.
@@ -571,6 +582,9 @@ export async function closePeriod(code: string, actor: ServiceActor) {
     const p = await ensureOpenPeriod(tx, `${code}-01`);
     const later = await tx.accountingPeriod.findFirst({ where: { code: { lt: code }, status: "open" }, select: { code: true } });
     if (later) throw new ApiError(409, `اقفل الفترة ${later.code} الأول`);
+    // The month's depreciation is part of the month: posted before it locks (once).
+    const { depreciationForClose } = await import("@/lib/accounting/fixed-assets");
+    await depreciationForClose(tx, code, actor);
     const updated = await tx.accountingPeriod.update({ where: { id: p.id, version: p.version }, data: { status: "closed", closedBy: actor.name, closedAt: new Date(), version: { increment: 1 } } });
     await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "period_closed", entityType: "accounting_period", entityId: p.id, fieldChanged: code, oldValue: "open", newValue: "closed", source: "user", deviceId: actor.deviceId }, tx);
     return updated;

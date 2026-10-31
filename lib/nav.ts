@@ -59,10 +59,11 @@ export const NAV_LINKS: NavLink[] = [
   { href: "/supervisor/audit", labelKey: "nav.link.audit-log", label: "سجل المراجعة", permission: "audit.view", group: "control", primary: false },
   // Every permission that can decide some approval type — see lib/core/approvals.ts.
   // The page lists what you may decide AND what you raised, so anyone may open it.
-  { href: "/approvals", labelKey: "nav.link.approvals", label: "الموافقات", permission: ["orders.approve", "stock.approve_adjustments", "sales.credit.manage", "purchasing.orders.approve", "purchasing.bills.approve", "hr.expenses.approve", "hr.attendance.approve", "hr.leave.approve", "hr.payroll.approve"], group: "control", primary: true, pageOpenToAll: true },
+  { href: "/approvals", labelKey: "nav.link.approvals", label: "الموافقات", permission: ["orders.approve", "stock.approve_adjustments", "sales.credit.manage", "purchasing.orders.approve", "purchasing.bills.approve", "hr.expenses.approve", "hr.attendance.approve", "hr.leave.approve", "hr.payroll.approve", "accounting.manage", "accounting.journals.approve", "accounting.periods.reopen", "accounting.opening.approve"], group: "control", primary: true, pageOpenToAll: true },
   { href: "/sales", labelKey: "nav.link.sales", label: "العملاء", permission: "sales.customers.view", group: "sales", primary: true },
   { href: "/purchasing", labelKey: "nav.link.purchasing", label: "المشتريات", permission: "purchasing.orders.view", group: "purchasing", primary: true },
   { href: "/accounting", labelKey: "nav.link.accounting", label: "الحسابات", permission: ["accounting.view", "accounting.receipts.manage", "accounting.payments.manage"], group: "finance", primary: true },
+  { href: "/assets", labelKey: "nav.link.assets", label: "الأصول الثابتة", permission: "assets.view", group: "finance", primary: true },
   { href: "/eta", labelKey: "nav.link.eta", label: "الفاتورة الإلكترونية", permission: "accounting.eta.view", group: "finance", primary: true },
   { href: "/hr", labelKey: "nav.link.hr", label: "الموظفين والمصروفات", permission: "hr.expenses.submit", group: "people", primary: true },
   { href: "/hr/attendance", labelKey: "nav.link.attendance", label: "الحضور والانصراف", permission: ["hr.attendance.record", "hr.attendance.approve", "hr.employees.manage"], group: "people", primary: true },

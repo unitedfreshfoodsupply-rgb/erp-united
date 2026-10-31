@@ -137,7 +137,7 @@ function Finance({ r, t, kinds }: { r: FinanceReport; t: (k: string) => string; 
 function CashFlow({ r, t }: { r: CashFlowReport; t: (k: string) => string }) {
   const { locale } = useLocale();
   const lineLabel = (l: CashFlowReport["sections"][string]["lines"][number]) =>
-    l.kind === "net_income" ? t("mgmt.cf.row.net_income") : `${t("mgmt.cf.row.change_in").replace("{}", `${l.accountCode ?? ""} ${localName({ name: l.accountName ?? l.label, nameAr: l.accountNameAr }, locale)}`.trim())}${l.unclassified ? ` — ${t("mgmt.cf.unclassified-tag")}` : ""}`;
+    l.kind === "net_income" ? t("mgmt.cf.row.net_income") : l.kind === "adjustment" ? t(`mgmt.cf.row.${l.adjustment}`) : `${t("mgmt.cf.row.change_in").replace("{}", `${l.accountCode ?? ""} ${localName({ name: l.accountName ?? l.label, nameAr: l.accountNameAr }, locale)}`.trim())}${l.unclassified ? ` — ${t("mgmt.cf.unclassified-tag")}` : ""}`;
   const cashName = (a: CashFlowReport["cashAccounts"][number]) => localName(a, locale);
   const sectionLabels: Record<string, string> = { operating: t("mgmt.cf.section.operating"), investing: t("mgmt.cf.section.investing"), financing: t("mgmt.cf.section.financing") };
   return (
