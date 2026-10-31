@@ -143,6 +143,8 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/accounting/customer-refunds` | `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | GET | `/api/accounting/customers/[id]/open-invoices` | any of `accounting.view`, `accounting.receipts.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | GET | `/api/accounting/integrity` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/journal-requests/[id]/cancel` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/journal-requests` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/journals/[id]/reverse` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/journals/[id]` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/journals` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
@@ -174,6 +176,11 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/accounting/transfers` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/transfers` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/trial-balance` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/vat-returns/[id]/pay` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/vat-returns/[id]/void` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/vat-returns/preview` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/vat-returns` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/vat-returns` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/vat-summary/export` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/vat-summary` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/withholding/export` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |

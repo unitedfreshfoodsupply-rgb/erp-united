@@ -106,6 +106,13 @@ export const APPROVAL_TYPES = {
     levels: 1,
     link: (id) => `/orders/${id}`,
   },
+  "accounting.manual_journal": {
+    label: "اعتماد قيد يدوي",
+    entityType: "journal_request",
+    approvePermission: "accounting.journals.approve",
+    levels: 1,
+    link: () => "/accounting?tab=journals",
+  },
   "accounting.cash_transfer": {
     label: "اعتماد تحويل بين الخزائن والبنوك",
     entityType: "cash_transfer",

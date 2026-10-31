@@ -366,6 +366,26 @@
     },
     {
       "method": "POST",
+      "path": "/api/accounting/journal-requests/[id]/cancel",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/journal-requests",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
       "path": "/api/accounting/journals/[id]/reverse",
       "gate": {
         "kind": "all",
@@ -675,6 +695,56 @@
         "kind": "all",
         "permissions": [
           "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/vat-returns/[id]/pay",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/vat-returns/[id]/void",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/vat-returns/preview",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/vat-returns",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/vat-returns",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
         ]
       }
     },

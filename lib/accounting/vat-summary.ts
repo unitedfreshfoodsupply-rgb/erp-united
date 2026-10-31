@@ -73,7 +73,7 @@ export async function vatSummary(from: string, to: string) {
   const ledgerRows = await prisma.$queryRaw<{ systemKey: string; debit: Prisma.Decimal; credit: Prisma.Decimal }[]>`
     SELECT a."systemKey", coalesce(sum(l."debit"), 0) AS debit, coalesce(sum(l."credit"), 0) AS credit
     FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId" JOIN "Account" a ON a."id" = l."accountId"
-    WHERE a."systemKey" IN ('vat_input', 'vat_output') AND e."date" >= ${from} AND e."date" <= ${to}
+    WHERE a."systemKey" IN ('vat_input', 'vat_output') AND e."date" >= ${from} AND e."date" <= ${to} AND e."sourceType" <> 'vat_settlement'
     GROUP BY a."systemKey"`;
   const byKey = new Map(ledgerRows.map((row) => [row.systemKey, row]));
   const zero = new Prisma.Decimal(0);

@@ -13,6 +13,8 @@ import { isValidISODate } from "@/lib/dates";
 import { nextDocumentNumber } from "@/lib/core/sequences";
 import { parse, text } from "@/lib/core/validation";
 import { assertEgpCurrency } from "@/lib/core/currency";
+import { getSetting } from "@/lib/core/settings-service";
+import { cancelPendingApproval, requestApproval } from "@/lib/core/approvals";
 import type { ServiceActor } from "@/lib/core/actor";
 
 /**
@@ -100,6 +102,11 @@ export async function postJournal(
   if (!debit.equals(credit)) throw new Error(`unbalanced posting ${e.sourceType}/${e.sourceId}: ${debit} ≠ ${credit}`);
   await ensureOpenPeriod(tx, e.date);
   const keys = [...new Set(lines.map((l) => l.key).filter((k): k is SystemKey => !!k))];
+  // A filed VAT return freezes the VAT of its period (the database refuses it too); say why.
+  if (e.sourceType !== "vat_settlement" && (keys.includes("vat_input") || keys.includes("vat_output"))) {
+    const filed = await tx.vatReturn.findFirst({ where: { status: { not: "voided" }, periodFrom: { lte: e.date }, periodTo: { gte: e.date } }, select: { number: true, periodFrom: true, periodTo: true } });
+    if (filed) throw new ApiError(409, `فترة الضريبة ${filed.periodFrom} – ${filed.periodTo} اتقدّم عنها الإقرار ${filed.number} — سجّل المستند بتاريخ في فترة ضريبية مفتوحة`);
+  }
   const ids = keys.length ? await accountIds(tx, keys) : new Map<SystemKey, string>();
   const entry = await tx.journalEntry.create({
     data: {
@@ -386,32 +393,8 @@ const manualInput = z.object({
   idempotency_key: idempotencyKeyField,
 });
 
-/**
- * Accounts whose balance is the sum of a document ledger (customer statements, supplier
- * statements, the stock ledger, employee balances). A manual journal on them would move
- * the GL without the documents and the two would silently disagree; the document that
- * moves each one is named instead.
- */
-const CONTROL_ACCOUNTS: Record<string, string> = {
-  ar: "فاتورة أو إشعار دائن أو تحصيل أو رصيد افتتاحي للعميل",
-  ap: "فاتورة مورد أو إشعار مدين أو سداد أو رصيد افتتاحي للمورد",
-  inventory: "حركة مخزون (استلام، صرف، تسوية، مخزون افتتاحي)",
-  grni: "استلام بضاعة أو فاتورة مورد",
-  employee_advances: "حركة موظف (سلفة / تسوية)",
-  employee_payable: "مصروف موظف أو حركة موظف",
-  vat_input: "فاتورة مورد أو إشعار مدين أو إقرار ضريبة القيمة المضافة",
-  vat_output: "فاتورة مبيعات أو إشعار دائن أو بيع أصل أو إقرار ضريبة القيمة المضافة",
-  vat_payable: "إقرار ضريبة القيمة المضافة وسداده",
-};
-/** Accounts owned by a subledger through their own column (category accounts of fixed assets). */
-const CONTROLLED_BY: Record<string, string> = {
-  fixed_assets: "سجل الأصول الثابتة (شراء، إهلاك، استبعاد)",
-};
-
-/** The document that moves a control account, or undefined for an ordinary account. */
-export function controlAccountMovedBy(systemKey: string | null | undefined, controlledBy?: string | null): string | undefined {
-  return (systemKey ? CONTROL_ACCOUNTS[systemKey] : undefined) ?? (controlledBy ? CONTROLLED_BY[controlledBy] : undefined);
-}
+export { controlAccountMovedBy } from "@/lib/accounting/control-accounts";
+import { controlAccountMovedBy } from "@/lib/accounting/control-accounts";
 
 export async function createManualJournal(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.manage");
@@ -452,6 +435,106 @@ export async function createManualJournal(input: unknown, actor: ServiceActor) {
     const entry = await postJournal(tx, { date: v.date, description: v.description, sourceType: "manual", sourceId, requestHash: v.idempotency_key ? requestHash : undefined, lines }, actor);
     return entry!;
   });
+}
+
+type ManualInput = z.infer<typeof manualInput>;
+
+/** Every line names an active postable account that is not a control account. */
+async function checkManualAccounts(tx: Tx, lines: { account_id: string }[]) {
+  const accounts = await tx.account.findMany({ where: { id: { in: lines.map((l) => l.account_id) } } });
+  for (const l of lines) {
+    const a = accounts.find((x) => x.id === l.account_id);
+    if (!a) throw new ApiError(404, "حساب مش موجود");
+    if (!a.postable || !a.active) throw new ApiError(400, `الحساب ${a.code} حساب رئيسي أو موقوف — مينفعش الترحيل عليه`);
+    const via = controlAccountMovedBy(a.systemKey, a.controlledBy);
+    if (via) throw new ApiError(400, `الحساب ${a.code} (${a.nameAr}) حساب مراقبة — بيتحرك بس من ${via}، عشان كشف الحساب والأستاذ يفضلوا متطابقين`);
+  }
+}
+
+function manualPostLines(v: Pick<ManualInput, "lines">): PostLine[] {
+  const lines: PostLine[] = v.lines.map((l) => ({ accountId: l.account_id, amount: l.debit.gt(0) ? l.debit : l.credit.negated(), party: l.party_type ? { type: l.party_type, id: l.party_id! } : undefined, description: l.description }));
+  const dr = lines.filter((l) => l.amount.gt(0)).reduce((a, l) => a.plus(l.amount), D(0));
+  const cr = lines.filter((l) => l.amount.lt(0)).reduce((a, l) => a.minus(l.amount), D(0));
+  if (!dr.equals(cr)) throw new ApiError(400, `القيد مش متوازن: مدين ${dr.toFixed(2)} ودائن ${cr.toFixed(2)}`);
+  return lines;
+}
+
+const REQUEST_LINES = z.array(z.object({ account_id: z.string(), debit: z.string(), credit: z.string(), party_type: z.enum(["customer", "supplier"]).nullable().optional(), party_id: z.string().nullable().optional(), description: z.string().nullable().optional() }));
+
+/**
+ * A manual journal from the screen: posted at once, or — when approval is switched on and
+ * the total is above the threshold — held as a request until someone other than the
+ * requester with accounting.journals.approve approves it (it posts then, after the same
+ * checks again). The answer says which: { journal } or { request }.
+ */
+export async function submitManualJournal(input: unknown, actor: ServiceActor) {
+  assertPermission(actor, "accounting.manage");
+  const v = parse(manualInput, input);
+  const total = v.lines.reduce((a, l) => a.plus(l.debit), D(0));
+  const [on, threshold] = await Promise.all([getSetting("accounting.manual_journal_approval"), getSetting("accounting.manual_journal_approval_threshold")]);
+  if (!on || !total.greaterThan(D(threshold))) return { journal: await createManualJournal(input, actor), request: null };
+  for (const l of v.lines) {
+    if (l.debit.gt(0) === l.credit.gt(0)) throw new ApiError(400, "كل سطر يا مدين يا دائن (مش الاتنين ولا صفر)");
+    if (!!l.party_type !== !!l.party_id) throw new ApiError(400, "حدد نوع الطرف ورقمه مع بعض");
+  }
+  const lines = v.lines.map((l) => ({ account_id: l.account_id, debit: l.debit.toFixed(2), credit: l.credit.toFixed(2), party_type: l.party_type ?? null, party_id: l.party_id ?? null, description: l.description ?? null }));
+  const requestHash = requestFingerprint({ date: v.date, description: v.description, lines });
+  const request = await inTx(async (tx) => {
+    await lockKey(tx, v.idempotency_key);
+    if (v.idempotency_key) {
+      const prev = await tx.journalRequest.findUnique({ where: { idempotencyKey: v.idempotency_key } });
+      if (prev) return replayRequest(prev, requestHash, false);
+    }
+    manualPostLines(v);
+    await checkManualAccounts(tx, v.lines);
+    const period = await tx.accountingPeriod.findUnique({ where: { code: v.date.slice(0, 7) }, select: { status: true } });
+    if (period?.status === "closed") throw new ApiError(409, `الفترة المحاسبية ${v.date.slice(0, 7)} مقفولة — مينفعش تترحّل فيها قيود`);
+    const r = await tx.journalRequest.create({
+      data: { number: await nextDocumentNumber(tx, "accounting.journal_request", v.date), date: v.date, description: v.description, lines, total, status: "pending_approval", idempotencyKey: v.idempotency_key ?? null, requestHash: v.idempotency_key ? requestHash : null, requestedById: actor.id, requestedBy: actor.name },
+    });
+    await requestApproval(tx, { type: "accounting.manual_journal", entityId: r.id, title: `قيد يدوي ${r.number}: ${v.description}`, amount: total, requester: actor });
+    await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "journal_request_submitted", entityType: "journal_request", entityId: r.id, fieldChanged: r.number, newValue: `${total.toFixed(2)} · ${v.description}`, source: "user", deviceId: actor.deviceId }, tx);
+    return r;
+  });
+  return { journal: null, request };
+}
+
+/** Approval handler: approved → posted by the approver's decision (never the requester's); rejected → nothing posts. */
+export async function applyJournalRequestDecision(tx: Tx, id: string, approved: boolean, decider: { id: string | null; name: string; role: string; deviceId?: string }, comment?: string) {
+  const r = await tx.journalRequest.findUniqueOrThrow({ where: { id } });
+  if (r.status !== "pending_approval") throw new ApiError(409, "الطلب ده اتقرر قبل كده");
+  if (r.requestedById && r.requestedById === decider.id) throw new ApiError(403, "اللي طلب القيد مينفعش يعتمده بنفسه");
+  if (!approved) {
+    await tx.journalRequest.update({ where: { id, version: r.version }, data: { status: "rejected", decidedBy: decider.name, decidedAt: new Date(), decisionNote: comment ?? null, version: { increment: 1 } } });
+    await writeAudit({ userId: decider.id, userName: decider.name, role: decider.role, action: "journal_request_rejected", entityType: "journal_request", entityId: id, fieldChanged: r.number, reason: comment, source: "user", deviceId: decider.deviceId }, tx);
+    return null;
+  }
+  const lines = REQUEST_LINES.parse(r.lines).map((l) => ({ account_id: l.account_id, debit: D(l.debit), credit: D(l.credit), party_type: l.party_type ?? undefined, party_id: l.party_id ?? undefined, description: l.description ?? undefined }));
+  await checkManualAccounts(tx, lines);
+  const entry = await postJournal(tx, { date: r.date, description: r.description, sourceType: "manual", sourceId: `manual-req-${r.id}`, lines: manualPostLines({ lines }) }, { id: r.requestedById, name: r.requestedBy, role: "ACCOUNTANT", deviceId: decider.deviceId });
+  await tx.journalRequest.update({ where: { id, version: r.version }, data: { status: "posted", entryId: entry!.id, decidedBy: decider.name, decidedAt: new Date(), decisionNote: comment ?? null, version: { increment: 1 } } });
+  await writeAudit({ userId: decider.id, userName: decider.name, role: decider.role, action: "journal_request_approved", entityType: "journal_request", entityId: id, fieldChanged: r.number, newValue: entry!.number, source: "user", deviceId: decider.deviceId }, tx);
+  return entry;
+}
+
+/** The requester (or any accounting manager) withdraws a request still waiting. */
+export async function cancelJournalRequest(id: string, input: unknown, actor: ServiceActor) {
+  assertPermission(actor, "accounting.manage");
+  const v = parse(z.object({ reason: text("السبب", 500) }), input);
+  return inTx(async (tx) => {
+    const r = await tx.journalRequest.findUnique({ where: { id } });
+    if (!r) throw new ApiError(404, "الطلب مش موجود");
+    if (r.status !== "pending_approval") throw new ApiError(409, "الطلب ده اتقرر قبل كده");
+    await cancelPendingApproval(tx, { type: "accounting.manual_journal", entityId: id, reason: v.reason, actor });
+    const updated = await tx.journalRequest.update({ where: { id, version: r.version }, data: { status: "cancelled", decidedBy: actor.name, decidedAt: new Date(), decisionNote: v.reason, version: { increment: 1 } } });
+    await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "journal_request_cancelled", entityType: "journal_request", entityId: id, fieldChanged: r.number, reason: v.reason, source: "user", deviceId: actor.deviceId }, tx);
+    return updated;
+  });
+}
+
+export async function listJournalRequests(filters: { status?: string }) {
+  const rows = await prisma.journalRequest.findMany({ where: filters.status ? { status: filters.status } : {}, orderBy: { createdAt: "desc" }, take: 100, include: { entry: { select: { id: true, number: true } } } });
+  return rows.map((r) => ({ ...r, total: r.total.toFixed(2) }));
 }
 
 export async function reverseJournal(id: string, input: unknown, actor: ServiceActor) {

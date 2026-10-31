@@ -170,6 +170,8 @@ export async function integrityReport() {
         OR (e."sourceType" = 'opening_balance' AND NOT EXISTS (SELECT 1 FROM "PartyOpeningBalance" d WHERE d."id" = e."sourceId"))
         OR (e."sourceType" = 'payroll_run' AND NOT EXISTS (SELECT 1 FROM "PayrollRun" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
         OR (e."sourceType" = 'payroll_payment' AND NOT EXISTS (SELECT 1 FROM "PayrollPayment" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
+        OR (e."sourceType" = 'vat_settlement' AND NOT EXISTS (SELECT 1 FROM "VatReturn" d WHERE (d."entryId" = e."id" AND d."id" = e."sourceId") OR (d."voidEntryId" = e."id" AND 'void:' || d."id" = e."sourceId")))
+        OR (e."sourceType" = 'vat_payment' AND NOT EXISTS (SELECT 1 FROM "VatReturn" d WHERE d."id" = e."sourceId" AND d."paymentEntryId" = e."id"))
         OR (e."sourceType" = 'cash_transfer' AND NOT EXISTS (SELECT 1 FROM "CashTransfer" d WHERE d."id" = e."sourceId" AND d."entryId" = e."id"))
         OR (e."sourceType" = 'cash_transfer_reversal' AND NOT EXISTS (SELECT 1 FROM "CashTransfer" d WHERE d."id" = e."sourceId" AND d."reversalEntryId" = e."id"))
         OR (e."sourceType" = 'stock_valuation' AND NOT EXISTS (SELECT 1 FROM "StockValuationPosting" p WHERE p."entryId" = e."id") AND e."sourceId" NOT LIKE '%|%')`;
@@ -204,6 +206,12 @@ export async function integrityReport() {
     const invDiff = D(inv?.v).minus(invGl);
     const tolerance = D(Number(inv?.n ?? 0)).times("0.005");
     return { key: "inventory", label: "قيمة المخزون = حساب المخزون في الأستاذ", ok: invDiff.abs().lessThanOrEqualTo(Prisma.Decimal.max(tolerance, D("0.01"))), subledger: D(inv?.v).toFixed(2), ledger: invGl.toFixed(2), difference: invDiff.toFixed(2) };
+  })(),
+  // VAT owed to the authority: filed, unpaid returns against the VAT payable account.
+  (async (): Promise<Check> => {
+    const [sub] = await prisma.$queryRaw<{ v: Prisma.Decimal | null; n: bigint }[]>`SELECT coalesce(sum("payable"), 0) AS v, count(*) AS n FROM "VatReturn" WHERE "status" = 'filed'`;
+    const gl = (await glBalance("vat_payable")).negated();
+    return { key: "vat_payable", label: "ضريبة القيمة المضافة المستحقة = الإقرارات اللي لسه متسددتش", ok: D(sub?.v).equals(gl), subledger: D(sub?.v).toFixed(2), ledger: gl.toFixed(2), difference: D(sub?.v).minus(gl).toFixed(2), count: Number(sub?.n ?? 0) };
   })(),
   // Received but not yet billed (informational: it is normal to carry some).
   (async (): Promise<Check> => {

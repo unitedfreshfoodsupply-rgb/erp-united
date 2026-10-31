@@ -4,6 +4,9 @@ import { useState } from "react";
 import { CashAccountSelect } from "@/components/accounting/CashAccountSelect";
 import { TreasuryView } from "@/components/accounting/TreasuryView";
 import { ChartView } from "@/components/accounting/ChartView";
+import { VatReturnsView } from "@/components/accounting/VatReturnsView";
+import { JournalRequests } from "@/components/accounting/JournalRequests";
+import { controlAccountMovedBy } from "@/lib/accounting/control-accounts";
 import { systemText } from "@/lib/locale/system-text";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, errorMessage } from "@/lib/api-client";
@@ -120,7 +123,7 @@ export function AccountingView({ initialTab }: { initialTab?: string } = {}) {
     <div className="page-container">
       <h1 className="page-title">{t("accounting.title")}</h1>
       <Tabs value={tab} onChange={setTab} items={items} />
-      {tab === "health" ? <Health /> : tab === "opening" ? <Opening /> : tab === "treasury" ? <TreasuryView /> : tab === "chart" ? <ChartView /> : tab === "receipts" ? <><MoneyIn kind="receipts" />{(full || can("accounting.payments.manage")) && <Refunds kind="customer" />}</> : tab === "payments" ? <><MoneyIn kind="payments" />{(full || can("accounting.receipts.manage")) && <Refunds kind="supplier" />}</> : tab === "journals" ? <Journals /> : tab === "trial" ? <Trial /> : tab === "vat" ? <VatSummary /> : tab === "periods" ? <Periods /> : <Reconcile />}
+      {tab === "health" ? <Health /> : tab === "opening" ? <Opening /> : tab === "treasury" ? <TreasuryView /> : tab === "chart" ? <ChartView /> : tab === "receipts" ? <><MoneyIn kind="receipts" />{(full || can("accounting.payments.manage")) && <Refunds kind="customer" />}</> : tab === "payments" ? <><MoneyIn kind="payments" />{(full || can("accounting.receipts.manage")) && <Refunds kind="supplier" />}</> : tab === "journals" ? <Journals /> : tab === "trial" ? <Trial /> : tab === "vat" ? <><VatSummary /><VatReturnsView /></> : tab === "periods" ? <Periods /> : <Reconcile />}
     </div>
   );
 }
@@ -373,11 +376,12 @@ function Journals() {
   const jPageSize = 50;
   const q = useQuery({ queryKey: ["acc", "journals", jPage], queryFn: () => apiFetch<{ journals: Journal[]; pagination: { total: number } }>(`/api/accounting/journals?limit=${jPageSize}&offset=${(jPage - 1) * jPageSize}`) });
   const detail = useQuery({ queryKey: ["acc", "journal", open], queryFn: () => apiFetch<{ journal: Journal }>(`/api/accounting/journals/${open}`), enabled: !!open });
-  const accounts = useQuery({ queryKey: ["acc", "accounts"], queryFn: () => apiFetch<{ accounts: { id: string; code: string; name: string; nameAr: string; postable: boolean }[] }>("/api/accounting/accounts"), enabled: can("accounting.manage") });
+  const accounts = useQuery({ queryKey: ["acc", "accounts"], queryFn: () => apiFetch<{ accounts: { id: string; code: string; name: string; nameAr: string; postable: boolean; active: boolean; systemKey: string | null; controlledBy: string | null }[] }>("/api/accounting/accounts"), enabled: can("accounting.manage") });
   const [m, setM] = useState({ date: todayLocalISO(), description: "", lines: [{ account_id: "", debit: "", credit: "" }, { account_id: "", debit: "", credit: "" }] });
   const [mKey, setMKey] = useState(newClientKey);
   return (
     <div className="flex flex-col gap-3">
+      <JournalRequests />
       {can("accounting.manage") && (
         <details className="card p-4">
           <summary className="font-extrabold cursor-pointer">{t("accounting.button.manual-journal")}</summary>
@@ -390,7 +394,7 @@ function Journals() {
               <div key={i} className="grid grid-cols-[1fr_6rem_6rem] gap-2">
                 <select className="field" aria-label={t("accounting.account-select")} value={l.account_id} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, account_id: e.target.value } : x)) })}>
                   <option value="">{t("accounting.account-select")}</option>
-                  {accounts.data?.accounts.filter((a) => a.postable).map((a) => <option key={a.id} value={a.id}>{a.code} · {localName(a, locale)}</option>)}
+                  {accounts.data?.accounts.filter((a) => a.postable && a.active && !controlAccountMovedBy(a.systemKey, a.controlledBy)).map((a) => <option key={a.id} value={a.id}>{a.code} · {localName(a, locale)}</option>)}
                 </select>
                 <input className="field" dir="ltr" placeholder={t("accounting.debit-placeholder")} aria-label={t("accounting.debit-placeholder")} value={l.debit} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, debit: e.target.value } : x)) })} />
                 <input className="field" dir="ltr" placeholder={t("accounting.credit-placeholder")} aria-label={t("accounting.credit-placeholder")} value={l.credit} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, credit: e.target.value } : x)) })} />
@@ -400,7 +404,8 @@ function Journals() {
               <button type="button" className="btn-secondary" onClick={() => setM({ ...m, lines: [...m.lines, { account_id: "", debit: "", credit: "" }] })}>{t("accounting.button.add-line")}</button>
               <button type="button" className="btn-primary" onClick={async () => {
                 try {
-                  await apiPost("/api/accounting/journals", { date: m.date, description: m.description, lines: m.lines.filter((l) => l.account_id).map((l) => ({ account_id: l.account_id, debit: l.debit || 0, credit: l.credit || 0 })), idempotency_key: mKey });
+                  const res = await apiPost<{ journal?: { number: string }; journalRequest?: { number: string } }>("/api/accounting/journals", { date: m.date, description: m.description, lines: m.lines.filter((l) => l.account_id).map((l) => ({ account_id: l.account_id, debit: l.debit || 0, credit: l.credit || 0 })), idempotency_key: mKey });
+                  toast.show(res.journalRequest ? t("journal.toast-pending", { number: res.journalRequest.number }) : t("journal.toast-posted", { number: res.journal?.number ?? "" }), "success");
                   setMKey(newClientKey());
                   setM({ date: todayLocalISO(), description: "", lines: [{ account_id: "", debit: "", credit: "" }, { account_id: "", debit: "", credit: "" }] });
                   void qc.invalidateQueries({ queryKey: ["acc"] });

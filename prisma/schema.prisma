@@ -2065,8 +2065,12 @@ model JournalEntry {
 
   valuationPostings StockValuationPosting[]
 
-  cashTransfer         CashTransfer? @relation("CashTransferEntry")
-  cashTransferReversal CashTransfer? @relation("CashTransferReversal")
+  cashTransfer         CashTransfer?   @relation("CashTransferEntry")
+  cashTransferReversal CashTransfer?   @relation("CashTransferReversal")
+  vatReturn            VatReturn?      @relation("VatReturnEntry")
+  vatReturnPayment     VatReturn?      @relation("VatReturnPayment")
+  vatReturnVoid        VatReturn?      @relation("VatReturnVoid")
+  journalRequest       JournalRequest?
 
   @@index([date])
   @@index([sourceType, sourceId])
@@ -2111,6 +2115,7 @@ model CashAccount {
 
   account         Account              @relation(fields: [accountId], references: [id], onDelete: Restrict)
   transfersOut    CashTransfer[]       @relation("TransferFrom")
+  vatPayments     VatReturn[]
   transfersIn     CashTransfer[]       @relation("TransferTo")
   receipts        CustomerReceipt[]
   payments        SupplierPayment[]
@@ -3511,4 +3516,80 @@ model CashTransfer {
   @@index([date])
   @@index([fromCashAccountId])
   @@index([toCashAccountId])
+}
+
+/// A VAT return for a period: at its end date the input VAT is set off against the output
+/// VAT (Dr VAT output, Cr VAT input, Cr VAT payable for the rest; excess input stays in VAT
+/// input as a credit carried forward), then paid (Dr VAT payable, Cr cash/bank). While a
+/// return is live nothing else may post VAT inside its period (DB-enforced). A filed,
+/// unpaid return can be voided (its entry reversed) to correct and refile.
+model VatReturn {
+  id                   String    @id @default(cuid())
+  /// VAT-YYYY-####
+  number               String    @unique
+  periodFrom           String
+  periodTo             String
+  outputTax            Decimal   @db.Decimal(18, 2)
+  inputTax             Decimal   @db.Decimal(18, 2)
+  inputUsed            Decimal   @db.Decimal(18, 2)
+  payable              Decimal   @db.Decimal(18, 2)
+  carryForward         Decimal   @db.Decimal(18, 2)
+  documentsOutputTax   Decimal   @db.Decimal(18, 2)
+  documentsInputTax    Decimal   @db.Decimal(18, 2)
+  /// filed | paid | voided
+  status               String
+  entryId              String?   @unique
+  filedById            String?
+  filedBy              String
+  filedAt              DateTime  @default(now())
+  reference            String?
+  notes                String?
+  paidAt               DateTime?
+  paidBy               String?
+  paymentDate          String?
+  paymentCashAccountId String?
+  paymentReference     String?
+  paymentEntryId       String?   @unique
+  voidedAt             DateTime?
+  voidedBy             String?
+  voidReason           String?
+  voidEntryId          String?   @unique
+  version              Int       @default(1)
+
+  entry              JournalEntry? @relation("VatReturnEntry", fields: [entryId], references: [id], onDelete: Restrict)
+  paymentEntry       JournalEntry? @relation("VatReturnPayment", fields: [paymentEntryId], references: [id], onDelete: Restrict)
+  voidEntry          JournalEntry? @relation("VatReturnVoid", fields: [voidEntryId], references: [id], onDelete: Restrict)
+  paymentCashAccount CashAccount?  @relation(fields: [paymentCashAccountId], references: [id], onDelete: Restrict)
+
+  @@index([periodTo])
+}
+
+/// A manual journal above the approval threshold, waiting for someone other than the
+/// requester. Nothing is posted until it is approved; then it posts as an ordinary manual
+/// journal (checked again against closed periods and control accounts at that moment).
+model JournalRequest {
+  id             String    @id @default(cuid())
+  /// JR-YYYY-#####
+  number         String    @unique
+  date           String
+  description    String
+  /// The lines as submitted: [{ account_id, debit, credit, party_type?, party_id?, description?, cost_center_id? }]
+  lines          Json
+  total          Decimal   @db.Decimal(18, 2)
+  /// pending_approval | posted | rejected | cancelled
+  status         String
+  entryId        String?   @unique
+  idempotencyKey String?   @unique
+  requestHash    String?
+  requestedById  String?
+  requestedBy    String
+  createdAt      DateTime  @default(now())
+  decidedBy      String?
+  decidedAt      DateTime?
+  decisionNote   String?
+  version        Int       @default(1)
+
+  entry JournalEntry? @relation(fields: [entryId], references: [id], onDelete: Restrict)
+
+  @@index([status])
 }

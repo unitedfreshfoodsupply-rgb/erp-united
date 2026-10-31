@@ -56,7 +56,7 @@ async function main() {
   check("a role without money workflows cannot read the list (403)", formsView === 403);
 
   section("3. MONEY IN: capital to the main box, then a customer receipt into the new bank");
-  r = await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${TAG} capital`, lines: [{ account_id: A("1100"), debit: 5000 }, { account_id: A("3100"), credit: 5000 }] });
+  r = await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${TAG} capital`, lines: [{ account_id: A("1100"), debit: 50000 }, { account_id: A("3100"), credit: 50000 }] });
   check("capital paid in (manual journal Dr cash / Cr capital)", r.status === 201, r.body);
   const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل` })).body.customer;
   r = await call("karim", "POST", "/api/accounting/receipts", { party_id: customer.id, cash_account_id: bank.id, amount: 300, method: "bank_transfer" });

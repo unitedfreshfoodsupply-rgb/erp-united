@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { handleApiError } from "@/lib/rbac";
 import { requirePermission } from "@/lib/authz";
 import { listJournals } from "@/lib/accounting/ledger";
-import { createManualJournal, getJournal } from "@/lib/accounting/ledger";
+import { getJournal, submitManualJournal } from "@/lib/accounting/ledger";
 import { postHandler } from "@/lib/route-handlers";
 
 export async function GET(req: NextRequest) {
@@ -14,4 +14,8 @@ export async function GET(req: NextRequest) {
     return handleApiError(err, req);
   }
 }
-export const POST = postHandler("accounting.manage", async (body, actor) => ({ journal: await getJournal((await createManualJournal(body, actor)).id) }));
+/** 201 { journal } when it posts at once; 202 { journalRequest } when it waits for approval. */
+export const POST = postHandler("accounting.manage", async (body, actor) => {
+  const r = await submitManualJournal(body, actor);
+  return r.request ? { journalRequest: { ...r.request, total: r.request.total.toFixed(2) }, document: { status: r.request.status } } : { journal: await getJournal(r.journal!.id) };
+}, (r) => ((r as { document?: { status?: string } }).document?.status === "pending_approval" ? 202 : 201));
