@@ -415,7 +415,7 @@ export async function etaOverview(actor: ServiceActor) {
   // Products and customers actually invoiced that still lack ETA data.
   const lines = await prisma.salesInvoiceLine.findMany({ where: { invoice: { status: "issued" }, productId: { not: null } }, distinct: ["productId"], select: { productId: true } });
   const products = await prisma.stockProduct.findMany({ where: { id: { in: lines.map((l) => l.productId!) } }, select: { id: true, name: true, nameAr: true, sku: true, unit: true, etaItemCode: { select: { itemType: true, itemCode: true } } }, orderBy: { name: "asc" } });
-  const customers = await prisma.customer.findMany({ where: { id: { in: [...new Set(invoices.map((i) => i.customerId))] } }, select: { id: true, code: true, name: true, taxRegistrationNo: true, etaReceiverProfile: true }, orderBy: { name: "asc" } });
+  const customers = await prisma.customer.findMany({ where: { id: { in: [...new Set(invoices.map((i) => i.customerId))] } }, select: { id: true, code: true, name: true, nameAr: true, taxRegistrationNo: true, etaReceiverProfile: true }, orderBy: { name: "asc" } });
   const ip = company?.etaIssuerProfile;
   return {
     config: etaConfigStatus(),
@@ -427,7 +427,7 @@ export async function etaOverview(actor: ServiceActor) {
     units: units.map((u) => ({ code: u.code, name: u.nameAr ?? u.name, nameAr: u.nameAr, nameEn: u.name, etaUnitType: u.etaUnitType?.etaUnitType ?? null })),
     taxes: taxes.map((t) => ({ ...t, rate: t.rate.toString() })),
     products: products.map((p) => ({ id: p.id, name: p.nameAr ?? p.name, nameAr: p.nameAr, nameEn: p.name, sku: p.sku, unit: p.unit, itemType: p.etaItemCode?.itemType ?? null, itemCode: p.etaItemCode?.itemCode ?? null })),
-    customers: customers.map((c) => ({ id: c.id, code: c.code, name: c.name, taxRegistrationNo: c.taxRegistrationNo, profile: c.etaReceiverProfile })),
+    customers: customers.map((c) => ({ id: c.id, code: c.code, name: c.name, nameAr: c.nameAr, taxRegistrationNo: c.taxRegistrationNo, profile: c.etaReceiverProfile })),
     counts: Object.fromEntries(docs.map((d) => [d.status, d._count._all])),
     invoices: invoices.map((i) => {
       const s = states.find((x) => x.sourceId === i.id);

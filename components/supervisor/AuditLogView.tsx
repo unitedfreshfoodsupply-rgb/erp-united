@@ -196,8 +196,17 @@ function describeOne(l: AuditLogDTO, locale: TimelineLocale) {
     // An action without a verb here still reads in the reader's language: English gets the
     // action in words, Arabic a neutral "activity" rather than an English identifier.
     headline: `${what} — ${verb ? (en ? verb.en : verb.ar) : en ? l.action.replace(/_/g, " ") : "نشاط مسجّل"}`,
-    detail: event?.detail ?? l.newValue ?? undefined,
+    detail: event?.detail ?? (l.newValue ? sourceInWords(l.newValue, locale) : undefined),
   };
+}
+
+/** A journal entry's audit value starts with its source document type ("customer_receipt · …");
+ * show that type in words, as the journal screens do. Anything else is left as stored. */
+function sourceInWords(value: string, locale: "ar" | "en") {
+  const [first, ...rest] = value.split(" · ");
+  if (!/^[a-z]+(_[a-z]+)*$/.test(first)) return value;
+  const label = DICTIONARY[`accounting.source.${first.replace(/_/g, "-")}` as keyof typeof DICTIONARY];
+  return label ? [locale === "en" ? label.en : label.ar, ...rest].join(" · ") : value;
 }
 
 const VERBS: Record<string, { ar: string; en: string }> = {

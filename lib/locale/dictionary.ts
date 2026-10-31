@@ -2936,6 +2936,9 @@ const eta = {
   "eta.empty-invoices": { ar: "مفيش فواتير صادرة.", en: "No issued invoices." },
   // Server config status
   "eta.config.connected": { ar: "✓ الربط مع منظومة الضرائب متظبط على السيرفر", en: "✓ Connected to the Tax Authority server" },
+  "eta.config.disconnected-plain": { ar: "الربط مع منظومة الضرائب لسه مش متظبط على السيرفر — الإرسال متوقف لحد ما مدير النظام يكمّل الإعداد.", en: "The connection to the Tax Authority is not set up on the server yet — sending is paused until the system administrator completes the setup." },
+  "eta.config.technical-details": { ar: "تفاصيل فنية (لمدير النظام)", en: "Technical details (for the system administrator)" },
+  "eta.config.missing-settings": { ar: "إعدادات السيرفر الناقصة:", en: "Missing server settings:" },
   "eta.config.environment-suffix": { ar: "", en: "" },
   "eta.config.disconnected": { ar: "الربط مع منظومة الضرائب مش متظبط على السيرفر — الإرسال متوقف. ناقص:", en: "Not connected to the Tax Authority server — sending is paused. Missing:" },
   "eta.config.saving-env": { ar: "حفظ بيئة الربط", en: "Save connection environment" },
@@ -3510,6 +3513,8 @@ export const DICTIONARY = {
   "audit.entity.journal_entry": { ar: "قيد اليومية", en: "Journal entry" },
   "audit.entity.customer_receipt": { ar: "قبض", en: "Customer receipt" },
   "audit.entity.supplier_payment": { ar: "صرف", en: "Supplier payment" },
+  "audit.entity.vehicle": { ar: "عربية", en: "Vehicle" },
+  "audit.entity.driver": { ar: "سواق", en: "Driver" },
   "audit.entity.order": { ar: "أوردر", en: "Order" },
   "audit.entity.purchase_order": { ar: "أمر شراء", en: "Purchase order" },
   "audit.entity.stock_intake": { ar: "استلام مخزون", en: "Stock receipt" },

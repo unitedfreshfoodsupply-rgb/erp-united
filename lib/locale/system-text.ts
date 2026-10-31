@@ -18,6 +18,12 @@ import { unitLabel } from "@/lib/format";
 
 const PAIRS: readonly (readonly [ar: string, en: string])[] = [
   // Journal entries
+  // Trip delivery results as audited ("<order>: <result> · استلم <name>"; the result is stored
+  // as its code, so the code is the English side and the Arabic side reads the same template).
+  ["{}: اتسلم كامل", "{}: delivered"],
+  ["{}: اتسلم جزء", "{}: partial"],
+  ["{}: التسليم فشل", "{}: failed"],
+  ["استلم {}", "Received by {}"],
   ["فاتورة مبيعات {}", "Sales invoice {}"],
   ["إشعار دائن {} على {}", "Credit note {} on {}"],
   ["فاتورة خدمة {} ({})", "Service bill {} ({})"],

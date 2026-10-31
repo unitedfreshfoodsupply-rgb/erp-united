@@ -20,6 +20,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { intlLocale, unitLabel } from "@/lib/format";
 import type { TranslationKey } from "@/lib/locale/dictionary";
 import { useDialogs } from "@/components/ui/Dialog";
+import { AlertTriangle } from "lucide-react";
 
 /**
  * E-invoicing (ETA): which invoices went to the Tax Authority and what came back, what
@@ -35,7 +36,7 @@ type Overview = {
   units: { code: string; name: string; nameAr: string | null; nameEn: string; etaUnitType: string | null }[];
   taxes: { code: string; name: string; nameAr: string; rate: string; etaType: string | null; etaSubtype: string | null }[];
   products: { id: string; name: string; sku: string | null; unit: string; itemType: string | null; itemCode: string | null }[];
-  customers: { id: string; code: string; name: string; taxRegistrationNo: string | null; profile: (Address & { receiverType: string | null; receiverId: string | null }) | null }[];
+  customers: { id: string; code: string; name: string; nameAr?: string | null; taxRegistrationNo: string | null; profile: (Address & { receiverType: string | null; receiverId: string | null }) | null }[];
   invoices: { id: string; number: string; issueDate: string; buyerName: string; total: string; etaStatus: string | null; etaStatusLabel: string; uuid: string | null }[];
   creditNotes?: { id: string; number: string; issueDate: string; total: string; invoiceNumber: string | null; buyerName: string | null; etaStatus: string | null; etaStatusLabel: string; uuid: string | null }[];
 };
@@ -64,7 +65,15 @@ export function EtaView() {
           <section className={`card p-3 text-sm font-bold ${q.data.config.configured ? "text-united-green" : "text-united-warn"}`}>
             {q.data.config.configured
               ? `${t("eta.config.connected")}${q.data.config.environment ? ` (${q.data.config.environment})` : ""}`
-              : <>⚠ {t("eta.config.disconnected")} <span dir="ltr">{q.data.config.missing.join(", ")}</span></>}
+              : (
+                <div className="flex flex-col gap-1">
+                  <span className="inline-flex items-center gap-1.5"><AlertTriangle size={16} aria-hidden /> {t("eta.config.disconnected-plain")}</span>
+                  <details className="text-xs font-medium text-united-muted">
+                    <summary className="cursor-pointer">{t("eta.config.technical-details")}</summary>
+                    <p className="mt-1">{t("eta.config.missing-settings")} {q.data.config.missing.map((m) => <code key={m} dir="ltr" className="me-1 rounded bg-united-subtle px-1">{m}</code>)}</p>
+                  </details>
+                </div>
+              )}
           </section>
           <Tabs value={tab} onChange={setTab} items={[{ key: "invoices", label: t("eta.tab.invoices") }, { key: "credit-notes", label: t("eta.tab.credit-notes") }, { key: "setup", label: t("eta.tab.setup") }]} />
           {tab === "invoices" ? <Invoices data={q.data} /> : tab === "credit-notes" ? <CreditNotes data={q.data} /> : <Setup data={q.data} />}
