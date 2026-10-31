@@ -214,7 +214,7 @@ See §14 (filled from the final full run). New suites:
 - `treasury` (67 checks)
 - `vat-returns` (48)
 - `fiscal-year` (39)
-- `fixed-assets` (59)
+- `fixed-assets` (60)
 - `cost-centers` (27)
 - `opening-batch` (43)
 
@@ -292,8 +292,8 @@ is switched on or filled in:
 
 ## 12. Commits (branch `ui/enterprise-ux`)
 `215f4a8` treasury · `e0b9686` VAT returns + journal approval · `a1246a4`, `d904b12` fiscal years ·
-`7a2e5e5` fixed assets · `9d2b8f9` opening batch · `8b8f73f` cost centres · plus the final commit
-with this report, the approval-type labels and the browser journeys.
+`7a2e5e5` fixed assets · `9d2b8f9` opening batch · `8b8f73f` cost centres · `69e3ed7` report, labels, journeys, test-clock fixes · `5d5744d` asset
+idempotency · plus the commit recording these results.
 
 ## 13. Production migration and deployment instructions (NOT executed — needs approval)
 1. **Read-only pre-checks** (Supabase SQL editor):
@@ -329,5 +329,19 @@ with this report, the approval-type labels and the browser journeys.
      dropping the new tables and columns in reverse order and restoring the previous CHECK and guard
      bodies from `20261029100000_hr_payroll_posting` and `20261008164713_accounting_core`.
 
-## 14. Final local validation (filled from the full run)
-_See the final report message for the exact numbers of the last full run._
+## 14. Final local validation (1 Nov 2026, isolated test database — not production)
+
+| Run | Result |
+|---|---|
+| Type check (`tsc --noEmit`), lint (`next lint` scope: app, components, lib) | clean |
+| Unit (`npm run test:unit`) | 138 passed, 0 failed |
+| Integration (`npm run test:integration`) | 68 passed, 0 failed |
+| E2E chain from a reset database (`npm run test:e2e`) | 65 suites, 10,835 checks, 0 failed (the last three suites re-run after the final build; see note) |
+| Browser journeys (`scripts/dev/ui-journeys.mjs`) | 17 passed, 0 failed (desktop AR/EN, tablet, phone) |
+| Dictionary integrity, server-message translations | pass |
+| Schema vs migrations (`prisma migrate diff --exit-code` on a fresh shadow database) | no drift |
+
+Note: the chain ran first against the build before the asset idempotency change (`5d5744d`); the
+fixed-assets suite then failed exactly on the new replay check (a second asset was bought), which is
+what the change fixes. After rebuilding, fixed-assets (60), cost-centers (27) and opening-batch (43)
+passed, followed by the chain's final reset.
