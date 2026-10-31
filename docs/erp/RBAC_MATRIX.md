@@ -140,6 +140,10 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/accounting/cash-accounts` | any of `accounting.view`, `accounting.receipts.manage`, `accounting.payments.manage`, `hr.expenses.submit`, `hr.advances.manage`, `hr.payroll.pay` | ✓ | ✓ |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/cash-accounts` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/cash` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| PATCH | `/api/accounting/cost-centers/[id]` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/cost-centers/report` | any of `accounting.view`, `reports.finance` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/cost-centers` | any of `accounting.view`, `hr.expenses.submit`, `purchasing.bills.manage`, `accounting.assets.manage` | ✓ | ✓ |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/cost-centers` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/customer-refunds` | any of `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/customer-refunds` | `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | GET | `/api/accounting/customers/[id]/open-invoices` | any of `accounting.view`, `accounting.receipts.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |

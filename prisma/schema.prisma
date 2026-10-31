@@ -674,6 +674,7 @@ model Warehouse {
   rfqs           Rfq[]
   purchaseOrders PurchaseOrder[]
   fixedAssets    FixedAsset[]
+  costCenters    CostCenter[]
 
   @@index([branchId])
   @@index([active])
@@ -1808,12 +1809,14 @@ model SupplierBillServiceLine {
   assetName       String?
   /// … or improves an existing asset (added to its cost).
   improvesAssetId String?
+  costCenterId    String?
 
   bill          SupplierBill           @relation(fields: [billId], references: [id], onDelete: Restrict)
   account       Account                @relation(fields: [accountId], references: [id], onDelete: Restrict)
   debitLines    DebitNoteServiceLine[]
   assetCategory AssetCategory?         @relation(fields: [assetCategoryId], references: [id], onDelete: Restrict)
   improvesAsset FixedAsset?            @relation(fields: [improvesAssetId], references: [id], onDelete: Restrict)
+  costCenter    CostCenter?            @relation(fields: [costCenterId], references: [id], onDelete: Restrict)
 
   @@unique([billId, lineNo])
 }
@@ -1871,7 +1874,8 @@ model Vehicle {
   version      Int          @default(1)
   createdAt    DateTime     @default(now())
 
-  trips Trip[]
+  trips       Trip[]
+  costCenters CostCenter[]
 }
 
 model Driver {
@@ -2111,12 +2115,16 @@ model JournalLine {
   description      String?
   /// Set when matched on a bank statement (the only column that may change).
   reconciliationId String?
+  /// Reporting dimension on revenue/expense lines (DB-enforced), fixed once posted.
+  costCenterId     String?
 
   entry          JournalEntry        @relation(fields: [entryId], references: [id], onDelete: Restrict)
   account        Account             @relation(fields: [accountId], references: [id], onDelete: Restrict)
   reconciliation BankReconciliation? @relation(fields: [reconciliationId], references: [id], onDelete: Restrict)
+  costCenter     CostCenter?         @relation(fields: [costCenterId], references: [id], onDelete: Restrict)
 
   @@index([entryId])
+  @@index([costCenterId])
   @@index([accountId])
   @@index([partyType, partyId])
 }
@@ -2309,6 +2317,7 @@ model Department {
 
   manager     Employee?            @relation("DepartmentManager", fields: [managerEmployeeId], references: [id], onDelete: Restrict)
   employments EmployeeEmployment[]
+  costCenters CostCenter[]
 }
 
 model Employee {
@@ -3144,6 +3153,7 @@ model Expense {
   cashAccountId  String?
   /// pending_approval | approved | rejected
   status         String    @default("pending_approval")
+  costCenterId   String?
   decidedBy      String?
   decidedAt      DateTime?
   createdById    String?
@@ -3151,7 +3161,8 @@ model Expense {
   createdAt      DateTime  @default(now())
   version        Int       @default(1)
 
-  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  employee   Employee?   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  costCenter CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: Restrict)
 
   @@index([status])
   @@index([employeeId])
@@ -3705,6 +3716,8 @@ model FixedAsset {
   location            String?
   custodianEmployeeId String?
   vehicleId           String?
+  /// Its depreciation is charged to this cost center.
+  costCenterId        String?
   supplierId          String?
   /// supplier_bill (sourceId = the bill line) | cash | opening (sourceId = the batch line)
   sourceType          String
@@ -3722,6 +3735,7 @@ model FixedAsset {
   warehouse         Warehouse?                @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   custodian         Employee?                 @relation(fields: [custodianEmployeeId], references: [id], onDelete: Restrict)
   vehicle           Vehicle?                  @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  costCenter        CostCenter?               @relation(fields: [costCenterId], references: [id], onDelete: Restrict)
   supplier          Supplier?                 @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   events            AssetEvent[]
   depreciationLines AssetDepreciationLine[]
@@ -3852,4 +3866,34 @@ model OpeningBatchLine {
   batch OpeningBatch @relation(fields: [batchId], references: [id], onDelete: Restrict)
 
   @@unique([batchId, lineNo])
+}
+
+/// A cost center: warehouse, transport, a vehicle, operations, a department, administration,
+/// sales… A reporting dimension on revenue and expense lines only — inventory valuation and
+/// product cost are never changed by it.
+model CostCenter {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  nameAr       String
+  /// warehouse | transport | vehicle | operations | department | administration | sales | other
+  kind         String
+  parentId     String?
+  warehouseId  String?
+  vehicleId    String?
+  departmentId String?
+  active       Boolean  @default(true)
+  version      Int      @default(1)
+  createdBy    String
+  createdAt    DateTime @default(now())
+
+  parent       CostCenter?               @relation("CostCenterTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     CostCenter[]              @relation("CostCenterTree")
+  warehouse    Warehouse?                @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  vehicle      Vehicle?                  @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  department   Department?               @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  journalLines JournalLine[]
+  expenses     Expense[]
+  billLines    SupplierBillServiceLine[]
+  assets       FixedAsset[]
 }

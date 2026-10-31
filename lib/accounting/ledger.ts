@@ -56,6 +56,8 @@ export type PostLine = {
   amount: Prisma.Decimal;
   party?: { type: "customer" | "supplier" | "employee"; id: string };
   description?: string;
+  /** Revenue/expense lines only (DB-enforced). */
+  costCenterId?: string | null;
 };
 
 export type SourceType = "manual" | "sales_invoice" | "credit_note" | "supplier_bill" | "debit_note" | "customer_receipt" | "supplier_payment" | "stock_valuation" | "reversal" | "expense" | "employee_transaction" | "opening_balance" | "receipt_reversal" | "payment_reversal" | "customer_refund" | "supplier_refund" | "payroll_run" | "payroll_payment"
@@ -129,6 +131,7 @@ export async function postJournal(
             partyType: l.party?.type ?? null,
             partyId: l.party?.id ?? null,
             description: l.description ?? null,
+            costCenterId: l.costCenterId ?? null,
           })),
         },
       },
@@ -175,12 +178,17 @@ export async function postSupplierBill(tx: Tx, billId: string, actor: Actorish) 
   if (bill.kind === "service") {
     // No receipt behind it: each line goes straight to its expense (or asset) account.
     if (!bill.serviceLines.length) throw new ApiError(409, `فاتورة الخدمة ${bill.number} مفيهاش سطور`);
-    const byAccount = new Map<string, Prisma.Decimal>();
-    for (const l of bill.serviceLines) byAccount.set(l.accountId, (byAccount.get(l.accountId) ?? D(0)).plus(l.net));
+    const byAccount = new Map<string, { accountId: string; costCenterId: string | null; amount: Prisma.Decimal }>();
+    for (const l of bill.serviceLines) {
+      const k = `${l.accountId}|${l.costCenterId ?? ""}`;
+      const cur = byAccount.get(k) ?? { accountId: l.accountId, costCenterId: l.costCenterId, amount: D(0) };
+      cur.amount = cur.amount.plus(l.net);
+      byAccount.set(k, cur);
+    }
     const entry = await postJournal(tx, {
       date: bill.billDate, description: `فاتورة خدمة ${bill.number} (${bill.supplierInvoiceNo})`, sourceType: "supplier_bill", sourceId: bill.id,
       lines: [
-        ...[...byAccount].map(([accountId, amount]) => ({ accountId, amount })),
+        ...[...byAccount.values()],
         { key: "vat_input", amount: bill.taxTotal },
         { key: "ap", amount: bill.total.negated(), party: { type: "supplier", id: bill.supplierId } },
       ],
@@ -208,17 +216,22 @@ export async function postSupplierBill(tx: Tx, billId: string, actor: Actorish) 
 
 export async function postDebitNote(tx: Tx, debitNoteId: string, actor: Actorish) {
   if (await posted(tx, "debit_note", debitNoteId)) return null;
-  const dn = await tx.debitNote.findUniqueOrThrow({ where: { id: debitNoteId }, include: { bill: { select: { number: true } }, serviceLines: { include: { serviceLine: { select: { accountId: true, assetCategoryId: true, improvesAssetId: true } } } } } });
+  const dn = await tx.debitNote.findUniqueOrThrow({ where: { id: debitNoteId }, include: { bill: { select: { number: true } }, serviceLines: { include: { serviceLine: { select: { accountId: true, assetCategoryId: true, improvesAssetId: true, costCenterId: true } } } } } });
   assertEgpCurrency(dn.currencyCode, `الإشعار المدين ${dn.number}`);
   if (dn.serviceLines.length) {
     // An allowance on a service bill takes back from the accounts the bill charged.
-    const byAccount = new Map<string, Prisma.Decimal>();
-    for (const l of dn.serviceLines) byAccount.set(l.serviceLine.accountId, (byAccount.get(l.serviceLine.accountId) ?? D(0)).plus(l.net));
+    const byAccount = new Map<string, { accountId: string; costCenterId: string | null; amount: Prisma.Decimal }>();
+    for (const l of dn.serviceLines) {
+      const k = `${l.serviceLine.accountId}|${l.serviceLine.costCenterId ?? ""}`;
+      const cur = byAccount.get(k) ?? { accountId: l.serviceLine.accountId, costCenterId: l.serviceLine.costCenterId, amount: D(0) };
+      cur.amount = cur.amount.plus(l.net);
+      byAccount.set(k, cur);
+    }
     const entry = await postJournal(tx, {
       date: dn.issueDate, description: `إشعار مدين ${dn.number} على ${dn.bill.number}`, sourceType: "debit_note", sourceId: dn.id,
       lines: [
         { key: "ap", amount: dn.total, party: { type: "supplier", id: dn.supplierId } },
-        ...[...byAccount].map(([accountId, amount]) => ({ accountId, amount: amount.negated() })),
+        ...[...byAccount.values()].map((x) => ({ accountId: x.accountId, costCenterId: x.costCenterId, amount: x.amount.negated() })),
         { key: "vat_input", amount: dn.taxTotal.negated() },
       ],
     }, actor);
@@ -400,7 +413,7 @@ const money = z.union([z.number(), z.string()]).optional().transform((v, ctx) =>
 const manualInput = z.object({
   date: z.string().refine(isValidISODate, "التاريخ لازم يكون YYYY-MM-DD"),
   description: text("البيان", 500),
-  lines: z.array(z.object({ account_id: text("الحساب"), debit: money, credit: money, party_type: z.enum(["customer", "supplier"]).optional(), party_id: z.string().optional(), description: z.string().max(500).optional() })).min(2, "القيد محتاج سطرين على الأقل").max(100),
+  lines: z.array(z.object({ account_id: text("الحساب"), debit: money, credit: money, party_type: z.enum(["customer", "supplier"]).optional(), party_id: z.string().optional(), description: z.string().max(500).optional(), cost_center_id: z.string().optional().nullable() })).min(2, "القيد محتاج سطرين على الأقل").max(100),
   idempotency_key: idempotencyKeyField,
 });
 
@@ -431,15 +444,8 @@ export async function createManualJournal(input: unknown, actor: ServiceActor) {
         prev.lines.length === v.lines.length && prev.lines.every((line) => v.lines.some((wanted) => line.accountId === wanted.account_id && D(line.debit).equals(wanted.debit) && D(line.credit).equals(wanted.credit) && line.partyType === (wanted.party_type ?? null) && line.partyId === (wanted.party_id ?? null) && line.description === (wanted.description ?? null))) : false;
       if (prev) return replayRequest(prev, requestHash, legacySame);
     }
-    const accounts = await tx.account.findMany({ where: { id: { in: v.lines.map((l) => l.account_id) } } });
-    for (const l of v.lines) {
-      const a = accounts.find((x) => x.id === l.account_id);
-      if (!a) throw new ApiError(404, "حساب مش موجود");
-      if (!a.postable || !a.active) throw new ApiError(400, `الحساب ${a.code} حساب رئيسي أو موقوف — مينفعش الترحيل عليه`);
-      const via = controlAccountMovedBy(a.systemKey, a.controlledBy);
-      if (via) throw new ApiError(400, `الحساب ${a.code} (${a.nameAr}) حساب مراقبة — بيتحرك بس من ${via}، عشان كشف الحساب والأستاذ يفضلوا متطابقين`);
-    }
-    const lines: PostLine[] = v.lines.map((l) => ({ accountId: l.account_id, amount: l.debit.gt(0) ? l.debit : l.credit.negated(), party: l.party_type ? { type: l.party_type, id: l.party_id! } : undefined, description: l.description }));
+    await checkManualAccounts(tx, v.lines);
+    const lines: PostLine[] = v.lines.map((l) => ({ accountId: l.account_id, amount: l.debit.gt(0) ? l.debit : l.credit.negated(), party: l.party_type ? { type: l.party_type, id: l.party_id! } : undefined, description: l.description, costCenterId: l.cost_center_id ?? null }));
     const dr = lines.filter((l) => l.amount.gt(0)).reduce((a, l) => a.plus(l.amount), D(0));
     const cr = lines.filter((l) => l.amount.lt(0)).reduce((a, l) => a.minus(l.amount), D(0));
     if (!dr.equals(cr)) throw new ApiError(400, `القيد مش متوازن: مدين ${dr.toFixed(2)} ودائن ${cr.toFixed(2)}`);
@@ -451,26 +457,28 @@ export async function createManualJournal(input: unknown, actor: ServiceActor) {
 type ManualInput = z.infer<typeof manualInput>;
 
 /** Every line names an active postable account that is not a control account. */
-async function checkManualAccounts(tx: Tx, lines: { account_id: string }[]) {
+async function checkManualAccounts(tx: Tx, lines: { account_id: string; cost_center_id?: string | null }[]) {
   const accounts = await tx.account.findMany({ where: { id: { in: lines.map((l) => l.account_id) } } });
+  const { checkCostCenter } = await import("@/lib/accounting/cost-centers");
   for (const l of lines) {
     const a = accounts.find((x) => x.id === l.account_id);
     if (!a) throw new ApiError(404, "حساب مش موجود");
     if (!a.postable || !a.active) throw new ApiError(400, `الحساب ${a.code} حساب رئيسي أو موقوف — مينفعش الترحيل عليه`);
     const via = controlAccountMovedBy(a.systemKey, a.controlledBy);
     if (via) throw new ApiError(400, `الحساب ${a.code} (${a.nameAr}) حساب مراقبة — بيتحرك بس من ${via}، عشان كشف الحساب والأستاذ يفضلوا متطابقين`);
+    await checkCostCenter(tx, l.cost_center_id, a);
   }
 }
 
 function manualPostLines(v: Pick<ManualInput, "lines">): PostLine[] {
-  const lines: PostLine[] = v.lines.map((l) => ({ accountId: l.account_id, amount: l.debit.gt(0) ? l.debit : l.credit.negated(), party: l.party_type ? { type: l.party_type, id: l.party_id! } : undefined, description: l.description }));
+  const lines: PostLine[] = v.lines.map((l) => ({ accountId: l.account_id, amount: l.debit.gt(0) ? l.debit : l.credit.negated(), party: l.party_type ? { type: l.party_type, id: l.party_id! } : undefined, description: l.description, costCenterId: l.cost_center_id ?? null }));
   const dr = lines.filter((l) => l.amount.gt(0)).reduce((a, l) => a.plus(l.amount), D(0));
   const cr = lines.filter((l) => l.amount.lt(0)).reduce((a, l) => a.minus(l.amount), D(0));
   if (!dr.equals(cr)) throw new ApiError(400, `القيد مش متوازن: مدين ${dr.toFixed(2)} ودائن ${cr.toFixed(2)}`);
   return lines;
 }
 
-const REQUEST_LINES = z.array(z.object({ account_id: z.string(), debit: z.string(), credit: z.string(), party_type: z.enum(["customer", "supplier"]).nullable().optional(), party_id: z.string().nullable().optional(), description: z.string().nullable().optional() }));
+const REQUEST_LINES = z.array(z.object({ account_id: z.string(), debit: z.string(), credit: z.string(), party_type: z.enum(["customer", "supplier"]).nullable().optional(), party_id: z.string().nullable().optional(), description: z.string().nullable().optional(), cost_center_id: z.string().nullable().optional() }));
 
 /**
  * A manual journal from the screen: posted at once, or — when approval is switched on and
@@ -488,7 +496,7 @@ export async function submitManualJournal(input: unknown, actor: ServiceActor) {
     if (l.debit.gt(0) === l.credit.gt(0)) throw new ApiError(400, "كل سطر يا مدين يا دائن (مش الاتنين ولا صفر)");
     if (!!l.party_type !== !!l.party_id) throw new ApiError(400, "حدد نوع الطرف ورقمه مع بعض");
   }
-  const lines = v.lines.map((l) => ({ account_id: l.account_id, debit: l.debit.toFixed(2), credit: l.credit.toFixed(2), party_type: l.party_type ?? null, party_id: l.party_id ?? null, description: l.description ?? null }));
+  const lines = v.lines.map((l) => ({ account_id: l.account_id, debit: l.debit.toFixed(2), credit: l.credit.toFixed(2), party_type: l.party_type ?? null, party_id: l.party_id ?? null, description: l.description ?? null, cost_center_id: l.cost_center_id ?? null }));
   const requestHash = requestFingerprint({ date: v.date, description: v.description, lines });
   const request = await inTx(async (tx) => {
     await lockKey(tx, v.idempotency_key);
@@ -520,7 +528,7 @@ export async function applyJournalRequestDecision(tx: Tx, id: string, approved: 
     await writeAudit({ userId: decider.id, userName: decider.name, role: decider.role, action: "journal_request_rejected", entityType: "journal_request", entityId: id, fieldChanged: r.number, reason: comment, source: "user", deviceId: decider.deviceId }, tx);
     return null;
   }
-  const lines = REQUEST_LINES.parse(r.lines).map((l) => ({ account_id: l.account_id, debit: D(l.debit), credit: D(l.credit), party_type: l.party_type ?? undefined, party_id: l.party_id ?? undefined, description: l.description ?? undefined }));
+  const lines = REQUEST_LINES.parse(r.lines).map((l) => ({ account_id: l.account_id, debit: D(l.debit), credit: D(l.credit), party_type: l.party_type ?? undefined, party_id: l.party_id ?? undefined, description: l.description ?? undefined, cost_center_id: l.cost_center_id ?? null }));
   await checkManualAccounts(tx, lines);
   const entry = await postJournal(tx, { date: r.date, description: r.description, sourceType: "manual", sourceId: `manual-req-${r.id}`, lines: manualPostLines({ lines }) }, { id: r.requestedById, name: r.requestedBy, role: "ACCOUNTANT", deviceId: decider.deviceId });
   await tx.journalRequest.update({ where: { id, version: r.version }, data: { status: "posted", entryId: entry!.id, decidedBy: decider.name, decidedAt: new Date(), decisionNote: comment ?? null, version: { increment: 1 } } });

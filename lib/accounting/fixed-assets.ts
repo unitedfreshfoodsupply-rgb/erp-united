@@ -212,12 +212,14 @@ const placementFields = {
   location: optText("المكان", 200).optional(),
   custodian_employee_id: z.string().optional().nullable(),
   vehicle_id: z.string().optional().nullable(),
+  cost_center_id: z.string().optional().nullable(),
   serial_number: optText("الرقم التسلسلي", 100).optional(),
   plate_number: optText("رقم اللوحة", 50).optional(),
   notes: optText("ملاحظات", 1000).optional(),
 };
 
-async function checkPlacement(tx: Tx, v: { warehouse_id?: string | null; custodian_employee_id?: string | null; vehicle_id?: string | null }) {
+async function checkPlacement(tx: Tx, v: { warehouse_id?: string | null; custodian_employee_id?: string | null; vehicle_id?: string | null; cost_center_id?: string | null }) {
+  if (v.cost_center_id && !(await tx.costCenter.findFirst({ where: { id: v.cost_center_id, active: true } }))) throw new ApiError(400, "مركز التكلفة مش موجود أو موقوف");
   if (v.warehouse_id && !(await tx.warehouse.findUnique({ where: { id: v.warehouse_id } }))) throw new ApiError(404, "المخزن مش موجود");
   if (v.custodian_employee_id && !(await tx.employee.findUnique({ where: { id: v.custodian_employee_id } }))) throw new ApiError(404, "الموظف المسؤول مش موجود");
   if (v.vehicle_id && !(await tx.vehicle.findUnique({ where: { id: v.vehicle_id } }))) throw new ApiError(404, "العربية مش موجودة");
@@ -245,7 +247,7 @@ export async function acquireAsset(input: unknown, actor: ServiceActor) {
     }
     await checkPlacement(tx, v);
     const asset = await insertAsset(tx, { name: v.name, nameAr: v.name_ar ?? null, category, cost: v.cost, acquisitionDate: v.acquisition_date, sourceType: "cash", inServiceDate: v.in_service_date ?? null,
-      extra: { warehouseId: v.warehouse_id ?? null, location: v.location ?? null, custodianEmployeeId: v.custodian_employee_id ?? null, vehicleId: v.vehicle_id ?? null, serialNumber: v.serial_number ?? null, plateNumber: v.plate_number ?? null, notes: v.notes ?? null } }, actor);
+      extra: { warehouseId: v.warehouse_id ?? null, location: v.location ?? null, custodianEmployeeId: v.custodian_employee_id ?? null, vehicleId: v.vehicle_id ?? null, costCenterId: v.cost_center_id ?? null, serialNumber: v.serial_number ?? null, plateNumber: v.plate_number ?? null, notes: v.notes ?? null } }, actor);
     const entry = await postJournal(tx, { date: v.acquisition_date, description: `شراء أصل ${asset.number}: ${asset.name}${v.reference ? ` (${v.reference})` : ""}`, sourceType: "asset_acquisition", sourceId: asset.id,
       lines: [{ accountId: category.assetAccountId, amount: v.cost }, { accountId: cash.accountId, amount: v.cost.negated() }] }, actor);
     await tx.assetEvent.create({ data: { assetId: asset.id, type: "acquisition", date: v.acquisition_date, costDelta: v.cost, cashAccountId: cash.id, entryId: entry!.id, details: v.reference ? { reference: v.reference } : undefined, createdById: actor.id, createdBy: actor.name } });
@@ -272,7 +274,7 @@ export async function placeInService(id: string, input: unknown, actor: ServiceA
       data: {
         status: "in_service", inServiceDate: v.in_service_date, ...(v.useful_life_months ? { usefulLifeMonths: v.useful_life_months } : {}), ...(v.residual_value ? { residualValue: v.residual_value } : {}),
         ...(v.warehouse_id !== undefined ? { warehouseId: v.warehouse_id } : {}), ...(v.location !== undefined ? { location: v.location } : {}), ...(v.custodian_employee_id !== undefined ? { custodianEmployeeId: v.custodian_employee_id } : {}),
-        ...(v.vehicle_id !== undefined ? { vehicleId: v.vehicle_id } : {}), ...(v.serial_number !== undefined ? { serialNumber: v.serial_number } : {}), ...(v.plate_number !== undefined ? { plateNumber: v.plate_number } : {}), ...(v.notes !== undefined ? { notes: v.notes } : {}),
+        ...(v.vehicle_id !== undefined ? { vehicleId: v.vehicle_id } : {}), ...(v.cost_center_id !== undefined ? { costCenterId: v.cost_center_id } : {}), ...(v.serial_number !== undefined ? { serialNumber: v.serial_number } : {}), ...(v.plate_number !== undefined ? { plateNumber: v.plate_number } : {}), ...(v.notes !== undefined ? { notes: v.notes } : {}),
         version: { increment: 1 },
       },
     });
@@ -304,15 +306,15 @@ export async function changeEstimate(id: string, input: unknown, actor: ServiceA
 /** Moves an asset between warehouses, custodians or vehicles. No entry: its accounts do not change. */
 export async function transferAsset(id: string, input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.assets.manage");
-  const v = parse(z.object({ date: dateField("التاريخ").optional(), reason: text("السبب", 500), version: z.number().int().optional(), warehouse_id: placementFields.warehouse_id, location: placementFields.location, custodian_employee_id: placementFields.custodian_employee_id, vehicle_id: placementFields.vehicle_id }), input);
+  const v = parse(z.object({ date: dateField("التاريخ").optional(), reason: text("السبب", 500), version: z.number().int().optional(), warehouse_id: placementFields.warehouse_id, location: placementFields.location, custodian_employee_id: placementFields.custodian_employee_id, vehicle_id: placementFields.vehicle_id, cost_center_id: placementFields.cost_center_id }), input);
   return inTx(async (tx) => {
     const a = await tx.fixedAsset.findUnique({ where: { id } });
     if (!a) throw new ApiError(404, "الأصل مش موجود");
     if (v.version !== undefined && v.version !== a.version) throw new ApiError(409, "الأصل اتعدّل من واحد تاني — حدّث الشاشة");
     if (a.status === "disposed") throw new ApiError(409, "الأصل اتستبعد");
     await checkPlacement(tx, v);
-    const from = { warehouseId: a.warehouseId, location: a.location, custodianEmployeeId: a.custodianEmployeeId, vehicleId: a.vehicleId };
-    const to = { warehouseId: v.warehouse_id !== undefined ? v.warehouse_id : a.warehouseId, location: v.location !== undefined ? v.location : a.location, custodianEmployeeId: v.custodian_employee_id !== undefined ? v.custodian_employee_id : a.custodianEmployeeId, vehicleId: v.vehicle_id !== undefined ? v.vehicle_id : a.vehicleId };
+    const from = { warehouseId: a.warehouseId, location: a.location, custodianEmployeeId: a.custodianEmployeeId, vehicleId: a.vehicleId, costCenterId: a.costCenterId };
+    const to = { warehouseId: v.warehouse_id !== undefined ? v.warehouse_id : a.warehouseId, location: v.location !== undefined ? v.location : a.location, custodianEmployeeId: v.custodian_employee_id !== undefined ? v.custodian_employee_id : a.custodianEmployeeId, vehicleId: v.vehicle_id !== undefined ? v.vehicle_id : a.vehicleId, costCenterId: v.cost_center_id !== undefined ? v.cost_center_id : a.costCenterId };
     if (JSON.stringify(from) === JSON.stringify(to)) throw new ApiError(400, "مفيش تغيير في المكان أو المسؤول");
     const updated = await tx.fixedAsset.update({ where: { id, version: a.version }, data: { ...to, version: { increment: 1 } } });
     await tx.assetEvent.create({ data: { assetId: a.id, type: "transfer", date: v.date ?? todayLocalISO(), details: { from, to }, reason: v.reason, createdById: actor.id, createdBy: actor.name } });
@@ -414,17 +416,18 @@ export async function runDepreciationTx(tx: Tx, period: string, actor: Actorish)
     if (lines.length) plan.push({ asset: a, lines });
   }
   if (!plan.length) return null;
-  const byAccounts = new Map<string, { expense: string; accum: string; amount: Prisma.Decimal }>();
+  // One pair of lines per category and cost center: the expense carries the asset's cost center.
+  const byAccounts = new Map<string, { expense: string; accum: string; costCenterId: string | null; amount: Prisma.Decimal }>();
   for (const { asset, lines } of plan) {
-    const k = `${asset.category.expenseAccountId}|${asset.category.accumulatedAccountId}`;
-    const cur = byAccounts.get(k) ?? { expense: asset.category.expenseAccountId!, accum: asset.category.accumulatedAccountId!, amount: D(0) };
+    const k = `${asset.category.expenseAccountId}|${asset.category.accumulatedAccountId}|${asset.costCenterId ?? ""}`;
+    const cur = byAccounts.get(k) ?? { expense: asset.category.expenseAccountId!, accum: asset.category.accumulatedAccountId!, costCenterId: asset.costCenterId, amount: D(0) };
     cur.amount = cur.amount.plus(lines.reduce((s, l) => s.plus(l.amount), D(0)));
     byAccounts.set(k, cur);
   }
   const total = [...byAccounts.values()].reduce((s, x) => s.plus(x.amount), D(0));
   const id = randomUUID();
   const number = await nextDocumentNumber(tx, "accounting.depreciation_run", monthEnd(period));
-  const postLines: PostLine[] = [...byAccounts.values()].flatMap((x) => [{ accountId: x.expense, amount: x.amount, description: `إهلاك ${period}` }, { accountId: x.accum, amount: x.amount.negated(), description: `إهلاك ${period}` }]);
+  const postLines: PostLine[] = [...byAccounts.values()].flatMap((x) => [{ accountId: x.expense, amount: x.amount, costCenterId: x.costCenterId, description: `إهلاك ${period}` }, { accountId: x.accum, amount: x.amount.negated(), description: `إهلاك ${period}` }]);
   const entry = await postJournal(tx, { date: monthEnd(period), description: `إهلاك الأصول الثابتة ${period} (${number})`, sourceType: "asset_depreciation", sourceId: id, lines: postLines }, actor);
   const run = await tx.depreciationRun.create({ data: { id, number, period, date: monthEnd(period), total, lineCount: plan.reduce((s, p) => s + p.lines.length, 0), entryId: entry!.id, createdById: actor.id, createdBy: actor.name } });
   for (const { asset, lines } of plan) {
@@ -496,13 +499,13 @@ export async function disposeAsset(id: string, input: unknown, actor: ServiceAct
     const gain = proceeds.minus(bookValue);
     const eventId = randomUUID();
     const lines: PostLine[] = [];
-    if (catchUpTotal.gt(0)) lines.push({ accountId: a.category.expenseAccountId!, amount: catchUpTotal, description: "إهلاك حتى الاستبعاد" }, { accountId: a.category.accumulatedAccountId!, amount: catchUpTotal.negated(), description: "إهلاك حتى الاستبعاد" });
+    if (catchUpTotal.gt(0)) lines.push({ accountId: a.category.expenseAccountId!, amount: catchUpTotal, costCenterId: a.costCenterId, description: "إهلاك حتى الاستبعاد" }, { accountId: a.category.accumulatedAccountId!, amount: catchUpTotal.negated(), description: "إهلاك حتى الاستبعاد" });
     if (cash) lines.push({ accountId: cash.accountId, amount: proceeds.plus(tax) });
     if (accumulated.gt(0)) lines.push({ accountId: a.category.accumulatedAccountId!, amount: accumulated });
     lines.push({ accountId: a.category.assetAccountId, amount: a.cost.negated() });
     if (tax.gt(0)) lines.push({ key: "vat_output", amount: tax.negated() });
-    if (gain.gt(0)) lines.push({ key: "fa_disposal_gain", amount: gain.negated() });
-    if (gain.lt(0)) lines.push({ key: "fa_disposal_loss", amount: gain.negated() });
+    if (gain.gt(0)) lines.push({ key: "fa_disposal_gain", amount: gain.negated(), costCenterId: a.costCenterId });
+    if (gain.lt(0)) lines.push({ key: "fa_disposal_loss", amount: gain.negated(), costCenterId: a.costCenterId });
     const entry = await postJournal(tx, { date: v.date, description: `${v.kind === "sale" ? "بيع" : "تخريد"} أصل ${a.number}: ${a.name}`, sourceType: "asset_disposal", sourceId: eventId, lines }, actor);
     await tx.assetEvent.create({
       data: { id: eventId, assetId: a.id, type: "disposal", date: v.date, costDelta: a.cost.negated(), accumulatedDelta: accumulated.negated(), proceeds, taxCode, taxRate: taxCode ? taxRate : null, tax: taxCode ? tax : null, gainLoss: gain, cashAccountId: cash?.id ?? null, entryId: entry?.id ?? null, details: { kind: v.kind, bookValue: bookValue.toFixed(2), catchUp: catchUpTotal.toFixed(2) }, reason: v.reason, createdById: actor.id, createdBy: actor.name },

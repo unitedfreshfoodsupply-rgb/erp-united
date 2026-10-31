@@ -326,6 +326,7 @@ const serviceInput = z.object({
       asset_category_id: z.string().optional().nullable(), asset_name: optText("اسم الأصل", 200).optional(),
       // … or improves an asset already in the register.
       improves_asset_id: z.string().optional().nullable(),
+      cost_center_id: z.string().optional().nullable(),
     }))
     .min(1, "لازم سطر واحد على الأقل")
     .max(100),
@@ -371,8 +372,13 @@ async function buildServiceLines(tx: Tx, v: z.infer<typeof serviceInput>) {
       if (!l.account_id) throw new ApiError(400, "الحساب مطلوب");
       accountId = (await serviceAccount(tx, l.account_id)).id;
     }
+    // A cost center sits on expense lines (a capital line's cost is an asset; its depreciation carries the asset's center).
+    const lineAccount = await tx.account.findUniqueOrThrow({ where: { id: accountId }, select: { code: true, type: true } });
+    if (l.cost_center_id && lineAccount.type !== "expense") throw new ApiError(400, `${l.description}: مركز التكلفة على سطور المصروفات بس`);
+    const { checkCostCenter } = await import("@/lib/accounting/cost-centers");
+    const costCenterId = lineAccount.type === "expense" ? await checkCostCenter(tx, l.cost_center_id, lineAccount) : null;
     amounts.push(a);
-    lines.push({ lineNo: i + 1, accountId, description: l.description, taxCode: l.tax_code, taxRate: rate, net: a.net, tax: a.tax, total: a.total, ...capital });
+    lines.push({ lineNo: i + 1, accountId, description: l.description, taxCode: l.tax_code, taxRate: rate, net: a.net, tax: a.tax, total: a.total, costCenterId, ...capital });
   }
   return { lines, totals: sumAmounts(amounts) };
 }
@@ -849,6 +855,7 @@ export async function getBill(id: string) {
       assetCategoryId: l.assetCategoryId,
       assetName: l.assetName,
       improvesAssetId: l.improvesAssetId,
+      costCenterId: l.costCenterId,
     })),
     debitNotes: b.debitNotes.map((dn) => ({ id: dn.id, number: dn.number, issueDate: dn.issueDate, reason: dn.reason, total: dn.total.toFixed(2), createdBy: dn.createdBy })),
   };

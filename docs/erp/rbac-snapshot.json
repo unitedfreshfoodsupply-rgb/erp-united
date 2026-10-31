@@ -323,6 +323,50 @@
       }
     },
     {
+      "method": "PATCH",
+      "path": "/api/accounting/cost-centers/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/cost-centers/report",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "accounting.view",
+          "reports.finance"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/cost-centers",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "accounting.view",
+          "hr.expenses.submit",
+          "purchasing.bills.manage",
+          "accounting.assets.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/cost-centers",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
       "method": "GET",
       "path": "/api/accounting/customer-refunds",
       "gate": {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { CostCenterSelect } from "@/components/accounting/CostCentersView";
 import { systemText } from "@/lib/locale/system-text";
 import { newClientKey } from "@/lib/clientKey";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -42,7 +43,7 @@ const MATCH: Record<string, { label: string; cls: string }> = {
 
 type BillRow = { id: string; number: string; status: string; kind?: string; supplier: { id: string; code: string; name: string; nameAr?: string | null }; supplierInvoiceNo: string; billDate: string; dueDate: string; lineCount: number; total: string; variance: string; matchStatus: string; open: string | null };
 type BillLine = { id: string; lineNo: number; intakeId: string; receiptNumber: string; receivedDate: string; poNumber: string | null; description: string; uomCode: string; receivedQty: string; quantity: string; unitPrice: string; expectedUnitPrice: string | null; expectedNet: string | null; lineVariance: string | null; taxCode: string; net: string; tax: string; total: string; debitedQty: string };
-type ServiceLine = { id: string; lineNo: number; accountId: string; account: { code: string; name: string; nameAr: string }; description: string; taxCode: string; taxRate: string; net: string; tax: string; total: string; debitedNet: string; assetCategoryId: string | null; assetName: string | null; improvesAssetId: string | null };
+type ServiceLine = { id: string; lineNo: number; accountId: string; account: { code: string; name: string; nameAr: string }; description: string; taxCode: string; taxRate: string; net: string; tax: string; total: string; debitedNet: string; assetCategoryId: string | null; assetName: string | null; improvesAssetId: string | null; costCenterId: string | null };
 type Bill = Omit<BillRow, "lineCount"> & { currencyCode: string; notes: string | null; cancelReason: string | null; expectedNet: string; net: string; taxTotal: string; debited: string; approvalId: string | null; createdBy: string; postedBy: string | null; approvedBy: string | null; version: number; lines: BillLine[]; serviceLines: ServiceLine[]; debitNotes: { id: string; number: string; issueDate: string; reason: string; total: string; createdBy: string }[] };
 type Billable = { intakeId: string; receiptNumber: string; receivedDate: string; product: { id: string; name: string; unit: string }; poNumber: string | null; goodQty: string; expectedUnitPrice: string | null; priceSource: string | null; expectedNet: string | null; taxCode: string; taxRate: string };
 
@@ -203,8 +204,8 @@ function NewBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill 
 }
 
 /** kind: an expense (or ordinary asset account), a new fixed asset of a category, or an improvement of one. */
-type DraftServiceLine = { kind: "expense" | "asset" | "improvement"; account_id: string; description: string; amount: string; tax_code: string; asset_category_id: string; asset_name: string; improves_asset_id: string };
-const blankLine = (tax = ""): DraftServiceLine => ({ kind: "expense", account_id: "", description: "", amount: "", tax_code: tax, asset_category_id: "", asset_name: "", improves_asset_id: "" });
+type DraftServiceLine = { kind: "expense" | "asset" | "improvement"; account_id: string; description: string; amount: string; tax_code: string; asset_category_id: string; asset_name: string; improves_asset_id: string; cost_center_id: string };
+const blankLine = (tax = ""): DraftServiceLine => ({ kind: "expense", account_id: "", description: "", amount: "", tax_code: tax, asset_category_id: "", asset_name: "", improves_asset_id: "", cost_center_id: "" });
 
 /** A supplier invoice with no goods receipt behind it: each line is an account, an amount before tax, and its tax. */
 function NewServiceBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill }) {
@@ -226,7 +227,7 @@ function NewServiceBill({ onDone, bill }: { onDone: (id?: string) => void; bill?
   const [billDate, setBillDate] = useState(bill?.billDate ?? todayLocalISO());
   const [dueDate, setDueDate] = useState(bill?.dueDate ?? "");
   const [notes, setNotes] = useState(bill?.notes ?? "");
-  const [lines, setLines] = useState<DraftServiceLine[]>(() => bill?.serviceLines.length ? bill.serviceLines.map((l) => ({ ...blankLine(l.taxCode), kind: l.assetCategoryId ? "asset" : l.improvesAssetId ? "improvement" : "expense", account_id: l.assetCategoryId || l.improvesAssetId ? "" : l.accountId, description: l.description, amount: l.net, asset_category_id: l.assetCategoryId ?? "", asset_name: l.assetName ?? "", improves_asset_id: l.improvesAssetId ?? "" })) : [blankLine()]);
+  const [lines, setLines] = useState<DraftServiceLine[]>(() => bill?.serviceLines.length ? bill.serviceLines.map((l) => ({ ...blankLine(l.taxCode), kind: l.assetCategoryId ? "asset" : l.improvesAssetId ? "improvement" : "expense", account_id: l.assetCategoryId || l.improvesAssetId ? "" : l.accountId, description: l.description, amount: l.net, asset_category_id: l.assetCategoryId ?? "", asset_name: l.assetName ?? "", improves_asset_id: l.improvesAssetId ?? "", cost_center_id: l.costCenterId ?? "" })) : [blankLine()]);
   // Capital lines need the fixed-asset register (assets.view); without it only expense lines are offered.
   const { can } = usePermissions();
   const assetCats = useQuery({ queryKey: ["assets", "categories"], enabled: can("accounting.assets.view"), queryFn: () => apiFetch<{ categories: { id: string; code: string; name: string; nameAr: string; active: boolean; capitalizationThreshold: string }[] }>("/api/assets/categories").then((r) => r.categories.filter((c) => c.active)) });
@@ -242,7 +243,7 @@ function NewServiceBill({ onDone, bill }: { onDone: (id?: string) => void; bill?
     if (busy) return;
     setBusy(true);
     try {
-      const payloadLines = lines.map((l) => ({ description: l.description, amount: l.amount, tax_code: l.tax_code, ...(l.kind === "expense" ? { account_id: l.account_id } : l.kind === "asset" ? { asset_category_id: l.asset_category_id, asset_name: l.asset_name || undefined } : { improves_asset_id: l.improves_asset_id }) }));
+      const payloadLines = lines.map((l) => ({ description: l.description, amount: l.amount, tax_code: l.tax_code, ...(l.kind === "expense" ? { account_id: l.account_id, ...(l.cost_center_id && chargeable.find((a) => a.id === l.account_id)?.type === "expense" ? { cost_center_id: l.cost_center_id } : {}) } : l.kind === "asset" ? { asset_category_id: l.asset_category_id, asset_name: l.asset_name || undefined } : { improves_asset_id: l.improves_asset_id }) }));
       const payload = { kind: "service", supplier_id: supplierId, supplier_invoice_no: invoiceNo, bill_date: billDate, due_date: dueDate || null, notes: notes || null, lines: payloadLines, ...(bill ? { expected_version: bill.version } : {}) };
       const res = bill ? await apiPut<{ bill: Bill }>(`/api/purchasing/bills/${bill.id}`, payload) : await apiPost<{ bill: Bill }>("/api/purchasing/bills", payload);
       void qc.invalidateQueries({ queryKey: ["purchasing"] });
@@ -304,6 +305,7 @@ function NewServiceBill({ onDone, bill }: { onDone: (id?: string) => void; bill?
               </Field>
             )}
             <Field label={t("purchasing.bill.field.description")}><input className="field" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} /></Field>
+            {l.kind === "expense" && chargeable.find((a) => a.id === l.account_id)?.type === "expense" && <Field label={t("cc.field")}><CostCenterSelect value={l.cost_center_id} onChange={(id) => setLine(i, { cost_center_id: id })} /></Field>}
             <Field label={t("purchasing.bill.before_tax")}><input className="field" dir="ltr" inputMode="decimal" value={l.amount} onChange={(e) => setLine(i, { amount: e.target.value })} /></Field>
             <Field label={t("purchasing.bill.tax")}>
               <select className="field" value={l.tax_code} onChange={(e) => setLine(i, { tax_code: e.target.value })}>

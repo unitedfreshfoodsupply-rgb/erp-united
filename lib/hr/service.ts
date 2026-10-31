@@ -194,6 +194,7 @@ const expenseInput = z.object({
   description: text("البيان", 500),
   payment_mode: z.enum(["cash", "reimburse", "advance"]),
   cash_account_id: z.string().optional(),
+  cost_center_id: z.string().optional().nullable(),
   idempotency_key: idempotencyKeyField,
 });
 
@@ -203,7 +204,7 @@ async function postExpense(tx: Tx, expenseId: string, actor: Actorish) {
     e.paymentMode === "cash"
       ? { accountId: (await tx.cashAccount.findUniqueOrThrow({ where: { id: e.cashAccountId! } })).accountId, amount: e.amount.negated() }
       : { key: e.paymentMode === "reimburse" ? "employee_payable" : "employee_advances", amount: e.amount.negated(), party: { type: "employee", id: e.employeeId! } };
-  return postJournal(tx, { date: e.date, description: `مصروف ${e.number}: ${e.description}`, sourceType: "expense", sourceId: e.id, lines: [{ accountId: e.accountId, amount: e.amount }, credit] }, actor);
+  return postJournal(tx, { date: e.date, description: `مصروف ${e.number}: ${e.description}`, sourceType: "expense", sourceId: e.id, lines: [{ accountId: e.accountId, amount: e.amount, costCenterId: e.costCenterId }, credit] }, actor);
 }
 
 export async function createExpense(input: unknown, actor: ServiceActor) {
@@ -224,11 +225,13 @@ export async function createExpense(input: unknown, actor: ServiceActor) {
     if (!account || account.type !== "expense" || !account.postable || !account.active) throw new ApiError(400, "بند المصروف لازم يكون حساب مصروفات");
     if (v.employee_id && !(await tx.employee.findFirst({ where: { id: v.employee_id, active: true } }))) throw new ApiError(400, "الموظف مش موجود أو موقوف");
     if (v.cash_account_id && !(await tx.cashAccount.findFirst({ where: { id: v.cash_account_id, active: true } }))) throw new ApiError(400, "الخزينة مش موجودة");
+    const { checkCostCenter } = await import("@/lib/accounting/cost-centers");
+    const costCenterId = await checkCostCenter(tx, v.cost_center_id, account);
     const auto = v.amount.lessThanOrEqualTo(threshold);
     const e = await tx.expense.create({
       data: {
         number: await nextDocumentNumber(tx, "hr.expense", d), date: d, employeeId: v.employee_id ?? null, accountId: account.id, amount: v.amount, description: v.description,
-        paymentMode: v.payment_mode, cashAccountId: v.payment_mode === "cash" ? v.cash_account_id! : null, idempotencyKey: v.idempotency_key ?? null, requestHash,
+        paymentMode: v.payment_mode, cashAccountId: v.payment_mode === "cash" ? v.cash_account_id! : null, costCenterId, idempotencyKey: v.idempotency_key ?? null, requestHash,
         status: auto ? "approved" : "pending_approval", ...(auto ? { decidedBy: "قاعدة الحد", decidedAt: new Date() } : {}),
         createdById: actor.id, createdBy: actor.name,
       },

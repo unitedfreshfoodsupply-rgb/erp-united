@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { CostCenterSelect } from "@/components/accounting/CostCentersView";
 import { CashAccountSelect } from "@/components/accounting/CashAccountSelect";
 import { systemText } from "@/lib/locale/system-text";
 import Link from "next/link";
@@ -77,7 +78,7 @@ function Expenses() {
   const emps = useEmployees();
   const accounts = useQuery({ queryKey: ["hr", "expense-accounts"], queryFn: () => apiFetch<{ accounts: { id: string; code: string; name: string; nameAr: string }[] }>("/api/hr/expense-accounts").then((r) => r.accounts) });
   const list = useQuery({ queryKey: ["hr", "expenses"], queryFn: () => apiFetch<{ expenses: { id: string; number: string; date: string; amount: string; description: string; paymentMode: string; status: string; createdBy: string; employee: { name: string } | null; account: { code: string; name: string; nameAr: string } | null }[] }>("/api/hr/expenses") });
-  const blank = { date: todayLocalISO(), account_id: "", amount: "", description: "", payment_mode: "cash", cash_account_id: "cash_main", employee_id: "" };
+  const blank = { date: todayLocalISO(), account_id: "", amount: "", description: "", payment_mode: "cash", cash_account_id: "cash_main", employee_id: "", cost_center_id: "" };
   const [f, setF] = useState(blank);
   const [fKey, setFKey] = useState(newClientKey);
   const [busy, setBusy] = useState(false);
@@ -94,7 +95,7 @@ function Expenses() {
     setBusy(true);
     setError(null);
     try {
-      const r = await apiPost<{ expense: { number: string; status: string } }>("/api/hr/expenses", { ...f, employee_id: needsEmployee ? f.employee_id : undefined, cash_account_id: needsEmployee ? undefined : f.cash_account_id, idempotency_key: fKey });
+      const r = await apiPost<{ expense: { number: string; status: string } }>("/api/hr/expenses", { ...f, employee_id: needsEmployee ? f.employee_id : undefined, cash_account_id: needsEmployee ? undefined : f.cash_account_id, cost_center_id: f.cost_center_id || undefined, idempotency_key: fKey });
       setFKey(newClientKey());
       toast.show(`${r.expense.number} · ${t(`hr.status.${r.expense.status}`)}`, "success");
       setF({ ...blank, date: f.date, payment_mode: f.payment_mode, cash_account_id: f.cash_account_id });
@@ -125,6 +126,9 @@ function Expenses() {
               <option value="">{t("hr.placeholder.choose")}</option>
               {accounts.data?.map((a) => <option key={a.id} value={a.id}>{a.code} · {localName(a, locale)}</option>)}
             </select>
+          </Field>
+          <Field label={t("cc.field")}>
+            <CostCenterSelect value={f.cost_center_id} onChange={(id) => setF({ ...f, cost_center_id: id })} />
           </Field>
           <Field label={t("hr.label.amount")} required hint={t("hr.amount.hint")}>
             <input className="field" required dir="ltr" inputMode="decimal" autoComplete="off" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />

@@ -6,6 +6,17 @@
  * message has no entry here.
  */
 export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
+  ["{}: مركز التكلفة على سطور المصروفات بس", "{0}: a cost center goes on expense lines only"],
+  ["القسم مش موجود", "Department not found"],
+  ["المركز الرئيسي مش موجود", "Parent cost center not found"],
+  ["تحته مراكز شغالة — اوقفها الأول", "Active cost centers sit under it — retire them first"],
+  ["حدد مركز التكلفة لسطر المصروف (الحساب {})", "Choose a cost center for the expense line (account {0})"],
+  ["كده هيبقى المركز تحت واحد من فروعه", "That would put the center under one of its own branches"],
+  ["مركز التكلفة بيتحط على حسابات الإيرادات والمصروفات بس (الحساب {})", "A cost center goes on revenue and expense accounts only (account {0})"],
+  ["مركز التكلفة مش موجود", "Cost center not found"],
+  ["مركز التكلفة مش موجود أو موقوف", "Cost center not found or inactive"],
+  ["مركز التكلفة مينفعش يكون تحت نفسه", "A cost center cannot sit under itself"],
+  ["نوع مركز التكلفة غير معروف", "Unknown cost center kind"],
   ["\"{}\": دفعة منتهية الصلاحية قبل تاريخ الافتتاح — مش رصيد", "\"{0}\": a lot expired before the cut-over date — it is not opening stock"],
   ["{}: القيمة المتبقية أكبر من القيمة الدفترية", "{0}: residual value exceeds book value"],
   ["{}: تاريخ التشغيل بعد تاريخ الافتتاح — يتسجل كأصل جديد مش رصيد", "{0}: in service after the cut-over date — register it as a new asset, not an opening balance"],
