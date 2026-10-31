@@ -990,29 +990,42 @@ export async function postOpeningStock(input: Record<string, unknown>, actor: Se
   // A retried submit returns the stock the first one brought in — never twice the opening stock.
   const requestHash = requestFingerprint(input);
   const result = await idempotent(key, requestHash, () => inTx(async (tx) => {
-    const wh = await resolveWarehouse(tx, input.warehouse_id as string | undefined);
-    const doc = await createDoc(tx, "adjustment", { warehouseId: wh.id, businessDate: date, status: "posted", reason: "رصيد مخزون افتتاحي", sourceType: "opening_balance", idempotencyKey: key, requestHash }, actor);
-    const moves: MoveInput[] = [];
-    for (const l of raw) {
-      const product = await loadProduct(tx, l.product_id);
-      const qty = await lineQty(tx, product, l);
-      const rawCost = l.unit_cost === undefined || l.unit_cost === null ? "" : String(l.unit_cost).trim();
-      if (!/^\d+(\.\d{1,4})?$/.test(rawCost)) throw new ApiError(400, `"${product.name}": تكلفة الوحدة الافتتاحية مطلوبة (رقم موجب)`);
-      const cost = D(rawCost);
-      const expiry = typeof l.expiry_date === "string" && l.expiry_date ? l.expiry_date : null;
-      if (expiry && !isValidISODate(expiry)) throw new ApiError(400, "تاريخ الانتهاء لازم يكون YYYY-MM-DD");
-      // Stock already past its expiry at go-live is not opening stock: it is scrapped in
-      // the old system (or counted as waste) before the cut-off, never carried over.
-      if (expiry && expiry < date) throw new ApiError(400, `"${product.name}": الدفعة منتهية الصلاحية (${expiry}) قبل تاريخ الرصيد الافتتاحي ${date} — اعدمها قبل النقل، ماتنقلهاش كرصيد`);
-      const lot = await tx.stockLot.create({ data: { productId: product.id, lotNumber: await nextDocumentNumber(tx, "inventory.lot", date), receivedDate: date, expiryDate: expiry, unitCost: cost } });
-      const loc = l.location_id ? await resolveLocation(tx, wh.id, l.location_id as string) : await receivingLocation(tx, wh.id);
-      moves.push({ productId: product.id, warehouseId: wh.id, locationId: loc.id, lotId: lot.id, quantity: qty, kind: "adjustment", documentId: doc.id, unitCost: cost, costSource: "purchase", reason: "رصيد افتتاحي" });
-    }
-    await postMovements(tx, moves, ctxOf(actor, date));
-    await auditDoc(tx, doc, actor, "opening_stock_posted", `${raw.length} صنف`);
-    return doc;
+    const { assertNoOpeningBatchPosted } = await import("@/lib/accounting/opening-batches");
+    await assertNoOpeningBatchPosted(tx);
+    return postOpeningStockInTx(tx, { date, warehouseId: input.warehouse_id as string | undefined, lines: raw, idempotencyKey: key, requestHash }, actor);
   }));
   return result.document;
+}
+
+/**
+ * Opening stock inside the caller's transaction (the direct form above, or an approved
+ * opening batch): one posted adjustment document whose movements value the stock at the
+ * given unit costs — Dr inventory / Cr opening equity through the stock ledger.
+ */
+export async function postOpeningStockInTx(tx: Tx, input: { date: string; warehouseId?: string; lines: Record<string, unknown>[]; idempotencyKey?: string | null; requestHash?: string | null }, actor: ServiceActor) {
+  const date = input.date;
+  const raw = input.lines;
+  const wh = await resolveWarehouse(tx, input.warehouseId);
+  const doc = await createDoc(tx, "adjustment", { warehouseId: wh.id, businessDate: date, status: "posted", reason: "رصيد مخزون افتتاحي", sourceType: "opening_balance", idempotencyKey: input.idempotencyKey ?? null, requestHash: input.requestHash ?? undefined }, actor);
+  const moves: MoveInput[] = [];
+  for (const l of raw) {
+    const product = await loadProduct(tx, l.product_id as string);
+    const qty = await lineQty(tx, product, l);
+    const rawCost = l.unit_cost === undefined || l.unit_cost === null ? "" : String(l.unit_cost).trim();
+    if (!/^\d+(\.\d{1,4})?$/.test(rawCost)) throw new ApiError(400, `"${product.name}": تكلفة الوحدة الافتتاحية مطلوبة (رقم موجب)`);
+    const cost = D(rawCost);
+    const expiry = typeof l.expiry_date === "string" && l.expiry_date ? l.expiry_date : null;
+    if (expiry && !isValidISODate(expiry)) throw new ApiError(400, "تاريخ الانتهاء لازم يكون YYYY-MM-DD");
+    // Stock already past its expiry at go-live is not opening stock: it is scrapped in
+    // the old system (or counted as waste) before the cut-off, never carried over.
+    if (expiry && expiry < date) throw new ApiError(400, `"${product.name}": الدفعة منتهية الصلاحية (${expiry}) قبل تاريخ الرصيد الافتتاحي ${date} — اعدمها قبل النقل، ماتنقلهاش كرصيد`);
+    const lot = await tx.stockLot.create({ data: { productId: product.id, lotNumber: await nextDocumentNumber(tx, "inventory.lot", date), receivedDate: date, expiryDate: expiry, unitCost: cost } });
+    const loc = l.location_id ? await resolveLocation(tx, wh.id, l.location_id as string) : await receivingLocation(tx, wh.id);
+    moves.push({ productId: product.id, warehouseId: wh.id, locationId: loc.id, lotId: lot.id, quantity: qty, kind: "adjustment", documentId: doc.id, unitCost: cost, costSource: "purchase", reason: "رصيد افتتاحي" });
+  }
+  await postMovements(tx, moves, ctxOf(actor, date));
+  await auditDoc(tx, doc, actor, "opening_stock_posted", `${raw.length} صنف`);
+  return doc;
 }
 
 /**

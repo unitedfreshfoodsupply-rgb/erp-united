@@ -6,7 +6,7 @@ import { postHandler } from "@/lib/route-handlers";
 
 export async function GET(req: NextRequest) {
   try {
-    await requirePermission(req, "assets.view");
+    await requirePermission(req, "accounting.assets.view");
     const q = new URL(req.url).searchParams;
     return NextResponse.json(await listAssets({ status: q.get("status") ?? undefined, categoryId: q.get("category_id") ?? undefined, q: q.get("q") ?? undefined }));
   } catch (err) {
@@ -15,4 +15,4 @@ export async function GET(req: NextRequest) {
 }
 
 /** An asset bought for cash or from the bank (a supplier's invoice is booked as a bill capital line instead). */
-export const POST = postHandler("assets.manage", async (body, actor) => ({ asset: await acquireAsset(body, actor) }));
+export const POST = postHandler("accounting.assets.manage", async (body, actor) => ({ asset: await acquireAsset(body, actor) }));

@@ -3803,3 +3803,53 @@ model AssetDepreciationLine {
   @@unique([assetId, period])
   @@index([runId])
 }
+
+/// Opening balances at go-live as one batch: staged lines checked together as an opening
+/// trial balance (debits = credits, nothing left in opening equity), approved by someone
+/// other than who prepared it, then posted once — GL accounts, customers' and suppliers'
+/// open items, stock and fixed assets (with their original cost and depreciation). After the
+/// initial batch, only correction batches (also approved) change opening balances.
+model OpeningBatch {
+  id             String    @id @default(cuid())
+  /// OPN-####
+  number         String    @unique
+  /// initial | correction
+  kind           String    @default("initial")
+  cutoverDate    String
+  /// draft | pending_approval | posted | cancelled
+  status         String    @default("draft")
+  notes          String?
+  idempotencyKey String?   @unique
+  createdById    String?
+  createdBy      String
+  createdAt      DateTime  @default(now())
+  submittedById  String?
+  submittedBy    String?
+  submittedAt    DateTime?
+  decidedBy      String?
+  decidedAt      DateTime?
+  decisionNote   String?
+  postedAt       DateTime?
+  /// The journal entries the posting created.
+  entryIds       Json?
+  version        Int       @default(1)
+
+  lines OpeningBatchLine[]
+}
+
+/// One staged opening line. `data` holds the kind's fields (account, party, product, asset
+/// details); debit/credit are its effect on the opening trial balance.
+model OpeningBatchLine {
+  id      String  @id @default(cuid())
+  batchId String
+  lineNo  Int
+  /// gl | customer | supplier | stock | asset
+  kind    String
+  data    Json
+  debit   Decimal @default(0) @db.Decimal(18, 2)
+  credit  Decimal @default(0) @db.Decimal(18, 2)
+
+  batch OpeningBatch @relation(fields: [batchId], references: [id], onDelete: Restrict)
+
+  @@unique([batchId, lineNo])
+}

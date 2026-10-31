@@ -120,6 +120,13 @@ export const APPROVAL_TYPES = {
     levels: 1,
     link: () => "/accounting?tab=periods",
   },
+  "accounting.opening_batch": {
+    label: "اعتماد الأرصدة الافتتاحية",
+    entityType: "opening_batch",
+    approvePermission: "accounting.opening.approve",
+    levels: 1,
+    link: () => "/accounting?tab=opening",
+  },
   "accounting.manual_journal": {
     label: "اعتماد قيد يدوي",
     entityType: "journal_request",

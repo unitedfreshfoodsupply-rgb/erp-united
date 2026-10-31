@@ -7,7 +7,7 @@ import { updateCategory } from "@/lib/accounting/fixed-assets";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const ctx = await requirePermission(req, "assets.manage");
+    const ctx = await requirePermission(req, "accounting.assets.manage");
     return NextResponse.json({ category: await updateCategory(params.id, await readJson(req), serviceActorFromContext(ctx)) });
   } catch (err) {
     return handleApiError(err, req);

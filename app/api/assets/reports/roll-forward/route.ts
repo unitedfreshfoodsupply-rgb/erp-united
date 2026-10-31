@@ -5,7 +5,7 @@ import { rollForward } from "@/lib/accounting/fixed-assets";
 
 export async function GET(req: NextRequest) {
   try {
-    await requirePermission(req, "assets.view");
+    await requirePermission(req, "accounting.assets.view");
     const q = new URL(req.url).searchParams;
     return NextResponse.json({ report: await rollForward(q.get("from") ?? "", q.get("to") ?? "") });
   } catch (err) {

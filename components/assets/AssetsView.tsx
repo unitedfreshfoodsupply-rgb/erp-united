@@ -66,7 +66,7 @@ function Register() {
         <Field label={t("assets.filter.search")}><input className="field" value={filter.q} onChange={(e) => setFilter({ ...filter, q: e.target.value })} /></Field>
         <Field label={t("assets.col.category")}><select className="field" value={filter.category_id} onChange={(e) => setFilter({ ...filter, category_id: e.target.value })}><option value="">{t("assets.filter.all")}</option>{cats.data?.map((c) => <option key={c.id} value={c.id}>{localName(c, locale)}</option>)}</select></Field>
         <Field label={t("treasury.col.status")}><select className="field" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}><option value="">{t("assets.filter.all")}</option>{(["draft", "in_service", "disposed"] as const).map((s) => <option key={s} value={s}>{t(`assets.status.${s}`)}</option>)}</select></Field>
-        {can("assets.manage") && <div className="self-end"><button type="button" className="btn-primary" onClick={() => setAdding((x) => !x)}>{t("assets.buy-cash")}</button></div>}
+        {can("accounting.assets.manage") && <div className="self-end"><button type="button" className="btn-primary" onClick={() => setAdding((x) => !x)}>{t("assets.buy-cash")}</button></div>}
       </div>
       {adding && <BuyForm categories={cats.data ?? []} onDone={() => setAdding(false)} />}
       {open && <AssetPanel id={open} onClose={() => setOpen(null)} />}
@@ -140,7 +140,7 @@ function AssetPanel({ id, onClose }: { id: string; onClose: () => void }) {
     catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
   };
   const open = (x: Action, init: Record<string, string> = {}) => { setAction(x); setF(init); };
-  const manage = can("assets.manage") && a.status !== "disposed";
+  const manage = can("accounting.assets.manage") && a.status !== "disposed";
   return (
     <section className="card overflow-hidden" aria-labelledby="asset-panel">
       <div className="card-header">
@@ -259,7 +259,7 @@ function Categories() {
   const [busy, setBusy] = useState(false);
   return (
     <div className="flex flex-col gap-3">
-      {can("assets.manage") && (
+      {can("accounting.assets.manage") && (
         <form className="card p-4 flex flex-col gap-2" onSubmit={async (e) => {
           e.preventDefault(); setBusy(true);
           try {
@@ -328,7 +328,7 @@ function Depreciation() {
         <p className="text-sm text-united-muted">{t("assets.dep-explain")}</p>
         <div className="flex flex-wrap items-end gap-2">
           <Field label={t("assets.col.month")}><input type="month" className="field" value={period} onChange={(e) => setPeriod(e.target.value)} /></Field>
-          {can("assets.manage") && <button type="button" className="btn-primary" disabled={!pv.data?.rows.length} onClick={async () => {
+          {can("accounting.assets.manage") && <button type="button" className="btn-primary" disabled={!pv.data?.rows.length} onClick={async () => {
             if (!(await dialogs.confirm({ title: t("assets.confirm-run", { period }), body: t("assets.confirm-run-body", { total: fmtMoney(pv.data?.total ?? "0") }), confirmLabel: t("assets.run") }))) return;
             try { await apiPost("/api/assets/depreciation", { period }); toast.show(t("assets.toast-run"), "success"); void qc.invalidateQueries({ queryKey: ["assets"] }); }
             catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }

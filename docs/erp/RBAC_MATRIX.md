@@ -64,8 +64,8 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `accounting.periods.reopen` — إعادة فتح الفترات والسنوات | ✓ |  |  |  |  |  |  |  |  |
 | `accounting.journals.approve` — اعتماد القيود اليدوية | ✓ |  |  |  |  |  | ✓ |  |  |
 | `accounting.opening.approve` — اعتماد الأرصدة الافتتاحية | ✓ |  |  |  |  |  |  |  |  |
-| `assets.view` — عرض الأصول الثابتة | ✓ |  |  |  |  |  | ✓ |  |  |
-| `assets.manage` — إدارة الأصول الثابتة | ✓ |  |  |  |  |  | ✓ |  |  |
+| `accounting.assets.view` — عرض الأصول الثابتة | ✓ |  |  |  |  |  | ✓ |  |  |
+| `accounting.assets.manage` — إدارة الأصول الثابتة | ✓ |  |  |  |  |  | ✓ |  |  |
 | `accounting.eta.view` — متابعة الفاتورة الإلكترونية | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | `accounting.eta.manage` — إرسال الفاتورة الإلكترونية | ✓ |  |  |  |  |  | ✓ |  |  |
 | `hr.employees.manage` — إدارة الموظفين | ✓ |  |  |  |  |  | ✓ |  |  |
@@ -110,7 +110,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `/sales` العملاء (`sales.customers.view`) | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | `/purchasing` المشتريات (`purchasing.orders.view`) | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |
 | `/accounting` الحسابات (`accounting.view` / `accounting.receipts.manage` / `accounting.payments.manage`) | ✓ |  |  |  |  |  | ✓ |  | ✓ |
-| `/assets` الأصول الثابتة (`assets.view`) | ✓ |  |  |  |  |  | ✓ |  |  |
+| `/assets` الأصول الثابتة (`accounting.assets.view`) | ✓ |  |  |  |  |  | ✓ |  |  |
 | `/eta` الفاتورة الإلكترونية (`accounting.eta.view`) | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | `/hr` الموظفين والمصروفات (`hr.expenses.submit`) | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | `/hr/attendance` الحضور والانصراف (`hr.attendance.record` / `hr.attendance.approve` / `hr.employees.manage`) | ✓ | ✓ |  |  |  |  | ✓ |  |  |
@@ -156,6 +156,13 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/accounting/journals` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/opening-balances` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/opening-balances` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-batches/[id]/cancel` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| DELETE | `/api/accounting/opening-batches/[id]/lines/[lineId]` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-batches/[id]/lines` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/opening-batches/[id]` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-batches/[id]/submit` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/opening-batches` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-batches` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/opening-stock` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/payments/[id]/allocate` | `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/payments/[id]/reverse` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
@@ -211,21 +218,21 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/admin/users` | `users.create` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/approvals/[id]/decide` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | GET | `/api/approvals` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| POST | `/api/assets/[id]/dispose` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
-| POST | `/api/assets/[id]/estimate` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
-| POST | `/api/assets/[id]/improve` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
-| POST | `/api/assets/[id]/place-in-service` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
-| GET | `/api/assets/[id]` | `assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
-| POST | `/api/assets/[id]/transfer` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
-| PATCH | `/api/assets/categories/[id]` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
-| GET | `/api/assets/categories` | `assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
-| POST | `/api/assets/categories` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
-| GET | `/api/assets/depreciation` | `assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
-| POST | `/api/assets/depreciation` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
-| GET | `/api/assets/depreciation/runs` | `assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
-| GET | `/api/assets/reports/roll-forward` | `assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
-| GET | `/api/assets` | `assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
-| POST | `/api/assets` | `assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/[id]/dispose` | `accounting.assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/[id]/estimate` | `accounting.assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/[id]/improve` | `accounting.assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/[id]/place-in-service` | `accounting.assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/assets/[id]` | `accounting.assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/[id]/transfer` | `accounting.assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| PATCH | `/api/assets/categories/[id]` | `accounting.assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/assets/categories` | `accounting.assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/categories` | `accounting.assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/assets/depreciation` | `accounting.assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/depreciation` | `accounting.assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/assets/depreciation/runs` | `accounting.assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/assets/reports/roll-forward` | `accounting.assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/assets` | `accounting.assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets` | `accounting.assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/attachments/[id]/download` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | DELETE | `/api/attachments/[id]` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | GET | `/api/attachments` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

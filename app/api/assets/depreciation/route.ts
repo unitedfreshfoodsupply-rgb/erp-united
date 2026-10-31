@@ -8,11 +8,11 @@ import { todayLocalISO } from "@/lib/localDate";
 /** What the month's run would post, asset by asset. */
 export async function GET(req: NextRequest) {
   try {
-    await requirePermission(req, "assets.view");
+    await requirePermission(req, "accounting.assets.view");
     return NextResponse.json({ preview: await previewDepreciation(new URL(req.url).searchParams.get("period") ?? todayLocalISO().slice(0, 7)) });
   } catch (err) {
     return handleApiError(err, req);
   }
 }
 
-export const POST = postHandler("assets.manage", async (body, actor) => ({ run: await runDepreciation(body, actor) }));
+export const POST = postHandler("accounting.assets.manage", async (body, actor) => ({ run: await runDepreciation(body, actor) }));

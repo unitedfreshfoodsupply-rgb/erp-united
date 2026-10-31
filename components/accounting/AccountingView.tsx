@@ -6,6 +6,7 @@ import { TreasuryView } from "@/components/accounting/TreasuryView";
 import { ChartView } from "@/components/accounting/ChartView";
 import { VatReturnsView } from "@/components/accounting/VatReturnsView";
 import { PeriodsView } from "@/components/accounting/PeriodsView";
+import { OpeningBatchView } from "@/components/accounting/OpeningBatchView";
 import { JournalRequests } from "@/components/accounting/JournalRequests";
 import { controlAccountMovedBy } from "@/lib/accounting/control-accounts";
 import { systemText } from "@/lib/locale/system-text";
@@ -719,6 +720,9 @@ function Opening() {
   const done = (msg: string) => { toast.show(msg, "success"); void qc.invalidateQueries({ queryKey: ["acc"] }); };
   return (
     <div className="flex flex-col gap-3">
+      <OpeningBatchView />
+      <h2 className="section-title mt-4">{t("opening.direct-title")}</h2>
+      <p className="text-sm font-bold text-united-muted">{t("opening.direct-explain")}</p>
       <p className="text-sm font-bold text-united-muted">{t("accounting.info-go-live")}</p>
       <section className="card p-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
         <h3 className="font-extrabold col-span-full">{t("accounting.info-heading")}</h3>

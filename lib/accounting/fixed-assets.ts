@@ -88,7 +88,7 @@ const categoryInput = z.object({
  * policy value is the accountant's explicit choice: nothing is assumed.
  */
 export async function createCategory(input: unknown, actor: ServiceActor) {
-  assertPermission(actor, "assets.manage");
+  assertPermission(actor, "accounting.assets.manage");
   const v = parse(categoryInput, input);
   if (v.method === "declining_balance" && !v.declining_rate) throw new ApiError(400, "حدد نسبة الإهلاك السنوية للقسط المتناقص");
   return inTx(async (tx) => {
@@ -117,7 +117,7 @@ export async function createCategory(input: unknown, actor: ServiceActor) {
 
 /** Policy changes apply to assets registered afterwards; existing assets keep theirs (change them per asset). */
 export async function updateCategory(id: string, input: unknown, actor: ServiceActor) {
-  assertPermission(actor, "assets.manage");
+  assertPermission(actor, "accounting.assets.manage");
   const v = parse(categoryInput.partial().omit({ code: true, depreciable: true }).extend({ active: z.boolean().optional(), version: z.number().int().optional() }), input);
   return inTx(async (tx) => {
     const c = await tx.assetCategory.findUnique({ where: { id } });
@@ -225,7 +225,7 @@ async function checkPlacement(tx: Tx, v: { warehouse_id?: string | null; custodi
 
 /** Bought for cash or bank (no supplier bill): Dr cost / Cr cash. */
 export async function acquireAsset(input: unknown, actor: ServiceActor) {
-  assertPermission(actor, "assets.manage");
+  assertPermission(actor, "accounting.assets.manage");
   const v = parse(z.object({
     category_id: text("الفئة"), name: text("اسم الأصل", 200), name_ar: optText("الاسم بالعربي", 200).optional(), cost: money("التكلفة"), acquisition_date: dateField("تاريخ الشراء"),
     cash_account_id: text("الخزينة / البنك"), in_service_date: dateField("تاريخ التشغيل").optional(), reference: optText("المرجع", 100).optional(), ...placementFields,
@@ -257,7 +257,7 @@ export async function acquireAsset(input: unknown, actor: ServiceActor) {
 
 /** Draft → in service: depreciation starts from here (this month or next, per the category). */
 export async function placeInService(id: string, input: unknown, actor: ServiceActor) {
-  assertPermission(actor, "assets.manage");
+  assertPermission(actor, "accounting.assets.manage");
   const v = parse(z.object({ in_service_date: dateField("تاريخ التشغيل"), useful_life_months: z.number().int().min(1).max(1200).optional(), residual_value: money("القيمة المتبقية", true).optional(), version: z.number().int().optional(), ...placementFields }), input);
   return inTx(async (tx) => {
     const a = await tx.fixedAsset.findUnique({ where: { id } });
@@ -284,7 +284,7 @@ export async function placeInService(id: string, input: unknown, actor: ServiceA
 
 /** A change of estimate (life, residual) — prospective: what is left is spread over what is left. */
 export async function changeEstimate(id: string, input: unknown, actor: ServiceActor) {
-  assertPermission(actor, "assets.manage");
+  assertPermission(actor, "accounting.assets.manage");
   const v = parse(z.object({ useful_life_months: z.number().int().min(1).max(1200).optional(), residual_value: money("القيمة المتبقية", true).optional(), reason: text("السبب", 500), version: z.number().int().optional() }), input);
   return inTx(async (tx) => {
     const a = await tx.fixedAsset.findUnique({ where: { id }, include: { _count: { select: { depreciationLines: true } } } });
@@ -303,7 +303,7 @@ export async function changeEstimate(id: string, input: unknown, actor: ServiceA
 
 /** Moves an asset between warehouses, custodians or vehicles. No entry: its accounts do not change. */
 export async function transferAsset(id: string, input: unknown, actor: ServiceActor) {
-  assertPermission(actor, "assets.manage");
+  assertPermission(actor, "accounting.assets.manage");
   const v = parse(z.object({ date: dateField("التاريخ").optional(), reason: text("السبب", 500), version: z.number().int().optional(), warehouse_id: placementFields.warehouse_id, location: placementFields.location, custodian_employee_id: placementFields.custodian_employee_id, vehicle_id: placementFields.vehicle_id }), input);
   return inTx(async (tx) => {
     const a = await tx.fixedAsset.findUnique({ where: { id } });
@@ -323,7 +323,7 @@ export async function transferAsset(id: string, input: unknown, actor: ServiceAc
 
 /** Improvement paid directly: Dr cost / Cr cash; the remaining life carries the new cost. */
 export async function improveAsset(id: string, input: unknown, actor: ServiceActor) {
-  assertPermission(actor, "assets.manage");
+  assertPermission(actor, "accounting.assets.manage");
   const v = parse(z.object({ amount: money("المبلغ"), date: dateField("التاريخ"), cash_account_id: text("الخزينة / البنك"), description: text("البيان", 300) }), input);
   return inTx(async (tx) => {
     const a = await tx.fixedAsset.findUnique({ where: { id }, include: { category: true } });
@@ -436,7 +436,7 @@ export async function runDepreciationTx(tx: Tx, period: string, actor: Actorish)
 }
 
 export async function runDepreciation(input: unknown, actor: ServiceActor) {
-  assertPermission(actor, "assets.manage");
+  assertPermission(actor, "accounting.assets.manage");
   const v = parse(z.object({ period: z.string().regex(/^\d{4}-\d{2}$/, "الشهر لازم يكون YYYY-MM") }), input);
   if (monthEnd(v.period) > monthEnd(monthOf(todayLocalISO()))) throw new ApiError(400, "مينفعش تهلك شهر لسه مجاش");
   const run = await inTx((tx) => runDepreciationTx(tx, v.period, actor));
@@ -464,7 +464,7 @@ export async function listRuns() {
  * disposal month itself is not depreciated), then the asset leaves the books.
  */
 export async function disposeAsset(id: string, input: unknown, actor: ServiceActor) {
-  assertPermission(actor, "assets.manage");
+  assertPermission(actor, "accounting.assets.manage");
   const v = parse(z.object({ kind: z.enum(["sale", "scrap"], { errorMap: () => ({ message: "نوع الاستبعاد: بيع أو تخريد" }) }), date: dateField("تاريخ الاستبعاد"), proceeds: money("قيمة البيع", true).optional(), cash_account_id: z.string().optional(), tax_code: z.string().optional(), reason: text("السبب", 500), version: z.number().int().optional() }), input);
   const proceeds = v.kind === "sale" ? v.proceeds ?? D(0) : D(0);
   if (v.kind === "sale" && !proceeds.gt(0)) throw new ApiError(400, "حدد قيمة البيع (أو اختار تخريد)");

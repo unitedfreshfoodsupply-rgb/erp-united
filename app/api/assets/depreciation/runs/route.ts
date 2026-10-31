@@ -5,7 +5,7 @@ import { listRuns } from "@/lib/accounting/fixed-assets";
 
 export async function GET(req: NextRequest) {
   try {
-    await requirePermission(req, "assets.view");
+    await requirePermission(req, "accounting.assets.view");
     return NextResponse.json({ runs: await listRuns() });
   } catch (err) {
     return handleApiError(err, req);

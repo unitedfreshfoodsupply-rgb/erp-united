@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
 import { assertPermission } from "@/lib/authz-core";
-import { inTx } from "@/lib/tx";
+import { inTx, type Tx } from "@/lib/tx";
 import { isValidISODate } from "@/lib/dates";
 import { optText, parse, text } from "@/lib/core/validation";
 import type { ServiceActor } from "@/lib/core/actor";
@@ -57,18 +57,28 @@ export async function createOpeningBalance(input: unknown, actor: ServiceActor) 
       const prev = await tx.partyOpeningBalance.findUnique({ where: { idempotencyKey: v.idempotency_key } });
       if (prev) return replayRequest(prev, requestHash, prev.partyType === v.party_type && prev.partyId === v.party_id && D(prev.amount).equals(v.amount) && prev.date === v.date && prev.dueDate === (v.due_date ?? v.date) && prev.reference === (v.reference ?? null));
     }
-    const party = v.party_type === "customer" ? await tx.customer.findUnique({ where: { id: v.party_id }, select: { id: true, name: true } }) : await tx.supplier.findUnique({ where: { id: v.party_id }, select: { id: true, name: true } });
-    if (!party) throw new ApiError(404, v.party_type === "customer" ? "العميل مش موجود" : "المورد مش موجود");
-    const row = await tx.partyOpeningBalance.create({ data: { partyType: v.party_type, partyId: party.id, date: v.date, dueDate: v.due_date ?? v.date, amount: v.amount, reference: v.reference ?? null, idempotencyKey: v.idempotency_key ?? null, requestHash, createdById: actor.id, createdBy: actor.name } });
-    // Customer: Dr AR / Cr opening equity. Supplier: Cr AP / Dr opening equity. (Negative amounts reverse.)
-    const partyLine = v.party_type === "customer" ? { key: "ar" as const, amount: v.amount } : { key: "ap" as const, amount: v.amount.negated() };
-    await postJournal(tx, {
-      date: v.date, description: `رصيد افتتاحي — ${party.name}${v.reference ? ` (${v.reference})` : ""}`, sourceType: "opening_balance", sourceId: row.id,
-      lines: [{ ...partyLine, party: { type: v.party_type, id: party.id } }, { key: "opening_equity", amount: partyLine.amount.negated() }],
-    }, actor);
-    await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "opening_balance_recorded", entityType: "journal_entry", entityId: row.id, fieldChanged: v.party_type, newValue: `${party.name} · ${v.amount.toFixed(2)}`, source: "user", deviceId: actor.deviceId }, tx);
-    return row;
+    const { assertNoOpeningBatchPosted } = await import("@/lib/accounting/opening-batches");
+    await assertNoOpeningBatchPosted(tx);
+    return postPartyOpeningInTx(tx, { partyType: v.party_type, partyId: v.party_id, date: v.date, dueDate: v.due_date ?? v.date, amount: v.amount, reference: v.reference ?? null, idempotencyKey: v.idempotency_key ?? null, requestHash }, actor);
   });
+}
+
+/**
+ * A customer's or supplier's open item at go-live, inside the caller's transaction: the
+ * statement/aging document and its entry together. Customer: Dr AR / Cr opening equity;
+ * supplier: Cr AP / Dr opening equity (a negative amount reverses).
+ */
+export async function postPartyOpeningInTx(tx: Tx, v: { partyType: "customer" | "supplier"; partyId: string; date: string; dueDate: string; amount: Prisma.Decimal; reference: string | null; idempotencyKey?: string | null; requestHash?: string | null }, actor: ServiceActor) {
+  const party = v.partyType === "customer" ? await tx.customer.findUnique({ where: { id: v.partyId }, select: { id: true, name: true } }) : await tx.supplier.findUnique({ where: { id: v.partyId }, select: { id: true, name: true } });
+  if (!party) throw new ApiError(404, v.partyType === "customer" ? "العميل مش موجود" : "المورد مش موجود");
+  const row = await tx.partyOpeningBalance.create({ data: { partyType: v.partyType, partyId: party.id, date: v.date, dueDate: v.dueDate, amount: v.amount, reference: v.reference, idempotencyKey: v.idempotencyKey ?? null, requestHash: v.requestHash ?? null, createdById: actor.id, createdBy: actor.name } });
+  const partyLine = v.partyType === "customer" ? { key: "ar" as const, amount: v.amount } : { key: "ap" as const, amount: v.amount.negated() };
+  await postJournal(tx, {
+    date: v.date, description: `رصيد افتتاحي — ${party.name}${v.reference ? ` (${v.reference})` : ""}`, sourceType: "opening_balance", sourceId: row.id,
+    lines: [{ ...partyLine, party: { type: v.partyType, id: party.id } }, { key: "opening_equity", amount: partyLine.amount.negated() }],
+  }, actor);
+  await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "opening_balance_recorded", entityType: "journal_entry", entityId: row.id, fieldChanged: v.partyType, newValue: `${party.name} · ${v.amount.toFixed(2)}`, source: "user", deviceId: actor.deviceId }, tx);
+  return row;
 }
 
 export async function listOpeningBalances() {
@@ -170,6 +180,7 @@ export async function integrityReport() {
         OR (e."sourceType" = 'opening_balance' AND NOT EXISTS (SELECT 1 FROM "PartyOpeningBalance" d WHERE d."id" = e."sourceId"))
         OR (e."sourceType" = 'payroll_run' AND NOT EXISTS (SELECT 1 FROM "PayrollRun" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
         OR (e."sourceType" = 'payroll_payment' AND NOT EXISTS (SELECT 1 FROM "PayrollPayment" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
+        OR (e."sourceType" = 'opening_batch' AND NOT EXISTS (SELECT 1 FROM "OpeningBatch" d WHERE d."status" = 'posted' AND e."sourceId" IN (d."id" || ':gl', d."id" || ':assets')))
         OR (e."sourceType" = 'asset_acquisition' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."entryId" = e."id" AND d."type" = 'acquisition'))
         OR (e."sourceType" = 'asset_improvement' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."entryId" = e."id" AND d."type" = 'improvement'))
         OR (e."sourceType" = 'asset_disposal' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."id" = e."sourceId" AND d."entryId" = e."id"))

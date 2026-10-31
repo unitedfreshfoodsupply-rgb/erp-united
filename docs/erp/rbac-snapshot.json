@@ -57,8 +57,8 @@
     "accounting.periods.reopen",
     "accounting.journals.approve",
     "accounting.opening.approve",
-    "assets.view",
-    "assets.manage",
+    "accounting.assets.view",
+    "accounting.assets.manage",
     "accounting.eta.view",
     "accounting.eta.manage",
     "hr.employees.manage",
@@ -154,6 +154,8 @@
       "sales.quotations.view"
     ],
     "ACCOUNTANT": [
+      "accounting.assets.manage",
+      "accounting.assets.view",
       "accounting.eta.manage",
       "accounting.eta.view",
       "accounting.journals.approve",
@@ -162,8 +164,6 @@
       "accounting.periods.close",
       "accounting.receipts.manage",
       "accounting.view",
-      "assets.manage",
-      "assets.view",
       "audit.view",
       "hr.advances.manage",
       "hr.compensation.manage",
@@ -477,6 +477,76 @@
     {
       "method": "POST",
       "path": "/api/accounting/opening-balances",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-batches/[id]/cancel",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/accounting/opening-batches/[id]/lines/[lineId]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-batches/[id]/lines",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/opening-batches/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-batches/[id]/submit",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/opening-batches",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-batches",
       "gate": {
         "kind": "all",
         "permissions": [
@@ -1051,7 +1121,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.manage"
+          "accounting.assets.manage"
         ]
       }
     },
@@ -1061,7 +1131,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.manage"
+          "accounting.assets.manage"
         ]
       }
     },
@@ -1071,7 +1141,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.manage"
+          "accounting.assets.manage"
         ]
       }
     },
@@ -1081,7 +1151,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.manage"
+          "accounting.assets.manage"
         ]
       }
     },
@@ -1091,7 +1161,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.view"
+          "accounting.assets.view"
         ]
       }
     },
@@ -1101,7 +1171,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.manage"
+          "accounting.assets.manage"
         ]
       }
     },
@@ -1111,7 +1181,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.manage"
+          "accounting.assets.manage"
         ]
       }
     },
@@ -1121,7 +1191,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.view"
+          "accounting.assets.view"
         ]
       }
     },
@@ -1131,7 +1201,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.manage"
+          "accounting.assets.manage"
         ]
       }
     },
@@ -1141,7 +1211,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.view"
+          "accounting.assets.view"
         ]
       }
     },
@@ -1151,7 +1221,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.manage"
+          "accounting.assets.manage"
         ]
       }
     },
@@ -1161,7 +1231,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.view"
+          "accounting.assets.view"
         ]
       }
     },
@@ -1171,7 +1241,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.view"
+          "accounting.assets.view"
         ]
       }
     },
@@ -1181,7 +1251,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.view"
+          "accounting.assets.view"
         ]
       }
     },
@@ -1191,7 +1261,7 @@
       "gate": {
         "kind": "all",
         "permissions": [
-          "assets.manage"
+          "accounting.assets.manage"
         ]
       }
     },
@@ -4157,7 +4227,7 @@
     },
     {
       "href": "/assets",
-      "permission": "assets.view",
+      "permission": "accounting.assets.view",
       "pageOpenToAll": false
     },
     {

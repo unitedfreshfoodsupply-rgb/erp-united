@@ -6,11 +6,11 @@ import { postHandler } from "@/lib/route-handlers";
 
 export async function GET(req: NextRequest) {
   try {
-    await requirePermission(req, "assets.view");
+    await requirePermission(req, "accounting.assets.view");
     return NextResponse.json({ categories: await listCategories() });
   } catch (err) {
     return handleApiError(err, req);
   }
 }
 
-export const POST = postHandler("assets.manage", async (body, actor) => ({ category: await createCategory(body, actor) }));
+export const POST = postHandler("accounting.assets.manage", async (body, actor) => ({ category: await createCategory(body, actor) }));
