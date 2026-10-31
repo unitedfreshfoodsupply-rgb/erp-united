@@ -65,12 +65,11 @@ async function plBalances(db: Tx | typeof prisma, from: string | null, to: strin
 /** What closing the year would post, and what stands in the way. */
 export async function previewYearClose(code: string) {
   const b = await fiscalYearBounds(code);
-  const [fy, lines, before, periods, laterClosed] = await Promise.all([
+  const [fy, lines, before, periods] = await Promise.all([
     prisma.fiscalYear.findUnique({ where: { code } }),
     plBalances(prisma, b.startDate, b.endDate),
     plBalances(prisma, null, new Date(Date.parse(`${b.startDate}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10)),
     prisma.accountingPeriod.findMany({ where: { code: { in: b.months } }, select: { code: true, status: true } }),
-    prisma.fiscalYear.findFirst({ where: { status: "closed", startDate: { gt: b.startDate } }, select: { code: true } }),
   ]);
   const revenue = lines.filter((l) => l.type === "revenue").reduce((s, l) => s.minus(l.balance), D(0));
   const expenses = lines.filter((l) => l.type === "expense").reduce((s, l) => s.plus(l.balance), D(0));
