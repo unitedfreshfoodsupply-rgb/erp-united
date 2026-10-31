@@ -27,18 +27,27 @@ export type NavLink = {
   pageOpenToAll?: true;
 };
 
-export type NavGroup = "ops" | "control" | "sales" | "purchasing" | "stock" | "finance" | "admin";
+/** Who works at a desk (the home dashboard is theirs); the floor roles keep their boards. */
+export const HOME_PERMISSIONS = [
+  "users.view", "reports.view", "reports.finance", "sales.customers.view", "purchasing.orders.view",
+  "accounting.view", "accounting.receipts.manage", "accounting.payments.manage", "stock.view", "hr.employees.view",
+] as const satisfies readonly Permission[];
+
+export type NavGroup = "home" | "ops" | "control" | "sales" | "purchasing" | "stock" | "finance" | "people" | "admin";
 export const NAV_GROUPS: { key: NavGroup; labelKey: TranslationKey; label: string }[] = [
+  { key: "home", labelKey: "nav.group.home", label: "الرئيسية" },
   { key: "ops", labelKey: "nav.group.ops", label: "التشغيل" },
   { key: "control", labelKey: "nav.group.control", label: "المتابعة" },
   { key: "sales", labelKey: "nav.group.sales", label: "المبيعات" },
   { key: "purchasing", labelKey: "nav.group.purchasing", label: "المشتريات" },
   { key: "stock", labelKey: "nav.group.stock", label: "المخزون" },
   { key: "finance", labelKey: "nav.group.finance", label: "الحسابات" },
+  { key: "people", labelKey: "nav.group.people", label: "الموظفين" },
   { key: "admin", labelKey: "nav.group.admin", label: "الإدارة" },
 ];
 
 export const NAV_LINKS: NavLink[] = [
+  { href: "/home", labelKey: "nav.link.home", label: "الرئيسية", permission: [...HOME_PERMISSIONS], group: "home", primary: true },
   { href: "/prep", labelKey: "nav.link.prep", label: "التجهيز", permission: "orders.prepare", group: "ops", primary: true },
   { href: "/load", labelKey: "nav.link.load", label: "التحميل", permission: "orders.load", group: "ops", primary: true },
   { href: "/production", labelKey: "nav.link.production", label: "إنتاج النهارده", permission: "orders.view", group: "ops", primary: true },
@@ -55,10 +64,10 @@ export const NAV_LINKS: NavLink[] = [
   { href: "/purchasing", labelKey: "nav.link.purchasing", label: "المشتريات", permission: "purchasing.orders.view", group: "purchasing", primary: true },
   { href: "/accounting", labelKey: "nav.link.accounting", label: "الحسابات", permission: ["accounting.view", "accounting.receipts.manage", "accounting.payments.manage"], group: "finance", primary: true },
   { href: "/eta", labelKey: "nav.link.eta", label: "الفاتورة الإلكترونية", permission: "accounting.eta.view", group: "finance", primary: true },
-  { href: "/hr", labelKey: "nav.link.hr", label: "الموظفين والمصروفات", permission: "hr.expenses.submit", group: "admin", primary: true },
-  { href: "/hr/attendance", labelKey: "nav.link.attendance", label: "الحضور والانصراف", permission: ["hr.attendance.record", "hr.attendance.approve", "hr.employees.manage"], group: "admin", primary: true },
-  { href: "/hr/leave", labelKey: "nav.link.leave", label: "الإجازات", permission: ["hr.leave.request", "hr.leave.approve", "hr.leave.configure"], group: "admin", primary: true },
-  { href: "/hr/payroll", labelKey: "nav.link.payroll", label: "المرتبات", permission: ["hr.compensation.view", "hr.compensation.manage", "hr.payroll.prepare", "hr.payroll.view", "hr.payroll.approve", "hr.payroll.post", "hr.payroll.pay", "hr.statutory.manage"], group: "admin", primary: true },
+  { href: "/hr", labelKey: "nav.link.hr", label: "الموظفين والمصروفات", permission: "hr.expenses.submit", group: "people", primary: true },
+  { href: "/hr/attendance", labelKey: "nav.link.attendance", label: "الحضور والانصراف", permission: ["hr.attendance.record", "hr.attendance.approve", "hr.employees.manage"], group: "people", primary: true },
+  { href: "/hr/leave", labelKey: "nav.link.leave", label: "الإجازات", permission: ["hr.leave.request", "hr.leave.approve", "hr.leave.configure"], group: "people", primary: true },
+  { href: "/hr/payroll", labelKey: "nav.link.payroll", label: "المرتبات", permission: ["hr.compensation.view", "hr.compensation.manage", "hr.payroll.prepare", "hr.payroll.view", "hr.payroll.approve", "hr.payroll.post", "hr.payroll.pay", "hr.statutory.manage"], group: "people", primary: true },
   { href: "/management/overview", labelKey: "nav.link.overview", label: "لوحة الأداء", permission: "reports.finance", group: "finance", primary: true },
   { href: "/management", labelKey: "nav.link.management", label: "تقارير الإدارة", permission: "reports.finance", group: "finance", primary: true },
   { href: "/management/operations", labelKey: "nav.link.ops-report", label: "أداء التشغيل", permission: "reports.view", group: "control", primary: true },

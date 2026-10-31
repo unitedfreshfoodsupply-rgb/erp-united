@@ -5,7 +5,11 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Gauge, Landmark, Languages, LogOut, Menu, Settings, ShoppingCart, Truck, UserRound, Users, Warehouse, X, type LucideIcon } from "lucide-react";
+import {
+  BadgeCheck, BarChart3, BookOpen, CalendarCheck, CalendarDays, ChevronDown, ClipboardList, Clock, FileCheck2, FileSpreadsheet, Gauge, House, Landmark,
+  Languages, LayoutDashboard, LogOut, Menu, PackageOpen, PackageSearch, PanelLeftClose, PanelLeftOpen, ReceiptText, ScrollText, Settings, ShieldAlert,
+  ShoppingCart, Sprout, Truck, UserRound, Users, Wallet, Warehouse, X, type LucideIcon,
+} from "lucide-react";
 import { useSession, usePermissions } from "@/lib/use-session";
 import { apiPost } from "@/lib/api-client";
 import { ROLE_LABEL, ROLE_LABEL_EN } from "@/lib/types";
@@ -30,6 +34,8 @@ import { Avatar } from "@/components/ui/Avatar";
  */
 
 const GROUP_ICON: Record<NavGroup, LucideIcon> = {
+  home: House,
+  people: UserRound,
   ops: Truck,
   control: Gauge,
   sales: Users,
@@ -38,6 +44,18 @@ const GROUP_ICON: Record<NavGroup, LucideIcon> = {
   finance: Landmark,
   admin: Settings,
 };
+
+/** One line icon per module, so a long list can be scanned by shape as well as by word. */
+const LINK_ICON: Record<string, LucideIcon> = {
+  "/home": House, "/prep": PackageOpen, "/load": Truck, "/production": Sprout, "/production/sheet": ClipboardList, "/operations": Truck,
+  "/supervisor": Gauge, "/supervisor/exceptions": ShieldAlert, "/supervisor/report": FileSpreadsheet, "/supervisor/audit": ScrollText, "/approvals": BadgeCheck,
+  "/management/operations": BarChart3, "/sales": Users, "/purchasing": ShoppingCart, "/accounting": Landmark, "/eta": ReceiptText,
+  "/management/overview": LayoutDashboard, "/management": BarChart3, "/stock": Warehouse, "/stock/inventory": PackageSearch, "/stock/entries": FileCheck2,
+  "/stock/ledger": BookOpen, "/stock/setup": ClipboardList, "/hr": Wallet, "/hr/attendance": Clock, "/hr/leave": CalendarDays, "/hr/payroll": CalendarCheck,
+  "/admin": Settings,
+};
+
+const COLLAPSED_KEY = "united_nav_collapsed";
 
 /** Only the most specific link is "here": on /stock/inventory, the /stock/inventory link — not /stock as well. */
 function activeHrefFor(links: NavLink[], pathname: string | null) {
@@ -59,44 +77,87 @@ function Brand({ href, compact = false }: { href: string; compact?: boolean }) {
   );
 }
 
-function GroupedLinks({ links, activeHref, onNavigate }: { links: NavLink[]; activeHref?: string; onNavigate?: () => void }) {
+function GroupedLinks({ links, activeHref, onNavigate, rail = false }: { links: NavLink[]; activeHref?: string; onNavigate?: () => void; rail?: boolean }) {
   const { t } = useLocale();
   const groups = NAV_GROUPS.filter((g) => links.some((l) => l.group === g.key));
+  // Groups the person folded away, remembered in this browser; the group holding the current
+  // page always stays open so "where am I" is never hidden.
+  const [collapsed, setCollapsed] = useState<string[]>(() => {
+    try { return JSON.parse(window.localStorage.getItem(COLLAPSED_KEY) ?? "[]"); } catch { return []; }
+  });
+  const toggle = (key: string) => {
+    const next = collapsed.includes(key) ? collapsed.filter((k) => k !== key) : [...collapsed, key];
+    setCollapsed(next);
+    try { window.localStorage.setItem(COLLAPSED_KEY, JSON.stringify(next)); } catch { /* storage unavailable: the choice lasts for this page only */ }
+  };
   return (
-    <div className="flex flex-col gap-5">
+    <div className={`flex flex-col ${rail ? "gap-2" : "gap-3"}`}>
       {groups.map((g) => {
         const Icon = GROUP_ICON[g.key];
+        const items = links.filter((l) => l.group === g.key);
+        const holdsActive = items.some((l) => l.href === activeHref);
+        const single = items.length === 1;
+        const open = rail || single || holdsActive || !collapsed.includes(g.key);
         return (
-          <section key={g.key} aria-label={t(g.labelKey)}>
-            <h3 className="flex items-center gap-2 px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-united-muted">
-              <Icon size={14} strokeWidth={2} aria-hidden />
-              {t(g.labelKey)}
-            </h3>
-            <ul className="flex flex-col gap-0.5">
-              {links.filter((l) => l.group === g.key).map((l) => {
-                const active = l.href === activeHref;
-                return (
-                  <li key={l.href}>
-                    <Link
-                      href={l.href}
-                      onClick={onNavigate}
-                      aria-current={active ? "page" : undefined}
-                      className={`relative flex items-center min-h-[38px] rounded-lg px-3 text-sm transition-colors ${
-                        active ? "bg-united-green/10 text-united-green font-semibold" : "text-united-dark hover:bg-united-subtle"
-                      }`}
-                    >
-                      {active && <span aria-hidden className="absolute inset-y-1.5 start-0 w-[3px] rounded-full bg-united-green" />}
-                      {t(l.labelKey)}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
+          <section key={g.key} aria-label={t(g.labelKey)} className={rail ? "border-b border-united-border pb-2 last:border-0" : ""}>
+            {!rail && !single && (
+              <button
+                type="button"
+                onClick={() => !holdsActive && toggle(g.key)}
+                aria-expanded={open}
+                className="flex w-full min-h-[32px] items-center gap-2 rounded-md px-3 text-[11px] font-semibold uppercase tracking-wide text-united-muted hover:text-united-dark"
+              >
+                <Icon size={14} strokeWidth={2} aria-hidden />
+                <span className="flex-1 text-start">{t(g.labelKey)}</span>
+                {!holdsActive && <ChevronDown size={14} aria-hidden className={`transition-transform ${open ? "" : "-rotate-90 rtl:rotate-90"}`} />}
+              </button>
+            )}
+            {open && (
+              <ul className="flex flex-col gap-0.5">
+                {items.map((l) => {
+                  const active = l.href === activeHref;
+                  const ItemIcon = LINK_ICON[l.href] ?? Icon;
+                  const label = t(l.labelKey);
+                  return (
+                    <li key={l.href}>
+                      <Link
+                        href={l.href}
+                        onClick={onNavigate}
+                        aria-current={active ? "page" : undefined}
+                        aria-label={rail ? label : undefined}
+                        title={rail ? label : undefined}
+                        className={`relative flex min-h-[38px] items-center gap-2.5 rounded-lg text-sm transition-colors coarse:min-h-[44px] ${rail ? "justify-center px-0" : "px-3"} ${
+                          active ? "bg-united-green/10 font-semibold text-united-green" : "text-united-dark hover:bg-united-subtle"
+                        }`}
+                      >
+                        {active && <span aria-hidden className="absolute inset-y-1.5 start-0 w-[3px] rounded-full bg-united-green" />}
+                        <ItemIcon size={17} strokeWidth={active ? 2.25 : 1.75} aria-hidden className={`shrink-0 ${active ? "" : "text-united-muted"}`} />
+                        {!rail && <span className="truncate">{label}</span>}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </section>
         );
       })}
     </div>
   );
+}
+
+/** The desktop sidebar can fold to an icon rail; remembered in a layout cookie (read by the
+ * root layout as data-rail, so the page offset is right before any script runs). */
+function useRail() {
+  const [rail, setRail] = useState(false);
+  useEffect(() => { setRail(document.documentElement.dataset.rail === "1"); }, []);
+  const toggle = () => {
+    const next = !rail;
+    setRail(next);
+    document.documentElement.dataset.rail = next ? "1" : "0";
+    document.cookie = `u_rail=${next ? "1" : "0"}; path=/; max-age=31536000; samesite=lax`;
+  };
+  return [rail, toggle] as const;
 }
 
 export function Nav() {
@@ -108,6 +169,7 @@ export function Nav() {
   const qc = useQueryClient();
   const user = data?.user;
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [rail, toggleRail] = useRail();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingLogout, setConfirmingLogout] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -188,12 +250,19 @@ export function Nav() {
     <>
       {grouped && (
         <aside className="u-shell-sidebar hidden lg:flex fixed inset-y-0 start-0 z-30 w-[var(--u-sidebar)] flex-col border-e border-united-border bg-white">
-          <div className="flex h-14 items-center border-b border-united-border px-4">
-            <Brand href={home} />
+          <div className={`flex h-14 items-center border-b border-united-border ${rail ? "justify-center px-2" : "px-4"}`}>
+            <Brand href={home} compact={rail} />
           </div>
-          <nav aria-label={t("ui.nav.main")} className="flex-1 overflow-y-auto px-2 py-4">
-            <GroupedLinks links={links} activeHref={activeHref} />
+          <nav aria-label={t("ui.nav.main")} className={`flex-1 overflow-y-auto py-3 ${rail ? "px-1.5" : "px-2"}`}>
+            <GroupedLinks links={links} activeHref={activeHref} rail={rail} />
           </nav>
+          <div className="border-t border-united-border p-2">
+            <button type="button" onClick={toggleRail} aria-pressed={rail} title={rail ? t("ui.nav.expand") : t("ui.nav.collapse")}
+              className={`flex w-full min-h-[38px] items-center gap-2.5 rounded-lg text-sm text-united-muted hover:bg-united-subtle hover:text-united-dark ${rail ? "justify-center" : "px-3"}`}>
+              {rail ? <PanelLeftOpen size={17} aria-hidden className="rtl:-scale-x-100" /> : <PanelLeftClose size={17} aria-hidden className="rtl:-scale-x-100" />}
+              {rail ? <span className="sr-only">{t("ui.nav.expand")}</span> : <span>{t("ui.nav.collapse")}</span>}
+            </button>
+          </div>
         </aside>
       )}
 
@@ -210,8 +279,8 @@ export function Nav() {
           {/* Where am I: department › module, on the desktop shell. */}
           {grouped && activeLink && (
             <p className="hidden lg:flex items-center gap-1.5 text-sm text-united-muted min-w-0">
-              {activeGroup && <span>{t(activeGroup.labelKey)}</span>}
-              {activeGroup && <span aria-hidden>/</span>}
+              {/* A group named like its only page (Home) is not repeated. */}
+              {activeGroup && t(activeGroup.labelKey) !== t(activeLink.labelKey) && <><span>{t(activeGroup.labelKey)}</span><span aria-hidden>/</span></>}
               <span className="font-semibold text-united-dark truncate">{t(activeLink.labelKey)}</span>
             </p>
           )}

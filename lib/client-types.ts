@@ -5,6 +5,8 @@ export type OrderItemDTO = {
   orderId: string;
   productId: string | null;
   productName: string;
+  /** The catalogue product's names, when the line is linked to one. */
+  stockProduct?: { name: string; nameAr: string | null } | null;
   unit: string;
   requiredQuantity: number;
   preparedQuantity: number | null;

@@ -56,7 +56,10 @@ export type Actor = {
 
 // The linked customer account's names travel with the order so every screen can show the
 // customer in the UI language (`customerName` is the text captured when the order came in).
-const ORDER_INCLUDE = { items: true, customerAccount: { select: { name: true, nameAr: true, code: true } } } as const;
+const ORDER_INCLUDE = {
+  items: { include: { stockProduct: { select: { name: true, nameAr: true } } } },
+  customerAccount: { select: { name: true, nameAr: true, code: true } },
+} as const;
 
 /** The order actor as the inventory services take it. "SYSTEM" (an integration) is
  * only a label there: those services check permissions, never the role. */

@@ -16,13 +16,13 @@ export const ITEM_STATUSES = ["pending", "done"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
 export const HOME_BY_ROLE: Record<Role, string> = {
-  SUPER_ADMIN: "/admin",
+  SUPER_ADMIN: "/home",
   SUPERVISOR: "/supervisor",
   STOCK_CONTROLLER: "/stock",
   PREPARER: "/prep",
   LOADER: "/load",
   SALES: "/sales",
-  ACCOUNTANT: "/sales",
+  ACCOUNTANT: "/home",
   PURCHASER: "/purchasing",
   ACCOUNTING_CLERK: "/accounting",
 };

@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { initialsOf } from "@/components/ui/Avatar";
 import { niceTicks } from "@/components/charts/Charts";
+import { readFileSync } from "node:fs";
+import { HOME_PERMISSIONS } from "@/lib/nav";
 
 test("avatar initials: first and last word, Latin upper-cased", () => {
   assert.equal(initialsOf("Mona Adel"), "MA");
@@ -24,4 +26,10 @@ test("chart ticks: zero, round steps, top covers the maximum", () => {
   assert.ok(t.length >= 3 && t.length <= 6, String(t));
   const step = t[1] - t[0];
   assert.ok(t.every((v, i) => v === i * step));
+});
+
+test("home API gate lists exactly the home page's permissions", () => {
+  const src = readFileSync("app/api/home/route.ts", "utf8");
+  const listed = [...src.matchAll(/"([a-z]+(?:\.[a-z_]+)+)"/g)].map((m) => m[1]).filter((k) => !k.startsWith("next/"));
+  assert.deepEqual([...listed].sort(), [...HOME_PERMISSIONS].sort());
 });

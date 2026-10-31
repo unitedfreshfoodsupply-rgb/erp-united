@@ -17,8 +17,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   // Layout hint only (set by components/Nav.tsx): whether this browser's last session had the
   // grouped desktop sidebar, so the page reserves its width before the session has loaded.
   const shell = cookies().get("u_shell")?.value === "grouped" ? "grouped" : "tabs";
+  const rail = cookies().get("u_rail")?.value === "1" ? "1" : "0";
   return (
-    <html lang="ar" dir="rtl" data-shell={shell} suppressHydrationWarning>
+    <html lang="ar" dir="rtl" data-shell={shell} data-rail={rail} suppressHydrationWarning>
       <body className="font-arabic bg-united-bg text-united-dark">
         <Providers>{children}</Providers>
       </body>

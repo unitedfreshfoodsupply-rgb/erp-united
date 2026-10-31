@@ -1051,6 +1051,25 @@
       }
     },
     {
+      "method": "GET",
+      "path": "/api/home",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "users.view",
+          "reports.view",
+          "reports.finance",
+          "sales.customers.view",
+          "purchasing.orders.view",
+          "accounting.view",
+          "accounting.receipts.manage",
+          "accounting.payments.manage",
+          "stock.view",
+          "hr.employees.view"
+        ]
+      }
+    },
+    {
       "method": "POST",
       "path": "/api/hr/attendance/compile",
       "gate": {
@@ -3684,6 +3703,22 @@
     }
   ],
   "pages": [
+    {
+      "href": "/home",
+      "permission": [
+        "users.view",
+        "reports.view",
+        "reports.finance",
+        "sales.customers.view",
+        "purchasing.orders.view",
+        "accounting.view",
+        "accounting.receipts.manage",
+        "accounting.payments.manage",
+        "stock.view",
+        "hr.employees.view"
+      ],
+      "pageOpenToAll": false
+    },
     {
       "href": "/prep",
       "permission": "orders.prepare",

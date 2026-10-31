@@ -6,6 +6,7 @@ import type { OrderItemDTO } from "@/lib/client-types";
 import { QuantityInput } from "@/components/QuantityInput";
 import { qty as qtyLabel, unitLabel } from "@/lib/format";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 type Mode = "display" | "prepare" | "load";
 
@@ -22,7 +23,7 @@ export function ItemRow({
   busy?: boolean;
   supervisorEdit?: { onSave: (qty: number, reason: string) => Promise<void> };
 }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const startValue =
     mode === "load"
       ? item.loadedQuantity ?? item.preparedQuantity ?? item.requiredQuantity
@@ -127,7 +128,7 @@ export function ItemRow({
   return (
     <div className={`card p-4 sm:p-5 ${short ? "!border-united-danger/40 border-s-4 !border-s-united-danger" : ""}`}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-lg sm:text-xl font-semibold text-united-dark">{item.productName}</span>
+        <span className="text-lg sm:text-xl font-semibold text-united-dark">{item.stockProduct ? localName(item.stockProduct, locale === "en" ? "en" : "ar") : item.productName}</span>
         {done && (
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-united-green text-white" aria-label={t("ui.done")}>
             <Check size={18} strokeWidth={2.5} aria-hidden />

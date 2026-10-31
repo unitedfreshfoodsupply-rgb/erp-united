@@ -19,6 +19,10 @@
   --u-radius: 0.75rem;
   --u-sidebar: 15.5rem;
 }
+/* The desktop sidebar folded to its icon rail (components/Nav.tsx, cookie u_rail). */
+html[data-rail="1"] {
+  --u-sidebar: 4.25rem;
+}
 
 html,
 body {

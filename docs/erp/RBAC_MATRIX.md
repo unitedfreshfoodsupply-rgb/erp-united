@@ -91,6 +91,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 
 | Page (permission) | مدير النظام | مشرف | مراقب المخزون | تجهيز | تحميل | مبيعات | مدير الحسابات | مشتريات | موظف حسابات |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `/home` الرئيسية (`users.view` / `reports.view` / `reports.finance` / `sales.customers.view` / `purchasing.orders.view` / `accounting.view` / `accounting.receipts.manage` / `accounting.payments.manage` / `stock.view` / `hr.employees.view`) | ✓ | ✓ | ✓ |  |  | ✓ | ✓ | ✓ | ✓ |
 | `/prep` التجهيز (`orders.prepare`) | ✓ | ✓ |  | ✓ |  |  |  |  |  |
 | `/load` التحميل (`orders.load`) | ✓ | ✓ |  |  | ✓ |  |  |  |  |
 | `/production` إنتاج النهارده (`orders.view`) | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
@@ -208,6 +209,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/eta` | `accounting.eta.view` | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | PUT | `/api/eta/units/[code]` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/health` | public | · | · | · | · | · | · | · | · | · |
+| GET | `/api/home` | any of `users.view`, `reports.view`, `reports.finance`, `sales.customers.view`, `purchasing.orders.view`, `accounting.view`, `accounting.receipts.manage`, `accounting.payments.manage`, `stock.view`, `hr.employees.view` | ✓ | ✓ | ✓ |  |  | ✓ | ✓ | ✓ | ✓ |
 | POST | `/api/hr/attendance/compile` | `hr.attendance.record` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/hr/attendance/confirm` | `hr.attendance.record` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/hr/attendance/corrections/[id]/cancel` | any of `hr.attendance.record`, `hr.attendance.approve` | ✓ | ✓ |  |  |  |  |  |  |  |
