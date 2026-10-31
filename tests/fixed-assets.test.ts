@@ -73,9 +73,13 @@ async function main() {
   check("…Dr truck cost 300000 / Cr AP 342000 (VAT 42000 input)", (await gl(tCost.id)) === 300000 && r2(apBefore - (await gl("acc_2100"))) === 342000);
 
   section("4. BOUGHT FOR CASH; PLACED IN SERVICE");
-  r = await call("karim", "POST", "/api/assets", { category_id: scales.id, name: `${TAG} ميزان أرضي`, cost: "12000", acquisition_date: `${M0}-05`, cash_account_id: "bank_main", in_service_date: `${M1}-01`, warehouse_id: "wh_main", location: "الاستلام" });
+  const buyKey = `${TAG}-buy-scale`;
+  const buy = { category_id: scales.id, name: `${TAG} ميزان أرضي`, cost: "12000", acquisition_date: `${M0}-05`, cash_account_id: "bank_main", in_service_date: `${M1}-01`, warehouse_id: "wh_main", location: "الاستلام", idempotency_key: buyKey };
+  r = await call("karim", "POST", "/api/assets", buy);
   const scale = r.body.asset;
   check("a scale bought from the bank, in service from M1 -> 201", r.status === 201 && scale.status === "in_service", r.body);
+  r = await call("karim", "POST", "/api/assets", buy);
+  check("…the same submit again returns the same asset (no second purchase)", r.body.asset?.id === scale.id && (await db.fixedAsset.count({ where: { categoryId: scales.id } })) === 1, r.body);
   check("…Dr scale cost 12000 / Cr bank", (await gl(scales.assetAccountId)) === 12000);
   r = await call("karim", "POST", "/api/assets", { category_id: land.id, name: `${TAG} قطعة أرض`, cost: "50000", acquisition_date: `${M0}-01`, cash_account_id: "bank_main", in_service_date: `${M0}-01` });
   const plot = r.body.asset;

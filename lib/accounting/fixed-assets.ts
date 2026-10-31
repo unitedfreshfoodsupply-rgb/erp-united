@@ -11,6 +11,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { isValidISODate } from "@/lib/dates";
 import { nextDocumentNumber } from "@/lib/core/sequences";
 import { optText, parse, text } from "@/lib/core/validation";
+import { idempotencyKeyField, lockKey } from "@/lib/core/idempotency";
 import type { ServiceActor } from "@/lib/core/actor";
 import { postJournal, type PostLine } from "@/lib/accounting/ledger";
 
@@ -231,8 +232,15 @@ export async function acquireAsset(input: unknown, actor: ServiceActor) {
   const v = parse(z.object({
     category_id: text("الفئة"), name: text("اسم الأصل", 200), name_ar: optText("الاسم بالعربي", 200).optional(), cost: money("التكلفة"), acquisition_date: dateField("تاريخ الشراء"),
     cash_account_id: text("الخزينة / البنك"), in_service_date: dateField("تاريخ التشغيل").optional(), reference: optText("المرجع", 100).optional(), ...placementFields,
+    idempotency_key: idempotencyKeyField,
   }), input);
   return inTx(async (tx) => {
+    // A retried or double-tapped submit returns the asset the first one registered.
+    await lockKey(tx, v.idempotency_key);
+    if (v.idempotency_key) {
+      const prev = await tx.assetEvent.findFirst({ where: { type: "acquisition", details: { path: ["idempotencyKey"], equals: v.idempotency_key } }, select: { assetId: true } });
+      if (prev) return tx.fixedAsset.findUniqueOrThrow({ where: { id: prev.assetId } });
+    }
     const category = await tx.assetCategory.findUnique({ where: { id: v.category_id } });
     if (!category?.active) throw new ApiError(400, "الفئة مش موجودة أو موقوفة");
     if (v.cost.lessThan(category.capitalizationThreshold)) throw new ApiError(400, `التكلفة أقل من حد الرسملة للفئة (${category.capitalizationThreshold.toFixed(2)}) — تتسجل كمصروف`);
@@ -250,7 +258,7 @@ export async function acquireAsset(input: unknown, actor: ServiceActor) {
       extra: { warehouseId: v.warehouse_id ?? null, location: v.location ?? null, custodianEmployeeId: v.custodian_employee_id ?? null, vehicleId: v.vehicle_id ?? null, costCenterId: v.cost_center_id ?? null, serialNumber: v.serial_number ?? null, plateNumber: v.plate_number ?? null, notes: v.notes ?? null } }, actor);
     const entry = await postJournal(tx, { date: v.acquisition_date, description: `شراء أصل ${asset.number}: ${asset.name}${v.reference ? ` (${v.reference})` : ""}`, sourceType: "asset_acquisition", sourceId: asset.id,
       lines: [{ accountId: category.assetAccountId, amount: v.cost }, { accountId: cash.accountId, amount: v.cost.negated() }] }, actor);
-    await tx.assetEvent.create({ data: { assetId: asset.id, type: "acquisition", date: v.acquisition_date, costDelta: v.cost, cashAccountId: cash.id, entryId: entry!.id, details: v.reference ? { reference: v.reference } : undefined, createdById: actor.id, createdBy: actor.name } });
+    await tx.assetEvent.create({ data: { assetId: asset.id, type: "acquisition", date: v.acquisition_date, costDelta: v.cost, cashAccountId: cash.id, entryId: entry!.id, details: { ...(v.reference ? { reference: v.reference } : {}), ...(v.idempotency_key ? { idempotencyKey: v.idempotency_key } : {}) }, createdById: actor.id, createdBy: actor.name } });
     if (v.in_service_date) await tx.assetEvent.create({ data: { assetId: asset.id, type: "placed_in_service", date: v.in_service_date, createdById: actor.id, createdBy: actor.name } });
     await audit(tx, actor, "fixed_asset", asset.id, "fixed_asset_created", `${asset.number} · ${asset.name} · ${v.cost.toFixed(2)} · ${cash.code}`);
     return asset;
@@ -326,8 +334,13 @@ export async function transferAsset(id: string, input: unknown, actor: ServiceAc
 /** Improvement paid directly: Dr cost / Cr cash; the remaining life carries the new cost. */
 export async function improveAsset(id: string, input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.assets.manage");
-  const v = parse(z.object({ amount: money("المبلغ"), date: dateField("التاريخ"), cash_account_id: text("الخزينة / البنك"), description: text("البيان", 300) }), input);
+  const v = parse(z.object({ amount: money("المبلغ"), date: dateField("التاريخ"), cash_account_id: text("الخزينة / البنك"), description: text("البيان", 300), idempotency_key: idempotencyKeyField }), input);
   return inTx(async (tx) => {
+    await lockKey(tx, v.idempotency_key);
+    if (v.idempotency_key) {
+      const prev = await tx.assetEvent.findFirst({ where: { assetId: id, type: "improvement", details: { path: ["idempotencyKey"], equals: v.idempotency_key } }, select: { id: true } });
+      if (prev) return tx.fixedAsset.findUniqueOrThrow({ where: { id } });
+    }
     const a = await tx.fixedAsset.findUnique({ where: { id }, include: { category: true } });
     if (!a) throw new ApiError(404, "الأصل مش موجود");
     if (a.status === "disposed") throw new ApiError(409, "الأصل اتستبعد");
@@ -335,7 +348,7 @@ export async function improveAsset(id: string, input: unknown, actor: ServiceAct
     if (!cash?.active) throw new ApiError(400, "الخزينة / الحساب البنكي مش موجود أو موقوف");
     const entry = await postJournal(tx, { date: v.date, description: `تحسين أصل ${a.number}: ${v.description}`, sourceType: "asset_improvement", sourceId: `${a.id}:${Date.now()}`, lines: [{ accountId: a.category.assetAccountId, amount: v.amount }, { accountId: cash.accountId, amount: v.amount.negated() }] }, actor);
     const updated = await tx.fixedAsset.update({ where: { id, version: a.version }, data: { cost: { increment: v.amount }, version: { increment: 1 } } });
-    await tx.assetEvent.create({ data: { assetId: a.id, type: "improvement", date: v.date, costDelta: v.amount, cashAccountId: cash.id, entryId: entry!.id, reason: v.description, createdById: actor.id, createdBy: actor.name } });
+    await tx.assetEvent.create({ data: { assetId: a.id, type: "improvement", date: v.date, costDelta: v.amount, cashAccountId: cash.id, entryId: entry!.id, reason: v.description, ...(v.idempotency_key ? { details: { idempotencyKey: v.idempotency_key } } : {}), createdById: actor.id, createdBy: actor.name } });
     await audit(tx, actor, "fixed_asset", a.id, "fixed_asset_improved", `${a.number} · +${v.amount.toFixed(2)}`);
     return updated;
   });

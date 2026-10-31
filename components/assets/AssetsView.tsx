@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, errorMessage } from "@/lib/api-client";
+import { newClientKey } from "@/lib/clientKey";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { useDialogs } from "@/components/ui/Dialog";
@@ -99,11 +100,12 @@ function BuyForm({ categories, onDone }: { categories: Category[]; onDone: () =>
   const toast = useToast();
   const qc = useQueryClient();
   const [f, setF] = useState({ category_id: categories[0]?.id ?? "", name: "", cost: "", acquisition_date: todayLocalISO(), in_service_date: "", cash_account_id: "bank_main", location: "", plate_number: "", serial_number: "" });
+  const [key] = useState(newClientKey);
   const [busy, setBusy] = useState(false);
   return (
     <form className="card p-4 grid grid-cols-1 gap-2 sm:grid-cols-3" onSubmit={async (e) => {
       e.preventDefault(); setBusy(true);
-      try { await apiPost("/api/assets", { ...f, ...(f.in_service_date ? {} : { in_service_date: undefined }) }); toast.show(t("assets.toast-created"), "success"); void qc.invalidateQueries({ queryKey: ["assets"] }); onDone(); }
+      try { await apiPost("/api/assets", { ...f, ...(f.in_service_date ? {} : { in_service_date: undefined }), idempotency_key: key }); toast.show(t("assets.toast-created"), "success"); void qc.invalidateQueries({ queryKey: ["assets"] }); onDone(); }
       catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
       finally { setBusy(false); }
     }}>
@@ -160,7 +162,7 @@ function AssetPanel({ id, onClose }: { id: string; onClose: () => void }) {
           <div className="flex flex-wrap gap-2">
             {a.status === "draft" && <button type="button" className="btn-primary btn-sm" onClick={() => open("service", { in_service_date: todayLocalISO() })}>{t("assets.action.place")}</button>}
             <button type="button" className="btn-secondary btn-sm" onClick={() => open("transfer", { location: a.location ?? "" })}>{t("assets.action.transfer")}</button>
-            <button type="button" className="btn-secondary btn-sm" onClick={() => open("improve", { date: todayLocalISO(), cash_account_id: "bank_main" })}>{t("assets.action.improve")}</button>
+            <button type="button" className="btn-secondary btn-sm" onClick={() => open("improve", { date: todayLocalISO(), cash_account_id: "bank_main", key: newClientKey() })}>{t("assets.action.improve")}</button>
             {a.status === "in_service" && <button type="button" className="btn-secondary btn-sm" onClick={() => open("estimate", { useful_life_months: String(a.usefulLifeMonths), residual_value: a.residualValue })}>{t("assets.action.estimate")}</button>}
             <button type="button" className="btn-danger btn-sm" onClick={() => open("dispose", { kind: "sale", date: todayLocalISO(), cash_account_id: "bank_main", tax_code: "" })}>{t("assets.action.dispose")}</button>
           </div>
@@ -181,7 +183,7 @@ function AssetPanel({ id, onClose }: { id: string; onClose: () => void }) {
           </form>
         )}
         {action === "improve" && (
-          <form className="grid grid-cols-1 gap-2 sm:grid-cols-4" onSubmit={(e) => { e.preventDefault(); void submit("improve", { amount: f.amount, date: f.date, cash_account_id: f.cash_account_id, description: f.description }); }}>
+          <form className="grid grid-cols-1 gap-2 sm:grid-cols-4" onSubmit={(e) => { e.preventDefault(); void submit("improve", { amount: f.amount, date: f.date, cash_account_id: f.cash_account_id, description: f.description, idempotency_key: f.key }); }}>
             <Field label={t("treasury.field.amount")} required><input className="field" dir="ltr" inputMode="decimal" required value={f.amount ?? ""} onChange={set("amount")} /></Field>
             <Field label={t("treasury.field.date")} required><input type="date" className="field" required value={f.date ?? ""} onChange={set("date")} /></Field>
             <Field label={t("accounting.form.account.label")} required><CashAccountSelect value={f.cash_account_id ?? ""} onChange={(v) => setF({ ...f, cash_account_id: v })} /></Field>
