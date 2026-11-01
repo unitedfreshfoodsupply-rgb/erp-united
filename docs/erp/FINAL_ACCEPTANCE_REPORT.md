@@ -209,7 +209,8 @@ See `BUSINESS_CONFIGURATION_CHECKLIST.md`:
 | `5d5744d` | Asset idempotency |
 | `ff7d5ba` | Gap-closure results |
 | `fb5f55c` | Independent adversarial verification: D1–D17, audit suites, remaining gaps |
-| _acceptance commit_ | Final acceptance: D18–D20, business-cycle suite, acceptance package (hash in the hand-over message) |
+| `f6c7613` | Final acceptance: D18–D20, business-cycle suite, acceptance package |
+| this commit (docs only) | Records `f6c7613` here. **The code under acceptance is `f6c7613`**; the commit after it changes only this table. |
 
 ---
 
