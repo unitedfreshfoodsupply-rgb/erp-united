@@ -1306,6 +1306,7 @@ const purchasing_bill = {
   "purchasing.bill.no_receipts_empty": { ar: "مفيش استلامات من المورد ده من غير فاتورة.", en: "No unbilled receipts from this supplier." },
 
   // Per-line labels
+  "purchasing.bill.graded": { ar: "منها سليم {good} · درجة تانية {b} · هالك {waste} — المورد بيتحاسب على المقبول كله", en: "of which good {good} · Grade B {b} · waste {waste} — the supplier is paid for all accepted" },
   "purchasing.bill.agreed_price": { ar: "المتفق عليه", en: "Agreed" },
   "purchasing.bill.variance": { ar: "فرق", en: "Variance" },
   "purchasing.bill.price_placeholder": { ar: "السعر", en: "Price" },

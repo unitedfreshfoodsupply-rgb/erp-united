@@ -6,6 +6,7 @@
  * message has no entry here.
  */
 export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
+  ["الاستلام {} مفيهوش كمية مقبولة", "Receipt {0} has no accepted quantity"],
   ["رصيد كشف الحساب رقم بحد أقصى خانتين عشريتين", "The statement balance must be a number with at most two decimals"],
   ["تاريخ سطر الكشف لازم يكون YYYY-MM-DD", "A statement line's date must be YYYY-MM-DD"],
   ["مبلغ سطر الكشف رقم غير صفري بحد أقصى خانتين عشريتين", "A statement line's amount must be a non-zero number with at most two decimals"],

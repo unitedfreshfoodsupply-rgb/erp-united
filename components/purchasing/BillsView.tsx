@@ -45,7 +45,7 @@ type BillRow = { id: string; number: string; status: string; kind?: string; supp
 type BillLine = { id: string; lineNo: number; intakeId: string; receiptNumber: string; receivedDate: string; poNumber: string | null; description: string; uomCode: string; receivedQty: string; quantity: string; unitPrice: string; expectedUnitPrice: string | null; expectedNet: string | null; lineVariance: string | null; taxCode: string; net: string; tax: string; total: string; debitedQty: string };
 type ServiceLine = { id: string; lineNo: number; accountId: string; account: { code: string; name: string; nameAr: string }; description: string; taxCode: string; taxRate: string; net: string; tax: string; total: string; debitedNet: string; assetCategoryId: string | null; assetName: string | null; improvesAssetId: string | null; costCenterId: string | null };
 type Bill = Omit<BillRow, "lineCount"> & { currencyCode: string; notes: string | null; cancelReason: string | null; expectedNet: string; net: string; taxTotal: string; debited: string; approvalId: string | null; createdBy: string; postedBy: string | null; approvedBy: string | null; version: number; lines: BillLine[]; serviceLines: ServiceLine[]; debitNotes: { id: string; number: string; issueDate: string; reason: string; total: string; createdBy: string }[] };
-type Billable = { intakeId: string; receiptNumber: string; receivedDate: string; product: { id: string; name: string; unit: string }; poNumber: string | null; goodQty: string; expectedUnitPrice: string | null; priceSource: string | null; expectedNet: string | null; taxCode: string; taxRate: string };
+type Billable = { intakeId: string; receiptNumber: string; receivedDate: string; product: { id: string; name: string; unit: string }; poNumber: string | null; goodQty: string; gradeBQty?: string; wasteQty?: string; billableQty?: string; expectedUnitPrice: string | null; priceSource: string | null; expectedNet: string | null; taxCode: string; taxRate: string };
 
 
 export function BillsView({ initialBillId }: { initialBillId?: string | null }) {
@@ -123,11 +123,13 @@ function NewBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill 
   });
   // When editing, the bill's own receipts are not "billable" (they are on this bill):
   // show them first, alongside the rest.
-  const own: Billable[] = (bill?.lines ?? []).map((l) => ({ intakeId: l.intakeId, receiptNumber: l.receiptNumber, receivedDate: l.receivedDate, product: { id: "", name: l.description.split(" · ")[0], unit: l.uomCode }, poNumber: l.poNumber, goodQty: l.receivedQty, expectedUnitPrice: l.expectedUnitPrice, priceSource: null, expectedNet: l.expectedNet, taxCode: l.taxCode, taxRate: "" }));
+  const own: Billable[] = (bill?.lines ?? []).map((l) => ({ intakeId: l.intakeId, receiptNumber: l.receiptNumber, receivedDate: l.receivedDate, product: { id: "", name: l.description.split(" · ")[0], unit: l.uomCode }, poNumber: l.poNumber, goodQty: l.receivedQty, billableQty: l.receivedQty, expectedUnitPrice: l.expectedUnitPrice, priceSource: null, expectedNet: l.expectedNet, taxCode: l.taxCode, taxRate: "" }));
   const rows = [...own, ...(billable.data?.receipts ?? [])];
   const keyOf = (r: Billable) => r.intakeId;
   const lines = rows.filter((r) => picked[keyOf(r)] !== undefined);
-  const billedNet = lines.reduce((a, r) => a + Number(picked[keyOf(r)] || 0) * Number(r.goodQty), 0);
+  // The supplier is billed for everything accepted (good + Grade B + waste), as the receipt valued it.
+  const qtyOf = (r: Billable) => Number(r.billableQty ?? r.goodQty);
+  const billedNet = lines.reduce((a, r) => a + Number(picked[keyOf(r)] || 0) * qtyOf(r), 0);
   const expectedNet = lines.reduce((a, r) => a + Number(r.expectedNet ?? 0), 0);
 
   async function save() {
@@ -177,13 +179,14 @@ function NewBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill 
             {rows.map((r) => {
               const k = keyOf(r);
               const on = picked[k] !== undefined;
-              const lineNet = on ? Number(picked[k] || 0) * Number(r.goodQty) : null;
+              const lineNet = on ? Number(picked[k] || 0) * qtyOf(r) : null;
               const diff = lineNet !== null && r.expectedNet !== null ? lineNet - Number(r.expectedNet) : null;
               return (
                 <li key={k} className="py-2 grid grid-cols-[auto_1fr_auto] gap-2 items-center">
                   <input type="checkbox" className="w-6 h-6" checked={on} onChange={() => setPicked((p) => { const n = { ...p }; if (on) delete n[k]; else n[k] = r.expectedUnitPrice ?? ""; return n; })} aria-label={r.receiptNumber} />
                   <div className="text-sm">
-                    <div className="font-extrabold">{localName(r.product, locale)} · <span dir="ltr">{fmtQty(r.goodQty, r.product.unit)}</span></div>
+                    <div className="font-extrabold">{localName(r.product, locale)} · <span dir="ltr">{fmtQty(r.billableQty ?? r.goodQty, r.product.unit)}</span></div>
+                    {(Number(r.gradeBQty ?? 0) > 0 || Number(r.wasteQty ?? 0) > 0) && <div className="text-xs text-united-muted">{t("purchasing.bill.graded", { good: fmtQty(r.goodQty, r.product.unit), b: fmtQty(r.gradeBQty ?? "0", r.product.unit), waste: fmtQty(r.wasteQty ?? "0", r.product.unit) })}</div>}
                     <div className="text-xs font-bold text-united-muted"><span dir="ltr">{r.receiptNumber}</span> · {r.receivedDate}{r.poNumber ? <> · <span dir="ltr">{r.poNumber}</span></> : ""} · {t("purchasing.bill.agreed_price")} {r.expectedUnitPrice ? <span dir="ltr">{r.expectedUnitPrice}</span> : "—"}</div>
                     {diff !== null && Math.abs(diff) >= 0.005 && <div className={`text-xs font-extrabold ${diff > 0 ? "text-united-danger" : "text-united-green"}`}>{t("purchasing.bill.variance")} <span dir="ltr">{fmtMoney(diff)}</span></div>}
                   </div>

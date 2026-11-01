@@ -84,14 +84,23 @@ function defaultTax(r: ReceiptRow) {
   return { code: r.product.salesTaxCode, rate: D(r.product.salesTax.rate) };
 }
 
+/**
+ * What the supplier is owed for on a receipt: everything accepted — good, Grade B and waste
+ * (received − rejected). Grading is our own sorting of what we bought; the receipt put the
+ * cost of all three into stock and GRNI, so the bill must clear all three. What the supplier
+ * is not paid for is recorded as rejected at receipt (it never enters stock or GRNI).
+ */
+export const billableQty = (r: { receivedQty: Prisma.Decimal.Value; rejectedQty: Prisma.Decimal.Value }) => new Prisma.Decimal(r.receivedQty).minus(new Prisma.Decimal(r.rejectedQty));
+
 /** Receipts of a supplier that are on no live bill, with what they should cost. */
 export async function billableReceipts(supplierId: string) {
-  const rows = await prisma.stockIntake.findMany({
-    where: { supplierId, status: "posted", goodQty: { gt: 0 }, billLines: { none: { released: false } } },
+  const all = await prisma.stockIntake.findMany({
+    where: { supplierId, status: "posted", billLines: { none: { released: false } } },
     include: RECEIPT_INCLUDE,
     orderBy: [{ receivedDate: "asc" }, { createdAt: "asc" }],
     take: 500,
   });
+  const rows = all.filter((r) => billableQty(r).gt(0));
   return Promise.all(
     rows.map(async (r) => {
       const agreed = await agreedPrice(prisma, r);
@@ -103,9 +112,12 @@ export async function billableReceipts(supplierId: string) {
         product: { id: r.product.id, name: r.product.nameAr ?? r.product.name, nameAr: r.product.nameAr, nameEn: r.product.name, unit: r.product.unit },
         poNumber: r.purchaseOrderLine?.po.number ?? null,
         goodQty: r.goodQty.toString(),
+        gradeBQty: r.gradeBQty.toString(),
+        wasteQty: r.wasteQty.toString(),
+        billableQty: billableQty(r).toString(),
         expectedUnitPrice: agreed.price?.toString() ?? null,
         priceSource: agreed.source,
-        expectedNet: agreed.price ? r2(r.goodQty.times(agreed.price)).toFixed(2) : null,
+        expectedNet: agreed.price ? r2(billableQty(r).times(agreed.price)).toFixed(2) : null,
         taxCode: tax.code,
         taxRate: tax.rate.toString(),
       };
@@ -123,7 +135,7 @@ export async function billableReceipts(supplierId: string) {
 
 const billLine = z.object({
   intake_id: text("الاستلام"),
-  /** Defaults to the receipt's good quantity. */
+  /** Defaults to the receipt's accepted quantity (good + Grade B + waste). */
   quantity: qty("الكمية المفوترة").optional(),
   unit_price: money,
   tax_code: z.string().trim().min(1).optional(),
@@ -155,7 +167,8 @@ async function buildLines(tx: Tx, supplierId: string, v: z.infer<typeof billInpu
     if (!r) throw new ApiError(404, "استلام مش موجود");
     if (r.supplierId !== supplierId) throw new ApiError(400, `الاستلام ${r.receiptNumber} مش من المورد ده`);
     if (r.status !== "posted") throw new ApiError(409, `الاستلام ${r.receiptNumber} ملغي`);
-    if (!r.goodQty.gt(0)) throw new ApiError(400, `الاستلام ${r.receiptNumber} مفيهوش كمية سليمة`);
+    const accepted = billableQty(r);
+    if (!accepted.gt(0)) throw new ApiError(400, `الاستلام ${r.receiptNumber} مفيهوش كمية مقبولة`);
     const live = await tx.supplierBillLine.findFirst({ where: { intakeId: r.id, released: false, ...(excludeBillId ? { billId: { not: excludeBillId } } : {}) }, include: { bill: { select: { number: true } } } });
     if (live) throw new ApiError(409, `الاستلام ${r.receiptNumber} عليه فاتورة ${live.bill.number} بالفعل`);
     let tax = defaultTax(r);
@@ -164,10 +177,11 @@ async function buildLines(tx: Tx, supplierId: string, v: z.infer<typeof billInpu
       if (!rate) throw new ApiError(400, `كود ضريبة غير معروف: ${l.tax_code}`);
       tax = { code: l.tax_code, rate };
     }
-    const quantity = l.quantity ?? D(r.goodQty);
+    const quantity = l.quantity ?? accepted;
     const agreed = await agreedPrice(tx, r);
     const a = lineAmounts({ quantity, unitPrice: l.unit_price, discountPct: 0, taxRate: tax.rate });
-    const expectedNet = agreed.price ? r2(D(r.goodQty).times(agreed.price)) : null;
+    // What the receipt put into GRNI: the accepted quantity at the agreed price.
+    const expectedNet = agreed.price ? r2(accepted.times(agreed.price)) : null;
     amounts.push(a);
     match.push({ net: a.net, expectedNet });
     out.push({
@@ -177,7 +191,7 @@ async function buildLines(tx: Tx, supplierId: string, v: z.infer<typeof billInpu
       productId: r.productId,
       description: `${r.product.nameAr ?? r.product.name} · ${r.receiptNumber}${r.purchaseOrderLine ? ` · ${r.purchaseOrderLine.po.number}` : ""}`,
       uomCode: r.product.unit,
-      receivedQty: r.goodQty,
+      receivedQty: accepted,
       quantity,
       unitPrice: l.unit_price,
       expectedUnitPrice: agreed.price,

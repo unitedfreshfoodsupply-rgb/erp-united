@@ -1,6 +1,7 @@
 # UNITED ERP — Independent adversarial verification of the accounting gap closure
 
-Branch `ui/enterprise-ux`. Date: 1 November 2026. Scope: everything added by the gap-closure
+Branch `ui/enterprise-ux`. Date: 1 November 2026. The final acceptance (D18–D20, the business-cycle
+suite, runbooks, GO/NO-GO) is in `FINAL_ACCEPTANCE_REPORT.md`. Scope: everything added by the gap-closure
 mission (`ACCOUNTING_GAP_CLOSURE.md`) and the paths it touches.
 
 **Where the evidence comes from.** Everything here was run locally on an isolated PostgreSQL 16

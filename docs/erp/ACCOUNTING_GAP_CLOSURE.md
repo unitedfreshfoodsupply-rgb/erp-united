@@ -11,6 +11,10 @@ production database, migration or data was touched.** Status words used:
   and ships switched off or empty.
 - **Pending production deployment**: everything here (see §13).
 
+> **Final acceptance package (supersedes §11 and §13 below):** `FINAL_ACCEPTANCE_REPORT.md`,
+> `ACCOUNTING_GAP_REGISTER.md`, `BUSINESS_CONFIGURATION_CHECKLIST.md`,
+> `PRODUCTION_DEPLOYMENT_RUNBOOK.md`, `ROLLBACK_RUNBOOK.md`.
+>
 > An independent adversarial verification followed this report: `ACCOUNTING_VERIFICATION.md`.
 > It lists the defects found (D1–D17) and their fixes, the ledger audit, the migration rehearsal
 > and the configuration checklist.

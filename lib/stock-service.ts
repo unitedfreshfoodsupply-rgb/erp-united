@@ -19,6 +19,7 @@ import { gradingPrices } from "@/lib/sales/pricing";
 import { getSetting } from "@/lib/core/settings-service";
 import { afterPoReceipt, guardPoReceipt, loadPoLine, poLineUnitCost, lockPoForReceipt } from "@/lib/purchasing/receiving";
 import { assertReceiptNotBilled } from "@/lib/purchasing/bills";
+import { postJournal } from "@/lib/accounting/ledger";
 
 /** Row-locks a receipt (a supplier bill being booked on it takes the same lock) and
  * refuses when it is already on a live bill — the bill was matched against it. */
@@ -579,6 +580,19 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
     }
     if (movements.length > 0) {
       await postMovements(tx, movements, { actorId: actor.id, actorName: actor.name, effectiveDate: receivedDate });
+    }
+    // NRV grading with waste "expensed at grading": the waste enters stock at no cost, so the
+    // movements put only the allocable value into GRNI. The loss is the rest of what the
+    // supplier is owed for: Dr inventory adjustments / Cr GRNI, in the same transaction, so
+    // GRNI holds the full purchase value and clears when the bill arrives.
+    if (gc.wasteLoss.gt(0)) {
+      const p = await tx.accountingPeriod.findUnique({ where: { code: receivedDate.slice(0, 7) }, select: { status: true } });
+      await postJournal(tx, {
+        date: p?.status === "closed" ? todayLocalISO() : receivedDate,
+        description: `هالك الفرز عند الاستلام ${created.receiptNumber} (${waste.toFixed()} ${product.unit})`,
+        sourceType: "stock_valuation", sourceId: `intake-waste|${created.id}`,
+        lines: [{ key: "inventory_adjustment", amount: gc.wasteLoss, description: "هالك الفرز" }, { key: "grni", amount: gc.wasteLoss.negated(), description: "هالك الفرز" }],
+      }, { id: actor.id, name: actor.name, role: actor.role });
     }
 
     await writeAudit(

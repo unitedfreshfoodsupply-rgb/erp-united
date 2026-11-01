@@ -67,7 +67,9 @@ export async function previewVatReturn(from: string, to: string, db: Tx | typeof
   if (bal.output.lt(0)) problems.push("output_debit_balance");
   if (bal.input.lt(0)) problems.push("input_credit_balance");
   if (last && from !== nextDay(last.periodTo)) problems.push("not_contiguous");
-  if (to > todayLocalISO()) problems.push("period_not_ended");
+  // The period must be over (as for a fiscal year): a return filed on its own last day would
+  // freeze VAT postings for the rest of that day.
+  if (to >= todayLocalISO()) problems.push("period_not_ended");
   return {
     from, to,
     expectedFrom: last ? nextDay(last.periodTo) : null,
