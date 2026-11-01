@@ -59,16 +59,22 @@ async function main() {
       { kind: "customer", party_id: customer.id, amount: "12000", due_date: addMonths(today, 1), reference: "INV-OLD-77" },
       { kind: "supplier", party_id: supplier.id, amount: "8000", reference: "BILL-OLD-5" },
       { kind: "stock", product_id: product.id, quantity: "100", unit_cost: "12.5" },
+      // Fractional lines: each is 0.4443 at the stock ledger's 4 places; three of them are
+      // 1.3329 → 1.33 posted once. Rounding each line to cents first would say 1.32 and
+      // leave a cent in opening equity.
+      { kind: "stock", product_id: product.id, quantity: "1.333", unit_cost: "0.3333" },
+      { kind: "stock", product_id: product.id, quantity: "1.333", unit_cost: "0.3333" },
+      { kind: "stock", product_id: product.id, quantity: "1.333", unit_cost: "0.3333" },
       { kind: "asset", category_id: cat.id, name: `${TAG} عربية مبردة`, cost: "120000", accumulated: "30000", acquisition_date: addMonths(today, -18), in_service_date: addMonths(today, -18), plate_number: "ق ط ع 9" },
     ]);
-    check("8 lines added", r.status === 201 && r.body.added === 8, r.body);
+    check("11 lines added", r.status === 201 && r.body.added === 11, r.body);
     let d = await detail(batch.id);
-    check("validation: debit 188250, credit 178000, difference 10250 (retained earnings missing)", d.validation.totals.debit === "188250.00" && d.validation.totals.credit === "178000.00" && d.validation.totals.residual === "10250.00", d.validation.totals);
+    check("validation: debit 188251.33, credit 178000, difference 10251.33 (retained earnings missing)", d.validation.totals.debit === "188251.33" && d.validation.totals.credit === "178000.00" && d.validation.totals.residual === "10251.33", d.validation.totals);
     check("…unbalanced, so it cannot be sent", d.validation.problems.some((p: any) => p.code === "unbalanced") && (await call("karim", "POST", `/api/accounting/opening-batches/${batch.id}/submit`, {})).status === 409);
-    await add([{ kind: "gl", account_id: "acc_3200", credit: "10250", description: "أرباح محتجزة" }]);
+    await add([{ kind: "gl", account_id: "acc_3200", credit: "10251.33", description: "أرباح محتجزة" }]);
     d = await detail(batch.id);
     check("with retained earnings stated it balances (difference 0)", d.validation.totals.residual === "0.00" && d.validation.problems.length === 0, d.validation);
-    check("…subledgers shown: customers 12000, suppliers 8000, stock 1250, assets 120000 / 30000", d.validation.subledgers.customers === "12000.00" && d.validation.subledgers.suppliers === "8000.00" && d.validation.subledgers.stock === "1250.00" && d.validation.subledgers.assetsCost === "120000.00" && d.validation.subledgers.assetsAccumulated === "30000.00", d.validation.subledgers);
+    check("…subledgers shown: customers 12000, suppliers 8000, stock 1251.33, assets 120000 / 30000", d.validation.subledgers.customers === "12000.00" && d.validation.subledgers.suppliers === "8000.00" && d.validation.subledgers.stock === "1251.33" && d.validation.subledgers.assetsCost === "120000.00" && d.validation.subledgers.assetsAccumulated === "30000.00", d.validation.subledgers);
 
     section("3. SUBMIT, FREEZE, APPROVE BY SOMEONE ELSE");
     r = await call("karim", "POST", `/api/accounting/opening-batches/${batch.id}/submit`, {});
@@ -87,7 +93,7 @@ async function main() {
 
     section("4. EVERYTHING LANDED, AND RECONCILES");
     check("opening equity nets to zero across the batch", Math.abs((await glKey("opening_equity")) - eqBefore) < 0.005, [eqBefore, await glKey("opening_equity")]);
-    check("AR +12000, AP −8000, inventory +1250", Math.abs((await glKey("ar")) - arBefore - 12000) < 0.005 && Math.abs((await glKey("ap")) - apBefore + 8000) < 0.005 && Math.abs((await glKey("inventory")) - invBefore - 1250) < 0.005);
+    check("AR +12000, AP −8000, inventory +1251.33 (the rounded total the stock ledger posts)", Math.abs((await glKey("ar")) - arBefore - 12000) < 0.005 && Math.abs((await glKey("ap")) - apBefore + 8000) < 0.005 && Math.abs((await glKey("inventory")) - invBefore - 1251.33) < 0.005, [await glKey("inventory"), invBefore]);
     const open = (await call("karim", "GET", `/api/accounting/customers/${customer.id}/open-invoices`)).body.invoices ?? [];
     check("the customer's opening item is open for collection (12000, its due date)", open.some((i: any) => n(i.open) === 12000), open);
     const st = (await call("karim", "GET", `/api/purchasing/suppliers/${supplier.id}/statement?from=2000-01-01&to=2099-12-31`)).body;

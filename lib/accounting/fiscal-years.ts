@@ -63,13 +63,13 @@ async function plBalances(db: Tx | typeof prisma, from: string | null, to: strin
 }
 
 /** What closing the year would post, and what stands in the way. */
-export async function previewYearClose(code: string) {
+export async function previewYearClose(code: string, db: Tx | typeof prisma = prisma) {
   const b = await fiscalYearBounds(code);
   const [fy, lines, before, periods] = await Promise.all([
-    prisma.fiscalYear.findUnique({ where: { code } }),
-    plBalances(prisma, b.startDate, b.endDate),
-    plBalances(prisma, null, new Date(Date.parse(`${b.startDate}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10)),
-    prisma.accountingPeriod.findMany({ where: { code: { in: b.months } }, select: { code: true, status: true } }),
+    db.fiscalYear.findUnique({ where: { code } }),
+    plBalances(db, b.startDate, b.endDate),
+    plBalances(db, null, new Date(Date.parse(`${b.startDate}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10)),
+    db.accountingPeriod.findMany({ where: { code: { in: b.months } }, select: { code: true, status: true } }),
   ]);
   const revenue = lines.filter((l) => l.type === "revenue").reduce((s, l) => s.minus(l.balance), D(0));
   const expenses = lines.filter((l) => l.type === "expense").reduce((s, l) => s.plus(l.balance), D(0));
@@ -83,7 +83,9 @@ export async function previewYearClose(code: string) {
   // wrong — but it is unusual, and the screen says so.
   if (before.length) warnings.push({ code: "earlier_year_open" });
   if (openMonths.length) problems.push({ code: "months_open", params: { months: openMonths.join("، ") } });
-  if (lastClosed && fy?.status !== "closed") problems.push({ code: "last_month_closed", params: { month: b.months[11] } });
+  // A closed last month is fine: the close opens it, posts the closing entry and closes it
+  // again in one transaction holding the month's lock, so nothing else can slip in.
+  if (lastClosed && fy?.status !== "closed") warnings.push({ code: "last_month_closed", params: { month: b.months[11] } });
 
   return {
     ...b, status: fy?.status ?? "open", closedAt: fy?.closedAt ?? null, closedBy: fy?.closedBy ?? null,
@@ -121,13 +123,18 @@ export async function closeFiscalYear(code: string, actor: ServiceActor) {
   const last = await prisma.accountingPeriod.findUnique({ where: { code: b.months[11] }, select: { status: true } });
   if (last?.status !== "closed" && b.endDate < todayLocalISO()) await inTx((tx) => depreciationForClose(tx, b.months[11], actor));
   return inTx(async (tx) => {
+    // Lock order everywhere: fiscal year, then month. Reopening a month takes the same two
+    // locks, and every posting into the last month takes its month lock, so the balances
+    // read below (inside this transaction, after the locks) are the final ones.
     await advisoryXactLock(tx, "accounting:fiscal-year");
-    const p = await previewYearClose(code);
+    await advisoryXactLock(tx, `accounting-period:${b.months[11]}`);
+    const p = await previewYearClose(code, tx);
     const block = p.problems[0];
     if (block?.code === "already_closed") throw new ApiError(409, `السنة المالية ${code} مقفولة بالفعل`);
     if (block?.code === "year_not_ended") throw new ApiError(409, `السنة المالية لسه مخلصتش (آخرها ${block.params!.end})`);
     if (block?.code === "months_open") throw new ApiError(409, `اقفل الشهور دي الأول: ${block.params!.months}`);
-    if (block?.code === "last_month_closed") throw new ApiError(409, `الشهر الأخير ${block.params!.month} مقفول — قيد الإقفال بيترحّل فيه، فاطلب إعادة فتحه الأول`);
+    const lastRow = await tx.accountingPeriod.findUnique({ where: { code: b.months[11] } });
+    if (lastRow?.status === "closed") await tx.accountingPeriod.update({ where: { id: lastRow.id, version: lastRow.version }, data: { status: "open", version: { increment: 1 } } });
     let fy = await tx.fiscalYear.findUnique({ where: { code } });
     if (!fy) fy = await tx.fiscalYear.create({ data: { code, startDate: b.startDate, endDate: b.endDate } });
     const lines: PostLine[] = p.lines.map((l) => ({ accountId: l.accountId, amount: D(l.balance).negated(), description: "إقفال السنة" }));
@@ -181,6 +188,9 @@ const payloadReason = (payload: unknown) => String((payload as { reason?: string
 /** Approved reopening of a month: by someone other than the requester, while its year is open. */
 export async function applyPeriodReopen(tx: Tx, periodId: string, payload: unknown, decider: Decider, requestedById: string | null) {
   if (requestedById && requestedById === decider.id) throw new ApiError(403, "اللي طلب إعادة الفتح مينفعش يوافق عليها بنفسه");
+  // Same lock order as the year close (year, then month): a month cannot reopen while its
+  // year is being closed, so a closed year never has an open month.
+  await advisoryXactLock(tx, "accounting:fiscal-year");
   const p = await tx.accountingPeriod.findUniqueOrThrow({ where: { id: periodId } });
   await advisoryXactLock(tx, `accounting-period:${p.code}`);
   if (p.status !== "closed") throw new ApiError(409, "الفترة مفتوحة بالفعل");

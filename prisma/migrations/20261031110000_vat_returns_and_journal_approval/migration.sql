@@ -76,7 +76,10 @@ BEGIN
      IS DISTINCT FROM (OLD."number", OLD."periodFrom", OLD."periodTo", OLD."outputTax", OLD."inputTax", OLD."inputUsed", OLD."payable", OLD."carryForward", OLD."documentsOutputTax", OLD."documentsInputTax", OLD."entryId", OLD."filedBy", OLD."filedAt") THEN
     RAISE EXCEPTION 'a filed VAT return keeps its figures' USING ERRCODE = 'restrict_violation';
   END IF;
-  IF OLD."status" <> 'filed' AND NEW."status" IS DISTINCT FROM OLD."status" THEN
+  -- filed → paid | voided. A nil return is "paid" on filing (nothing to pay, no payment
+  -- entry); it may still be voided. A return actually paid keeps its status.
+  IF OLD."status" <> 'filed' AND NEW."status" IS DISTINCT FROM OLD."status"
+     AND NOT (OLD."status" = 'paid' AND NEW."status" = 'voided' AND OLD."payable" = 0 AND OLD."paymentEntryId" IS NULL) THEN
     RAISE EXCEPTION 'a paid or voided VAT return keeps its status' USING ERRCODE = 'restrict_violation';
   END IF;
   RETURN NEW;

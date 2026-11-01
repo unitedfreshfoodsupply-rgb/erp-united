@@ -62,12 +62,17 @@ async function main() {
   check("preview: net result = the year's revenue − expenses from the ledger", Math.abs(n(pv.netIncome) - pl) < 0.005 && pv.problems.length === 0, [pv.netIncome, pl, pv.problems]);
 
   section("2. CLOSE THE YEAR");
+  // Normal month-end routine: December is closed like any month before the year is.
+  check("December 2015 closed as a month first", (await call("karim", "POST", "/api/accounting/periods/2015-12/close", {})).status === 200);
+  const pvDec = (await call("karim", "GET", `/api/accounting/fiscal-years/${Y}`)).body.year;
+  check("…the preview only notes it (the close reposts in it atomically), no blocker", pvDec.problems.length === 0 && pvDec.warnings.some((w: any) => w.code === "last_month_closed"), [pvDec.problems, pvDec.warnings]);
   check("sales cannot close a year -> 403", (await call("mona", "POST", `/api/accounting/fiscal-years/${Y}/close`, {})).status === 403);
   const reBefore = await reBalance();
   r = await call("karim", "POST", `/api/accounting/fiscal-years/${Y}/close`, {});
   check("closed -> 200", r.status === 200 && r.body.year.status === "closed", r.body);
   const closing = (await call("karim", "GET", `/api/accounting/journals/${r.body.year.closingEntryId}`)).body.journal;
   check("…one closing entry on 2015-12-31", closing?.date === "2015-12-31" && closing.sourceType === "year_end_close", closing);
+  check("…and December is closed again after it", (await period("2015-12"))?.status === "closed");
   check("…revenue and expense accounts of 2015 are at zero", Math.abs(await plOfYear()) < 0.005);
   check("…retained earnings took the result", Math.abs((await reBalance()) - reBefore - pl) < 0.005, [reBefore, await reBalance(), pl]);
   check("…the last month is closed", (await period("2015-12"))?.status === "closed");

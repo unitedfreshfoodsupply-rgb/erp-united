@@ -13,7 +13,7 @@ import { nextDocumentNumber } from "@/lib/core/sequences";
 import { optText, parse, text } from "@/lib/core/validation";
 import { idempotencyKeyField, lockKey } from "@/lib/core/idempotency";
 import type { ServiceActor } from "@/lib/core/actor";
-import { postJournal, type PostLine } from "@/lib/accounting/ledger";
+import { ensureOpenPeriod, postJournal, type PostLine } from "@/lib/accounting/ledger";
 
 /**
  * Fixed assets.
@@ -297,7 +297,7 @@ export async function changeEstimate(id: string, input: unknown, actor: ServiceA
   assertPermission(actor, "accounting.assets.manage");
   const v = parse(z.object({ useful_life_months: z.number().int().min(1).max(1200).optional(), residual_value: money("القيمة المتبقية", true).optional(), reason: text("السبب", 500), version: z.number().int().optional() }), input);
   return inTx(async (tx) => {
-    const a = await tx.fixedAsset.findUnique({ where: { id }, include: { _count: { select: { depreciationLines: true } } } });
+    const a = await tx.fixedAsset.findUnique({ where: { id }, include: { _count: { select: { depreciationLines: LIVE } } } });
     if (!a) throw new ApiError(404, "الأصل مش موجود");
     if (v.version !== undefined && v.version !== a.version) throw new ApiError(409, "الأصل اتعدّل من واحد تاني — حدّث الشاشة");
     if (a.status === "disposed") throw new ApiError(409, "الأصل اتستبعد");
@@ -359,6 +359,8 @@ export async function improveAsset(id: string, input: unknown, actor: ServiceAct
 // ---------------------------------------------------------------------------
 
 type DepAsset = Prisma.FixedAssetGetPayload<{ include: { category: true; _count: { select: { depreciationLines: true } } } }>;
+/** Depreciation lines that count: a reversed run's lines no longer do. */
+const LIVE = { where: { reversed: false } } as const;
 
 /** The first month an asset is depreciated for (from its in-service date and the start rule). */
 function firstMonth(a: { inServiceDate: string | null; depreciationStart: string }) {
@@ -381,7 +383,7 @@ async function dueLines(tx: Tx, a: DepAsset, through: string) {
   if (!a.category.depreciable || a.status !== "in_service") return [];
   const start = firstMonth(a);
   if (!start || start > through) return [];
-  const done = new Set((await tx.assetDepreciationLine.findMany({ where: { assetId: a.id }, select: { period: true } })).map((l) => l.period));
+  const done = new Set((await tx.assetDepreciationLine.findMany({ where: { assetId: a.id, reversed: false }, select: { period: true } })).map((l) => l.period));
   const out: { period: string; amount: Prisma.Decimal; accumulatedAfter: Prisma.Decimal }[] = [];
   let accumulated = a.accumulated;
   let used = a.openingMonthsUsed + a._count.depreciationLines;
@@ -402,7 +404,7 @@ async function dueLines(tx: Tx, a: DepAsset, through: string) {
 export async function previewDepreciation(period: string) {
   if (!/^\d{4}-\d{2}$/.test(period)) throw new ApiError(400, "الشهر لازم يكون YYYY-MM");
   return inTx(async (tx) => {
-    const assets = await tx.fixedAsset.findMany({ where: { status: "in_service", category: { depreciable: true } }, include: { category: true, _count: { select: { depreciationLines: true } } }, orderBy: { number: "asc" } });
+    const assets = await tx.fixedAsset.findMany({ where: { status: "in_service", category: { depreciable: true } }, include: { category: true, _count: { select: { depreciationLines: LIVE } } }, orderBy: { number: "asc" } });
     const rows = [];
     for (const a of assets) {
       const due = await dueLines(tx, a, period);
@@ -421,8 +423,11 @@ export async function previewDepreciation(period: string) {
  * posted and no run is recorded.
  */
 export async function runDepreciationTx(tx: Tx, period: string, actor: Actorish) {
+  // Lock order: the month, then depreciation (the month close holds its month and then runs
+  // this; taking them the other way round here could deadlock with it).
+  await ensureOpenPeriod(tx, monthEnd(period));
   await advisoryXactLock(tx, "accounting:depreciation");
-  const assets = await tx.fixedAsset.findMany({ where: { status: "in_service", category: { depreciable: true } }, include: { category: true, _count: { select: { depreciationLines: true } } } });
+  const assets = await tx.fixedAsset.findMany({ where: { status: "in_service", category: { depreciable: true } }, include: { category: true, _count: { select: { depreciationLines: LIVE } } } });
   const plan: { asset: DepAsset; lines: Awaited<ReturnType<typeof dueLines>> }[] = [];
   for (const a of assets) {
     const lines = await dueLines(tx, a, period);
@@ -466,8 +471,53 @@ export async function depreciationForClose(tx: Tx, period: string, actor: Actori
   return runDepreciationTx(tx, period, actor);
 }
 
+/**
+ * Reverses a whole depreciation run (a wrong life, residual or in-service date discovered
+ * after it posted): the opposite entry on the run's own date, its asset lines set aside and
+ * each asset's accumulated depreciation brought back down — the database accepts the
+ * decrease only to exactly the asset's remaining live lines. Allowed while the run's month
+ * is open, and only when none of its assets has a later live month or was disposed since
+ * (reverse the later runs first). Running the month again then posts it afresh.
+ */
+export async function reverseDepreciationRun(id: string, input: unknown, actor: ServiceActor) {
+  assertPermission(actor, "accounting.assets.manage");
+  const v = parse(z.object({ reason: text("سبب العكس", 500).refine((x) => x.trim().length >= 10, "اكتب سبب واضح (10 حروف على الأقل)") }), input);
+  return inTx(async (tx) => {
+    const head = await tx.depreciationRun.findUnique({ where: { id }, select: { date: true } });
+    if (!head) throw new ApiError(404, "قيد الإهلاك مش موجود");
+    await ensureOpenPeriod(tx, head.date); // month first, then depreciation (lock order)
+    await advisoryXactLock(tx, "accounting:depreciation");
+    const run = await tx.depreciationRun.findUniqueOrThrow({ where: { id }, include: { entry: { include: { lines: true } }, lines: true } });
+    if (run.reversedAt) throw new ApiError(409, "قيد الإهلاك ده اتعكس قبل كده");
+    const assetIds = [...new Set(run.lines.map((l) => l.assetId))];
+    const latest = new Map<string, string>();
+    for (const l of run.lines) if ((latest.get(l.assetId) ?? "") < l.period) latest.set(l.assetId, l.period);
+    for (const assetId of assetIds) {
+      const later = await tx.assetDepreciationLine.findFirst({ where: { assetId, reversed: false, period: { gt: latest.get(assetId)! }, NOT: { runId: run.id } }, select: { period: true, asset: { select: { number: true } } } });
+      if (later) throw new ApiError(409, `الأصل ${later.asset.number} اتهلك بعد كده (${later.period}) — اعكس القيد اللي بعده الأول`);
+    }
+    const assets = await tx.fixedAsset.findMany({ where: { id: { in: assetIds } } });
+    const disposed = assets.find((a) => a.status === "disposed");
+    if (disposed) throw new ApiError(409, `الأصل ${disposed.number} اتستبعد — قيد إهلاكه مينفعش يتعكس`);
+    const entry = await postJournal(tx, {
+      date: run.date, description: `عكس إهلاك ${run.number} (${run.period}): ${v.reason}`, sourceType: "asset_depreciation", sourceId: `${run.id}:reversal`,
+      lines: run.entry.lines.map((l) => ({ accountId: l.accountId, amount: l.credit.minus(l.debit), costCenterId: l.costCenterId, description: l.description ?? undefined })),
+    }, actor);
+    // Order matters to the database guards: the run is marked reversed, then its lines, then
+    // each asset's accumulated depreciation comes down to its live lines.
+    await tx.depreciationRun.update({ where: { id: run.id }, data: { reversedAt: new Date(), reversedBy: actor.name, reversalReason: v.reason, reversalEntryId: entry!.id } });
+    await tx.assetDepreciationLine.updateMany({ where: { runId: run.id }, data: { reversed: true } });
+    for (const a of assets) {
+      const back = run.lines.filter((l) => l.assetId === a.id).reduce((s, l) => s.plus(l.amount), D(0));
+      await tx.fixedAsset.update({ where: { id: a.id, version: a.version }, data: { accumulated: a.accumulated.minus(back), version: { increment: 1 } } });
+    }
+    await audit(tx, actor, "depreciation_run", run.id, "depreciation_run_reversed", `${run.number} · ${run.period} · ${run.total.toFixed(2)}`, v.reason);
+    return tx.depreciationRun.findUniqueOrThrow({ where: { id: run.id } });
+  });
+}
+
 export async function listRuns() {
-  const rows = await prisma.depreciationRun.findMany({ orderBy: { period: "desc" }, take: 60, include: { entry: { select: { number: true } } } });
+  const rows = await prisma.depreciationRun.findMany({ orderBy: [{ period: "desc" }, { createdAt: "desc" }], take: 60, include: { entry: { select: { number: true } }, reversalEntry: { select: { number: true } } } });
   return rows.map((r) => ({ ...r, total: r.total.toFixed(2) }));
 }
 
@@ -487,13 +537,14 @@ export async function disposeAsset(id: string, input: unknown, actor: ServiceAct
   if (v.kind === "sale" && !v.cash_account_id) throw new ApiError(400, "حدد الخزينة أو البنك اللي استلم الثمن");
   if (v.date > todayLocalISO()) throw new ApiError(400, "مينفعش الاستبعاد يكون بتاريخ في المستقبل");
   return inTx(async (tx) => {
+    await ensureOpenPeriod(tx, v.date); // month first, then depreciation (see runDepreciationTx)
     await advisoryXactLock(tx, "accounting:depreciation");
-    const a = await tx.fixedAsset.findUnique({ where: { id }, include: { category: true, _count: { select: { depreciationLines: true } } } });
+    const a = await tx.fixedAsset.findUnique({ where: { id }, include: { category: true, _count: { select: { depreciationLines: LIVE } } } });
     if (!a) throw new ApiError(404, "الأصل مش موجود");
     if (v.version !== undefined && v.version !== a.version) throw new ApiError(409, "الأصل اتعدّل من واحد تاني — حدّث الشاشة");
     if (a.status === "disposed") throw new ApiError(409, "الأصل اتستبعد قبل كده");
     if (v.date < a.acquisitionDate) throw new ApiError(400, "تاريخ الاستبعاد قبل تاريخ الشراء");
-    const later = await tx.assetDepreciationLine.findFirst({ where: { assetId: a.id, period: { gte: monthOf(v.date) } }, select: { period: true } });
+    const later = await tx.assetDepreciationLine.findFirst({ where: { assetId: a.id, period: { gte: monthOf(v.date) }, reversed: false }, select: { period: true } });
     if (later) throw new ApiError(409, `الأصل اتهلك عن ${later.period} — تاريخ الاستبعاد لازم يكون بعده`);
     let taxRate = D(0), taxCode: string | null = null;
     if (v.kind === "sale" && v.tax_code) {
@@ -574,7 +625,7 @@ export async function listAssets(filters: { status?: string; categoryId?: string
 
 /** One asset with its events, depreciation so far and the schedule still to come. */
 export async function getAsset(id: string) {
-  const a = await prisma.fixedAsset.findUnique({ where: { id }, include: { ...ASSET_INCLUDE, events: { orderBy: { createdAt: "asc" }, include: { entry: { select: { id: true, number: true } } } }, depreciationLines: { orderBy: { period: "asc" } } } });
+  const a = await prisma.fixedAsset.findUnique({ where: { id }, include: { ...ASSET_INCLUDE, events: { orderBy: { createdAt: "asc" }, include: { entry: { select: { id: true, number: true } } } }, depreciationLines: { where: { reversed: false }, orderBy: { period: "asc" } } } });
   if (!a) throw new ApiError(404, "الأصل مش موجود");
   // The schedule ahead, from the current state (same rule as the run).
   const schedule: { period: string; amount: string; bookValue: string }[] = [];
@@ -613,7 +664,7 @@ export async function rollForward(from: string, to: string) {
     const [costOpen, costClose, accOpen, accClose, events, dep] = await Promise.all([
       glAt(c.assetAccountId, from, true), glAt(c.assetAccountId, to, false), glAt(c.accumulatedAccountId, from, true), glAt(c.accumulatedAccountId, to, false),
       prisma.assetEvent.findMany({ where: { asset: { categoryId: c.id }, date: { gte: from, lte: to }, type: { in: ["acquisition", "improvement", "cost_adjustment", "opening", "disposal"] } } }),
-      prisma.assetDepreciationLine.aggregate({ where: { asset: { categoryId: c.id }, entry: { date: { gte: from, lte: to } } }, _sum: { amount: true } }),
+      prisma.assetDepreciationLine.aggregate({ where: { asset: { categoryId: c.id }, reversed: false, entry: { date: { gte: from, lte: to } } }, _sum: { amount: true } }),
     ]);
     const additions = events.filter((e) => e.type !== "disposal").reduce((s, e) => s.plus(e.costDelta), D(0));
     const disposalsCost = events.filter((e) => e.type === "disposal").reduce((s, e) => s.minus(e.costDelta), D(0));
@@ -643,4 +694,80 @@ export async function registerVsLedger() {
     out.push({ code: c.code, nameAr: c.nameAr, registerCost: D(reg._sum.cost).toFixed(2), glCost: glCost.toFixed(2), registerAccumulated: D(reg._sum.accumulated).toFixed(2), glAccumulated: glAcc.toFixed(2), ok: D(reg._sum.cost).equals(glCost) && D(reg._sum.accumulated).equals(glAcc) });
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Physical counts
+// ---------------------------------------------------------------------------
+
+/**
+ * A physical count of fixed assets: for each asset counted, whether it was found, its
+ * condition and where it was seen — recorded as a "count" event on the asset (append-only,
+ * no journal entry). A missing or unusable asset is NOT written off automatically: that is a
+ * decision (scrap / disposal with its reason), taken from the report by someone with the
+ * permission. The same idempotency key never records a count twice.
+ */
+const CONDITIONS = ["good", "damaged", "unusable"] as const;
+export async function recordAssetCount(input: unknown, actor: ServiceActor) {
+  assertPermission(actor, "accounting.assets.manage");
+  const v = parse(z.object({
+    date: dateField("تاريخ الجرد"),
+    reference: optText("مرجع الجرد", 100).optional(),
+    idempotency_key: idempotencyKeyField,
+    lines: z.array(z.object({
+      asset_id: text("الأصل", 60),
+      found: z.boolean({ errorMap: () => ({ message: "حدد الأصل اتلاقى ولا لأ" }) }),
+      condition: z.enum(CONDITIONS, { errorMap: () => ({ message: "الحالة: سليم أو تالف أو غير صالح" }) }).optional(),
+      location: optText("المكان", 200).optional(),
+      notes: optText("ملاحظات", 500).optional(),
+    })).min(1, "مفيش أصول في الجرد").max(1000, "أقصى 1000 أصل في المرة"),
+  }), input);
+  if (v.date > todayLocalISO()) throw new ApiError(400, "تاريخ الجرد مينفعش يكون في المستقبل");
+  if (new Set(v.lines.map((l) => l.asset_id)).size !== v.lines.length) throw new ApiError(400, "الأصل متكرر في نفس الجرد");
+  return inTx(async (tx) => {
+    const countRef = v.idempotency_key ?? randomUUID();
+    await advisoryXactLock(tx, `accounting:asset-count:${countRef}`);
+    if (v.idempotency_key) {
+      const prev = await tx.assetEvent.count({ where: { type: "count", details: { path: ["countRef"], equals: countRef } } });
+      if (prev) return { countRef, recorded: prev, replayed: true };
+    }
+    const assets = await tx.fixedAsset.findMany({ where: { id: { in: v.lines.map((l) => l.asset_id) } }, select: { id: true, number: true, status: true, location: true, warehouseId: true } });
+    const byId = new Map(assets.map((a) => [a.id, a]));
+    for (const l of v.lines) {
+      const a = byId.get(l.asset_id);
+      if (!a) throw new ApiError(404, `الأصل ${l.asset_id} مش موجود`);
+      if (a.status === "disposed") throw new ApiError(409, `الأصل ${a.number} اتستبعد — مش بيتجرد`);
+    }
+    await tx.assetEvent.createMany({
+      data: v.lines.map((l) => {
+        const a = byId.get(l.asset_id)!;
+        const condition = l.found ? l.condition ?? "good" : null;
+        return {
+          assetId: a.id, type: "count", date: v.date,
+          details: { countRef, reference: v.reference ?? null, found: l.found, condition, location: l.location ?? null, expectedLocation: a.location ?? null, locationMatches: !l.location || !a.location || l.location.trim() === a.location.trim() },
+          reason: l.notes ?? null, createdById: actor.id, createdBy: actor.name,
+        };
+      }),
+    });
+    await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "fixed_asset_count_recorded", entityType: "fixed_asset", entityId: countRef, newValue: `${v.date} · ${v.lines.length} أصل · ${v.lines.filter((l) => !l.found).length} مش موجود`, source: "user", deviceId: actor.deviceId }, tx);
+    return { countRef, recorded: v.lines.length, replayed: false };
+  });
+}
+
+/** Every asset not disposed with its latest count: never counted, missing, damaged, elsewhere. */
+export async function assetCountReport() {
+  const [assets, counts] = await Promise.all([
+    prisma.fixedAsset.findMany({ where: { status: { not: "disposed" } }, orderBy: { number: "asc" }, select: { id: true, number: true, name: true, nameAr: true, status: true, location: true, cost: true, accumulated: true } }),
+    prisma.$queryRaw<{ assetId: string; date: string; details: Prisma.JsonValue; createdBy: string }[]>`
+      SELECT DISTINCT ON ("assetId") "assetId", "date", "details", "createdBy" FROM "AssetEvent" WHERE "type" = 'count' ORDER BY "assetId", "date" DESC, "createdAt" DESC`,
+  ]);
+  const last = new Map(counts.map((c) => [c.assetId, c]));
+  const rows = assets.map((a) => {
+    const c = last.get(a.id);
+    const d = (c?.details ?? {}) as { found?: boolean; condition?: string | null; location?: string | null; locationMatches?: boolean };
+    const flag = !c ? "never_counted" : d.found === false ? "missing" : d.condition === "unusable" ? "unusable" : d.condition === "damaged" ? "damaged" : d.locationMatches === false ? "elsewhere" : "ok";
+    return { assetId: a.id, number: a.number, name: a.name, nameAr: a.nameAr, location: a.location, bookValue: a.cost.minus(a.accumulated).toFixed(2), lastCount: c ? { date: c.date, by: c.createdBy, found: d.found ?? null, condition: d.condition ?? null, location: d.location ?? null } : null, flag };
+  });
+  const tally = (f: string) => rows.filter((r) => r.flag === f).length;
+  return { rows, summary: { assets: rows.length, ok: tally("ok"), neverCounted: tally("never_counted"), missing: tally("missing"), damaged: tally("damaged"), unusable: tally("unusable"), elsewhere: tally("elsewhere"), missingBookValue: rows.filter((r) => r.flag === "missing").reduce((s, r) => s.plus(r.bookValue), D(0)).toFixed(2) } };
 }

@@ -152,6 +152,33 @@ await step("J16 the new finance screens in English, left to right, with no Arabi
   expect(/Fiscal years/.test(text) && !/السنوات المالية/.test(text), "periods tab not English");
   await p.getByRole("button", { name: /العربية/ }).first().click(); await p.waitForTimeout(300);
 });
+await step("J18 comparatives & ratios: the ratio table and both statements render, in Arabic and English", async () => {
+  await p.goto(`${BASE}/accounting?tab=analysis`, { waitUntil: "networkidle" });
+  await p.getByRole("heading", { name: /النسب المالية/ }).waitFor({ timeout: 15000 });
+  expect(await p.getByText("نسبة التداول").count() > 0, "current ratio row missing");
+  await p.getByRole("heading", { name: /قائمة الدخل المقارنة/ }).waitFor();
+  await p.getByRole("button", { name: /English/ }).first().click(); await p.waitForTimeout(400);
+  const text = await p.locator(".page-container").innerText();
+  expect(/Financial ratios/.test(text) && /Current ratio/.test(text) && !/النسب المالية/.test(text), "comparatives not English");
+  await p.getByRole("button", { name: /العربية/ }).first().click(); await p.waitForTimeout(300);
+});
+await step("J19 bank reconciliation: start or resume one, the statement-import box is there", async () => {
+  await p.goto(`${BASE}/accounting?tab=reconcile`, { waitUntil: "networkidle" });
+  const resume = p.getByRole("button", { name: /كمّل/ });
+  if (await resume.count()) await resume.first().click();
+  else { await p.getByLabel("رصيد الكشف").first().fill("0"); await p.getByRole("button", { name: /ابدأ التسوية/ }).first().click(); }
+  await p.getByRole("heading", { name: /استيراد كشف الحساب/ }).waitFor({ timeout: 15000 });
+  await p.getByRole("textbox", { name: /استيراد كشف الحساب/ }).fill("2026-01-01,1.00,x");
+  await p.getByRole("button", { name: /عاين المطابقة/ }).click();
+  await p.getByRole("status").filter({ hasText: /سطر في الكشف/ }).first().waitFor({ timeout: 10000 });
+});
+await step("J20 fixed assets: the physical-count tab and the run-reversal column render", async () => {
+  await p.goto(`${BASE}/assets`, { waitUntil: "networkidle" });
+  await p.getByRole("tab", { name: "الجرد" }).click(); await p.waitForLoadState("networkidle");
+  expect(await p.locator(".page-container").innerText().then((x) => /علّم كل أصل اتلاقى/.test(x)), "count tab empty");
+  await p.getByRole("tab", { name: "الإهلاك الشهري" }).click(); await p.waitForLoadState("networkidle");
+  await p.getByRole("heading", { name: "قيود الإهلاك" }).first().waitFor();
+});
 await ctx.close();
 
 // --- Tablet: finance screens fit without sideways scrolling ------------------------------

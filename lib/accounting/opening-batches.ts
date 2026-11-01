@@ -41,6 +41,7 @@ import { postJournal, type PostLine } from "@/lib/accounting/ledger";
 
 const D = (v: Prisma.Decimal.Value | null | undefined) => new Prisma.Decimal(v ?? 0);
 const r2 = (d: Prisma.Decimal) => d.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+const q4 = (d: Prisma.Decimal) => d.toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP);
 const isoDate = (label: string) => z.string().refine(isValidISODate, `${label} لازم يكون YYYY-MM-DD`);
 const num = (label: string, opts: { signed?: boolean; allowZero?: boolean; dp?: number } = {}) =>
   z.union([z.number(), z.string()]).transform((v, ctx) => {
@@ -95,7 +96,9 @@ async function lineEffect(db: Tx | typeof prisma, l: LineInput, batch: { kind: s
     const p = await db.stockProduct.findUnique({ where: { id: l.product_id }, select: { id: true, active: true, name: true } });
     if (!p?.active) throw new ApiError(404, "الصنف مش موجود أو موقوف");
     if (l.expiry_date && l.expiry_date < batch.cutoverDate) throw new ApiError(400, `"${p.name}": دفعة منتهية الصلاحية قبل تاريخ الافتتاح — مش رصيد`);
-    const value = r2(l.quantity.times(l.unit_cost));
+    // Valued as the stock ledger values it (4 places per movement); the batch total is rounded
+    // once to cents, the way the inventory posting rounds the document's value.
+    const value = q4(l.quantity.times(l.unit_cost));
     const inv = await db.account.findUniqueOrThrow({ where: { systemKey: "inventory" } });
     return { debit: value, credit: D(0), accounts: [{ accountId: inv.id, amount: value }] };
   }
@@ -210,7 +213,7 @@ export async function validateBatch(id: string, db: Tx | typeof prisma = prisma)
     }
   }
   const accounts = await db.account.findMany({ where: { id: { in: [...byAccount.keys()] } }, select: { id: true, code: true, name: true, nameAr: true, type: true } });
-  const tb = accounts.map((a) => { const v = byAccount.get(a.id)!; return { account: a, debit: v.gt(0) ? v.toFixed(2) : "0.00", credit: v.lt(0) ? v.negated().toFixed(2) : "0.00" }; }).sort((x, y) => x.account.code.localeCompare(y.account.code));
+  const tb = accounts.map((a) => { const v = r2(byAccount.get(a.id)!); return { account: a, debit: v.gt(0) ? v.toFixed(2) : "0.00", credit: v.lt(0) ? v.negated().toFixed(2) : "0.00" }; }).sort((x, y) => x.account.code.localeCompare(y.account.code));
   const debit = tb.reduce((s, r) => s.plus(r.debit), D(0));
   const credit = tb.reduce((s, r) => s.plus(r.credit), D(0));
   const residual = debit.minus(credit);

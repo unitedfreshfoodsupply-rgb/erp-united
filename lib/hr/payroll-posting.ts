@@ -93,6 +93,16 @@ async function buildPosting(db: Db, run: { id: string; period: string; number: s
   const componentIds = [...new Set(lines.map((l) => l.payComponentId).filter((x): x is string => !!x))];
   const components = new Map((await db.payComponent.findMany({ where: { id: { in: componentIds } }, include: { expenseAccount: true, liabilityAccount: true } })).map((c) => [c.id, c]));
   const advances = await db.account.findFirst({ where: { systemKey: "employee_advances" } });
+  // Cost centers: an employee's salary cost goes to the active cost center linked to their
+  // department (CostCenter.departmentId), when one is linked; otherwise it carries none.
+  // Nothing is allocated unless an accountant linked a center to the department.
+  const empIds = [...new Set(lines.map((l) => l.runEmployee.employeeId))];
+  const emps = empIds.length ? await db.employee.findMany({ where: { id: { in: empIds } }, select: { id: true, departmentId: true } }) : [];
+  const deptIds = [...new Set(emps.map((e) => e.departmentId).filter((x): x is string => !!x))];
+  const centers = deptIds.length ? await db.costCenter.findMany({ where: { departmentId: { in: deptIds }, active: true }, orderBy: { code: "asc" }, select: { id: true, departmentId: true } }) : [];
+  const ccOfDept = new Map<string, string>();
+  for (const c of centers) if (c.departmentId && !ccOfDept.has(c.departmentId)) ccOfDept.set(c.departmentId, c.id);
+  const ccOfEmp = new Map(emps.map((e) => [e.id, e.departmentId ? ccOfDept.get(e.departmentId) ?? null : null]));
 
   const push = (side: "debit" | "credit", account: AccountRow | null | undefined, amount: Prisma.Decimal, label: string, component: string | null, party?: { type: "employee"; id: string }) => {
     preview.push({ side, role: component ? "component" : "net", accountId: account?.id ?? null, accountCode: account?.code ?? null, accountName: account?.name ?? null, accountNameAr: account?.nameAr ?? null, amount: amount.toFixed(2), label, component });
@@ -100,7 +110,7 @@ async function buildPosting(db: Db, run: { id: string; period: string; number: s
   };
 
   // Component lines, summed per component and kind; recovery stays per employee.
-  const groups = new Map<string, { kind: string; code: string; nameAr: string; componentId: string | null; amount: Prisma.Decimal }>();
+  const groups = new Map<string, { kind: string; code: string; nameAr: string; componentId: string | null; amount: Prisma.Decimal; byCenter: Map<string, Prisma.Decimal> }>();
   const recoveries = new Map<string, Prisma.Decimal>();
   for (const l of lines) {
     if (l.kind === "recovery") {
@@ -108,10 +118,18 @@ async function buildPosting(db: Db, run: { id: string; period: string; number: s
       continue;
     }
     const key = `${l.kind}:${l.payComponentId ?? l.code}`;
-    const g = groups.get(key) ?? { kind: l.kind, code: l.code, nameAr: l.nameAr, componentId: l.payComponentId, amount: ZERO };
+    const g = groups.get(key) ?? { kind: l.kind, code: l.code, nameAr: l.nameAr, componentId: l.payComponentId, amount: ZERO, byCenter: new Map() };
     g.amount = g.amount.plus(l.amount);
+    const cc = ccOfEmp.get(l.runEmployee.employeeId) ?? "";
+    g.byCenter.set(cc, (g.byCenter.get(cc) ?? ZERO).plus(l.amount));
     groups.set(key, g);
   }
+  // An expense debit: one preview line, one posted line per cost center.
+  const pushExpense = (account: AccountRow | null | undefined, g: { amount: Prisma.Decimal; byCenter: Map<string, Prisma.Decimal> }, label: string, component: string) => {
+    preview.push({ side: "debit", role: "component", accountId: account?.id ?? null, accountCode: account?.code ?? null, accountName: account?.name ?? null, accountNameAr: account?.nameAr ?? null, amount: g.amount.toFixed(2), label, component });
+    if (!account) return;
+    for (const [cc, amount] of [...g.byCenter].sort(([a], [b]) => a.localeCompare(b))) if (!amount.isZero()) post.push({ accountId: account.id, amount, description: label, costCenterId: cc || null });
+  };
   const ORDER: Record<string, number> = { earning: 0, employer_contribution: 1, deduction: 2 };
   for (const g of [...groups.values()].sort((a, b) => ORDER[a.kind] - ORDER[b.kind] || a.code.localeCompare(b.code))) {
     const c = g.componentId ? components.get(g.componentId) : undefined;
@@ -126,7 +144,7 @@ async function buildPosting(db: Db, run: { id: string; period: string; number: s
     if (g.kind === "earning") {
       if (!c.expenseAccount) problems.push({ code: "expense_account_missing", params: { component: c.code } });
       await check(c.expenseAccount, ["expense"]);
-      push("debit", c.expenseAccount, g.amount, label, c.code);
+      pushExpense(c.expenseAccount, g, label, c.code);
     } else if (g.kind === "deduction") {
       const target = c.liabilityAccount ?? c.expenseAccount;
       if (!target) problems.push({ code: "deduction_account_missing", params: { component: c.code } });
@@ -137,7 +155,7 @@ async function buildPosting(db: Db, run: { id: string; period: string; number: s
       if (!c.liabilityAccount) problems.push({ code: "liability_account_missing", params: { component: c.code } });
       await check(c.expenseAccount, ["expense"]);
       await check(c.liabilityAccount, ["liability"]);
-      push("debit", c.expenseAccount, g.amount, label, c.code);
+      pushExpense(c.expenseAccount, g, label, c.code);
       push("credit", c.liabilityAccount, g.amount, label, c.code);
     }
   }
@@ -219,7 +237,7 @@ export async function reverseRun(id: string, body: unknown, actor: ServiceActor)
     const entry = await tx.journalEntry.findUniqueOrThrow({ where: { id: run.journalEntryId! }, include: { lines: true } });
     const rev = await postJournal(tx, {
       date, description: `عكس مسير مرتبات ${run.number}: ${v.reason}`, sourceType: "reversal", sourceId: entry.id, reversalOfId: entry.id,
-      lines: entry.lines.map((l) => ({ accountId: l.accountId, amount: l.credit.minus(l.debit), party: l.partyType ? { type: l.partyType as "employee", id: l.partyId! } : undefined, description: l.description ?? undefined })),
+      lines: entry.lines.map((l) => ({ accountId: l.accountId, amount: l.credit.minus(l.debit), party: l.partyType ? { type: l.partyType as "employee", id: l.partyId! } : undefined, description: l.description ?? undefined, costCenterId: l.costCenterId })),
     }, actor);
     const row = await tx.payrollRun.update({ where: { id }, data: { status: "reversed", reversedAt: new Date(), reversedById: actor.id, reversedBy: actor.name, reversalReason: v.reason, reversalEntryId: rev!.id, version: { increment: 1 } } });
     // The month can be paid again by a new run: its adjustments and attendance go back.
@@ -330,7 +348,7 @@ export async function reversePayment(id: string, body: unknown, actor: ServiceAc
     const entry = await tx.journalEntry.findUniqueOrThrow({ where: { id: p.journalEntryId! }, include: { lines: true } });
     const rev = await postJournal(tx, {
       date, description: `عكس صرف مرتبات ${p.number}: ${v.reason}`, sourceType: "reversal", sourceId: entry.id, reversalOfId: entry.id,
-      lines: entry.lines.map((l) => ({ accountId: l.accountId, amount: l.credit.minus(l.debit), description: l.description ?? undefined })),
+      lines: entry.lines.map((l) => ({ accountId: l.accountId, amount: l.credit.minus(l.debit), party: l.partyType ? { type: l.partyType as "employee", id: l.partyId! } : undefined, description: l.description ?? undefined, costCenterId: l.costCenterId })),
     }, actor);
     const row = await tx.payrollPayment.update({ where: { id }, data: { reversedAt: new Date(), reversedById: actor.id, reversedBy: actor.name, reversalReason: v.reason, reversalEntryId: rev!.id } });
     await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "payroll_payment_reversed", entityType: "payroll_payment", entityId: id, fieldChanged: p.number, oldValue: entry.number, newValue: rev!.number, reason: v.reason, source: "user", deviceId: actor.deviceId }, tx);

@@ -7,6 +7,7 @@ import { ChartView } from "@/components/accounting/ChartView";
 import { VatReturnsView } from "@/components/accounting/VatReturnsView";
 import { PeriodsView } from "@/components/accounting/PeriodsView";
 import { OpeningBatchView } from "@/components/accounting/OpeningBatchView";
+import { ComparativesView } from "@/components/accounting/ComparativesView";
 import { CostCentersView, CostCenterSelect } from "@/components/accounting/CostCentersView";
 import { JournalRequests } from "@/components/accounting/JournalRequests";
 import { controlAccountMovedBy } from "@/lib/accounting/control-accounts";
@@ -32,7 +33,7 @@ import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
  * ledger the documents post to; nothing on this screen is computed twice.
  */
 
-type Tab = "health" | "treasury" | "chart" | "costcenters" | "receipts" | "payments" | "journals" | "trial" | "vat" | "periods" | "reconcile" | "opening";
+type Tab = "health" | "treasury" | "chart" | "costcenters" | "analysis" | "receipts" | "payments" | "journals" | "trial" | "vat" | "periods" | "reconcile" | "opening";
 const yearStart = () => `${todayLocalISO().slice(0, 4)}-01-01`;
 
 // Document source types — translated via t() template key at render time
@@ -116,6 +117,7 @@ export function AccountingView({ initialTab }: { initialTab?: string } = {}) {
       { key: "costcenters" as Tab, label: t("accounting.tab.costcenters") },
       { key: "journals" as Tab, label: t("accounting.tab.journals") },
       { key: "trial" as Tab, label: t("accounting.tab.trial") },
+      { key: "analysis" as Tab, label: t("accounting.tab.analysis") },
       { key: "vat" as Tab, label: t("accounting.tab.vat") },
       { key: "periods" as Tab, label: t("accounting.tab.periods") },
     ] : []),
@@ -127,7 +129,7 @@ export function AccountingView({ initialTab }: { initialTab?: string } = {}) {
     <div className="page-container">
       <h1 className="page-title">{t("accounting.title")}</h1>
       <Tabs value={tab} onChange={setTab} items={items} />
-      {tab === "health" ? <Health /> : tab === "opening" ? <Opening /> : tab === "treasury" ? <TreasuryView /> : tab === "chart" ? <ChartView /> : tab === "costcenters" ? <CostCentersView /> : tab === "receipts" ? <><MoneyIn kind="receipts" />{(full || can("accounting.payments.manage")) && <Refunds kind="customer" />}</> : tab === "payments" ? <><MoneyIn kind="payments" />{(full || can("accounting.receipts.manage")) && <Refunds kind="supplier" />}</> : tab === "journals" ? <Journals /> : tab === "trial" ? <Trial /> : tab === "vat" ? <><VatSummary /><VatReturnsView /></> : tab === "periods" ? <PeriodsView /> : <Reconcile />}
+      {tab === "health" ? <Health /> : tab === "opening" ? <Opening /> : tab === "treasury" ? <TreasuryView /> : tab === "chart" ? <ChartView /> : tab === "costcenters" ? <CostCentersView /> : tab === "analysis" ? <ComparativesView /> : tab === "receipts" ? <><MoneyIn kind="receipts" />{(full || can("accounting.payments.manage")) && <Refunds kind="customer" />}</> : tab === "payments" ? <><MoneyIn kind="payments" />{(full || can("accounting.receipts.manage")) && <Refunds kind="supplier" />}</> : tab === "journals" ? <Journals /> : tab === "trial" ? <Trial /> : tab === "vat" ? <><VatSummary /><VatReturnsView /></> : tab === "periods" ? <PeriodsView /> : <Reconcile />}
     </div>
   );
 }
@@ -595,26 +597,52 @@ function VatSummary() {
   );
 }
 
+type MatchResult = { statementLines: number; statementTotal: string; parseErrors: { row: number; message: string }[]; matched: { statementRow: number; lineId: string; number: string; date: string; amount: string }[]; alreadyCleared: { statementRow: number; lineId: string; number: string }[]; ambiguous: { statementRow: number; candidates: string[] }[]; unmatchedStatement: { statementRow: number; date: string; amount: string; reference: string | null }[]; unmatchedBook: { id: string; date: string; number: string; amount: string }[]; applied: number };
+
 function Reconcile() {
   const toast = useToast();
   const qc = useQueryClient();
   const { t, locale } = useLocale();
   const [form, setForm] = useState({ cash_account_id: "bank_main", statement_date: todayLocalISO(), statement_balance: "" });
   const [recId, setRecId] = useState<string | null>(null);
+  const [csv, setCsv] = useState("");
+  const [match, setMatch] = useState<MatchResult | null>(null);
+  const list = useQuery({ queryKey: ["acc", "recs"], queryFn: () => apiFetch<{ reconciliations: { id: string; status: string; statementDate: string; statementBalance: string; cashAccount: { id: string; code: string; name: string; nameAr: string | null } }[] }>("/api/accounting/reconciliations").then((r) => r.reconciliations), enabled: !recId });
   const rec = useQuery({ queryKey: ["acc", "rec", recId], queryFn: () => apiFetch<{ reconciliation: { status: string; statementBalance: string; clearedBalance: string; difference: string; lines: { id: string; date: string; number: string; description: string; debit: string; credit: string; cleared: boolean }[] } }>(`/api/accounting/reconciliations/${recId}`), enabled: !!recId });
   const mark = async (ids: string[], cleared: boolean) => {
     try { await apiPost(`/api/accounting/reconciliations/${recId}/mark`, { line_ids: ids, cleared }); void qc.invalidateQueries({ queryKey: ["acc", "rec", recId] }); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
   };
+  const runMatch = async (apply: boolean) => {
+    try {
+      const r = await apiPost<{ result: MatchResult }>(`/api/accounting/reconciliations/${recId}/match`, { csv, apply });
+      setMatch(r.result);
+      if (apply) { toast.show(t("rec.toast-applied", { n: String(r.result.applied) }), "success"); void qc.invalidateQueries({ queryKey: ["acc", "rec", recId] }); }
+    } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
+  };
   if (!recId) {
+    const open = (list.data ?? []).filter((x) => x.status === "open");
     return (
-      <section className="card p-4 grid grid-cols-1 sm:grid-cols-4 gap-2">
-        <Field label={t("accounting.rec-account")}><CashAccountSelect value={form.cash_account_id} onChange={(id) => setForm({ ...form, cash_account_id: id })} /></Field>
-        <Field label={t("accounting.rec-statement-date")}><input type="date" className="field" value={form.statement_date} onChange={(e) => setForm({ ...form, statement_date: e.target.value })} /></Field>
-        <Field label={t("accounting.rec-statement-balance")}><input className="field" dir="ltr" inputMode="decimal" value={form.statement_balance} onChange={(e) => setForm({ ...form, statement_balance: e.target.value })} /></Field>
-        <button type="button" className="btn-primary self-end" onClick={async () => {
-          try { const r = await apiPost<{ reconciliation: { id: string } }>("/api/accounting/reconciliations", form); setRecId(r.reconciliation.id); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
-        }}>{t("accounting.button.start-reconcile")}</button>
-      </section>
+      <div className="flex flex-col gap-3">
+        {open.length > 0 && (
+          <section className="card p-3 flex flex-col gap-2" aria-label={t("rec.open-list")}>
+            <h3 className="font-bold text-sm">{t("rec.open-list")}</h3>
+            {open.map((o) => (
+              <div key={o.id} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="flex-1">{localName(o.cashAccount, locale)} · {o.statementDate} · <bdi dir="ltr">{fmtMoney(o.statementBalance)}</bdi></span>
+                <button type="button" className="btn-secondary btn-sm" onClick={() => setRecId(o.id)}>{t("rec.resume")}</button>
+              </div>
+            ))}
+          </section>
+        )}
+        <section className="card p-4 grid grid-cols-1 sm:grid-cols-4 gap-2">
+          <Field label={t("accounting.rec-account")}><CashAccountSelect value={form.cash_account_id} onChange={(id) => setForm({ ...form, cash_account_id: id })} /></Field>
+          <Field label={t("accounting.rec-statement-date")}><input type="date" className="field" value={form.statement_date} onChange={(e) => setForm({ ...form, statement_date: e.target.value })} /></Field>
+          <Field label={t("accounting.rec-statement-balance")}><input className="field" dir="ltr" inputMode="decimal" value={form.statement_balance} onChange={(e) => setForm({ ...form, statement_balance: e.target.value })} /></Field>
+          <button type="button" className="btn-primary self-end" onClick={async () => {
+            try { const r = await apiPost<{ reconciliation: { id: string } }>("/api/accounting/reconciliations", form); setRecId(r.reconciliation.id); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
+          }}>{t("accounting.button.start-reconcile")}</button>
+        </section>
+      </div>
     );
   }
   const r = rec.data?.reconciliation;
@@ -626,6 +654,26 @@ function Reconcile() {
         <div>{t("accounting.rec.book-matched")} <div dir="ltr" className="text-lg font-extrabold">{fmtMoney(r.clearedBalance)}</div></div>
         <div>{t("accounting.rec.difference")} <div dir="ltr" className={`text-lg font-extrabold ${Number(r.difference) ? "text-united-danger" : "text-united-green"}`}>{fmtMoney(r.difference)}</div></div>
       </section>
+      {r.status === "open" && (
+        <section className="card p-3 flex flex-col gap-2" aria-labelledby="rec-import">
+          <h3 id="rec-import" className="font-bold text-sm">{t("rec.import")}</h3>
+          <p className="text-xs text-united-muted">{t("rec.import-help")}</p>
+          <textarea className="field font-mono text-xs" dir="ltr" rows={5} value={csv} onChange={(e) => setCsv(e.target.value)} placeholder={"2026-10-03,1500.00,TRF-881\n2026-10-05,-320.50,CHQ 1042"} aria-label={t("rec.import")} />
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-secondary" disabled={!csv.trim()} onClick={() => runMatch(false)}>{t("rec.preview")}</button>
+            <button type="button" className="btn-primary" disabled={!csv.trim()} onClick={() => runMatch(true)}>{t("rec.apply")}</button>
+          </div>
+          {match && (
+            <div className="text-sm flex flex-col gap-1" role="status">
+              <p>{t("rec.summary", { lines: String(match.statementLines), matched: String(match.matched.length), ambiguous: String(match.ambiguous.length), unmatched: String(match.unmatchedStatement.length) })}</p>
+              {match.alreadyCleared.length > 0 && <p className="text-united-muted">{t("rec.already-cleared", { n: String(match.alreadyCleared.length) })}</p>}
+              {match.parseErrors.length > 0 && <p className="text-united-danger">{t("rec.parse-errors")}: {match.parseErrors.slice(0, 5).map((e) => `#${e.row} ${e.message}`).join(" · ")}</p>}
+              {match.unmatchedStatement.length > 0 && <p className="text-united-warn">{t("rec.unmatched-statement")}: {match.unmatchedStatement.slice(0, 10).map((u) => <bdi key={u.statementRow} dir="ltr" className="me-2">{u.date} {u.amount}{u.reference ? ` ${u.reference}` : ""}</bdi>)}</p>}
+              {match.ambiguous.length > 0 && <p className="text-united-warn">{t("rec.ambiguous-note")}</p>}
+            </div>
+          )}
+        </section>
+      )}
       <ul className="card p-3 flex flex-col divide-y divide-united-dark/5 text-sm font-bold">
         {r.lines.map((l) => (
           <li key={l.id} className="py-1 flex items-center gap-2">

@@ -2096,7 +2096,8 @@ model JournalEntry {
   journalRequest       JournalRequest?
   fiscalYearClosing    FiscalYear?
   assetEvents          AssetEvent[]
-  depreciationRun      DepreciationRun?
+  depreciationRun      DepreciationRun?        @relation("DepreciationRunEntry")
+  depreciationReversal DepreciationRun?        @relation("DepreciationRunReversal")
   depreciationLines    AssetDepreciationLine[]
 
   @@index([date])
@@ -3778,21 +3779,27 @@ model AssetEvent {
 
 /// A month's depreciation: one entry (Dr depreciation / Cr accumulated depreciation, per category).
 model DepreciationRun {
-  id          String   @id @default(cuid())
+  id              String    @id @default(cuid())
   /// DEP-YYYY-####
-  number      String   @unique
+  number          String    @unique
   /// YYYY-MM (a month may have several runs; each asset-month is depreciated once)
-  period      String
-  date        String
-  total       Decimal  @db.Decimal(18, 2)
-  lineCount   Int
-  entryId     String   @unique
-  createdById String?
-  createdBy   String
-  createdAt   DateTime @default(now())
+  period          String
+  date            String
+  total           Decimal   @db.Decimal(18, 2)
+  lineCount       Int
+  entryId         String    @unique
+  createdById     String?
+  createdBy       String
+  createdAt       DateTime  @default(now())
+  /// A run is reversed whole, once (its month still open, nothing later depreciated or disposed).
+  reversedAt      DateTime?
+  reversedBy      String?
+  reversalReason  String?
+  reversalEntryId String?   @unique
 
-  entry JournalEntry            @relation(fields: [entryId], references: [id], onDelete: Restrict)
-  lines AssetDepreciationLine[]
+  entry         JournalEntry            @relation("DepreciationRunEntry", fields: [entryId], references: [id], onDelete: Restrict)
+  reversalEntry JournalEntry?           @relation("DepreciationRunReversal", fields: [reversalEntryId], references: [id], onDelete: Restrict)
+  lines         AssetDepreciationLine[]
 
   @@index([period])
 }
@@ -3808,13 +3815,17 @@ model AssetDepreciationLine {
   accumulatedAfter Decimal  @db.Decimal(18, 2)
   entryId          String
   createdAt        DateTime @default(now())
+  /// Set when its run is reversed; a reversed line no longer counts, and the month may be depreciated again.
+  reversed         Boolean  @default(false)
 
   asset         FixedAsset       @relation(fields: [assetId], references: [id], onDelete: Restrict)
   run           DepreciationRun? @relation(fields: [runId], references: [id], onDelete: Restrict)
   disposalEvent AssetEvent?      @relation(fields: [disposalEventId], references: [id], onDelete: Restrict)
   entry         JournalEntry     @relation(fields: [entryId], references: [id], onDelete: Restrict)
 
-  @@unique([assetId, period])
+  // One live depreciation per asset and month: a partial unique index in the migration
+  // ("AssetDepreciationLine_assetId_period_key" WHERE NOT "reversed").
+  @@index([assetId, period])
   @@index([runId])
 }
 

@@ -26,7 +26,7 @@ type Category = { id: string; code: string; name: string; nameAr: string; deprec
 type Named = { id: string; code?: string; name: string; nameAr?: string | null };
 type Asset = { id: string; number: string; name: string; nameAr: string | null; status: "draft" | "in_service" | "disposed"; category: Named & { depreciable: boolean }; acquisitionDate: string; inServiceDate: string | null; cost: string; accumulated: string; bookValue: string; residualValue: string; usefulLifeMonths: number; method: string; location: string | null; warehouse: Named | null; custodian: Named | null; vehicle: { id: string; code: string; plate: string } | null; plateNumber: string | null; serialNumber: string | null; fullyDepreciated: boolean; version: number; disposedDate: string | null };
 type AssetDetail = Asset & { events: { id: string; type: string; date: string; costDelta: string; accumulatedDelta: string; proceeds: string | null; gainLoss: string | null; reason: string | null; createdBy: string; entry: { number: string } | null }[]; depreciation: { period: string; amount: string; accumulatedAfter: string }[]; schedule: { period: string; amount: string; bookValue: string }[] };
-type Tab = "register" | "categories" | "depreciation" | "reports";
+type Tab = "register" | "categories" | "depreciation" | "counts" | "reports";
 
 export function AssetsView() {
   const { t } = useLocale();
@@ -34,8 +34,8 @@ export function AssetsView() {
   return (
     <div className="page-container">
       <h1 className="page-title">{t("assets.title")}</h1>
-      <Tabs value={tab} onChange={setTab} items={[{ key: "register", label: t("assets.tab.register") }, { key: "categories", label: t("assets.tab.categories") }, { key: "depreciation", label: t("assets.tab.depreciation") }, { key: "reports", label: t("assets.tab.reports") }]} />
-      {tab === "register" ? <Register /> : tab === "categories" ? <Categories /> : tab === "depreciation" ? <Depreciation /> : <Reports />}
+      <Tabs value={tab} onChange={setTab} items={[{ key: "register", label: t("assets.tab.register") }, { key: "categories", label: t("assets.tab.categories") }, { key: "depreciation", label: t("assets.tab.depreciation") }, { key: "counts", label: t("assets.tab.counts") }, { key: "reports", label: t("assets.tab.reports") }]} />
+      {tab === "register" ? <Register /> : tab === "categories" ? <Categories /> : tab === "depreciation" ? <Depreciation /> : tab === "counts" ? <Counts /> : <Reports />}
     </div>
   );
 }
@@ -323,7 +323,7 @@ function Depreciation() {
   const qc = useQueryClient();
   const [period, setPeriod] = useState(todayLocalISO().slice(0, 7));
   const pv = useQuery({ queryKey: ["assets", "dep-preview", period], queryFn: () => apiFetch<{ preview: { rows: { assetId: string; number: string; name: string; nameAr: string | null; months: string[]; amount: string }[]; total: string; runs: string[] } }>(`/api/assets/depreciation?period=${period}`).then((r) => r.preview), enabled: /^\d{4}-\d{2}$/.test(period) });
-  const runs = useQuery({ queryKey: ["assets", "runs"], queryFn: () => apiFetch<{ runs: { id: string; number: string; period: string; date: string; total: string; lineCount: number; entry: { number: string } }[] }>("/api/assets/depreciation/runs").then((r) => r.runs) });
+  const runs = useQuery({ queryKey: ["assets", "runs"], queryFn: () => apiFetch<{ runs: { id: string; number: string; period: string; date: string; total: string; lineCount: number; entry: { number: string }; reversedAt: string | null; reversedBy: string | null; reversalReason: string | null; reversalEntry: { number: string } | null }[] }>("/api/assets/depreciation/runs").then((r) => r.runs) });
   return (
     <div className="flex flex-col gap-3">
       <div className="card p-4 flex flex-col gap-2">
@@ -350,8 +350,20 @@ function Depreciation() {
       {!runs.data?.length ? <EmptyState icon="📅" title={t("assets.no-runs")} /> : (
         <div className="card overflow-x-auto">
           <table className="data-table">
-            <thead><tr><th>{t("treasury.col.number")}</th><th>{t("assets.col.month")}</th><th className="num">{t("treasury.field.amount")}</th><th className="num">{t("assets.col.lines")}</th><th>{t("assets.col.entry")}</th></tr></thead>
-            <tbody>{runs.data.map((r) => <tr key={r.id}><td><bdi dir="ltr">{r.number}</bdi></td><td dir="ltr">{r.period}</td><td className="num" dir="ltr">{fmtMoney(r.total)}</td><td className="num">{r.lineCount}</td><td><bdi dir="ltr">{r.entry.number}</bdi></td></tr>)}</tbody>
+            <thead><tr><th>{t("treasury.col.number")}</th><th>{t("assets.col.month")}</th><th className="num">{t("treasury.field.amount")}</th><th className="num">{t("assets.col.lines")}</th><th>{t("assets.col.entry")}</th><th>{t("treasury.col.status")}</th></tr></thead>
+            <tbody>{runs.data.map((r) => (
+              <tr key={r.id} className={r.reversedAt ? "opacity-60" : ""}>
+                <td><bdi dir="ltr">{r.number}</bdi></td><td dir="ltr">{r.period}</td><td className="num" dir="ltr">{fmtMoney(r.total)}</td><td className="num">{r.lineCount}</td><td><bdi dir="ltr">{r.entry.number}</bdi>{r.reversalEntry && <> · <bdi dir="ltr">{r.reversalEntry.number}</bdi></>}</td>
+                <td>{r.reversedAt ? <span title={r.reversalReason ?? ""}>{t("assets.run-reversed", { by: r.reversedBy ?? "" })}</span> : can("accounting.assets.manage") && (
+                  <button type="button" className="btn-secondary btn-sm" onClick={async () => {
+                    const reason = await dialogs.prompt({ title: t("assets.reverse-run", { n: r.number }), label: t("assets.reverse-reason"), required: true });
+                    if (!reason) return;
+                    try { await apiPost(`/api/assets/depreciation/runs/${r.id}/reverse`, { reason }); toast.show(t("assets.toast-run-reversed"), "success"); void qc.invalidateQueries({ queryKey: ["assets"] }); }
+                    catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
+                  }}>{t("assets.reverse")}</button>
+                )}</td>
+              </tr>
+            ))}</tbody>
           </table>
         </div>
       )}
@@ -388,6 +400,64 @@ function Reports() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type CountRow = { assetId: string; number: string; name: string; nameAr: string | null; location: string | null; bookValue: string; lastCount: { date: string; by: string; found: boolean | null; condition: string | null; location: string | null } | null; flag: string };
+
+/** Physical count: tick what was found, its condition and where; the report flags what was not. Nothing is written off here. */
+function Counts() {
+  const { t, locale } = useLocale();
+  const { can } = usePermissions();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["assets", "counts"], queryFn: () => apiFetch<{ report: { rows: CountRow[]; summary: Record<string, number | string> } }>("/api/assets/counts").then((r) => r.report) });
+  const [date, setDate] = useState(todayLocalISO());
+  const [marks, setMarks] = useState<Record<string, { found: boolean; condition: string; location: string }>>({});
+  const [key, setKey] = useState(() => newClientKey());
+  const rows = q.data?.rows ?? [];
+  const mark = (id: string, patch: Partial<{ found: boolean; condition: string; location: string }>) => setMarks((m) => ({ ...m, [id]: { ...{ found: true, condition: "good", location: "" }, ...m[id], ...patch } }));
+  const s = q.data?.summary;
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-united-muted">{t("assets.count-explain")}</p>
+      {s && <p className="text-sm font-bold" role="status">{t("assets.count-summary", { assets: String(s.assets), ok: String(s.ok), never: String(s.neverCounted), missing: String(s.missing), damaged: String(Number(s.damaged) + Number(s.unusable)), elsewhere: String(s.elsewhere) })}</p>}
+      {q.isLoading ? <LoadingState /> : !rows.length ? <EmptyState icon="🏷️" title={t("assets.count-empty")} /> : (
+        <div className="card overflow-x-auto">
+          <table className="data-table">
+            <thead><tr><th>{t("treasury.col.number")}</th><th>{t("assets.col.name")}</th><th>{t("assets.count-last")}</th><th>{t("assets.count-flag")}</th>{can("accounting.assets.manage") && <><th>{t("assets.count-found")}</th><th>{t("assets.count-condition")}</th><th>{t("assets.count-location")}</th></>}</tr></thead>
+            <tbody>
+              {rows.map((r) => {
+                const m = marks[r.assetId];
+                return (
+                  <tr key={r.assetId}>
+                    <td><bdi dir="ltr">{r.number}</bdi></td><td>{localName(r, locale)}</td>
+                    <td>{r.lastCount ? <>{r.lastCount.date} · {r.lastCount.by}</> : "—"}</td>
+                    <td><StatusPill tone={r.flag === "ok" ? "success" : r.flag === "missing" || r.flag === "unusable" ? "danger" : "warn"}>{t(`assets.count-flag.${r.flag}`)}</StatusPill></td>
+                    {can("accounting.assets.manage") && <>
+                      <td><select className="field" aria-label={`${t("assets.count-found")} ${r.number}`} value={m ? (m.found ? "yes" : "no") : ""} onChange={(e) => e.target.value ? mark(r.assetId, { found: e.target.value === "yes" }) : setMarks((x) => { const y = { ...x }; delete y[r.assetId]; return y; })}><option value="">—</option><option value="yes">{t("assets.count-yes")}</option><option value="no">{t("assets.count-no")}</option></select></td>
+                      <td><select className="field" aria-label={`${t("assets.count-condition")} ${r.number}`} disabled={!m?.found} value={m?.condition ?? "good"} onChange={(e) => mark(r.assetId, { condition: e.target.value })}>{["good", "damaged", "unusable"].map((c) => <option key={c} value={c}>{t(`assets.count-condition.${c}`)}</option>)}</select></td>
+                      <td><input className="field" aria-label={`${t("assets.count-location")} ${r.number}`} disabled={!m?.found} placeholder={r.location ?? ""} value={m?.location ?? ""} onChange={(e) => mark(r.assetId, { location: e.target.value })} /></td>
+                    </>}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {can("accounting.assets.manage") && rows.length > 0 && (
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label={t("assets.count-date")}><input type="date" className="field" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <button type="button" className="btn-primary" disabled={!Object.keys(marks).length} onClick={async () => {
+            try {
+              await apiPost("/api/assets/counts", { date, idempotency_key: key, lines: Object.entries(marks).map(([asset_id, m]) => ({ asset_id, found: m.found, ...(m.found ? { condition: m.condition, ...(m.location.trim() ? { location: m.location.trim() } : {}) } : {}) })) });
+              toast.show(t("assets.count-saved"), "success"); setMarks({}); setKey(newClientKey()); void qc.invalidateQueries({ queryKey: ["assets"] });
+            } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
+          }}>{t("assets.count-save", { n: String(Object.keys(marks).length) })}</button>
         </div>
       )}
     </div>

@@ -35,9 +35,9 @@ export function summarizeVatRows(rows: { taxCode: string; rate: string | Prisma.
   };
 }
 
-export async function vatSummary(from: string, to: string) {
+export async function vatSummary(from: string, to: string, db: Pick<typeof prisma, "$queryRaw" | "taxRate"> = prisma) {
   if (!isValidISODate(from) || !isValidISODate(to) || from > to) throw new ApiError(400, "فترة ملخص الضريبة غير صالحة");
-  const rows = await prisma.$queryRaw<{ taxCode: string; rate: Prisma.Decimal; outputBase: Prisma.Decimal; outputTax: Prisma.Decimal; inputBase: Prisma.Decimal; inputTax: Prisma.Decimal }[]>`
+  const rows = await db.$queryRaw<{ taxCode: string; rate: Prisma.Decimal; outputBase: Prisma.Decimal; outputTax: Prisma.Decimal; inputBase: Prisma.Decimal; inputTax: Prisma.Decimal }[]>`
     SELECT d."taxCode", d."rate",
       coalesce(sum(d."outputBase"), 0) AS "outputBase",
       coalesce(sum(d."outputTax"), 0) AS "outputTax",
@@ -73,7 +73,7 @@ export async function vatSummary(from: string, to: string) {
     ) d
     GROUP BY d."taxCode", d."rate"
     ORDER BY d."taxCode", d."rate"`;
-  const ledgerRows = await prisma.$queryRaw<{ systemKey: string; debit: Prisma.Decimal; credit: Prisma.Decimal }[]>`
+  const ledgerRows = await db.$queryRaw<{ systemKey: string; debit: Prisma.Decimal; credit: Prisma.Decimal }[]>`
     SELECT a."systemKey", coalesce(sum(l."debit"), 0) AS debit, coalesce(sum(l."credit"), 0) AS credit
     FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId" JOIN "Account" a ON a."id" = l."accountId"
     WHERE a."systemKey" IN ('vat_input', 'vat_output') AND e."date" >= ${from} AND e."date" <= ${to} AND e."sourceType" <> 'vat_settlement'
@@ -85,7 +85,7 @@ export async function vatSummary(from: string, to: string) {
     inputDebit: (byKey.get("vat_input")?.debit ?? zero).toString(), inputCredit: (byKey.get("vat_input")?.credit ?? zero).toString(),
   });
   const codes = [...new Set(rows.map((r) => r.taxCode))];
-  const taxRates = await prisma.taxRate.findMany({ where: { code: { in: codes } }, select: { code: true, name: true, nameAr: true, rate: true } });
+  const taxRates = await db.taxRate.findMany({ where: { code: { in: codes } }, select: { code: true, name: true, nameAr: true, rate: true } });
   const names = new Map(taxRates.map((t) => [t.code, t]));
   return {
     from, to, ...summary,

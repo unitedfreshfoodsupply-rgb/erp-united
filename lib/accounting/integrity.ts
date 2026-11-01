@@ -184,7 +184,7 @@ export async function integrityReport() {
         OR (e."sourceType" = 'asset_acquisition' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."entryId" = e."id" AND d."type" = 'acquisition'))
         OR (e."sourceType" = 'asset_improvement' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."entryId" = e."id" AND d."type" = 'improvement'))
         OR (e."sourceType" = 'asset_disposal' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."id" = e."sourceId" AND d."entryId" = e."id"))
-        OR (e."sourceType" = 'asset_depreciation' AND NOT EXISTS (SELECT 1 FROM "DepreciationRun" d WHERE d."id" = e."sourceId" AND d."entryId" = e."id"))
+        OR (e."sourceType" = 'asset_depreciation' AND NOT EXISTS (SELECT 1 FROM "DepreciationRun" d WHERE (d."id" = e."sourceId" AND d."entryId" = e."id") OR (d."id" || ':reversal' = e."sourceId" AND d."reversalEntryId" = e."id")))
         OR (e."sourceType" = 'year_end_close' AND NOT EXISTS (SELECT 1 FROM "FiscalYear" d WHERE e."sourceId" LIKE d."id" || ':%'))
         OR (e."sourceType" = 'year_end_reopen' AND NOT EXISTS (SELECT 1 FROM "FiscalYear" d WHERE e."sourceId" LIKE d."id" || ':%'))
         OR (e."sourceType" = 'vat_settlement' AND NOT EXISTS (SELECT 1 FROM "VatReturn" d WHERE (d."entryId" = e."id" AND d."id" = e."sourceId") OR (d."voidEntryId" = e."id" AND 'void:' || d."id" = e."sourceId")))

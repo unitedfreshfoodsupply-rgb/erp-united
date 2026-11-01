@@ -152,6 +152,15 @@ const CF_CLASSIFY: Record<string, "operating" | "investing" | "financing"> = {
   capital: "financing", retained_earnings: "financing", opening_equity: "financing",
 };
 
+/**
+ * Opening-balance entries: party/GL openings, opening batches, and every entry with a line on
+ * opening equity (opening stock valuation, reversals of openings). Opening equity is only ever
+ * the counterpart of balances brought over at go-live.
+ */
+const OPENING_ENTRIES = Prisma.sql`
+  SELECT oe."id" FROM "JournalEntry" oe WHERE oe."sourceType" IN ('opening_balance', 'opening_batch')
+  UNION SELECT ol."entryId" FROM "JournalLine" ol JOIN "Account" oa ON oa."id" = ol."accountId" WHERE oa."systemKey" = 'opening_equity'`;
+
 /** System keys for cash & bank accounts (whose balance change is the target). */
 const CASH_ACCOUNT_KEYS = new Set(["cash", "bank"]);
 
@@ -192,7 +201,8 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
     prisma.$queryRaw<{ accountId: string; balance: Prisma.Decimal }[]>`
       SELECT l."accountId", coalesce(sum(l."debit" - l."credit"), 0) AS balance
       FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId"
-      WHERE e."date" <= ${fromDay} AND e."sourceType" NOT IN ('year_end_close', 'year_end_reopen')
+      WHERE e."sourceType" NOT IN ('year_end_close', 'year_end_reopen')
+        AND (e."date" <= ${fromDay} OR (e."date" <= ${to} AND e."id" IN (${OPENING_ENTRIES})))
       GROUP BY l."accountId"`,
     prisma.$queryRaw<{ accountId: string; balance: Prisma.Decimal }[]>`
       SELECT l."accountId", coalesce(sum(l."debit" - l."credit"), 0) AS balance
@@ -202,6 +212,16 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
   ]);
   // Year-end closing entries only move P&L balances into retained earnings — no cash, no
   // working capital — so they are left out of both snapshots (net income still counts once).
+  // Opening balances recorded inside the range (a cut-over during the period) are the
+  // starting position, not cash that came in: they count in the opening snapshot whatever
+  // their date, so neither the opening cash nor its opening-equity counterpart shows as a flow.
+  // An opening that also brings a year-to-date result over (revenue/expense lines) is in net
+  // income too; that part is taken back out below as a non-cash adjustment.
+  const [{ openingEntries, openingPl }] = await prisma.$queryRaw<{ openingEntries: bigint; openingPl: Prisma.Decimal | null }[]>`
+    SELECT count(DISTINCT e."id") AS "openingEntries",
+      coalesce(sum(CASE WHEN a."type" IN ('revenue', 'expense') THEN l."credit" - l."debit" ELSE 0 END), 0) AS "openingPl"
+    FROM "JournalEntry" e JOIN "JournalLine" l ON l."entryId" = e."id" JOIN "Account" a ON a."id" = l."accountId"
+    WHERE e."date" BETWEEN ${from} AND ${to} AND e."id" IN (${OPENING_ENTRIES})`;
   // Period change per account: closing − opening = debit-style change.
   // We store the signed balance (debit minus credit) at each point.
   const open = new Map(openRows.map((r) => [r.accountId, D(r.balance)]));
@@ -241,7 +261,7 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
   //   Financing CF = decrease in financing assets + increase in financing liabilities
 
   const operating = await operatingAccountIds();
-  type CfLine = { kind: "net_income" | "change" | "adjustment"; label: string; amount: string; accountCode?: string; accountName?: string; accountNameAr?: string | null; unclassified?: boolean; adjustment?: "disposal_noncash" | "disposal_proceeds" };
+  type CfLine = { kind: "net_income" | "change" | "adjustment"; label: string; amount: string; accountCode?: string; accountName?: string; accountNameAr?: string | null; unclassified?: boolean; adjustment?: "disposal_noncash" | "disposal_proceeds" | "opening_result" };
   const unclassified: { code: string; name: string; nameAr: string }[] = [];
   const sections: Record<string, { lines: CfLine[]; total: string }> = {
     operating: { lines: [], total: "0.00" },
@@ -322,6 +342,10 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
     sections.investing.lines.push({ kind: "adjustment", adjustment: "disposal_proceeds", label: "استبعاد أصول: الفرق بين التكلفة وثمن البيع", amount: shift.negated().toFixed(2) });
   }
 
+  if (!D(openingPl ?? 0).isZero()) {
+    sections.operating.lines.push({ kind: "adjustment", adjustment: "opening_result", label: "نتيجة مرحّلة ضمن الأرصدة الافتتاحية (غير نقدية)", amount: D(openingPl ?? 0).negated().toFixed(2) });
+  }
+
   // Compute section totals.
   for (const key of ["operating", "investing", "financing"] as const) {
     const sum = sections[key].lines.reduce((s, l) => s.plus(D(l.amount)), D(0));
@@ -361,6 +385,7 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
     cashAccounts: cashAccountEntries,
     cashTotal: { opening: totalOpening, closing: totalClosing, change: totalChange },
     unclassified,
+    openingEntriesInRange: Number(openingEntries),
     _balanced: netCashFlow.toFixed(2) === totalChange,
   };
 }

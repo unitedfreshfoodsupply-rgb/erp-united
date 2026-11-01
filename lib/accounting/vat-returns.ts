@@ -12,7 +12,7 @@ import { isValidISODate } from "@/lib/dates";
 import { nextDocumentNumber } from "@/lib/core/sequences";
 import { optText, parse, text } from "@/lib/core/validation";
 import type { ServiceActor } from "@/lib/core/actor";
-import { postJournal } from "@/lib/accounting/ledger";
+import { ensureOpenPeriod, postJournal } from "@/lib/accounting/ledger";
 import { vatSummary } from "@/lib/accounting/vat-summary";
 
 /**
@@ -52,12 +52,12 @@ async function vatBalances(db: Tx | typeof prisma, asOf: string) {
 }
 
 /** What filing a return for [from, to] would post — the screen's preview and the filing's own figures. */
-export async function previewVatReturn(from: string, to: string) {
+export async function previewVatReturn(from: string, to: string, db: Tx | typeof prisma = prisma) {
   if (!isValidISODate(from) || !isValidISODate(to) || from > to) throw new ApiError(400, "فترة الإقرار غير صالحة");
   const [summary, bal, last] = await Promise.all([
-    vatSummary(from, to),
-    vatBalances(prisma, to),
-    prisma.vatReturn.findFirst({ where: { status: { not: "voided" } }, orderBy: { periodTo: "desc" }, select: { number: true, periodTo: true } }),
+    vatSummary(from, to, db),
+    vatBalances(db, to),
+    db.vatReturn.findFirst({ where: { status: { not: "voided" } }, orderBy: { periodTo: "desc" }, select: { number: true, periodTo: true } }),
   ]);
   const output = Prisma.Decimal.max(bal.output, 0);
   const input = Prisma.Decimal.max(bal.input, 0);
@@ -83,8 +83,16 @@ export async function fileVatReturn(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.manage");
   const v = parse(z.object({ period_from: dateField("بداية الفترة"), period_to: dateField("نهاية الفترة"), reference: optText("رقم الإقرار عند المصلحة", 100).optional(), notes: optText("ملاحظات", 1000).optional() }), input);
   return inTx(async (tx) => {
+    // The settlement is dated on the period's last day while that month is open, else on the
+    // filing day (a month is normally closed before its return is filed). Lock order is the
+    // same as every VAT posting — the month first, then the VAT lock — so the two never wait
+    // on each other in a circle; and since every VAT posting takes the VAT lock, the balances
+    // read below (in this transaction, after the lock) are final for the period.
+    const lastMonth = await tx.accountingPeriod.findUnique({ where: { code: v.period_to.slice(0, 7) }, select: { status: true } });
+    const entryDate = lastMonth?.status === "closed" ? todayLocalISO() : v.period_to;
+    await ensureOpenPeriod(tx, entryDate);
     await advisoryXactLock(tx, "accounting:vat-return");
-    const p = await previewVatReturn(v.period_from, v.period_to);
+    const p = await previewVatReturn(v.period_from, v.period_to, tx);
     if (p.problems.includes("period_not_ended")) throw new ApiError(400, "نهاية الفترة لسه مجتش — الإقرار بيتقدّم بعد ما الفترة تخلص");
     if (p.problems.includes("not_contiguous")) throw new ApiError(409, `الإقرار اللي بعده لازم يبدأ ${p.expectedFrom}`);
     if (p.problems.includes("summary_not_reconciled")) throw new ApiError(409, "ملخص الضريبة للفترة مش متطابق مع الأستاذ — راجعه من تبويب ضريبة القيمة المضافة قبل الإقرار");
@@ -93,7 +101,7 @@ export async function fileVatReturn(input: unknown, actor: ServiceActor) {
     const number = await nextDocumentNumber(tx, "accounting.vat_return", v.period_to);
     // A nil return (nothing to set off) posts no entry; the row still locks the period.
     const entry = await postJournal(tx, {
-      date: v.period_to, description: `إقرار ضريبة القيمة المضافة ${number} (${v.period_from} – ${v.period_to})`, sourceType: "vat_settlement", sourceId: id,
+      date: entryDate, description: `إقرار ضريبة القيمة المضافة ${number} (${v.period_from} – ${v.period_to})`, sourceType: "vat_settlement", sourceId: id,
       lines: [{ key: "vat_output", amount: D(p.outputTax) }, { key: "vat_input", amount: D(p.inputUsed).negated() }, { key: "vat_payable", amount: D(p.payable).negated() }],
     }, actor);
     const nothingDue = D(p.payable).isZero();
@@ -144,6 +152,13 @@ export async function voidVatReturn(id: string, input: unknown, actor: ServiceAc
   assertPermission(actor, "accounting.manage");
   const v = parse(z.object({ reason: text("سبب الإلغاء", 500) }), input);
   return inTx(async (tx) => {
+    const head = await tx.vatReturn.findUnique({ where: { id }, select: { periodTo: true } });
+    if (!head) throw new ApiError(404, "الإقرار مش موجود");
+    // Reversed on the return's own date when that month is still open, else today; that month
+    // is locked before the VAT lock (the order every VAT posting uses).
+    const p = await tx.accountingPeriod.findUnique({ where: { code: head.periodTo.slice(0, 7) }, select: { status: true } });
+    const date = p?.status === "closed" ? todayLocalISO() : head.periodTo;
+    await ensureOpenPeriod(tx, date);
     await advisoryXactLock(tx, "accounting:vat-return");
     const r = await tx.vatReturn.findUnique({ where: { id }, include: { entry: { include: { lines: true } } } });
     if (!r) throw new ApiError(404, "الإقرار مش موجود");
@@ -153,16 +168,13 @@ export async function voidVatReturn(id: string, input: unknown, actor: ServiceAc
     if (later) throw new ApiError(409, `فيه إقرار بعده (${later.number}) — الغيه الأول`);
     let voidEntryId: string | null = null;
     if (r.entry) {
-      // Reversed on the return's own date when that month is still open, else today.
-      const p = await tx.accountingPeriod.findUnique({ where: { code: r.periodTo.slice(0, 7) }, select: { status: true } });
-      const date = p?.status === "closed" ? todayLocalISO() : r.periodTo;
       const e = await postJournal(tx, {
         date, description: `إلغاء الإقرار ${r.number}: ${v.reason}`, sourceType: "vat_settlement", sourceId: `void:${r.id}`,
         lines: r.entry.lines.map((l) => ({ accountId: l.accountId, amount: l.credit.minus(l.debit) })),
       }, actor);
       voidEntryId = e?.id ?? null;
     }
-    const updated = await tx.vatReturn.update({ where: { id: r.id, version: r.version }, data: { status: "voided", voidedAt: new Date(), voidedBy: actor.name, voidReason: v.reason, voidEntryId, version: { increment: 1 } } });
+    const updated = await tx.vatReturn.update({ where: { id: r.id, version: r.version }, data: { status: "voided", voidedAt: new Date(), voidedBy: actor.name, voidReason: v.reason, voidEntryId, ...(r.status === "paid" ? { paidAt: null, paidBy: null } : {}), version: { increment: 1 } } });
     await audit(tx, actor, r.id, "vat_return_voided", r.number, v.reason);
     return updated;
   });

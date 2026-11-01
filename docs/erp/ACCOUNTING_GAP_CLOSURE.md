@@ -11,6 +11,10 @@ production database, migration or data was touched.** Status words used:
   and ships switched off or empty.
 - **Pending production deployment**: everything here (see §13).
 
+> An independent adversarial verification followed this report: `ACCOUNTING_VERIFICATION.md`.
+> It lists the defects found (D1–D17) and their fixes, the ledger audit, the migration rehearsal
+> and the configuration checklist.
+
 ## 1. Blueprint findings (from `ACCOUNTING_BLUEPRINT.md`) and their status
 
 | Blueprint item | Status | Where |
@@ -278,17 +282,21 @@ is switched on or filled in:
 8. **VAT return frequency.** Any contiguous period is accepted.
 9. **Foreign currency.** Out of scope; documents remain EGP.
 
-**Not implemented (justified, documented):**
-- **Comparative statements and financial ratios** (blueprint P6).
-- **Bank statement import and matching rules.** Manual matching exists.
-- **Payroll posting by cost centre.** It needs a department → cost centre mapping (decision 3).
-- **Asset sale on credit, or as an e-invoice to ETA.**
-  - A disposal is collected in cash or bank.
-  - If the buyer is a registered business, the sale should be issued as a sales invoice so it
-    reaches ETA. This is a decision with the tax adviser.
-- **Physical asset counts.**
-- **Reversing a depreciation run.** Corrections are prospective, through a change of estimate.
-- **Collections follow-up (dunning).**
+**Follow-up after the independent verification (`ACCOUNTING_VERIFICATION.md`):**
+
+Implemented since:
+- comparative statements and financial ratios;
+- bank-statement import with matching;
+- reversing a depreciation run;
+- payroll posting by cost centre (department → cost centre link);
+- physical asset counts.
+
+Not implemented, and why:
+- **Asset sale on credit, or as an e-invoice to ETA.** This is a tax and legal decision; see
+  verification §6.
+- **Dunning, multi-currency, bank formats other than CSV.** Out of scope.
+
+The full configuration checklist (what management must decide) is in verification §7.
 
 ## 12. Commits (branch `ui/enterprise-ux`)
 `215f4a8` treasury · `e0b9686` VAT returns + journal approval · `a1246a4`, `d904b12` fiscal years ·
@@ -296,38 +304,36 @@ is switched on or filled in:
 idempotency · plus the commit recording these results.
 
 ## 13. Production migration and deployment instructions (NOT executed — needs approval)
-1. **Read-only pre-checks** (Supabase SQL editor):
-   ```sql
-   SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL;            -- expect 69
-   SELECT "accountId", count(*) FROM "CashAccount" GROUP BY 1 HAVING count(*) > 1;      -- expect none (unique index)
-   SELECT code FROM "Account" WHERE code IN ('1700','2250','4300','6400','6500');        -- expect none
-   SELECT key FROM "Permission" WHERE key LIKE 'assets.%';                              -- expect none
-   ```
+1. **Read-only preflight.** Run `psql "$DATABASE_URL" -f scripts/ops/gap-closure-preflight.sql`.
+   Every section must show 0 rows.
+   - It checks the five account codes and system keys the release creates, the parent header
+     accounts, one cash account per GL account, no half-applied objects, the migration history
+     and the journal source types.
+   - Also check that `SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL;`
+     returns 69.
 2. **Back up first.** Confirm the latest Supabase backup and take a logical dump (see
    `RELEASE_ENTERPRISE.md` §4).
 3. **Build** the branch head in a new release directory on the VPS.
-4. **Migrate:** run `npx prisma migrate deploy`. Expect 8 to apply, then confirm with `migrate
-   status`.
+4. **Migrate:** run `npx prisma migrate deploy`. Expect 8 to apply, then confirm with
+   `migrate status`.
 5. **Sync permissions:** run `npm run db:sync-permissions`. This adds 5 permissions; the Super
    Admin holds them automatically.
 6. **Trial-port start and switch,** as in `RELEASE_ENTERPRISE.md` §5. Keep the old PM2 app stopped,
    not deleted.
 7. **Post-deploy checks:**
    - Accounting → Health check is green.
-   - The Cash & Banks tab lists the two existing accounts with their balances.
+   - The Cash & Banks tab lists the existing accounts with their balances.
    - The `/assets` page opens empty.
    - The VAT tab shows "no returns yet".
 8. **Rollback.**
-   - Restart the previous build; it never reads the new tables or columns.
-   - Two database behaviours stay in place while the old build runs:
-     - the widened journal source-type CHECK (a superset, so it accepts everything the old build
-       writes);
-     - the replaced `accounting_line_guard` (it also accepts everything the old build writes,
-       because its cost-centre rule applies only when a cost centre is set).
-   - `vat_period_lock` is inert while no VAT return exists.
-   - A full schema rollback is not needed for the old build. If one were ever required, it means
-     dropping the new tables and columns in reverse order and restoring the previous CHECK and guard
-     bodies from `20261029100000_hr_payroll_posting` and `20261008164713_accounting_core`.
+   - **Application only.** This is always possible: the old build runs on the new schema, because
+     every change is additive and the widened CHECK and the replaced line guard accept everything
+     the old build writes.
+   - **Schema back to 71.** Only before the new features hold data: run
+     `psql -1 -f scripts/ops/gap-closure-rollback.sql`. The script refuses, and changes nothing,
+     once they do.
+     - It was rehearsed on scratch databases: the schema comes back identical to a fresh 71 and
+       the data is unchanged (`scripts/ops/rehearse-gap-closure.sh`; verification §5).
 
 ## 14. Final local validation (1 Nov 2026, isolated test database — not production)
 

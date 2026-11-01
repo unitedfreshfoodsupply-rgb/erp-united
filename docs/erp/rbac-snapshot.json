@@ -323,6 +323,16 @@
       }
     },
     {
+      "method": "GET",
+      "path": "/api/accounting/comparatives",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
       "method": "PATCH",
       "path": "/api/accounting/cost-centers/[id]",
       "gate": {
@@ -751,8 +761,28 @@
       }
     },
     {
+      "method": "POST",
+      "path": "/api/accounting/reconciliations/[id]/match",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
       "method": "GET",
       "path": "/api/accounting/reconciliations/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/reconciliations",
       "gate": {
         "kind": "all",
         "permissions": [
@@ -1251,6 +1281,26 @@
     },
     {
       "method": "GET",
+      "path": "/api/assets/counts",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.assets.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/assets/counts",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.assets.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/assets/depreciation",
       "gate": {
         "kind": "all",
@@ -1262,6 +1312,16 @@
     {
       "method": "POST",
       "path": "/api/assets/depreciation",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.assets.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/assets/depreciation/runs/[id]/reverse",
       "gate": {
         "kind": "all",
         "permissions": [

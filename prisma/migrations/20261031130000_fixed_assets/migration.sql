@@ -94,7 +94,12 @@ BEGIN
   IF (NEW."number", NEW."categoryId", NEW."sourceType", NEW."sourceId", NEW."openingAccumulated", NEW."openingMonthsUsed") IS DISTINCT FROM (OLD."number", OLD."categoryId", OLD."sourceType", OLD."sourceId", OLD."openingAccumulated", OLD."openingMonthsUsed") THEN
     RAISE EXCEPTION 'an asset keeps its number, category and source' USING ERRCODE = 'restrict_violation';
   END IF;
-  IF NEW."accumulated" < OLD."accumulated" AND NEW."status" <> 'disposed' THEN RAISE EXCEPTION 'accumulated depreciation only grows' USING ERRCODE = 'restrict_violation'; END IF;
+  -- Accumulated depreciation only grows — except when a run is reversed, and then only down
+  -- to exactly what the asset's live (non-reversed) depreciation lines add up to.
+  IF NEW."accumulated" < OLD."accumulated" AND NEW."status" <> 'disposed'
+     AND NEW."accumulated" <> NEW."openingAccumulated" + coalesce((SELECT sum("amount") FROM "AssetDepreciationLine" WHERE "assetId" = NEW."id" AND NOT "reversed"), 0) THEN
+    RAISE EXCEPTION 'accumulated depreciation only grows' USING ERRCODE = 'restrict_violation';
+  END IF;
   RETURN NEW;
 END $$ LANGUAGE plpgsql SET search_path = public, extensions, pg_temp;
 REVOKE EXECUTE ON FUNCTION fixed_asset_guard() FROM PUBLIC;
@@ -121,7 +126,7 @@ CREATE TABLE "AssetEvent" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "AssetEvent_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "AssetEvent_type_known" CHECK ("type" IN ('acquisition', 'improvement', 'cost_adjustment', 'placed_in_service', 'transfer', 'disposal', 'opening', 'estimate_change'))
+    CONSTRAINT "AssetEvent_type_known" CHECK ("type" IN ('acquisition', 'improvement', 'cost_adjustment', 'placed_in_service', 'transfer', 'disposal', 'opening', 'estimate_change', 'count'))
 );
 CREATE INDEX "AssetEvent_assetId_idx" ON "AssetEvent"("assetId");
 CREATE INDEX "AssetEvent_type_date_idx" ON "AssetEvent"("type", "date");
@@ -141,17 +146,36 @@ CREATE TABLE "DepreciationRun" (
     "createdById" TEXT,
     "createdBy" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "reversedAt" TIMESTAMP(3),
+    "reversedBy" TEXT,
+    "reversalReason" TEXT,
+    "reversalEntryId" TEXT,
 
     CONSTRAINT "DepreciationRun_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "DepreciationRun_values" CHECK ("period" ~ '^\d{4}-\d{2}$' AND "total" > 0 AND "lineCount" > 0)
+    CONSTRAINT "DepreciationRun_values" CHECK ("period" ~ '^\d{4}-\d{2}$' AND "total" > 0 AND "lineCount" > 0),
+    CONSTRAINT "DepreciationRun_reversal_complete" CHECK (("reversedAt" IS NULL) = ("reversalEntryId" IS NULL) AND ("reversedAt" IS NULL) = ("reversalReason" IS NULL))
 );
 CREATE UNIQUE INDEX "DepreciationRun_number_key" ON "DepreciationRun"("number");
 -- A month may run more than once (an asset placed in service after its first run); what
 -- is unique is one depreciation per asset and month (AssetDepreciationLine below).
 CREATE INDEX "DepreciationRun_period_idx" ON "DepreciationRun"("period");
 CREATE UNIQUE INDEX "DepreciationRun_entryId_key" ON "DepreciationRun"("entryId");
+CREATE UNIQUE INDEX "DepreciationRun_reversalEntryId_key" ON "DepreciationRun"("reversalEntryId");
 ALTER TABLE "DepreciationRun" ADD CONSTRAINT "DepreciationRun_entryId_fkey" FOREIGN KEY ("entryId") REFERENCES "JournalEntry"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-CREATE TRIGGER "DepreciationRun_append_only" BEFORE UPDATE OR DELETE ON "DepreciationRun" FOR EACH ROW EXECUTE FUNCTION sales_append_only();
+ALTER TABLE "DepreciationRun" ADD CONSTRAINT "DepreciationRun_reversalEntryId_fkey" FOREIGN KEY ("reversalEntryId") REFERENCES "JournalEntry"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+-- A run is permanent; the only change it ever takes is being reversed, once.
+CREATE OR REPLACE FUNCTION depreciation_run_guard() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'DepreciationRun is permanent' USING ERRCODE = 'restrict_violation'; END IF;
+  IF OLD."reversedAt" IS NOT NULL THEN RAISE EXCEPTION 'a reversed depreciation run is final' USING ERRCODE = 'restrict_violation'; END IF;
+  IF (NEW."id", NEW."number", NEW."period", NEW."date", NEW."total", NEW."lineCount", NEW."entryId", NEW."createdById", NEW."createdBy", NEW."createdAt")
+     IS DISTINCT FROM (OLD."id", OLD."number", OLD."period", OLD."date", OLD."total", OLD."lineCount", OLD."entryId", OLD."createdById", OLD."createdBy", OLD."createdAt") THEN
+    RAISE EXCEPTION 'a depreciation run keeps what it posted' USING ERRCODE = 'restrict_violation';
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql SET search_path = public, extensions, pg_temp;
+REVOKE EXECUTE ON FUNCTION depreciation_run_guard() FROM PUBLIC;
+CREATE TRIGGER "DepreciationRun_guard" BEFORE UPDATE OR DELETE ON "DepreciationRun" FOR EACH ROW EXECUTE FUNCTION depreciation_run_guard();
 
 CREATE TABLE "AssetDepreciationLine" (
     "id" TEXT NOT NULL,
@@ -163,18 +187,37 @@ CREATE TABLE "AssetDepreciationLine" (
     "accumulatedAfter" DECIMAL(18,2) NOT NULL,
     "entryId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "reversed" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "AssetDepreciationLine_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "AssetDepreciationLine_values" CHECK ("period" ~ '^\d{4}-\d{2}$' AND "amount" > 0 AND "accumulatedAfter" > 0 AND (("runId" IS NULL) <> ("disposalEventId" IS NULL)))
 );
--- One depreciation per asset per month, whatever posted it.
-CREATE UNIQUE INDEX "AssetDepreciationLine_assetId_period_key" ON "AssetDepreciationLine"("assetId", "period");
+-- One live depreciation per asset per month, whatever posted it (a reversed run's lines
+-- step aside so the month can be depreciated again).
+CREATE UNIQUE INDEX "AssetDepreciationLine_assetId_period_key" ON "AssetDepreciationLine"("assetId", "period") WHERE NOT "reversed";
+CREATE INDEX "AssetDepreciationLine_assetId_period_idx" ON "AssetDepreciationLine"("assetId", "period");
 CREATE INDEX "AssetDepreciationLine_runId_idx" ON "AssetDepreciationLine"("runId");
 ALTER TABLE "AssetDepreciationLine" ADD CONSTRAINT "AssetDepreciationLine_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "FixedAsset"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "AssetDepreciationLine" ADD CONSTRAINT "AssetDepreciationLine_runId_fkey" FOREIGN KEY ("runId") REFERENCES "DepreciationRun"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "AssetDepreciationLine" ADD CONSTRAINT "AssetDepreciationLine_disposalEventId_fkey" FOREIGN KEY ("disposalEventId") REFERENCES "AssetEvent"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "AssetDepreciationLine" ADD CONSTRAINT "AssetDepreciationLine_entryId_fkey" FOREIGN KEY ("entryId") REFERENCES "JournalEntry"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-CREATE TRIGGER "AssetDepreciationLine_append_only" BEFORE UPDATE OR DELETE ON "AssetDepreciationLine" FOR EACH ROW EXECUTE FUNCTION sales_append_only();
+-- Append-only; the one change allowed is a run's line being marked reversed (with its run,
+-- never a disposal's catch-up line).
+CREATE OR REPLACE FUNCTION depreciation_line_guard() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'AssetDepreciationLine is append-only' USING ERRCODE = 'restrict_violation'; END IF;
+  IF OLD."reversed" OR NOT NEW."reversed" OR OLD."runId" IS NULL
+     OR (NEW."id", NEW."assetId", NEW."period", NEW."runId", NEW."disposalEventId", NEW."amount", NEW."accumulatedAfter", NEW."entryId", NEW."createdAt")
+        IS DISTINCT FROM (OLD."id", OLD."assetId", OLD."period", OLD."runId", OLD."disposalEventId", OLD."amount", OLD."accumulatedAfter", OLD."entryId", OLD."createdAt") THEN
+    RAISE EXCEPTION 'AssetDepreciationLine is append-only (a run line may only be marked reversed)' USING ERRCODE = 'restrict_violation';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM "DepreciationRun" r WHERE r."id" = NEW."runId" AND r."reversalEntryId" IS NOT NULL) THEN
+    RAISE EXCEPTION 'a line is reversed only with its run' USING ERRCODE = 'restrict_violation';
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql SET search_path = public, extensions, pg_temp;
+REVOKE EXECUTE ON FUNCTION depreciation_line_guard() FROM PUBLIC;
+CREATE TRIGGER "AssetDepreciationLine_guard" BEFORE UPDATE OR DELETE ON "AssetDepreciationLine" FOR EACH ROW EXECUTE FUNCTION depreciation_line_guard();
 
 -- Supplier service bills: a line may buy a new asset of a category, or improve an asset.
 ALTER TABLE "SupplierBillServiceLine" ADD COLUMN "assetCategoryId" TEXT;

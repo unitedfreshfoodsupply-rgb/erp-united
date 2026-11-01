@@ -593,8 +593,12 @@ export async function cashPosition() {
 
 export async function startReconciliation(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.manage");
-  const v = parse(z.object({ cash_account_id: text("الحساب"), statement_date: z.string().refine(isValidISODate, "التاريخ لازم يكون YYYY-MM-DD"), statement_balance: z.union([z.number(), z.string()]) }), input);
-  const balance = D(String(v.statement_balance));
+  const v = parse(z.object({
+    cash_account_id: text("الحساب"),
+    statement_date: z.string().refine(isValidISODate, "التاريخ لازم يكون YYYY-MM-DD"),
+    statement_balance: z.union([z.number(), z.string()]).transform((x) => String(x).trim().replace(/,/g, "")).refine((x) => /^-?\d{1,13}(\.\d{1,2})?$/.test(x), "رصيد كشف الحساب رقم بحد أقصى خانتين عشريتين"),
+  }), input);
+  const balance = D(v.statement_balance);
   return inTx(async (tx) => {
     await advisoryXactLock(tx, `accounting:reconcile:${v.cash_account_id}`);
     await accountOf(tx, v.cash_account_id);
@@ -606,21 +610,31 @@ export async function startReconciliation(input: unknown, actor: ServiceActor) {
   });
 }
 
-export async function getReconciliation(id: string) {
-  const rec = await prisma.bankReconciliation.findUnique({ where: { id }, include: { cashAccount: true } });
+/** Open reconciliations (to resume after a reload) and the latest completed ones. */
+export async function listReconciliations() {
+  const rows = await prisma.bankReconciliation.findMany({ orderBy: [{ status: "desc" }, { statementDate: "desc" }], take: 30, include: { cashAccount: { select: { id: true, code: true, name: true, nameAr: true } } } });
+  return rows.map((r) => ({ id: r.id, status: r.status, statementDate: r.statementDate, statementBalance: r.statementBalance.toFixed(2), cashAccount: r.cashAccount, createdBy: r.createdBy, completedAt: r.completedAt, completedBy: r.completedBy }));
+}
+
+export async function getReconciliation(id: string, db: Tx | typeof prisma = prisma) {
+  const rec = await db.bankReconciliation.findUnique({ where: { id }, include: { cashAccount: true } });
   if (!rec) throw new ApiError(404, "التسوية مش موجودة");
   const accountId = rec.cashAccount.accountId;
-  // Cleared before this reconciliation: lines matched by completed ones.
-  const prior = await prisma.journalLine.aggregate({ where: { accountId, reconciliation: { status: "completed", id: { not: id } } }, _sum: { debit: true, credit: true } });
-  const lines = await prisma.journalLine.findMany({
+  // Cleared = every line matched by a completed reconciliation + the lines ticked in this
+  // one (summed in the database, never from the displayed page of lines).
+  const [prior, mine] = await Promise.all([
+    db.journalLine.aggregate({ where: { accountId, reconciliation: { status: "completed", id: { not: id } } }, _sum: { debit: true, credit: true } }),
+    db.journalLine.aggregate({ where: { accountId, reconciliationId: id }, _sum: { debit: true, credit: true } }),
+  ]);
+  const lines = await db.journalLine.findMany({
     where: { accountId, entry: { date: { lte: rec.statementDate } }, OR: [{ reconciliationId: null }, { reconciliationId: id }] },
     include: { entry: { select: { number: true, date: true, description: true } } },
     orderBy: { entry: { date: "asc" } },
-    take: 1000,
+    take: 2000,
   });
-  const cleared = D(prior._sum.debit ?? 0).minus(prior._sum.credit ?? 0).plus(lines.filter((l) => l.reconciliationId === id).reduce((s, l) => s.plus(l.debit).minus(l.credit), D(0)));
+  const cleared = D(prior._sum.debit ?? 0).minus(prior._sum.credit ?? 0).plus(D(mine._sum.debit ?? 0).minus(mine._sum.credit ?? 0));
   return {
-    id: rec.id, status: rec.status, cashAccount: { id: rec.cashAccount.id, name: rec.cashAccount.name }, statementDate: rec.statementDate, statementBalance: rec.statementBalance.toFixed(2),
+    id: rec.id, status: rec.status, cashAccount: { id: rec.cashAccount.id, name: rec.cashAccount.name, nameAr: rec.cashAccount.nameAr }, statementDate: rec.statementDate, statementBalance: rec.statementBalance.toFixed(2),
     clearedBalance: cleared.toFixed(2), difference: rec.statementBalance.minus(cleared).toFixed(2),
     lines: lines.map((l) => ({ id: l.id, date: l.entry.date, number: l.entry.number, description: l.description ?? l.entry.description, debit: l.debit.toFixed(2), credit: l.credit.toFixed(2), cleared: l.reconciliationId === id })),
   };
@@ -628,26 +642,127 @@ export async function getReconciliation(id: string) {
 
 export async function markReconciled(id: string, input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.manage");
-  const v = parse(z.object({ line_ids: z.array(z.string()).max(1000), cleared: z.boolean() }), input);
+  const v = parse(z.object({ line_ids: z.array(z.string()).max(2000), cleared: z.boolean() }), input);
+  return inTx(async (tx) => {
+    const rec = await tx.bankReconciliation.findUnique({ where: { id }, include: { cashAccount: true } });
+    if (!rec) throw new ApiError(404, "التسوية مش موجودة");
+    await advisoryXactLock(tx, `accounting:reconcile:${rec.cashAccountId}`);
+    return { changed: await markLines(tx, rec, v.line_ids, v.cleared) };
+  });
+}
+
+async function markLines(tx: Tx, rec: { id: string; status: string; statementDate: string; cashAccount: { accountId: string } }, lineIds: string[], cleared: boolean) {
+  const now = await tx.bankReconciliation.findUniqueOrThrow({ where: { id: rec.id }, select: { status: true } });
+  if (now.status !== "open") throw new ApiError(409, "التسوية خلصت");
+  const res = await tx.journalLine.updateMany({
+    where: { id: { in: lineIds }, accountId: rec.cashAccount.accountId, ...(cleared ? { reconciliationId: null, entry: { date: { lte: rec.statementDate } } } : { reconciliationId: rec.id }) },
+    data: { reconciliationId: cleared ? rec.id : null },
+  });
+  return res.count;
+}
+
+/**
+ * Bank statement import: the statement's lines (pasted CSV or JSON) are matched against the
+ * account's uncleared book lines — same signed amount (deposit +, withdrawal −), date within
+ * the tolerance, the closest date first, a reference found in the entry number or text breaks
+ * a tie. A statement line with exactly one best candidate is matched; two equally good
+ * candidates are left for the accountant ("ambiguous"); nothing is guessed. With `apply`
+ * the matched book lines are ticked in the same transaction. The statement itself is not
+ * stored: the reconciliation keeps only which book lines cleared.
+ */
+const statementLine = z.object({
+  date: z.string().refine(isValidISODate, "تاريخ سطر الكشف لازم يكون YYYY-MM-DD"),
+  amount: z.union([z.number(), z.string()]).transform((x) => String(x).trim().replace(/,/g, "")).refine((x) => /^-?\d{1,13}(\.\d{1,2})?$/.test(x) && Number(x) !== 0, "مبلغ سطر الكشف رقم غير صفري بحد أقصى خانتين عشريتين"),
+  reference: z.string().max(200).optional().nullable(),
+});
+type StatementLine = z.infer<typeof statementLine>;
+
+/** "date,amount[,reference]" per row; a header row and blank rows are skipped. */
+export function parseStatementCsv(csv: string): { lines: StatementLine[]; errors: { row: number; message: string }[] } {
+  const lines: StatementLine[] = [], errors: { row: number; message: string }[] = [];
+  csv.split(/\r?\n/).forEach((raw, i) => {
+    const row = raw.trim();
+    if (!row) return;
+    const cells = row.split(/[,;\t]/).map((c) => c.trim().replace(/^"|"$/g, ""));
+    if (i === 0 && !/^\d{4}-\d{2}-\d{2}$/.test(cells[0])) return; // header
+    const r = statementLine.safeParse({ date: cells[0], amount: cells[1], reference: cells.slice(2).join(" ").trim() || null });
+    if (r.success) lines.push(r.data); else errors.push({ row: i + 1, message: r.error.issues[0]?.message ?? "سطر غير صالح" });
+  });
+  return { lines, errors };
+}
+
+export async function matchStatement(id: string, input: unknown, actor: ServiceActor) {
+  assertPermission(actor, "accounting.manage");
+  const v = parse(z.object({
+    lines: z.array(statementLine).max(2000).optional(),
+    csv: z.string().max(500_000).optional(),
+    tolerance_days: z.number().int().min(0).max(15).optional(),
+    apply: z.boolean().optional(),
+  }), input);
+  const parsed = v.csv ? parseStatementCsv(v.csv) : { lines: v.lines ?? [], errors: [] };
+  if (!parsed.lines.length) throw new ApiError(400, parsed.errors.length ? `كل سطور الكشف فيها أخطاء (أول خطأ سطر ${parsed.errors[0].row}: ${parsed.errors[0].message})` : "مفيش سطور في الكشف");
+  if (parsed.lines.length > 2000) throw new ApiError(400, "أقصى 2000 سطر في الكشف");
+  const tol = v.tolerance_days ?? 3;
   return inTx(async (tx) => {
     const rec = await tx.bankReconciliation.findUnique({ where: { id }, include: { cashAccount: true } });
     if (!rec) throw new ApiError(404, "التسوية مش موجودة");
     await advisoryXactLock(tx, `accounting:reconcile:${rec.cashAccountId}`);
     if (rec.status !== "open") throw new ApiError(409, "التسوية خلصت");
-    const res = await tx.journalLine.updateMany({
-      where: { id: { in: v.line_ids }, accountId: rec.cashAccount.accountId, ...(v.cleared ? { reconciliationId: null, entry: { date: { lte: rec.statementDate } } } : { reconciliationId: id }) },
-      data: { reconciliationId: v.cleared ? id : null },
+    // The pool holds the uncleared lines AND the lines already ticked in this reconciliation:
+    // the statement is not stored, so a line matched (or ticked by hand) before must still
+    // claim its statement line — otherwise importing the same statement twice would tick a
+    // second, different book line for it.
+    const book = await tx.journalLine.findMany({
+      where: { accountId: rec.cashAccount.accountId, entry: { date: { lte: rec.statementDate } }, OR: [{ reconciliationId: null }, { reconciliationId: rec.id }] },
+      include: { entry: { select: { number: true, date: true, description: true } } },
     });
-    return { changed: res.count };
+    const day = (d: string) => Date.parse(`${d}T00:00:00Z`) / 86_400_000;
+    const used = new Set<string>();
+    const matched: { statementRow: number; lineId: string; number: string; date: string; amount: string }[] = [];
+    const alreadyCleared: { statementRow: number; lineId: string; number: string }[] = [];
+    const ambiguous: { statementRow: number; candidates: string[] }[] = [];
+    const unmatched: { statementRow: number; date: string; amount: string; reference: string | null }[] = [];
+    const order = parsed.lines.map((l, i) => ({ l, i })).sort((a, b) => a.l.date.localeCompare(b.l.date));
+    for (const { l, i } of order) {
+      const amt = D(l.amount);
+      const ref = (l.reference ?? "").toLowerCase();
+      const cands = book
+        .filter((b) => !used.has(b.id) && b.debit.minus(b.credit).equals(amt) && Math.abs(day(b.entry.date) - day(l.date)) <= tol)
+        .map((b) => ({ b, gap: Math.abs(day(b.entry.date) - day(l.date)), refHit: !!ref && (`${b.entry.number} ${b.description ?? ""} ${b.entry.description}`).toLowerCase().includes(ref) ? 0 : 1, cleared: b.reconciliationId === rec.id ? 0 : 1 }))
+        .sort((x, y) => x.refHit - y.refHit || x.gap - y.gap || x.cleared - y.cleared);
+      if (!cands.length) { unmatched.push({ statementRow: i + 1, date: l.date, amount: amt.toFixed(2), reference: l.reference ?? null }); continue; }
+      const best = cands[0];
+      if (best.cleared === 0) { used.add(best.b.id); alreadyCleared.push({ statementRow: i + 1, lineId: best.b.id, number: best.b.entry.number }); continue; }
+      if (cands.length > 1 && cands[1].refHit === best.refHit && cands[1].gap === best.gap) { ambiguous.push({ statementRow: i + 1, candidates: cands.filter((c) => c.refHit === best.refHit && c.gap === best.gap).map((c) => c.b.id) }); continue; }
+      used.add(best.b.id);
+      matched.push({ statementRow: i + 1, lineId: best.b.id, number: best.b.entry.number, date: best.b.entry.date, amount: amt.toFixed(2) });
+    }
+    let applied = 0;
+    if (v.apply && matched.length) {
+      applied = await markLines(tx, rec, matched.map((m) => m.lineId), true);
+      await audit(tx, actor, "bank_reconciliation", rec.id, "reconciliation_statement_matched", `${parsed.lines.length} سطر كشف · ${applied} اتطابق`);
+    }
+    const statementTotal = parsed.lines.reduce((s, l) => s.plus(D(l.amount)), D(0));
+    return {
+      statementLines: parsed.lines.length, statementTotal: statementTotal.toFixed(2), parseErrors: parsed.errors,
+      matched, alreadyCleared, ambiguous, unmatchedStatement: unmatched,
+      unmatchedBook: book.filter((b) => !used.has(b.id) && b.reconciliationId !== rec.id).map((b) => ({ id: b.id, date: b.entry.date, number: b.entry.number, amount: b.debit.minus(b.credit).toFixed(2) })).slice(0, 500),
+      applied, toleranceDays: tol,
+    };
   });
 }
 
 export async function completeReconciliation(id: string, actor: ServiceActor) {
   assertPermission(actor, "accounting.manage");
-  const view = await getReconciliation(id);
-  if (view.status !== "open") throw new ApiError(409, "التسوية خلصت بالفعل");
-  if (D(view.difference).abs().gt(0)) throw new ApiError(409, `فيه فرق ${view.difference} بين كشف الحساب والدفاتر`);
   return inTx(async (tx) => {
+    const head = await tx.bankReconciliation.findUnique({ where: { id }, select: { cashAccountId: true } });
+    if (!head) throw new ApiError(404, "التسوية مش موجودة");
+    // Under the account's reconciliation lock: no tick can change the balance between the
+    // check and the completion.
+    await advisoryXactLock(tx, `accounting:reconcile:${head.cashAccountId}`);
+    const view = await getReconciliation(id, tx);
+    if (view.status !== "open") throw new ApiError(409, "التسوية خلصت بالفعل");
+    if (D(view.difference).abs().gt(0)) throw new ApiError(409, `فيه فرق ${view.difference} بين كشف الحساب والدفاتر`);
     const updated = await tx.bankReconciliation.update({ where: { id, status: "open" }, data: { status: "completed", completedBy: actor.name, completedAt: new Date() } });
     await audit(tx, actor, "bank_reconciliation", id, "reconciliation_completed", `${view.statementDate} · ${view.statementBalance}`);
     return updated;

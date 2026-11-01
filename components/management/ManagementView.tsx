@@ -145,6 +145,7 @@ function CashFlow({ r, t }: { r: CashFlowReport; t: (k: string) => string }) {
       {r.unclassified.length > 0 && (
         <p role="note" className="card p-3 text-sm font-bold text-united-warn">{t("mgmt.cf.unclassified-note").replace("{}", r.unclassified.map((u) => `${u.code} ${localName(u, locale)}`).join("، "))}</p>
       )}
+      {(r.openingEntriesInRange ?? 0) > 0 && <p role="note" className="card p-3 text-sm text-united-muted">{t("mgmt.cf.opening-note").replace("{n}", String(r.openingEntriesInRange))}</p>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Tile label={t("mgmt.cf.tile.op_total")} value={fmtMoney(r.sections.operating.total)} tone={Number(r.sections.operating.total) >= 0 ? "good" : "bad"} />
         <Tile label={t("mgmt.cf.tile.inv_total")} value={fmtMoney(r.sections.investing.total)} tone={Number(r.sections.investing.total) >= 0 ? "good" : "bad"} />

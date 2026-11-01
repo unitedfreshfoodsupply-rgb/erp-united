@@ -18,6 +18,8 @@ const ERRORS_AR: Record<string, string> = {
   validation: "بيانات الطلب غير صالحة: نوع حقل غير متوقع",
   duplicate: "السجل ده موجود بالفعل (تكرار) — حدّث الصفحة وراجع",
   nul_char: "النص فيه حرف غير مسموح (NUL)",
+  stale: "السجل اتغيّر من واحد تاني في نفس اللحظة — حدّث الشاشة وجرّب تاني",
+  too_large: "رقم أكبر من المسموح",
   check_ref: "مرجع غير موجود (صنف/مكان/طرف غير معروف)",
   check_default: "البيانات مخالفة لقاعدة:",
   server: "خطأ في السيرفر",
@@ -31,6 +33,8 @@ const ERRORS_EN: Record<string, string> = {
   validation: "Invalid request data: unexpected field type",
   duplicate: "This record already exists (duplicate) — refresh and review",
   nul_char: "Text contains an unsupported character (NUL)",
+  stale: "The record was changed by someone else at the same moment — refresh and try again",
+  too_large: "Number too large",
   check_ref: "Reference not found (product/location/party unknown)",
   check_default: "Data violates rule:",
   server: "Server error",
@@ -80,6 +84,7 @@ export function handleApiError(err: unknown, req?: NextRequest) {
  * - a Prisma validation error: a field of the wrong shape (an object where an id goes)
  *   reached a query unvalidated;
  * - a unique-key race: two requests created the same code at the same moment;
+ * - a lost optimistic-lock race (P2025 on an update guarded by its version);
  * - PostgreSQL refusing a NUL character in text.
  * Everything else stays a 500.
  */
@@ -88,6 +93,11 @@ function clientFault(err: unknown, loc: "ar" | "en"): { status: number; message:
   if (!e || typeof e !== "object") return null;
   if (e.name === "PrismaClientValidationError") return { status: 400, message: msg(loc, "validation", "بيانات الطلب غير صالحة: نوع حقل غير متوقع") };
   if (e.name === "PrismaClientKnownRequestError" && e.code === "P2002") return { status: 409, message: msg(loc, "duplicate", "السجل ده موجود بالفعل (تكرار) — حدّث الصفحة وراجع") };
+  // An update guarded by `version` found no row: a concurrent writer got there first (the
+  // transaction rolled back; nothing was written).
+  if (e.name === "PrismaClientKnownRequestError" && e.code === "P2025") return { status: 409, message: msg(loc, "stale", "السجل اتغيّر من واحد تاني في نفس اللحظة — حدّث الشاشة وجرّب تاني") };
+  // A number too large for its column (numeric overflow): the request's value, not a fault.
+  if (typeof e.message === "string" && /numeric field overflow|"22003"|code: "22003"/.test(e.message)) return { status: 400, message: msg(loc, "too_large", "رقم أكبر من المسموح") };
   if (typeof e.message === "string" && /invalid byte sequence for encoding \\"?UTF8\\"?": 0x00|unsupported Unicode escape sequence/.test(e.message)) return { status: 400, message: msg(loc, "nul_char", "النص فيه حرف غير مسموح (NUL)") };
   // A database rule refused the row (CHECK / foreign key). The transaction rolled back,
   // nothing was written; the request cannot succeed as sent.

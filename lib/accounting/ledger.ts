@@ -106,6 +106,9 @@ export async function postJournal(
   const keys = [...new Set(lines.map((l) => l.key).filter((k): k is SystemKey => !!k))];
   // A filed VAT return freezes the VAT of its period (the database refuses it too); say why.
   if (e.sourceType !== "vat_settlement" && (keys.includes("vat_input") || keys.includes("vat_output"))) {
+    // Serialised with filing a return (same lock): either this posting commits before the
+    // return reads the balances, or it sees the filed return and is refused — never between.
+    await advisoryXactLock(tx, "accounting:vat-return");
     const filed = await tx.vatReturn.findFirst({ where: { status: { not: "voided" }, periodFrom: { lte: e.date }, periodTo: { gte: e.date } }, select: { number: true, periodFrom: true, periodTo: true } });
     if (filed) throw new ApiError(409, `فترة الضريبة ${filed.periodFrom} – ${filed.periodTo} اتقدّم عنها الإقرار ${filed.number} — سجّل المستند بتاريخ في فترة ضريبية مفتوحة`);
   }
@@ -568,7 +571,7 @@ export async function reverseJournal(id: string, input: unknown, actor: ServiceA
     if (e.sourceType !== "manual") throw new ApiError(409, "قيود المستندات بتتصحح بمستند (إشعار دائن/مدين)، مش بعكس القيد");
     return (await postJournal(tx, {
       date: v.date ?? todayLocalISO(), description: `عكس ${e.number}: ${v.reason}`, sourceType: "reversal", sourceId: e.id, reversalOfId: e.id,
-      lines: e.lines.map((l) => ({ accountId: l.accountId, amount: l.credit.minus(l.debit), party: l.partyType ? { type: l.partyType as "customer" | "supplier" | "employee", id: l.partyId! } : undefined, description: l.description ?? undefined })),
+      lines: e.lines.map((l) => ({ accountId: l.accountId, amount: l.credit.minus(l.debit), party: l.partyType ? { type: l.partyType as "customer" | "supplier" | "employee", id: l.partyId! } : undefined, description: l.description ?? undefined, costCenterId: l.costCenterId })),
     }, actor))!;
   });
 }

@@ -286,6 +286,16 @@ async function main() {
   check("net salaries credited in one line equal to the run's net", preview.lines.filter((l: any) => l.role === "net").length === 1 && money(preview.lines.find((l: any) => l.role === "net").amount) === money(runNow.netPayable), preview.lines);
   check("the preview is dated the month's last day", preview.date === last, preview.date);
 
+  // Cost centers: e1's department is linked to a cost center, so e1's salary cost carries it;
+  // everyone else's carries none (nothing is allocated without that explicit link).
+  const ccDep = (await call("karim", "POST", "/api/hr/departments", { code: `${TAG}CC`.slice(-12), name: `${TAG} قسم بمركز` })).body.department;
+  const ccOfDep = (await call("karim", "POST", "/api/accounting/cost-centers", { code: `PCC${Date.now() % 1_000_000}`, name: `${TAG} payroll cc`, name_ar: `${TAG} مركز الرواتب`, kind: "department", department_id: ccDep.id })).body.costCenter;
+  const e1Now = await s.employee.findUniqueOrThrow({ where: { id: e1.id } });
+  const mv = await call("karim", "PATCH", `/api/hr/employees/${e1.id}`, { name: e1Now.name, department_id: ccDep.id, expected_version: e1Now.version, change_reason: "نقل لقسم بمركز تكلفة" });
+  check("e1 moved to a department linked to a cost center", mv.status === 200 && !!ccOfDep?.id, [mv.status, mv.body, ccOfDep]);
+  const e1Slip = await s.payrollRunEmployee.findFirstOrThrow({ where: { runId: run.id, employeeId: e1.id } });
+  const e1Cost = money(slipLines.filter((l) => l.runEmployeeId === e1Slip.id && (l.kind === "earning" || l.kind === "employer_contribution")).reduce((a, l) => a + Number(l.amount), 0));
+
   // Two posts at the same time: one entry, the other refused.
   const both = await Promise.all([1, 2].map(() => call("karim", "POST", `/api/hr/payroll/runs/${run.id}/post`, {})));
   check("two parallel posts: exactly one succeeds, one journal entry", both.filter((x) => x.status === 200).length === 1 && both.filter((x) => x.status === 409).length === 1 && (await s.journalEntry.count({ where: { sourceType: "payroll_run", sourceId: run.id } })) === 1, both.map((x) => x.status));
@@ -294,6 +304,8 @@ async function main() {
   const je = await s.journalEntry.findFirst({ where: { sourceType: "payroll_run", sourceId: run.id }, include: { lines: { include: { account: true } } } });
   check("finance posts the approved run: one entry, status posted", r.status === 200 && posted.status === "posted" && posted.journalEntryId === je?.id && je?.date === last, r.body);
   check("the entry total = earnings + employer contributions", money(je?.total) === expectedDebit, je?.total);
+  const ccLines = je!.lines.filter((l) => l.costCenterId === ccOfDep.id);
+  check(`e1's salary cost (${e1Cost}) carries the department's cost center; no other line does`, money(ccLines.reduce((a, l) => a + Number(l.debit), 0)) === e1Cost && ccLines.every((l) => l.account.type === "expense") && je!.lines.filter((l) => l.costCenterId && l.costCenterId !== ccOfDep.id).length === 0, [e1Cost, ccLines.map((l) => [l.account.code, l.debit])]);
   const advLine = je?.lines.find((l) => l.account.systemKey === "employee_advances");
   check("e1's on-account 500 credits employee advances against e1", money(advLine?.credit) === "500.00" && advLine?.partyType === "employee" && advLine?.partyId === e1.id, advLine);
   check("no journal line carries an individual net salary (net line has no party)", je!.lines.filter((l) => l.accountId === NET.id).every((l) => !l.partyId) && je!.lines.filter((l) => l.accountId === NET.id).length === 1);

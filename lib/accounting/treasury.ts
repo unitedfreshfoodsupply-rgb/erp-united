@@ -37,7 +37,7 @@ const D = (v: Prisma.Decimal.Value) => new Prisma.Decimal(v);
 const money = (label: string, allowZero = false) =>
   z.union([z.number(), z.string()]).transform((v, ctx) => {
     const s = typeof v === "number" ? String(v) : v.trim();
-    if (!/^\d+(\.\d{1,2})?$/.test(s) || (!allowZero && Number(s) <= 0)) {
+    if (!/^\d{1,12}(\.\d{1,2})?$/.test(s) || (!allowZero && Number(s) <= 0)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${label} لازم يكون ${allowZero ? "صفر أو أكتر" : "أكبر من صفر"} بحد أقصى خانتين عشريتين` });
       return z.NEVER;
     }
@@ -258,7 +258,7 @@ export async function reverseTransfer(id: string, input: unknown, actor: Service
     }
     const entry = await postJournal(tx, {
       date, description: `عكس تحويل ${t.number}: ${v.reason}`, sourceType: "cash_transfer_reversal", sourceId: t.id,
-      lines: t.entry.lines.map((l) => ({ accountId: l.accountId, amount: l.credit.minus(l.debit), description: l.description ?? undefined })),
+      lines: t.entry.lines.map((l) => ({ accountId: l.accountId, amount: l.credit.minus(l.debit), description: l.description ?? undefined, costCenterId: l.costCenterId })),
     }, actor);
     await tx.cashTransfer.update({ where: { id: t.id, version: t.version }, data: { reversedAt: new Date(), reversedBy: actor.name, reversalReason: v.reason, reversalEntryId: entry!.id, version: { increment: 1 } } });
     await audit(tx, actor, "cash_transfer", t.id, "cash_transfer_reversed", t.number, v.reason);

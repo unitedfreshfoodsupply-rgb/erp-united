@@ -140,6 +140,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/accounting/cash-accounts` | any of `accounting.view`, `accounting.receipts.manage`, `accounting.payments.manage`, `hr.expenses.submit`, `hr.advances.manage`, `hr.payroll.pay` | ✓ | ✓ |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/cash-accounts` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/cash` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/comparatives` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | PATCH | `/api/accounting/cost-centers/[id]` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/cost-centers/report` | any of `accounting.view`, `reports.finance` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/cost-centers` | any of `accounting.view`, `hr.expenses.submit`, `purchasing.bills.manage`, `accounting.assets.manage` | ✓ | ✓ |  |  |  |  | ✓ |  |  |
@@ -182,7 +183,9 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/accounting/receipts` | `accounting.receipts.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/reconciliations/[id]/complete` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/reconciliations/[id]/mark` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/reconciliations/[id]/match` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/reconciliations/[id]` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/reconciliations` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/reconciliations` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/stock-valuation` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/supplier-refunds` | any of `accounting.view`, `accounting.receipts.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
@@ -231,8 +234,11 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | PATCH | `/api/assets/categories/[id]` | `accounting.assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/assets/categories` | `accounting.assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/assets/categories` | `accounting.assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/assets/counts` | `accounting.assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/counts` | `accounting.assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/assets/depreciation` | `accounting.assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/assets/depreciation` | `accounting.assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/assets/depreciation/runs/[id]/reverse` | `accounting.assets.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/assets/depreciation/runs` | `accounting.assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/assets/reports/roll-forward` | `accounting.assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/assets` | `accounting.assets.view` | ✓ |  |  |  |  |  | ✓ |  |  |
