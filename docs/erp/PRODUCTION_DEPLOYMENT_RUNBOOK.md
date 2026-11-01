@@ -45,8 +45,11 @@
 
 ## 2. Backup and restore verification (mandatory before migrating)
 
-1. **Supabase automatic backup.** Open the dashboard (Database → Backups), note the latest backup
-   time, and confirm it is from today.
+1. **No automatic backup exists.** The project is on the Supabase **free plan**, which has no
+   automatic daily backups (verified 1 Nov 2026). The manual dump below is the only backup.
+   It must be taken, and restore-checked, immediately before migrating. The exact commands, with
+   the expected counts, are in `DEPLOYMENT_APPROVAL_PACKAGE.md` §4.1. `pg_dump` must be
+   version 17.x for the Postgres 17 server.
 2. **Logical dump** from the VPS, using `DIRECT_URL` from the environment and never echoing it:
    ```bash
    pg_dump "$DIRECT_URL" --no-owner --no-acl -Fc -f ~/backups/united-pre-accounting-$(date +%Y%m%d-%H%M).dump
