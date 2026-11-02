@@ -40,6 +40,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `sales.pricing.view` — عرض الأسعار | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  |
 | `sales.pricing.manage` — إدارة الأسعار | ✓ |  |  |  |  | ✓ |  |  |  |
 | `sales.price_override` — تعديل سعر أوردر | ✓ |  |  |  |  | ✓ |  |  |  |
+| `sales.pricing.approve` — اعتماد استثناءات الأسعار | ✓ |  |  |  |  |  | ✓ |  |  |
 | `sales.quotations.view` — عرض عروض الأسعار | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  |
 | `sales.quotations.manage` — إدارة عروض الأسعار | ✓ |  |  |  |  | ✓ |  |  |  |
 | `sales.invoices.view` — عرض الفواتير | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
@@ -54,6 +55,9 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `purchasing.orders.view` — عرض أوامر الشراء | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |
 | `purchasing.orders.manage` — إدارة أوامر الشراء | ✓ |  |  |  |  |  |  | ✓ |  |
 | `purchasing.orders.approve` — اعتماد أوامر الشراء | ✓ |  |  |  |  |  | ✓ |  |  |
+| `purchasing.requests.view` — عرض طلبات الشراء | ✓ |  |  |  |  | ✓ |  | ✓ |  |
+| `purchasing.requests.create` — عمل طلب شراء | ✓ |  |  |  |  | ✓ |  |  |  |
+| `purchasing.requests.approve` — اعتماد طلبات الشراء | ✓ |  |  |  |  |  |  | ✓ |  |
 | `purchasing.bills.view` — عرض فواتير الموردين | ✓ |  |  |  |  |  | ✓ | ✓ | ✓ |
 | `purchasing.bills.manage` — تسجيل فواتير الموردين | ✓ |  |  |  |  |  | ✓ |  |  |
 | `accounting.view` — عرض الحسابات | ✓ |  |  |  |  |  | ✓ |  |  |
@@ -106,9 +110,10 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `/supervisor/exceptions` نواقص التجهيز (`reports.view`) | ✓ | ✓ |  |  |  |  |  |  |  |
 | `/supervisor/report` تقرير اليوم (`reports.view`) | ✓ | ✓ |  |  |  |  |  |  |  |
 | `/supervisor/audit` سجل المراجعة (`audit.view`) | ✓ | ✓ |  |  |  |  | ✓ |  |  |
-| `/approvals` الموافقات (`orders.approve` / `stock.approve_adjustments` / `sales.credit.manage` / `purchasing.orders.approve` / `purchasing.bills.approve` / `hr.expenses.approve` / `hr.attendance.approve` / `hr.leave.approve` / `hr.payroll.approve` / `accounting.manage` / `accounting.journals.approve` / `accounting.periods.reopen` / `accounting.opening.approve`; page open to all, filters itself) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `/approvals` الموافقات (`orders.approve` / `stock.approve_adjustments` / `sales.credit.manage` / `purchasing.orders.approve` / `purchasing.bills.approve` / `hr.expenses.approve` / `hr.attendance.approve` / `hr.leave.approve` / `hr.payroll.approve` / `accounting.manage` / `accounting.journals.approve` / `accounting.periods.reopen` / `accounting.opening.approve` / `purchasing.requests.approve` / `sales.pricing.approve`; page open to all, filters itself) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `/sales` العملاء (`sales.customers.view`) | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | `/purchasing` المشتريات (`purchasing.orders.view`) | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |
+| `/purchasing/requests` طلبات الشراء (`purchasing.requests.view`) | ✓ |  |  |  |  | ✓ |  | ✓ |  |
 | `/accounting` الحسابات (`accounting.view` / `accounting.receipts.manage` / `accounting.payments.manage`) | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | `/assets` الأصول الثابتة (`accounting.assets.view`) | ✓ |  |  |  |  |  | ✓ |  |  |
 | `/eta` الفاتورة الإلكترونية (`accounting.eta.view`) | ✓ | ✓ |  |  |  |  | ✓ |  |  |
@@ -415,6 +420,8 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/orders/[id]` | `orders.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
 | PATCH | `/api/orders/[id]` | `orders.edit` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/orders/[id]/status` | `orders.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
+| GET | `/api/orders/entry/catalog` | `orders.create` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
+| GET | `/api/orders/entry/price` | `orders.create` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | GET | `/api/orders` | `orders.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
 | POST | `/api/orders` | integration key, or `orders.create` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | GET | `/api/production/daily` | `orders.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
@@ -437,6 +444,12 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/purchasing/products/[id]/prices` | `purchasing.prices.view` | ✓ | ✓ |  |  |  |  | ✓ | ✓ |  |
 | GET | `/api/purchasing/receiving` | `stock.receive` | ✓ | ✓ | ✓ |  |  |  |  |  |  |
 | GET | `/api/purchasing/reports/ap-aging` | `purchasing.bills.view` | ✓ |  |  |  |  |  | ✓ | ✓ | ✓ |
+| POST | `/api/purchasing/requests/[id]/cancel` | `purchasing.requests.create` | ✓ |  |  |  |  | ✓ |  |  |  |
+| POST | `/api/purchasing/requests/[id]/convert` | `purchasing.orders.manage` | ✓ |  |  |  |  |  |  | ✓ |  |
+| POST | `/api/purchasing/requests/[id]/fulfil` | `orders.create` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
+| GET | `/api/purchasing/requests/[id]` | `purchasing.requests.view` | ✓ |  |  |  |  | ✓ |  | ✓ |  |
+| GET | `/api/purchasing/requests` | `purchasing.requests.view` | ✓ |  |  |  |  | ✓ |  | ✓ |  |
+| POST | `/api/purchasing/requests` | `purchasing.requests.create` | ✓ |  |  |  |  | ✓ |  |  |  |
 | POST | `/api/purchasing/rfqs/[id]/award` | `purchasing.rfq.manage` | ✓ |  |  |  |  |  |  | ✓ |  |
 | POST | `/api/purchasing/rfqs/[id]/cancel` | `purchasing.rfq.manage` | ✓ |  |  |  |  |  |  | ✓ |  |
 | POST | `/api/purchasing/rfqs/[id]/quotes` | `purchasing.rfq.manage` | ✓ |  |  |  |  |  |  | ✓ |  |

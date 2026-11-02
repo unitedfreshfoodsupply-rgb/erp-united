@@ -33,6 +33,7 @@
     "sales.pricing.view",
     "sales.pricing.manage",
     "sales.price_override",
+    "sales.pricing.approve",
     "sales.quotations.view",
     "sales.quotations.manage",
     "sales.invoices.view",
@@ -47,6 +48,9 @@
     "purchasing.orders.view",
     "purchasing.orders.manage",
     "purchasing.orders.approve",
+    "purchasing.requests.view",
+    "purchasing.requests.create",
+    "purchasing.requests.approve",
     "purchasing.bills.view",
     "purchasing.bills.manage",
     "accounting.view",
@@ -144,6 +148,8 @@
     "SALES": [
       "orders.create",
       "orders.view",
+      "purchasing.requests.create",
+      "purchasing.requests.view",
       "sales.customers.manage",
       "sales.customers.view",
       "sales.invoices.view",
@@ -190,6 +196,7 @@
       "sales.customers.view",
       "sales.invoices.manage",
       "sales.invoices.view",
+      "sales.pricing.approve",
       "sales.pricing.view",
       "sales.quotations.view",
       "sales.tax.manage",
@@ -202,6 +209,8 @@
       "purchasing.orders.view",
       "purchasing.prices.manage",
       "purchasing.prices.view",
+      "purchasing.requests.approve",
+      "purchasing.requests.view",
       "purchasing.rfq.manage",
       "purchasing.suppliers.manage",
       "purchasing.suppliers.view",
@@ -3127,6 +3136,26 @@
     },
     {
       "method": "GET",
+      "path": "/api/orders/entry/catalog",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "orders.create"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/orders/entry/price",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "orders.create"
+        ]
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/orders",
       "gate": {
         "kind": "all",
@@ -3342,6 +3371,66 @@
         "kind": "all",
         "permissions": [
           "purchasing.bills.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/purchasing/requests/[id]/cancel",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "purchasing.requests.create"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/purchasing/requests/[id]/convert",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "purchasing.orders.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/purchasing/requests/[id]/fulfil",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "orders.create"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/purchasing/requests/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "purchasing.requests.view"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/purchasing/requests",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "purchasing.requests.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/purchasing/requests",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "purchasing.requests.create"
         ]
       }
     },
@@ -4306,7 +4395,9 @@
         "accounting.manage",
         "accounting.journals.approve",
         "accounting.periods.reopen",
-        "accounting.opening.approve"
+        "accounting.opening.approve",
+        "purchasing.requests.approve",
+        "sales.pricing.approve"
       ],
       "pageOpenToAll": true
     },
@@ -4318,6 +4409,11 @@
     {
       "href": "/purchasing",
       "permission": "purchasing.orders.view",
+      "pageOpenToAll": false
+    },
+    {
+      "href": "/purchasing/requests",
+      "permission": "purchasing.requests.view",
       "pageOpenToAll": false
     },
     {
