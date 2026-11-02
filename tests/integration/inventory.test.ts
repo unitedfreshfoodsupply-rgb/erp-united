@@ -3,7 +3,7 @@
    idempotency, reversal, and the database guards behind all of it. */
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { prisma, actor } from "./_db";
+import { prisma, actor, withSetting } from "./_db";
 import { createIntake } from "@/lib/stock-service";
 import { createTransfer, createAdjustment, createScrap, createSupplierReturn, reverseDocument } from "@/lib/inventory/documents";
 import { reserve, releaseReservation } from "@/lib/inventory/reservations";
@@ -28,14 +28,23 @@ const value = async (productId: string) => {
 };
 const avail = (productId: string) => productAvailability(prisma, productId, "wh_main");
 const receive = (productId: string, kg: number | string, extra: Record<string, unknown> = {}) =>
-  createIntake({ supplier_id: supplierId, product_id: productId, received_kg: kg, received_date: today, ...extra } as never, boss);
+  // Every receipt carries a cost (ACC-E1): a test that does not name one receives at 10.
+  createIntake({ supplier_id: supplierId, product_id: productId, received_kg: kg, received_date: today, ...(extra.unit_cost === undefined && extra.provisional_unit_cost === undefined ? { unit_cost: "10" } : {}), ...extra } as never, boss);
 
+// These scenarios test valuation mechanics through direct adjustments; the approval step
+// (on by default since November 2026, CTL-01) is tested in tests/stock.test.ts and
+// tests/sales-stock-integrity.test.ts, so it is switched off for this file only.
+let restoreApproval: () => Promise<void> = async () => {};
 before(async () => {
+  restoreApproval = await withSetting("inventory.adjustment_approval_required", false);
   const d = new Date();
   today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   supplierId = (await prisma.supplier.create({ data: { code: `SUP-9${String(Date.now()).slice(-7)}`, name: `${TAG} مورد` } })).id;
 });
-after(() => prisma.$disconnect());
+after(async () => {
+  await restoreApproval();
+  await prisma.$disconnect();
+});
 
 test("receipt: lot + bucket + valuation at the purchase price", async () => {
   const p = await product("Mango", { shelfLifeDays: 5 });
@@ -67,7 +76,8 @@ test("FIFO: the oldest cost leaves first", async () => {
 
 test("standard cost values everything at the standard", async () => {
   const p = await product("Std", { costingMethod: "standard", standardCost: 7 });
-  await receive(p.id, 10); // no purchase price → standard
+  // Every receipt carries a cost (ACC-E1); a standard-cost product is received at its standard.
+  await receive(p.id, 10, { unit_cost: "7" });
   await createAdjustment({ reason: "صرف", lines: [{ product_id: p.id, quantity: -4 }] }, boss);
   assert.deepEqual(await value(p.id), { qty: "6", value: "42" });
 });
@@ -197,6 +207,8 @@ test("approval threshold: a large adjustment waits, then posts at approval time"
   // The settings cache is per process; give it a fresh read.
   const { invalidateSettingsCache } = await import("@/lib/core/settings-service");
   invalidateSettingsCache();
+  // This test is about the approval itself: on for its duration (the file turns it off).
+  const restoreOn = await withSetting("inventory.adjustment_approval_required", true);
   try {
     const counter = actor("عامل جرد", ["stock.adjust", "stock.view"], null, "STOCK_CONTROLLER");
     const { document } = await createAdjustment({ reason: "جرد", lines: [{ product_id: p.id, quantity: -30 }] }, counter);
@@ -231,6 +243,7 @@ test("approval threshold: a large adjustment waits, then posts at approval time"
     await assert.rejects(decideApproval(countRequest.id, "approve", { id: null, name: "مشرف", role: "SUPERVISOR", permissions: ["stock.approve_adjustments"] }, {}), /رصيد الدفعة اتغير/);
     await decideApproval(countRequest.id, "reject", { id: null, name: "مشرف", role: "SUPERVISOR", permissions: ["stock.approve_adjustments"] }, { comment: "الرصيد اتغير؛ مطلوب جرد جديد" });
   } finally {
+    await restoreOn();
     await prisma.systemSetting.delete({ where: { key: "inventory.adjustment_approval_threshold" } });
     invalidateSettingsCache();
   }

@@ -2,7 +2,7 @@
    Scrap still takes expired lots first. */
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { prisma, actor, inTx } from "./_db";
+import { prisma, actor, inTx, withSetting } from "./_db";
 import { postOpeningStock, createScrap } from "@/lib/inventory/documents";
 import { issueStock } from "@/lib/inventory/reservations";
 import { productStockDetail } from "@/lib/inventory/products";
@@ -34,11 +34,18 @@ const sell = async (productId: string, qty: number, ref: string) => {
   return inTx((tx) => issueStock(tx, { warehouseId: "wh_main", sourceType: "order", sourceId: order.id, reference: `${TAG} ${ref}`, lines: [{ productId, quantity: D(qty), sourceLineId: `${TAG}-${ref}-1` }] }, who as any));
 };
 
+// These scenarios exercise the direct opening-stock form, closed by default since
+// November 2026 (accounting.direct_opening_entries): switched on for the file only.
+let restoreDirectOpening: () => Promise<void> = async () => {};
 before(async () => {
+  restoreDirectOpening = await withSetting("accounting.direct_opening_entries", true);
   sold = await twoLots("Lettuce");
   scrapped = await twoLots("Herbs");
 });
-after(() => prisma.$disconnect());
+after(async () => {
+  await restoreDirectOpening();
+  await prisma.$disconnect();
+});
 
 test("an expired lot can't be opening stock (it is waste, not stock) → 400", async () => {
   const id = (await prisma.stockProduct.create({ data: { name: `${TAG} Rocket` } })).id;

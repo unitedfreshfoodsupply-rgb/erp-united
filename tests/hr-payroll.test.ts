@@ -674,6 +674,8 @@ async function ws5(s: PrismaClient, c: Ctx) {
     await call("sara", "POST", "/api/hr/attendance/days", { date, rows: [{ employee_id: e8.id, status }] });
     await call("sara", "POST", "/api/hr/attendance/confirm", { date });
   }
+  // The box must hold the 2,700 paid out below (cash never goes negative, L2).
+  await fundCash("cash_main", 3000);
   const advance = async (amount: number) => (await call("karim", "POST", "/api/hr/transactions", { employee_id: e9.id, type: "advance", amount, cash_account_id: "cash_main" })).body.transaction;
   const A1 = await advance(2000), A2 = await advance(600), A3 = await advance(100);
   check("e9 took three advances", !!A1?.id && !!A2?.id && !!A3?.id);

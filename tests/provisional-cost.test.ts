@@ -13,6 +13,7 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { call, login, makeChecker } from "./_harness";
 import { assertTestDatabase } from "./_guard";
 import { todayBiz } from "./_days";
+import { taxNo } from "./_stock";
 
 const TAG = `ZZPROV${Date.now() % 1_000_000_000}`;
 const { check, section, finish } = makeChecker();
@@ -49,7 +50,8 @@ async function main() {
   const tbBalanced = async () => { const [x] = await db.$queryRaw<{ dr: Prisma.Decimal; cr: Prisma.Decimal }[]>`SELECT sum("debit") AS dr, sum("credit") AS cr FROM "JournalLine"`; return eq(n(x.dr), n(x.cr)); };
 
   const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مزرعة بسعر مؤقت` })).body.supplier;
-  const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل` })).body.customer;
+  // A buyer tax identity is needed to issue the invoice (MIG-01).
+  const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل`, tax_registration_no: taxNo() })).body.customer;
   const product = async (label: string) => (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} ${label}`, unit: "KG" })).body.product;
   check("supplier and customer", !!supplier?.id && !!customer?.id, [supplier, customer]);
 

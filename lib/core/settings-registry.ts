@@ -183,7 +183,7 @@ export const SETTING_DEFS = {
       "صارم دايماً: الأوردر مايخرجش إلا لو كل سطوره بتتصرف من الرصيد بالكامل. الوضع المرن اتلغى (تعديلات نوفمبر 2026) — مفيش بيع لبضاعة مش على الدفاتر.",
     unit: "",
     schema: z.enum(["strict"], { errorMap: () => ({ message: "الوضع الوحيد المسموح: strict (صارم)" }) }),
-    default: "strict" as "strict",
+    default: "strict" as const,
   }),
   "sales.credit_check_mode": def({
     group: "sales",

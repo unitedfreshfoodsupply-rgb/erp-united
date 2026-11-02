@@ -7,7 +7,6 @@ import { assertPermission } from "@/lib/authz-core";
 import { inTx, type Tx } from "@/lib/tx";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { requestApproval } from "@/lib/core/approvals";
-import { notify } from "@/lib/core/notifications";
 import type { ServiceActor } from "@/lib/core/actor";
 import { D, ZERO, type Dec } from "@/lib/inventory/decimal";
 import { productAvailability } from "@/lib/inventory/balances";

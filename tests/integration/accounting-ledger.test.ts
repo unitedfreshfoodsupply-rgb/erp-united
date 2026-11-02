@@ -4,7 +4,7 @@
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { Prisma } from "@prisma/client";
-import { prisma, actor, inTx } from "./_db";
+import { prisma, actor, inTx, taxNo } from "./_db";
 import { createCustomer } from "@/lib/sales/customers";
 import { issueInvoice } from "@/lib/sales/invoicing";
 import { createReceipt, openInvoices } from "@/lib/accounting/cash";
@@ -18,7 +18,7 @@ let customerId = "";
 let invoiceId = "";
 
 before(async () => {
-  customerId = (await createCustomer({ name: `${TAG} Customer` }, acct)).id;
+  customerId = (await createCustomer({ name: `${TAG} Customer`, tax_registration_no: taxNo() }, acct)).id;
   const inv = await prisma.salesInvoice.create({
     data: {
       customerId, gross: new Prisma.Decimal(100), discountTotal: new Prisma.Decimal(0), net: new Prisma.Decimal(100), taxTotal: new Prisma.Decimal(0), total: new Prisma.Decimal(100), createdBy: "test",

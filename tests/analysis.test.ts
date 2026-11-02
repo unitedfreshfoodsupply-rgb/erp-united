@@ -81,8 +81,9 @@ async function main() {
   check("a new liability under the 2000 header is left unclassified (the header carries none)", ra.status === 201 && loan?.liquidity === null, ra.body);
   check("a class on a revenue account -> 400", (await call("karim", "POST", "/api/accounting/accounts", { code: `4${String(Date.now()).slice(-6)}`, name: "x", name_ar: "x", parent_id: "acc_4000", liquidity: "current" })).status === 400);
   check("a system account cannot lose its class -> 400", (await call("karim", "PATCH", "/api/accounting/accounts/acc_1300", { liquidity: null })).status === 400);
-  ra = await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${TAG} قرض`, lines: [{ account_id: "acc_1200", debit: 7000 }, { account_id: loan.id, credit: 7000 }] });
-  check("a 7000 loan received into the bank", ra.status === 201, ra.body);
+  // Manual journals wait for a second person (CTL-01): submitted by karim, approved by admin.
+  const loanJ = await manualJournal({ date: today, description: `${TAG} قرض`, lines: [{ account_id: "acc_1200", debit: 7000 }, { account_id: loan.id, credit: 7000 }] });
+  check("a 7000 loan received into the bank (approved by a second person)", !!loanJ.journal?.id, [loanJ.submit.status, loanJ.submit.body, loanJ.decision?.body]);
   let bsr = (await call("karim", "GET", `/api/accounting/balance-sheet?as_of=${today}`)).body;
   const sumL = (k: string) => n(bsr.sections.liabilities[k]);
   check("balance sheet: the loan is reported as unclassified (listed, not guessed), and the sides add up", bsr.unclassifiedAccounts.some((x: any) => x.code === loanCode && n(x.amount) === 7000) && bsr.classificationComplete === false && Math.abs(sumL("current") + sumL("nonCurrent") + sumL("unclassified") - sumL("total")) < 0.005, [bsr.sections.liabilities.total, bsr.sections.liabilities.current, bsr.sections.liabilities.nonCurrent, bsr.sections.liabilities.unclassified]);

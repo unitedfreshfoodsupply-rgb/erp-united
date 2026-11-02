@@ -4,7 +4,7 @@
    accounting.receipts.manage. Settings are restored afterwards. */
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { prisma, actor } from "./_db";
+import { prisma, actor, taxNo } from "./_db";
 import { createReceipt } from "@/lib/accounting/cash";
 import { updateSetting } from "@/lib/core/settings-service";
 import { createCustomer } from "@/lib/sales/customers";
@@ -19,7 +19,7 @@ before(async () => {
   const account = await prisma.account.create({ data: { code: String(Date.now()).slice(-7), name: `${TAG} differences`, nameAr: `${TAG} فروق`, type: "expense", parentId: "acc_6000" } });
   await updateSetting("accounting.write_off_account", account.code, admin, { reason: TAG });
   await updateSetting("accounting.write_off_limit", 1, admin, { reason: TAG });
-  customerId = (await createCustomer({ name: `${TAG} عميل` }, actor("مبيعات", ["sales.customers.manage"]))).id;
+  customerId = (await createCustomer({ name: `${TAG} عميل`, tax_registration_no: taxNo() }, actor("مبيعات", ["sales.customers.manage"]))).id;
 });
 
 after(async () => {

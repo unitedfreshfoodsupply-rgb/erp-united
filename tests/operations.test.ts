@@ -27,7 +27,7 @@ async function main() {
   const supplier = (await call("hossam", "POST", "/api/stock/suppliers", { name: `${TAG} مورد` })).body.supplier;
   const tomato = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Tomato`, unit: "KG" })).body.product;
   const cucumber = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Cucumber`, unit: "KG" })).body.product;
-  for (const p of [tomato, cucumber]) await call("hossam", "POST", "/api/stock/intakes", { supplier_id: supplier.id, product_id: p.id, received_kg: 1000 });
+  for (const p of [tomato, cucumber]) await call("hossam", "POST", "/api/stock/intakes", { supplier_id: supplier.id, product_id: p.id, received_kg: 1000, unit_cost: "5" });
   const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} فندق النيل` })).body.customer;
   const products = new Map([[tomato.name, tomato], [cucumber.name, cucumber]]);
   const order = async (items: { product_name: string; quantity: number }[]) => {

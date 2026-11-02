@@ -3,7 +3,7 @@
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { Prisma } from "@prisma/client";
-import { prisma, actor } from "./_db";
+import { prisma, actor, taxNo } from "./_db";
 import { createCustomer } from "@/lib/sales/customers";
 import { createCreditNote, issueInvoice } from "@/lib/sales/invoicing";
 
@@ -13,7 +13,7 @@ let invoiceId = "";
 let lineId = "";
 
 before(async () => {
-  const c = await createCustomer({ name: `${TAG} Customer` }, acct);
+  const c = await createCustomer({ name: `${TAG} Customer`, tax_registration_no: taxNo() }, acct);
   const inv = await prisma.salesInvoice.create({
     data: {
       customerId: c.id,
