@@ -95,5 +95,4 @@ settlement tax on one-off amounts (annualised; flagged `settlement_tax_annualise
 **Not done / follow-ups:** UI screens for settlements, corrections, advance plans, rollover and
 the remittance report (API only; the only UI change is the `leave_encashment` role in the
 component form, `components/hr/PayrollView.tsx`); a correction of a settled leaver (reverse and
-recompute the settlement instead); the guard that refuses reversing a settlement the month's
-regular run relies on is implemented but not exercised by a suite (settlement reversal itself is).
+recompute the settlement instead).
