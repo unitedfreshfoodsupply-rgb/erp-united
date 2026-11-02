@@ -14,7 +14,8 @@ async function main() {
   // Setup: a supplier, product, intake
   const sup = (await call("hossam", "POST", "/api/stock/suppliers", { name: `${TAG} مورد` })).body.supplier;
   const prod = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} سلعة`, unit: "KG" })).body.product;
-  await call("hossam", "POST", "/api/stock/intakes", { supplier_id: sup.id, received_date: today, product_id: prod.id, received_kg: 100, unit_cost: "10" });
+  await call("hossam", "POST", "/api/stock/intakes", { supplier_id: sup.id, received_date: today, product_id: prod.id, received_kg: 140, unit_cost: "10" });
+  // 140 (was 100): both orders below (80 + 60) hold their stock in full at creation (WF-01).
 
   // =========================================================================
   section("N1. SHORTAGE AT PREPARATION → APPROVAL CREATED");

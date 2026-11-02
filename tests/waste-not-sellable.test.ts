@@ -57,14 +57,31 @@ async function mkOrder(productId: string, productName: string, qty: number) {
 
 async function main() {
   for (const u of ["admin", "sara", "hossam", "ahmed", "mostafa", "mona", "karim"]) await login(u);
-  // Note: do NOT touch inventory.dispatch_issue_policy at start — its pristine default
-  // (lenient) is asserted by the shared inventory suite via isDefault===true.
+  // Note: inventory.dispatch_issue_policy is strict and cannot be changed (WF-01); this
+  // suite never touches it.
   // inventory.adjustment_approval_threshold default is 0 — only changed inside T9 and
   // reset to pristine with value:null afterwards.
 
   const sup = (await call("hossam", "POST", "/api/stock/suppliers", { name: `${TAG} مورد` })).body.supplier;
   const newProduct = async (name: string) => (await call("hossam", "POST", "/api/stock/products", { name, unit: "KG" })).body.product;
   const intake = (body: any) => call("hossam", "POST", "/api/stock/intakes", { supplier_id: sup.id, received_date: today, ...body });
+  // CTL-01: an intake with a grading loss (waste or grade B) holds its good stock in
+  // quarantine until someone other than the receiver approves the loss. Scenarios that
+  // need the good part sellable approve it as the supervisor.
+  const intakeApproved = async (body: any) => {
+    const r = await intake(body);
+    const id = r.body?.intake?.id;
+    const ap = (await call("sara", "GET", "/api/approvals?status=pending")).body.approvals.find((a: any) => a.type === "inventory.grading_loss" && a.entityId === id);
+    if (ap) {
+      const d = await call("sara", "POST", `/api/approvals/${ap.id}/decide`, { decision: "approve", comment: `${TAG} اعتماد هالك` });
+      if (d.status !== 200) throw new Error(`grading-loss approval failed: ${d.status} ${JSON.stringify(d.body).slice(0, 200)}`);
+    }
+    return r;
+  };
+  const tryOrder = async (productId: string, qty: number) => {
+    const cust = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل محاولة ${++custN}` })).body.customer;
+    return call("mona", "POST", "/api/orders", { customer_account_id: cust.id, customer_name: cust.name, delivery_date: today, items: [{ stock_product_id: productId, quantity: qty }] });
+  };
 
   // =========================================================================
   section("T1. WASTE-ONLY STOCK — NOT AVAILABLE, NOT DISPATCHABLE");
@@ -73,9 +90,10 @@ async function main() {
   const vT1 = await product(pT1.id);
   check("onHand = 50 (waste counted physically)", n(vT1.onHand) === 50, vT1.onHand);
   check("sellableOnHand = 0 (waste excluded)", n(vT1.sellableOnHand) === 0 && n(vT1.available) === 0, [vT1.sellableOnHand, vT1.available]);
-  const o1 = await mkOrder(pT1.id, pT1.name, 10);
-  const d1 = await dispatchOrder(o1.order.id, o1.line.id, 10);
-  check("lenient dispatch completes with exception (never blocks the truck)", d1.status === 200, d1.status);
+  // WF-01 (replaces "lenient dispatch completes with exception"): an order cannot even be
+  // confirmed against waste-only stock — nothing sellable, nothing to hold.
+  const o1 = await tryOrder(pT1.id, 10);
+  check("order for waste-only stock refused -> 409 stock_unavailable (available 0)", o1.status === 409 && o1.body.code === "stock_unavailable" && o1.body.details?.shortfalls?.[0]?.available === "0", o1.body);
   const moves1 = (await ledger(pT1.id)).filter((m: any) => m.kind === "issue");
   check("NO issue movement from WASTE", !moves1.some((m: any) => n(m.quantity) < 0 && m.locationId === "loc_waste"), moves1.map((m: any) => [m.locationId, m.quantity]));
   check("onHand still 50 after dispatch attempt", (await onHand(pT1.id)) === 50, await onHand(pT1.id));
@@ -87,9 +105,13 @@ async function main() {
   await intake({ product_id: pT2.id, received_kg: 50, waste_qty: 50, unit_cost: "5" }); // +50 waste
   const vT2 = await product(pT2.id);
   check("sellable 100, waste 50, onHand 150", n(vT2.sellableOnHand) === 100 && (await atWaste(pT2.id)) === 50 && n(vT2.onHand) === 150, [vT2.sellableOnHand, vT2.onHand]);
-  const o2 = await mkOrder(pT2.id, pT2.name, 120);
-  const d2 = await dispatchOrder(o2.order.id, o2.line.id, 120);
-  check("over-request dispatches (lenient) with exception", d2.status === 200, d2.status);
+  // WF-01 (replaces "over-request dispatches (lenient) with exception"): 120 against 100
+  // sellable is refused at the order; the sellable 100 is ordered and dispatched instead.
+  const o2try = await tryOrder(pT2.id, 120);
+  check("over-request refused at the order -> 409, available 100 (waste not counted)", o2try.status === 409 && o2try.body.details?.shortfalls?.[0]?.available === "100", o2try.body);
+  const o2 = await mkOrder(pT2.id, pT2.name, 100);
+  const d2 = await dispatchOrder(o2.order.id, o2.line.id, 100);
+  check("the sellable 100 dispatches", d2.status === 200, [d2.status, d2.body?.error]);
   const moves2 = (await ledger(pT2.id)).filter((m: any) => m.kind === "issue");
   check("issued exactly 100 (sellable cap), ZERO from WASTE", Math.abs(moves2.reduce((s: number, m: any) => s + n(m.quantity), 0)) === 100 && !moves2.some((m: any) => m.locationId === "loc_waste"), moves2.map((m: any) => [m.locationId, m.quantity]));
   check("waste bucket untouched (50)", (await atWaste(pT2.id)) === 50, await atWaste(pT2.id));
@@ -121,10 +143,14 @@ async function main() {
   const pT5 = await newProduct(`${TAG} T5 concurrent`);
   await intake({ product_id: pT5.id, received_kg: 100, unit_cost: "5" });
   await intake({ product_id: pT5.id, received_kg: 50, waste_qty: 50, unit_cost: "5" });
+  // WF-01 (replaces "two 80 kg orders both dispatch (lenient)"): the second 80 kg order
+  // cannot be confirmed — only 20 sellable remain once the first holds its 80.
   const a5 = await mkOrder(pT5.id, pT5.name, 80);
-  const b5 = await mkOrder(pT5.id, pT5.name, 80);
-  const [d5a, d5b] = await Promise.all([dispatchOrder(a5.order.id, a5.line.id, 80), dispatchOrder(b5.order.id, b5.line.id, 80)]);
-  check("both dispatches complete (lenient)", d5a.status === 200 && d5b.status === 200);
+  const b5try = await tryOrder(pT5.id, 80);
+  check("second 80 kg order refused -> 409, available 20 (waste never counts)", b5try.status === 409 && b5try.body.details?.shortfalls?.[0]?.available === "20", b5try.body);
+  const b5 = await mkOrder(pT5.id, pT5.name, 20);
+  const [d5a, d5b] = await Promise.all([dispatchOrder(a5.order.id, a5.line.id, 80), dispatchOrder(b5.order.id, b5.line.id, 20)]);
+  check("both held orders dispatch concurrently (80 + 20)", d5a.status === 200 && d5b.status === 200, [d5a.status, d5b.status, d5a.body?.error, d5b.body?.error]);
   const moves5 = (await ledger(pT5.id)).filter((m: any) => m.kind === "issue");
   const issued5 = Math.abs(moves5.reduce((s: number, m: any) => s + n(m.quantity), 0));
   check("combined issued = 100 (sellable cap), never waste", issued5 === 100 && moves5.every((m: any) => m.locationId !== "loc_waste"), { issued5, locs: moves5.map((m: any) => m.locationId) });
@@ -149,17 +175,18 @@ async function main() {
   check("waste still 40", (await atWaste(pT6.id)) === 40);
 
   // =========================================================================
-  section("T7. STRICT POLICY — ORDER WITH ONLY WASTE REFUSED AT DISPATCH");
-  await setting("inventory.dispatch_issue_policy", "strict");
+  section("T7. STRICT (ONLY) POLICY — ORDER WITH ONLY WASTE REFUSED");
+  // WF-01: strict is the only policy — no setting to switch; the refusal now comes at the
+  // order itself, before anything could reach the truck.
+  const pol7 = (await call("admin", "GET", "/api/admin/settings")).body.settings.find((x: any) => x.key === "inventory.dispatch_issue_policy");
+  check("dispatch policy is strict", pol7?.value === "strict", pol7);
   const pT7 = await newProduct(`${TAG} T7 strict`);
   await intake({ product_id: pT7.id, received_kg: 20, waste_qty: 20, unit_cost: "5" });
-  const o7 = await mkOrder(pT7.id, pT7.name, 10);
-  const d7 = await dispatchOrder(o7.order.id, o7.line.id, 10);
-  check("strict dispatch with only waste -> 409", d7.status === 409, [d7.status, d7.body?.error]);
+  const d7 = await tryOrder(pT7.id, 10);
+  check("order against only waste -> 409", d7.status === 409 && d7.body.code === "stock_unavailable", [d7.status, d7.body?.error]);
   const moves7 = (await ledger(pT7.id)).filter((m: any) => m.kind === "issue");
   check("NO issue movement at all", moves7.length === 0);
   check("onHand unchanged (20 waste)", (await onHand(pT7.id)) === 20);
-  await setting("inventory.dispatch_issue_policy", null); // reset to pristine default (lenient)
 
   // =========================================================================
   section("T8. DISPOSAL — SCRAP FROM loc_waste WORKS (explicit location)");
@@ -201,7 +228,7 @@ async function main() {
   // =========================================================================
   section("T10. RETURNS — CUSTOMER RETURN DOES NOT TOUCH WASTE");
   const pT10 = await newProduct(`${TAG} T10 return`);
-  await intake({ product_id: pT10.id, received_kg: 100, waste_qty: 10, unit_cost: "5" });
+  await intakeApproved({ product_id: pT10.id, received_kg: 100, waste_qty: 10, unit_cost: "5" });
   const o10 = await mkOrder(pT10.id, pT10.name, 10);
   await dispatchOrder(o10.order.id, o10.line.id, 10);
   check("waste 10 before return", (await atWaste(pT10.id)) === 10);
@@ -218,7 +245,7 @@ async function main() {
   const v11 = await product(pT11.id);
   check("cold-room stock fully sellable (40/40)", n(v11.sellableOnHand) === 40 && n(v11.available) === 40, [v11.sellableOnHand, v11.available]);
   const gb11 = await newProduct(`${TAG} T11 gradeb`);
-  await intake({ product_id: gb11.id, received_kg: 60, grade_b_qty: 20, unit_cost: "5" }); // legacy: GB at loc_grade_b
+  await intakeApproved({ product_id: gb11.id, received_kg: 60, grade_b_qty: 20, unit_cost: "5" }); // legacy: GB at loc_grade_b (loss approved by the supervisor)
   const v11b = await product(gb11.id);
   check("grade B bucket sellable (60 incl. 20 at GRADE-B)", n(v11b.sellableOnHand) === 60 && n(v11b.onHand) === 60, [v11b.sellableOnHand, v11b.onHand]);
 

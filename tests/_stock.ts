@@ -109,8 +109,29 @@ export async function setSetting(key: string, value: unknown, reason = "e2e scen
 }
 
 /** A 9-digit tax registration number, unique enough per run. */
-export function taxNo(seed = 0): string {
-  return String(100_000_000 + ((Date.now() + seed * 7919) % 899_999_999));
+let taxSeq = 0;
+export function taxNo(): string {
+  // 9 digits: 3 from the process id, 4 from the clock, 2 from a per-process counter —
+  // distinct within a run and very unlikely to repeat across runs on one test database.
+  const n = ((process.pid % 900) + 100) * 1_000_000 + (Date.now() % 10_000) * 100 + (taxSeq++ % 100);
+  return String(n);
+}
+
+/** Customer card with a 9-digit tax registration number (MIG-01: invoices need a buyer tax identity). */
+export async function taxedCustomer(name: string, who = "mona", extra: Record<string, unknown> = {}) {
+  await ensureLogin(who);
+  const r = await call(who, "POST", "/api/sales/customers", { name, tax_registration_no: taxNo(), ...extra });
+  if (r.status !== 201 && r.status !== 200) throw new Error(`customer setup: ${r.status} ${JSON.stringify(r.body)}`);
+  return r.body.customer;
+}
+
+/** Approves every pending grading-loss request whose entity is one of `entityIds` (as `approver`, not the receiver). */
+export async function approveGradingLoss(entityIds: string[], approver = "sara") {
+  await ensureLogin(approver);
+  const list = ((await call(approver, "GET", "/api/approvals?status=pending")).body?.approvals ?? []) as { id: string; type: string; entityId: string }[];
+  const out: Res[] = [];
+  for (const a of list.filter((x) => x.type === "inventory.grading_loss" && entityIds.includes(x.entityId))) out.push(await approve(approver, a.id));
+  return out;
 }
 
 /** Finds the pending approval request of `type` for `entityId` (or whose title contains `titleIncludes`). */
