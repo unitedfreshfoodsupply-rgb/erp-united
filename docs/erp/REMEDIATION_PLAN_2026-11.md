@@ -48,3 +48,77 @@ Shared files (`prisma/schema.prisma`, `lib/permissions.ts`, `lib/core/settings-r
 7. **ETA**: stays disabled. Uncertain submissions can only leave `unknown` through an ETA lookup
    or a second-person reconciliation with the portal UUID.
 8. **Payroll**: stays fail-closed until 2026 statutory values are entered and verified by two people.
+
+## WS3 notes (accounting)
+
+Migrations: `20261102120000_provisional_cost`, `20261102121000_customer_charges`,
+`20261102122000_account_liquidity` (additive; the three CHECK constraints on `StockMovement`
+kind/direction/source and `StockValuationLayer.costSource` are replaced by strict supersets).
+
+**ACC-E1 provisional cost — built.**
+- A receipt needs a cost: PO line → the receiver's `unit_cost` → the supplier's dated price
+  (now recorded on the receipt) → otherwise an explicit `provisional_unit_cost` (> 0). With
+  none of them the receipt is refused (400). A provisional receipt is flagged
+  (`StockIntake.costProvisional`, layers `costSource = 'provisional'`); it is never an agreed
+  price, so its bill line is "unpriced" and needs approval.
+- When the bill posts, Δ = billed net − provisional value (accepted qty × provisional cost) is
+  split by where the receipt's units are, read from the stock ledger per product (the receipt's
+  lots, incl. a Grade-B SKU lot): on hand → Inventory (a `revaluation_out`/`revaluation_in`
+  pair per bucket, counter GRNI, so layers and GL move together); issued (net of customer
+  returns) → COGS; scrapped/adjusted → inventory adjustments; returned to the supplier before
+  the bill → PPV (the debit note for that return credits it back). GRNI clears at provisional
+  value + the inventory part. PPV stays only for variances against an agreed price. The
+  receipt's lots move to the billed unit cost (a later return to the supplier leaves at it).
+- Every split is a `StockRevaluation` row (never deleted; the movements point at it) + audit
+  rows; the bill detail returns `revaluations`.
+- Debit notes: an allowance (no goods back) on a provisional line changes that receipt's cost
+  by the amount credited, split the same way; each row points at the bill row it reverses
+  (`reversalOfId`). A debit note for the whole line therefore takes the bill's revaluation
+  back exactly, together with the provisional base — nothing goes to PPV (decision: with no
+  agreed price, what the supplier finally charges net is the cost). Goods sent back after the
+  bill leave at the lot's billed cost — unchanged path, no variance.
+- Reports: valuation report `provisionalQty/provisionalValue` per product + total;
+  `GET /api/inventory/reports/provisional` (stock.valuation.view) lists receipts awaiting
+  their bill; finance report `costProvisionalQty` per product and COGS including bill
+  revaluations on the bill date; integrity check `provisional_cost_pending` (informational).
+- Legacy `unknown` layers are untouched and still reported (`receivedWithoutCost`); a bill on
+  such a receipt posts exactly as before (GRNI 0, net to PPV).
+- Known limits: the split is by quantity (under the NRV grading policy Grade-B/waste carry
+  different unit costs; the proportional default is exact). Standard-cost products are revalued
+  like AVCO ones (their issues stay at standard cost — the pre-existing standard-costing drift).
+  The UI receiving form asks for a provisional cost when there is no PO.
+
+**G1 fixed-asset sale on credit — built.** `POST /api/assets/:id/dispose` takes `customer_id`
+(+ optional `due_date`, default the customer's terms) instead of `cash_account_id`: Dr AR
+(party = customer), Cr VAT output, gain/loss as for cash. The receivable is a `CustomerCharge`
+(append-only) included in the customer's statement, aging, credit exposure and the AR
+integrity check; it is settled by money received on account (applied to charges oldest-due
+first in aging). Customer must be active and not on credit hold. The cash-flow statement moves
+the uncollected price from investing to operating. Not done: an ETA e-invoice for the sale
+(WS4 / tax adviser — gap register G1 "Legal"); asset-sale UI (API only, like disposals today).
+
+**G5 current / non-current — built.** `Account.liquidity` (`current` | `non_current` | NULL).
+Seeded by migration for the standard system accounts (current), the 1700 header and accounts
+the asset register controls (non-current), and GL accounts behind cash boxes/banks (current);
+new fixed-asset category accounts and cash/bank accounts get it at creation; other accounts
+take their header's class or stay unclassified; settable on create/PATCH (asset/liability only,
+system accounts cannot be unclassified). Balance sheet: current / non-current / unclassified
+subtotals, `unclassifiedAccounts`, `classificationComplete`. Comparatives/ratios use current
+assets ÷ current liabilities; unclassified balances are excluded and reported, never guessed.
+Owner action: classify any loan or other non-system liability/asset account.
+
+**G2 collection follow-up — built (read-only).** `GET /api/sales/reports/collections?as_of=`
+(same gate as aging, `sales.invoices.view`): customers with overdue balances, each overdue
+invoice / opening balance / charge with days overdue, buckets, money on account, last receipt,
+credit limit/hold/terms and over-limit flag, ordered by oldest overdue. No messages are sent.
+
+**Not built — decisions needed (gap register G4, G6, G7, G8, G9):**
+- G9 crates/pallets: needs the classification decision first (returnable packaging as a fixed-asset
+  category, or a consumable/stock item with deposits) — checklist C6. Nothing built.
+- G8 budgets: needs the owner's budget structure (by account? cost center? month?). Comparatives
+  against prior periods remain the substitute.
+- G6 leases / impairment / revaluation of assets: auditor decision under EAS (IFRS 16-style
+  lease accounting is usually not required for this SME); leases stay expensed as rent.
+- G7 recurring/reversing accruals: not trivial (scheduler + templates); month-end accruals stay
+  manual journals under the approval rule.
+- G4 bank formats (MT940/CAMT): depends on the bank chosen; CSV matching remains.
