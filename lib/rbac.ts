@@ -66,10 +66,10 @@ export function handleApiError(err: unknown, req?: NextRequest) {
     if (err.code && loc === "en") {
       const translated = ERRORS_EN[err.code];
       if (translated) {
-        return NextResponse.json({ error: translated, ...(err.details !== undefined ? { code: err.code, details: err.details } : {}) }, { status: err.status });
+        return NextResponse.json({ error: translated, ...(err.code ? { code: err.code } : {}), ...(err.details !== undefined ? { details: err.details } : {}) }, { status: err.status });
       }
     }
-    return NextResponse.json({ error: localizeServerMessage(err.message, loc), ...(err.details !== undefined ? { code: err.code, details: err.details } : {}) }, { status: err.status });
+    return NextResponse.json({ error: localizeServerMessage(err.message, loc), ...(err.code ? { code: err.code } : {}), ...(err.details !== undefined ? { details: err.details } : {}) }, { status: err.status });
   }
   // A short reference ties what the user reports to the server log line.
   const ref = randomUUID().slice(0, 8);
