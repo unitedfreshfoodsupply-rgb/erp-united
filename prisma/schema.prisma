@@ -399,6 +399,9 @@ model StockProduct {
   supplierBillLines SupplierBillLine[]
   etaItemCode       EtaItemCode?
 
+  // ---- WS3 remediation 2026-11 ----
+  revaluations StockRevaluation[]
+
   @@index([active])
   @@index([category])
 }
@@ -490,6 +493,12 @@ model StockIntake {
 
   billLines SupplierBillLine[]
 
+  // ---- WS3 remediation 2026-11 (ACC-E1 provisional cost) ----
+  /// true: unitCost is a PROVISIONAL cost entered because no price was agreed at receipt.
+  /// It is never an agreed price: the supplier bill revalues the receipt to what was billed.
+  costProvisional Boolean            @default(false)
+  revaluations    StockRevaluation[]
+
   @@index([receivedDate])
   @@index([purchaseOrderLineId])
   @@index([supplierId])
@@ -541,6 +550,11 @@ model StockMovement {
 
   valuationPosting StockValuationPosting?
 
+  // ---- WS3 remediation 2026-11 (ACC-E1): revaluation_out/in pairs point at their revaluation ----
+  revaluationId String?
+  revaluation   StockRevaluation? @relation(fields: [revaluationId], references: [id], onDelete: Restrict)
+
+  @@index([revaluationId])
   @@index([productId, occurredAt])
   @@index([productId, locationId, lotId])
   @@index([documentId])
@@ -1712,6 +1726,9 @@ model SupplierBill {
 
   paymentAllocations PaymentAllocation[]
 
+  // ---- WS3 remediation 2026-11 ----
+  revaluations StockRevaluation[]
+
   @@index([supplierId, status])
   @@index([status, dueDate])
 }
@@ -1751,6 +1768,9 @@ model SupplierBillLine {
   product    StockProduct       @relation(fields: [productId], references: [id], onDelete: Restrict)
   debitLines DebitNoteLine[]
 
+  // ---- WS3 remediation 2026-11 ----
+  revaluations StockRevaluation[]
+
   @@unique([billId, lineNo])
   @@index([intakeId])
   @@index([poLineId])
@@ -1785,6 +1805,9 @@ model DebitNote {
   supplier     Supplier               @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   lines        DebitNoteLine[]
   serviceLines DebitNoteServiceLine[]
+
+  // ---- WS3 remediation 2026-11 ----
+  revaluations StockRevaluation[]
 
   @@index([supplierId])
   @@index([billId])
@@ -3907,4 +3930,61 @@ model CostCenter {
   expenses     Expense[]
   billLines    SupplierBillServiceLine[]
   assets       FixedAsset[]
+}
+
+// ===========================================================================
+// WS3 remediation 2026-11 — accounting (ACC-E1 provisional cost)
+// ===========================================================================
+
+/// A receipt carried at a PROVISIONAL cost, revalued to what the supplier billed. One row
+/// per (bill line, product) when the bill posts; a debit note that takes back part of the
+/// billed price (an allowance) writes a row reversing its share (reversalOfId). The
+/// difference is split by where the receipt's units are: still on hand → Inventory
+/// (revaluation_out/in movement pairs on their buckets, so the stock ledger and the GL
+/// agree); sold → COGS; written off → inventory adjustments; returned to the supplier
+/// before the bill → PPV (the debit note for that return takes it back).
+model StockRevaluation {
+  id                  String   @id @default(cuid())
+  /// supplier_bill | debit_note
+  sourceType          String
+  billId              String
+  billLineId          String
+  debitNoteId         String?
+  intakeId            String
+  productId           String
+  /// The business date it posts on (the bill's or the debit note's date).
+  date                String
+  /// The receipt's units that ended up in this product (on hand + gone).
+  basisQty            Decimal  @db.Decimal(18, 3)
+  /// Of those, still in stock when this row was written.
+  onHandQty           Decimal  @db.Decimal(18, 3)
+  provisionalUnitCost Decimal  @db.Decimal(18, 4)
+  /// Billed − provisional, per unit of basisQty (signed).
+  unitDelta           Decimal  @db.Decimal(18, 6)
+  /// The whole difference for this product (signed) = the four parts below.
+  delta               Decimal  @db.Decimal(18, 2)
+  inventoryDelta      Decimal  @db.Decimal(18, 2)
+  cogsDelta           Decimal  @db.Decimal(18, 2)
+  adjustmentDelta     Decimal  @db.Decimal(18, 2)
+  ppvDelta            Decimal  @db.Decimal(18, 2)
+  reversalOfId        String?
+  createdById         String?
+  createdBy           String
+  createdAt           DateTime @default(now())
+
+  bill       SupplierBill       @relation(fields: [billId], references: [id], onDelete: Restrict)
+  billLine   SupplierBillLine   @relation(fields: [billLineId], references: [id], onDelete: Restrict)
+  debitNote  DebitNote?         @relation(fields: [debitNoteId], references: [id], onDelete: Restrict)
+  intake     StockIntake        @relation(fields: [intakeId], references: [id], onDelete: Restrict)
+  product    StockProduct       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  reversalOf StockRevaluation?  @relation("StockRevaluationReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversals  StockRevaluation[] @relation("StockRevaluationReversal")
+  movements  StockMovement[]
+
+  @@index([billId])
+  @@index([billLineId])
+  @@index([debitNoteId])
+  @@index([intakeId])
+  @@index([productId, date])
+  @@index([reversalOfId])
 }

@@ -277,6 +277,17 @@ export async function integrityReport() {
       detail: waste.slice(0, 20).map((w) => ({ productId: w.productId, name: w.name, nameAr: w.nameAr, unit: w.unit, quantity: D(w.qty).toString(), value: D(w.value).toFixed(2) })),
     };
   })(),
+  // WS3 (ACC-E1, informational): stock still at a provisional cost — its supplier bill has
+  // not posted, so its value (and the margin of what was sold from it) is an estimate.
+  (async (): Promise<Check> => {
+    const { provisionalReceipts } = await import("@/lib/inventory/reports");
+    const rows = await provisionalReceipts();
+    const value = rows.reduce((s, r) => s.plus(D(r.onHand).times(r.unitCost)), D(0));
+    return {
+      key: "provisional_cost_pending", label: "استلامات بسعر مؤقت لسه فاتورتها مترحّلتش (معلومة)", ok: true, ledger: value.toFixed(2), count: rows.length,
+      detail: rows.slice(0, 20).map((r) => ({ receiptNumber: r.receiptNumber, receivedDate: r.receivedDate, productId: r.productId, provisionalUnitCost: D(r.unitCost).toFixed(4), onHand: D(r.onHand).toString(), bill: r.billNumber, billStatus: r.billStatus })),
+    };
+  })(),
   ]);
 
   return { ok: checks.every((c) => c.ok), checkedAt: new Date().toISOString(), checks };

@@ -36,6 +36,8 @@ export type AuditInput = {
     | "inventory_document"
     | "stock_lot"
     | "stock_reservation"
+    // WS3 remediation 2026-11
+    | "stock_revaluation"
     | "stock_issue_exception"
     | "customer"
     | "customer_alias"

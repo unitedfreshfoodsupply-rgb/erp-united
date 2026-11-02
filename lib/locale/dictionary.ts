@@ -519,6 +519,13 @@ const stock = {
   "stock.movement.sorting_in": { ar: "فرز (دخول)", en: "Sorting (In)" },
   "stock.movement.release_out": { ar: "إفراج محجوز (خروج)", en: "Release Reserved (Out)" },
   "stock.movement.release_in": { ar: "إفراج محجوز (دخول)", en: "Release Reserved (In)" },
+  // ---- WS3 remediation 2026-11 ----
+  "stock.provisional-cost": { ar: "سعر مؤقت للوحدة", en: "Provisional unit cost" },
+  "stock.agreed-unit-cost": { ar: "سعر الوحدة المتفق عليه", en: "Agreed unit cost" },
+  "stock.provisional-cost-toggle": { ar: "السعر مؤقت (لسه مش متفق عليه)", en: "Price is provisional (not agreed yet)" },
+  "stock.provisional-cost-hint": { ar: "من غير أمر شراء أو سعر مورد لازم سعر — فاتورة المورد هتعيد تقييم الاستلام", en: "Without a PO or supplier price a cost is required — the supplier bill will revalue the receipt" },
+  "stock.movement.revaluation_out": { ar: "إعادة تقييم (خروج)", en: "Revaluation (Out)" },
+  "stock.movement.revaluation_in": { ar: "إعادة تقييم (دخول)", en: "Revaluation (In)" },
 
   "stock.audit.supplier_created": { ar: "إضافة مورد", en: "Supplier Created" },
   "stock.audit.supplier_updated": { ar: "تعديل مورد", en: "Supplier Updated" },

@@ -24,6 +24,7 @@ import { isServiceBillAccount } from "@/lib/purchasing/service-accounts";
 import { postReturnToSupplierInTx } from "@/lib/inventory/documents";
 import { idempotencyKeyField, lockKey, replayRequest, requestFingerprint } from "@/lib/core/idempotency";
 import { listLimit } from "@/lib/core/list-window";
+import { revaluationsOf } from "@/lib/purchasing/revaluation";
 
 /**
  * Supplier bills and debit notes — the payables side of purchasing.
@@ -74,8 +75,13 @@ type ReceiptRow = Prisma.StockIntakeGetPayload<{ include: typeof RECEIPT_INCLUDE
 /** The agreed price per base unit for a receipt, and where it came from. */
 async function agreedPrice(db: Tx | typeof prisma, r: ReceiptRow): Promise<{ price: Prisma.Decimal | null; source: "po" | "receipt" | "supplier_price" | null }> {
   if (r.purchaseOrderLine) return { price: poLineUnitCost(r.purchaseOrderLine), source: "po" };
-  if (r.unitCost != null) return { price: D(r.unitCost), source: "receipt" };
+  // WS3 (ACC-E1): a provisional receipt cost is never an agreed price — nothing to match
+  // against (the bill waits for approval), and posting revalues the receipt instead.
+  if (r.costProvisional) return { price: null, source: null };
   const sp = await effectiveSupplierPrice(db, { supplierId: r.supplierId, product: r.product, uom: r.product.unit, date: r.receivedDate });
+  // A walk-in receipt now takes its cost from the dated supplier price when nothing else is
+  // given (WS3): it is still the price list that was agreed.
+  if (r.unitCost != null) return { price: D(r.unitCost), source: sp && D(sp.unitPrice).equals(r.unitCost) ? "supplier_price" : "receipt" };
   return sp ? { price: D(sp.unitPrice), source: "supplier_price" } : { price: null, source: null };
 }
 
@@ -118,6 +124,10 @@ export async function billableReceipts(supplierId: string) {
         expectedUnitPrice: agreed.price?.toString() ?? null,
         priceSource: agreed.source,
         expectedNet: agreed.price ? r2(billableQty(r).times(agreed.price)).toFixed(2) : null,
+        // WS3 (ACC-E1): carried at a provisional cost until this bill revalues it.
+        costProvisional: r.costProvisional,
+        provisionalUnitCost: r.costProvisional ? D(r.unitCost!).toFixed(4) : null,
+        provisionalNet: r.costProvisional ? r2(billableQty(r).times(r.unitCost!)).toFixed(2) : null,
         taxCode: tax.code,
         taxRate: tax.rate.toString(),
       };
@@ -872,6 +882,8 @@ export async function getBill(id: string) {
       costCenterId: l.costCenterId,
     })),
     debitNotes: b.debitNotes.map((dn) => ({ id: dn.id, number: dn.number, issueDate: dn.issueDate, reason: dn.reason, total: dn.total.toFixed(2), createdBy: dn.createdBy })),
+    // WS3 (ACC-E1): how posting (and allowance debit notes) revalued provisional receipts.
+    revaluations: await revaluationsOf(prisma, { billId: b.id }),
   };
 }
 

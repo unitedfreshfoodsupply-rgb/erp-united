@@ -2633,6 +2633,16 @@
     },
     {
       "method": "GET",
+      "path": "/api/inventory/reports/provisional",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "stock.valuation.view"
+        ]
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/inventory/reports/valuation/export",
       "gate": {
         "kind": "all",

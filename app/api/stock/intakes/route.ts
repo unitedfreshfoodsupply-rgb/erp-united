@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
             location_id: body.location_id,
             expiry_date: body.expiry_date,
             unit_cost: body.unit_cost,
+            provisional_unit_cost: body.provisional_unit_cost,
             entered_qty: body.entered_qty,
             entered_uom: body.entered_uom,
             purchase_order_line_id: body.purchase_order_line_id,

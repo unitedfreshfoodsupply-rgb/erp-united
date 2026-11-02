@@ -206,11 +206,22 @@ export async function postSupplierBill(tx: Tx, billId: string, actor: Actorish) 
   // GRNI carries what the receipts were valued at in stock (the agreed price); anything
   // else the supplier charged is a purchase price variance.
   const agreed = bill.lines.reduce((a, l) => a.plus(l.expectedNet ?? 0), D(0));
+  // WS3 (ACC-E1): a receipt at a PROVISIONAL cost has no agreed price to vary from. Its GRNI
+  // clears at the provisional value plus the revaluation the stock ledger just posted
+  // (Inventory <-> GRNI for the units still on hand); the rest of the difference is the cost
+  // of units already gone: COGS (sold), adjustments (written off), PPV only for units
+  // already returned to the supplier (their debit note takes it back).
+  const { revalueOnBill } = await import("@/lib/purchasing/revaluation");
+  const rv = await revalueOnBill(tx, bill.id, actor);
+  const grni = agreed.plus(rv.grni);
+  const cogs = rv.cogs, adjustment = rv.adjustment;
   return postJournal(tx, {
     date: bill.billDate, description: `فاتورة مورد ${bill.number} (${bill.supplierInvoiceNo})`, sourceType: "supplier_bill", sourceId: bill.id,
     lines: [
-      { key: "grni", amount: agreed },
-      { key: "ppv", amount: bill.net.minus(agreed) },
+      { key: "grni", amount: grni },
+      { key: "cogs", amount: cogs, description: cogs.isZero() ? undefined : "فرق تكلفة مؤقتة — كمية اتباعت" },
+      { key: "inventory_adjustment", amount: adjustment, description: adjustment.isZero() ? undefined : "فرق تكلفة مؤقتة — كمية اتسوّت/اتعدمت" },
+      { key: "ppv", amount: bill.net.minus(grni).minus(cogs).minus(adjustment) },
       { key: "vat_input", amount: bill.taxTotal },
       { key: "ap", amount: bill.total.negated(), party: { type: "supplier", id: bill.supplierId } },
     ],
@@ -251,12 +262,22 @@ export async function postDebitNote(tx: Tx, debitNoteId: string, actor: Actorish
     const v = await tx.stockValuationLayer.aggregate({ where: { movement: { documentId: dn.returnDocumentId } }, _sum: { value: true } });
     grni = D(v._sum.value ?? 0).negated();
   }
+  // WS3 (ACC-E1): an allowance (no goods back) on a line whose receipt was at a provisional
+  // cost changes that receipt's cost: revalued the way the bill's difference was, never a
+  // price variance. Goods sent back leave stock at their lot's (billed) cost: unchanged rule.
+  const { revalueOnDebitNote } = await import("@/lib/purchasing/revaluation");
+  const rv = dn.returnDocumentId ? null : await revalueOnDebitNote(tx, dn.id, actor);
+  // The revaluation movements moved GRNI by the inventory part: net it here.
+  const grniLine = grni.negated().plus(rv?.grni ?? 0);
+  const cogs = rv?.cogs ?? D(0), adjustment = rv?.adjustment ?? D(0);
   return postJournal(tx, {
     date: dn.issueDate, description: `إشعار مدين ${dn.number} على ${dn.bill.number}`, sourceType: "debit_note", sourceId: dn.id,
     lines: [
       { key: "ap", amount: dn.total, party: { type: "supplier", id: dn.supplierId } },
-      { key: "grni", amount: grni.negated() },
-      { key: "ppv", amount: grni.minus(dn.net) },
+      { key: "grni", amount: grniLine },
+      { key: "cogs", amount: cogs, description: cogs.isZero() ? undefined : "تخفيض تكلفة مؤقتة — كمية اتباعت" },
+      { key: "inventory_adjustment", amount: adjustment, description: adjustment.isZero() ? undefined : "تخفيض تكلفة مؤقتة — كمية اتسوّت/اتعدمت" },
+      { key: "ppv", amount: dn.total.minus(dn.taxTotal).plus(grniLine).plus(cogs).plus(adjustment).negated() },
       { key: "vat_input", amount: dn.taxTotal.negated() },
     ],
   }, actor);
@@ -270,6 +291,8 @@ const VALUATION_COUNTER: Record<string, SystemKey> = {
   intake: "grni", intake_correction: "grni", intake_void: "grni", supplier_return: "grni",
   issue: "cogs", customer_return: "cogs",
   adjustment: "inventory_adjustment", scrap: "inventory_adjustment", transfer_out: "inventory_adjustment", transfer_in: "inventory_adjustment",
+  // WS3 (ACC-E1): a bill revaluing a provisional receipt: the receipt's own counter.
+  revaluation_out: "grni", revaluation_in: "grni",
 };
 const KIND_LABEL: Record<string, string> = { grni: "استلامات ومرتجعات موردين", cogs: "صرف ومرتجعات عملاء", inventory_adjustment: "تسويات وهالك وتحويلات", opening_equity: "رصيد مخزون افتتاحي" };
 
@@ -299,7 +322,7 @@ async function valuationLines(tx: Tx, moves: { kind: string; documentId: string 
   return lines;
 }
 
-const MOVE_LABEL: Record<string, string> = { intake: "استلام", intake_correction: "تصحيح استلام", intake_void: "إلغاء استلام", adjustment: "تسوية", transfer_out: "تحويل", transfer_in: "تحويل", issue: "صرف لعميل", customer_return: "مرتجع عميل", supplier_return: "مرتجع مورد", sorting_out: "فرز — خارج", sorting_in: "فرز — داخل", release_out: "إفراج محجوز — خارج", release_in: "إفراج محجوز — داخل" };
+const MOVE_LABEL: Record<string, string> = { intake: "استلام", intake_correction: "تصحيح استلام", intake_void: "إلغاء استلام", adjustment: "تسوية", transfer_out: "تحويل", transfer_in: "تحويل", issue: "صرف لعميل", customer_return: "مرتجع عميل", supplier_return: "مرتجع مورد", sorting_out: "فرز — خارج", sorting_in: "فرز — داخل", release_out: "إفراج محجوز — خارج", release_in: "إفراج محجوز — داخل", revaluation_out: "إعادة تقييم — خارج", revaluation_in: "إعادة تقييم — داخل" };
 
 /** "قيمة مخزون — استلام RC-…" — the kind in words and the document it came from. */
 async function valuationDescription(tx: Tx, moves: { kind: string; documentId: string | null; intakeId?: string | null }[]) {

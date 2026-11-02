@@ -18,6 +18,7 @@ import { computeGradingCosts, type GradingCostPolicy, type WasteLossPolicy } fro
 import { gradingPrices } from "@/lib/sales/pricing";
 import { getSetting } from "@/lib/core/settings-service";
 import { afterPoReceipt, guardPoReceipt, loadPoLine, poLineUnitCost, lockPoForReceipt } from "@/lib/purchasing/receiving";
+import { effectiveSupplierPrice } from "@/lib/purchasing/suppliers";
 import { assertReceiptNotBilled } from "@/lib/purchasing/bills";
 import { postJournal } from "@/lib/accounting/ledger";
 
@@ -313,6 +314,9 @@ export type IntakeInput = {
   rejection_reason?: string;
   /** One key per submitted receiving form: the same key returns the same receipt. */
   idempotency_key?: unknown;
+  /** WS3 (ACC-E1): a PROVISIONAL cost per base unit, when no price was agreed (no PO, no
+   * unit_cost, no dated supplier price). The supplier bill revalues the receipt later. */
+  provisional_unit_cost?: unknown;
 };
 
 /** The key's first receipt, if it is the same receipt; a different one under the same key is refused. */
@@ -383,7 +387,7 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
   if (input.expiry_date !== undefined && input.expiry_date !== null && input.expiry_date !== "" && !isValidISODate(input.expiry_date)) {
     throw new ApiError(400, "تاريخ الصلاحية لازم يكون بصيغة YYYY-MM-DD");
   }
-  const unitCost = poLine ? poLineUnitCost(poLine) : parseMoney(input.unit_cost, "سعر الوحدة");
+  let unitCost = poLine ? poLineUnitCost(poLine) : parseMoney(input.unit_cost, "سعر الوحدة");
 
   const [supplier, product] = await Promise.all([
     prisma.supplier.findUnique({ where: { id: input.supplier_id } }),
@@ -405,6 +409,26 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
   if (!product.stockTracked) {
     throw new ApiError(400, `"${product.name}" مش صنف بيتتبع مخزونه — مينفعش يتسجل عليه استلام`);
   }
+  // WS3 (ACC-E1): a receipt never enters stock without a cost. The agreed price comes from
+  // the PO line, the receiver's unit_cost, or the supplier's dated price; with none of them
+  // an explicit PROVISIONAL cost is required, and the supplier bill revalues it later.
+  async function resolveReceiptCost(): Promise<boolean> {
+    const raw = input.provisional_unit_cost;
+    if (raw !== undefined && raw !== null && raw !== "") {
+      if (poLine) throw new ApiError(400, "الاستلام على أمر شراء سعره متفق عليه — مفيش سعر مؤقت");
+      if (unitCost != null) throw new ApiError(400, "يا سعر متفق عليه يا سعر مؤقت — مش الاتنين");
+      const provisional = parseMoney(raw, "السعر المؤقت");
+      if (!provisional || !provisional.gt(0)) throw new ApiError(400, "السعر المؤقت لازم يكون أكبر من صفر");
+      unitCost = provisional;
+      return true;
+    }
+    if (unitCost == null) {
+      const listed = await effectiveSupplierPrice(prisma, { supplierId: supplier!.id, product: product!, uom: product!.unit, date: receivedDate });
+      if (!listed) throw new ApiError(400, "مفيش سعر متفق عليه للاستلام ده (لا أمر شراء ولا سعر مورد ولا سعر وحدة) — اكتب سعر مؤقت لحد ما فاتورة المورد توصل");
+      unitCost = D(listed.unitPrice);
+    }
+    return false;
+  }
 
   // Counted in packages: convert to the base unit through THIS product's packaging.
   let receivedRaw = input.received_qty ?? input.received_kg;
@@ -416,6 +440,7 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
     entered = { qty, uom: input.entered_uom };
   }
   const { received, rejected, gradeB, waste, good } = receivedNumbers(receivedRaw, input.rejected_qty ?? input.rejected_kg, input.grade_b_qty, input.waste_qty);
+  const costProvisional = await resolveReceiptCost();
 
   // --- grading cost allocation (policy-gated; proportional by default) ---
   const gradingPolicy: GradingCostPolicy = await getSetting("inventory.grading_cost_policy");
@@ -501,6 +526,7 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
         enteredQty: entered?.qty ?? null,
         enteredUom: entered?.uom ?? null,
         unitCost,
+        costProvisional,
         crateCount,
         warehouseId: warehouse.id,
         locationId: location.id,
@@ -525,7 +551,7 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
         kind: "intake",
         intakeId: created.id,
         unitCost: gc.goodUnitCost,
-        costSource: "purchase",
+        costSource: costProvisional ? "provisional" : "purchase",
       });
     }
     if (gradeB.gt(0)) {
@@ -555,7 +581,7 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
         kind: "intake",
         intakeId: created.id,
         unitCost: gc.gradeBUnitCost,
-        costSource: "purchase",
+        costSource: costProvisional ? "provisional" : "purchase",
       });
     }
     if (waste.gt(0)) {
@@ -575,7 +601,7 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
         kind: "intake",
         intakeId: created.id,
         unitCost: gc.wasteUnitCost,
-        costSource: "purchase",
+        costSource: costProvisional ? "provisional" : "purchase",
       });
     }
     if (movements.length > 0) {
@@ -603,7 +629,7 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
         action: "stock_intake_created",
         entityType: "stock_intake",
         entityId: created.id,
-        newValue: `${created.receiptNumber} · ${product.name} · ${received.toFixed()} ${product.unit}${lot ? ` · ${lot.lotNumber}` : ""} · ${location.code}${poLine ? ` · ${poLine.po.number}` : ""}`,
+        newValue: `${created.receiptNumber} · ${product.name} · ${received.toFixed()} ${product.unit}${lot ? ` · ${lot.lotNumber}` : ""} · ${location.code}${poLine ? ` · ${poLine.po.number}` : ""}${costProvisional ? ` · سعر مؤقت ${unitCost!.toFixed(4)}` : ""}`,
         source: "user",
         deviceId: actor.deviceId,
       },

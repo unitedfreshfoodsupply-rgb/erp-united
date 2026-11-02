@@ -1360,4 +1360,15 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["الصرف ده اتعكس بالفعل", "This payment is already reversed"],
   ["تاريخ العكس قبل تاريخ الصرف", "The reversal date is before the payment date"],
   ["ملف البنك بيطلع لمسير مترحّل بس", "The bank file is only available for a posted run"],
+  // ---- WS3 remediation 2026-11 ----
+  ["تخفيض التكلفة أكبر من قيمة المخزون الحالية للصنف — راجع سعر الفاتورة أو الإشعار", "The cost reduction is larger than the product's current stock value — check the bill or the debit note price"],
+  ["تكلفة الدفعة {} هتبقى بالسالب — راجع سعر الفاتورة أو الإشعار", "Lot {0}'s cost would become negative — check the bill or the debit note price"],
+  ["الفاتورة {} اتعمل لها إعادة تقييم قبل كده", "Bill {0} has already revalued its receipts"],
+  ["الاستلام {}: مش لاقي كمياته في دفتر المخزون — مينفعش يتعاد تقييمه", "Receipt {0}: its quantities are not in the stock ledger — it cannot be revalued"],
+  ["سطر الفاتورة {} على الاستلام {} مالوش إعادة تقييم — مينفعش إشعار مدين بتخفيض تكلفته", "Bill {0}'s line on receipt {1} has no revaluation — a debit note cannot lower its cost"],
+  ["الاستلام {}: مش لاقي كمياته في دفتر المخزون", "Receipt {0}: its quantities are not in the stock ledger"],
+  ["الاستلام على أمر شراء سعره متفق عليه — مفيش سعر مؤقت", "A receipt against a purchase order has an agreed price — no provisional cost"],
+  ["يا سعر متفق عليه يا سعر مؤقت — مش الاتنين", "Either an agreed price or a provisional cost — not both"],
+  ["السعر المؤقت لازم يكون أكبر من صفر", "The provisional cost must be greater than zero"],
+  ["مفيش سعر متفق عليه للاستلام ده (لا أمر شراء ولا سعر مورد ولا سعر وحدة) — اكتب سعر مؤقت لحد ما فاتورة المورد توصل", "No agreed price for this receipt (no purchase order, supplier price or unit cost) — enter a provisional cost until the supplier bill arrives"],
 ];

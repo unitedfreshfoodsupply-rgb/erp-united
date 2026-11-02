@@ -94,14 +94,16 @@ async function main() {
   check("same idempotency key 2× → both responses carry the SAME single credit note", new Set(cnIds).size === 1 && cnIds.length === 2, { statuses: [a.status, b.status], ids: cnIds });
   check("…owes 600 − 96 = 504 after the single duplicate-safe credit", (await owes()) === 504, await owes());
 
-  section("4. UNKNOWN-COST RECONCILIATION (provisional ≠ confirmed)");
-  // A second product received WITHOUT a price: its cost is unknown until the
-  // supplier cost arrives. The sale's COGS must not be presented as confirmed.
+  section("4. PROVISIONAL-COST RECONCILIATION (provisional ≠ confirmed)");
+  // WS3 (ACC-E1) superseded "received WITHOUT a price → unknown (zero) cost": a receipt with
+  // no price at all is refused, and one with no agreed price carries a PROVISIONAL cost until
+  // the supplier bill revalues it. The sale's COGS must still not be presented as confirmed.
   const p2 = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} بصل`, unit: "KG" })).body.product;
   const c2 = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل تكلفة` })).body.customer;
-  const intake2 = await call("hossam", "POST", "/api/stock/intakes", { supplier_id: sup.id, product_id: p2.id, received_date: today, received_kg: 2000 });
-  check("intake WITHOUT unit_cost -> 201 (cost unknown)", intake2.status === 201, intake2.body);
-  check("…valuation layer records it as UNKNOWN cost (zero value)", (await call("karim", "GET", `/api/inventory/reports/valuation`)).body.rows.some((r: any) => r.productId === p2.id && Number(r.receivedWithoutCost) === 2000), (await call("karim", "GET", `/api/inventory/reports/valuation`)).body.rows.find((r: any) => r.productId === p2.id));
+  check("intake WITHOUT any cost -> 400 (no more unknown-cost receipts)", (await call("hossam", "POST", "/api/stock/intakes", { supplier_id: sup.id, product_id: p2.id, received_date: today, received_kg: 2000 })).status === 400);
+  const intake2 = await call("hossam", "POST", "/api/stock/intakes", { supplier_id: sup.id, product_id: p2.id, received_date: today, received_kg: 2000, provisional_unit_cost: "3" });
+  check("intake at a PROVISIONAL cost -> 201", intake2.status === 201 && intake2.body.intake.costProvisional === true, intake2.body);
+  check("…valuation report flags the 2000 kg as provisional (6000 at the provisional price)", (await call("karim", "GET", `/api/inventory/reports/valuation`)).body.rows.some((r: any) => r.productId === p2.id && Number(r.provisionalQty) === 2000 && Number(r.provisionalValue) === 6000), (await call("karim", "GET", `/api/inventory/reports/valuation`)).body.rows.find((r: any) => r.productId === p2.id));
   const o2ord = (await call("mona", "POST", "/api/orders", { customer_account_id: c2.id, customer_name: c2.name, delivery_date: today, items: [{ stock_product_id: p2.id, product_name: p2.name, quantity: 600 }] })).body.order;
   await call("mona", "PATCH", `/api/orders/${o2ord.id}/items/${o2ord.items[0].id}/price`, { unit_price: "20", reason: "قائمة" });
   await call("ahmed", "POST", `/api/orders/${o2ord.id}/status`, { to: "preparing" });
@@ -114,11 +116,11 @@ async function main() {
   const inv2ord = (await call("karim", "POST", "/api/sales/invoices", { order_id: o2ord.id })).body.invoice;
   await call("karim", "POST", `/api/sales/invoices/${inv2ord.id}/issue`, {});
   const fin2 = (await call("karim", "GET", `/api/management/finance`)).body.report;
-  // The finance report must flag the quantity sold while cost was unknown — the
-  // revenue is real but the margin is provisional (zero COGS is not confirmed cost).
+  // The finance report must flag the quantity sold while the cost is provisional — the
+  // revenue is real but the margin is provisional until the bill confirms the cost.
   const row2 = fin2.sales.byProduct.find((x: any) => x.product.includes(TAG) && x.product.includes("بصل"));
-  check("finance report flags provisional-cost sale with costUnknownQty > 0", !!row2 && Number(row2.costUnknownQty) >= 600, row2);
-  check("…its COGS is zero while unknown (provisional margin)", !!row2 && n(row2.cost) === 0 && n(row2.margin) === 12000, row2);
+  check("finance report flags the provisional-cost sale with costProvisionalQty ≥ 600", !!row2 && Number(row2.costProvisionalQty) >= 600, row2);
+  check("…its COGS is at the provisional price (600 × 3 = 1800, provisional margin 10200)", !!row2 && n(row2.cost) === 1800 && n(row2.margin) === 10200, row2);
 
   section("5. PHYSICAL OVER-RETURN CAP (cumulative per order and per supplier)");
   // Order o dispatched 100 kg of product p; 48 kg already returned across doc1..doc3.
