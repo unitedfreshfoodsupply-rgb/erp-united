@@ -40,6 +40,23 @@ async function dispatchOrder(orderId: string, lineId: string, qty: number) {
   return call("mostafa", "POST", `/api/orders/${orderId}/status`, { to: "dispatched", vehicle: "x", driver_name: "y", crate_count: 1, reason: TAG });
 }
 
+// Brings an order to "loaded" with `qty` on the truck. A load above the order raises a
+// variance review; it is approved by admin (not the loader — segregation) and the move to
+// "loaded" is asserted, so a scenario never silently continues from the wrong state.
+async function toLoaded(orderId: string, lineId: string, qty: number, check: (n: string, c: boolean, d?: unknown) => void, label: string) {
+  await call("sara", "POST", `/api/orders/${orderId}/status`, { to: "loading", reason: TAG });
+  await call("mostafa", "POST", `/api/orders/${orderId}/items/${lineId}/load`, { quantity: qty, mark_done: true });
+  let o = (await call("sara", "GET", `/api/orders/${orderId}`)).body.order;
+  if (o.needsReview) {
+    const ap = await call("admin", "POST", `/api/orders/${orderId}/approve`, { reason: `${TAG} اعتماد حمولة زيادة` });
+    check(`${label}: the over-load review is approved by someone other than the loader`, ap.status === 200, ap.body);
+  }
+  const r = await call("mostafa", "POST", `/api/orders/${orderId}/status`, { to: "loaded", reason: TAG });
+  o = (await call("sara", "GET", `/api/orders/${orderId}`)).body.order;
+  check(`${label}: order is "loaded" with ${qty} on the truck`, r.status === 200 && o.status === "loaded" && n(o.items[0].loadedQuantity) === qty, [r.status, o.status, o.items?.[0]?.loadedQuantity]);
+}
+const dispatch = (orderId: string) => call("mostafa", "POST", `/api/orders/${orderId}/status`, { to: "dispatched", vehicle: "x", driver_name: "y", crate_count: 1, reason: TAG });
+
 let custN = 0;
 async function mkOrder(productId: string, productName: string, qty: number) {
   const cr = await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل ${productId.slice(-4)}-${++custN}` });
@@ -72,6 +89,11 @@ async function main() {
     const r = await intake(body);
     const id = r.body?.intake?.id;
     const ap = (await call("sara", "GET", "/api/approvals?status=pending")).body.approvals.find((a: any) => a.type === "inventory.grading_loss" && a.entityId === id);
+    // CTL-01: an intake with waste raises exactly one grading-loss request; one without waste
+    // raises none. Either mismatch is a failure, never silently tolerated.
+    const hasWaste = Number(body.waste_qty ?? 0) > 0;
+    if (!id) throw new Error(`intakeApproved: intake failed ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+    if (hasWaste !== !!ap) throw new Error(`intakeApproved: waste=${hasWaste} but grading-loss request ${ap ? "present" : "missing"} for intake ${id}`);
     if (ap) {
       const d = await call("sara", "POST", `/api/approvals/${ap.id}/decide`, { decision: "approve", comment: `${TAG} اعتماد هالك` });
       if (d.status !== 200) throw new Error(`grading-loss approval failed: ${d.status} ${JSON.stringify(d.body).slice(0, 200)}`);
@@ -109,12 +131,17 @@ async function main() {
   // sellable is refused at the order; the sellable 100 is ordered and dispatched instead.
   const o2try = await tryOrder(pT2.id, 120);
   check("over-request refused at the order -> 409, available 100 (waste not counted)", o2try.status === 409 && o2try.body.details?.shortfalls?.[0]?.available === "100", o2try.body);
+  // The cap at dispatch (test hardening): the sellable 100 is ordered, then 120 is loaded —
+  // 20 more than the books can issue while 50 kg of waste sit in the same product. The
+  // dispatch must be refused rather than take the extra 20 from waste.
   const o2 = await mkOrder(pT2.id, pT2.name, 100);
-  const d2 = await dispatchOrder(o2.order.id, o2.line.id, 100);
-  check("the sellable 100 dispatches", d2.status === 200, [d2.status, d2.body?.error]);
+  await toLoaded(o2.order.id, o2.line.id, 120, check, "T2");
+  const d2 = await dispatch(o2.order.id);
+  check("dispatching 120 against 100 sellable (+50 waste) -> 409 dispatch_stock_shortfall, available 100", d2.status === 409 && d2.body.code === "dispatch_stock_shortfall" && d2.body.details?.shortfalls?.[0]?.available === "100", d2.body);
+  check("…the order did not leave", (await call("sara", "GET", `/api/orders/${o2.order.id}`)).body.order.status === "loaded");
   const moves2 = (await ledger(pT2.id)).filter((m: any) => m.kind === "issue");
-  check("issued exactly 100 (sellable cap), ZERO from WASTE", Math.abs(moves2.reduce((s: number, m: any) => s + n(m.quantity), 0)) === 100 && !moves2.some((m: any) => m.locationId === "loc_waste"), moves2.map((m: any) => [m.locationId, m.quantity]));
-  check("waste bucket untouched (50)", (await atWaste(pT2.id)) === 50, await atWaste(pT2.id));
+  check("…nothing was issued at all (no partial issue, ZERO from WASTE)", moves2.length === 0, moves2.map((m: any) => [m.locationId, m.quantity]));
+  check("…sellable still 100 and waste bucket untouched (50)", n((await product(pT2.id)).sellableOnHand) === 100 && (await atWaste(pT2.id)) === 50, [(await product(pT2.id)).sellableOnHand, await atWaste(pT2.id)]);
 
   // =========================================================================
   section("T3. DIRECT API — SUPPLIER RETURN AUTO-ALLOCATE REFUSES WASTE");
@@ -139,22 +166,32 @@ async function main() {
   check("reserve 5 with 7 sellable -> created", r4b.status === 201, [r4b.status, r4b.body?.error]);
 
   // =========================================================================
-  section("T5. CONCURRENT ORDERS — COMBINED ISSUE NEVER EXCEEDS SELLABLE");
+  section("T5. CONCURRENT DISPATCH — COMBINED ISSUE NEVER EXCEEDS SELLABLE");
+  // Test hardening: genuine contention. 120 kg sellable (+50 waste). Two orders of 50 each
+  // hold 100, leaving 20 free. Each truck is loaded with 65: either order ALONE can leave
+  // (its 50 + the free 20 = 70 >= 65), both together cannot (130 > 120). Fired at once,
+  // exactly one must leave; the combined issue stays within the sellable stock and never
+  // touches waste. Nothing in the inputs decides which one wins.
   const pT5 = await newProduct(`${TAG} T5 concurrent`);
-  await intake({ product_id: pT5.id, received_kg: 100, unit_cost: "5" });
+  await intake({ product_id: pT5.id, received_kg: 120, unit_cost: "5" });
   await intake({ product_id: pT5.id, received_kg: 50, waste_qty: 50, unit_cost: "5" });
-  // WF-01 (replaces "two 80 kg orders both dispatch (lenient)"): the second 80 kg order
-  // cannot be confirmed — only 20 sellable remain once the first holds its 80.
-  const a5 = await mkOrder(pT5.id, pT5.name, 80);
-  const b5try = await tryOrder(pT5.id, 80);
-  check("second 80 kg order refused -> 409, available 20 (waste never counts)", b5try.status === 409 && b5try.body.details?.shortfalls?.[0]?.available === "20", b5try.body);
-  const b5 = await mkOrder(pT5.id, pT5.name, 20);
-  const [d5a, d5b] = await Promise.all([dispatchOrder(a5.order.id, a5.line.id, 80), dispatchOrder(b5.order.id, b5.line.id, 20)]);
-  check("both held orders dispatch concurrently (80 + 20)", d5a.status === 200 && d5b.status === 200, [d5a.status, d5b.status, d5a.body?.error, d5b.body?.error]);
+  const a5 = await mkOrder(pT5.id, pT5.name, 50);
+  const b5 = await mkOrder(pT5.id, pT5.name, 50);
+  const v5 = await product(pT5.id);
+  check("T5 setup: 120 sellable, 100 held by the two orders, 20 free, 50 waste", n(v5.sellableOnHand) === 120 && n(v5.reserved) === 100 && n(v5.available) === 20 && (await atWaste(pT5.id)) === 50, [v5.sellableOnHand, v5.reserved, v5.available]);
+  await toLoaded(a5.order.id, a5.line.id, 65, check, "T5 order A");
+  await toLoaded(b5.order.id, b5.line.id, 65, check, "T5 order B");
+  const [d5a, d5b] = await Promise.all([dispatch(a5.order.id), dispatch(b5.order.id)]);
+  const won = [d5a, d5b].filter((x) => x.status === 200).length;
+  const lost = [d5a, d5b].filter((x) => x.status === 409 && x.body.code === "dispatch_stock_shortfall").length;
+  check("exactly one truck leaves, the other is refused 409 dispatch_stock_shortfall", won === 1 && lost === 1, [d5a.status, d5b.status, d5a.body?.code, d5b.body?.code]);
   const moves5 = (await ledger(pT5.id)).filter((m: any) => m.kind === "issue");
   const issued5 = Math.abs(moves5.reduce((s: number, m: any) => s + n(m.quantity), 0));
-  check("combined issued = 100 (sellable cap), never waste", issued5 === 100 && moves5.every((m: any) => m.locationId !== "loc_waste"), { issued5, locs: moves5.map((m: any) => m.locationId) });
-  check("waste untouched (50)", (await atWaste(pT5.id)) === 50);
+  check("combined issue = 65 (one truck) ≤ 120 sellable, never from waste", issued5 === 65 && moves5.every((m: any) => m.locationId !== "loc_waste"), { issued5, locs: moves5.map((m: any) => m.locationId) });
+  const loser = d5a.status === 200 ? b5 : a5;
+  const v5b = await product(pT5.id);
+  check("after: 55 sellable left, the refused order still holds its 50, 5 free, waste 50", n(v5b.sellableOnHand) === 55 && n(v5b.reserved) === 50 && n(v5b.available) === 5 && (await atWaste(pT5.id)) === 50, [v5b.sellableOnHand, v5b.reserved, v5b.available]);
+  check("…and the refused order is still 'loaded'", (await call("sara", "GET", `/api/orders/${loser.order.id}`)).body.order.status === "loaded");
 
   // =========================================================================
   section("T6. EXISTING RESERVATION + WASTE ADDED — FULFILMENT SKIPS WASTE");

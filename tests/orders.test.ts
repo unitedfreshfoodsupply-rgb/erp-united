@@ -250,11 +250,19 @@ async function main() {
   for (const it of rd.items) await call("mostafa","POST",`/api/orders/${oid}/items/${it.id}/load`,{quantity:it.loadedQuantity??it.preparedQuantity,mark_done:true});
   let rd2 = (await call("sara","GET",`/api/orders/${oid}`)).body.order;
   // CTL-01: sara reopened the order, so the shortage review it raised is hers — a
-  // different approver (admin) decides it, and sara herself is refused.
-  if (rd2.needsReview) {
-    check("the supervisor who reopened cannot approve the review it raised (different approver)", (await call("sara","POST",`/api/orders/${oid}/approve`,{reason:"اعتماد بعد إعادة الفتح",expected_version:rd2.version})).status === 403);
-    await call("admin","POST",`/api/orders/${oid}/approve`,{reason:"اعتماد بعد إعادة الفتح",expected_version:rd2.version}); rd2 = (await call("sara","GET",`/api/orders/${oid}`)).body.order;
-  }
+  // different approver (admin) decides it, and sara herself is refused. The review is
+  // asserted, not assumed: the reload is still 16.7% short and its quantities differ from
+  // the last approved request's snapshot, so a fresh sign-off is required.
+  check("the reloaded order is still short and needs a fresh review", rd2.needsReview === true && rd2.shortage === true, { needsReview: rd2.needsReview, shortage: rd2.shortage });
+  check("…the reload is blocked at loaded until someone decides", (await call("mostafa","POST",`/api/orders/${oid}/status`,{to:"loaded",expected_version:rd2.version})).status === 409);
+  const reviewReq = ((await call("admin","GET","/api/approvals?status=pending")).body.approvals ?? []).find((x: any)=>x.type==="orders.shortage" && x.entityId===oid);
+  const saraId = (await call("sara","GET","/api/auth/me")).body?.user?.id;
+  check("…a pending orders.shortage request exists, raised by sara (who reopened)", !!saraId && reviewReq?.requestedById === saraId, { saraId, reviewReq });
+  r = await call("sara","POST",`/api/orders/${oid}/approve`,{reason:"اعتماد بعد إعادة الفتح",expected_version:rd2.version});
+  check("the supervisor who reopened cannot approve the review it raised (different approver) -> 403", r.status === 403, r.body);
+  r = await call("admin","POST",`/api/orders/${oid}/approve`,{reason:"اعتماد بعد إعادة الفتح",expected_version:rd2.version});
+  check("…a different approver (admin) approves it -> 200, review cleared", r.status === 200 && r.body.order.needsReview === false, r.body);
+  rd2 = r.body.order;
   r = await call("mostafa","POST",`/api/orders/${oid}/status`,{to:"loaded",expected_version:rd2.version});
   check("reopened order loads again", r.status===200, r.body);
   r = await call("mostafa","POST",`/api/orders/${oid}/status`,{to:"dispatched",vehicle:"ABC-123",driver_name:"محمود سيد",crate_count:12,expected_version:r.body.order.version});

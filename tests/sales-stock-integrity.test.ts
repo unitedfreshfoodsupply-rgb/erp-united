@@ -2,6 +2,7 @@
 // A confirmed order line is stock that is sellable now, held in full; nothing leaves
 // or is invoiced without its stock and its cost; unavailable demand becomes a purchase
 // request; prices outside policy and grading losses wait for someone else.
+import { PrismaClient } from "@prisma/client";
 import { call, login, makeChecker } from "./_harness";
 import { todayBiz } from "./_days";
 
@@ -89,8 +90,10 @@ async function main() {
   section("9. Quantity edit must be reservable");
   r = await call("sara", "POST", `/api/orders/${o1.id}/items/${o1.items[0].id}/required`, { quantity: 30 + (await avail(kg.id)) + 1, reason: TAG });
   check("raising a line above what is free -> 409", r.status === 409, r.body);
+  const beforeLower = await avail(kg.id);
   r = await call("sara", "POST", `/api/orders/${o1.id}/items/${o1.items[0].id}/required`, { quantity: 25, reason: TAG });
-  check("lowering it -> 200 and frees 5 kg", r.status === 200, r.body);
+  check("lowering it 30 -> 25 -> 200", r.status === 200, r.body);
+  check("…and exactly 5 kg are freed", (await avail(kg.id)) === beforeLower + 5, [beforeLower, await avail(kg.id)]);
 
   section("10. Prices: typed per line, audited, exceptions held for someone else");
   r = await call("mostafa", "POST", "/api/orders", { customer_account_id: cust.id, customer_name: cust.name, delivery_date: today, items: [{ stock_product_id: pc.id, quantity: 1, unit: "PIECE", unit_price: "50" }] });
@@ -99,7 +102,8 @@ async function main() {
   check("typed price 50 per piece (cost 30) -> created, pricing ok", (r.status === 201 || r.status === 200) && r.body.order.pricingStatus === "ok", r.body);
   const pOk = r.body.order;
   const priced = (await call("mona", "GET", `/api/orders/${pOk.id}/pricing`)).body;
-  check("…the line holds 50 as a manual price", JSON.stringify(priced).includes("50"), priced);
+  const pricedLine = priced.lines?.[0]?.price;
+  check("…the one line holds exactly 50 as a manual price", priced.lines?.length === 1 && Number(pricedLine?.unitPrice) === 50 && pricedLine?.source === "manual", priced.lines);
   r = await order([{ stock_product_id: pc.id, quantity: 1, unit: "PIECE", unit_price: "20" }]);
   check("price 20 below cost 30 -> order held for price approval", (r.status === 201 || r.status === 200) && r.body.order.pricingStatus === "pending_approval", r.body);
   const pLow = r.body.order;
@@ -164,7 +168,10 @@ async function main() {
   r = await intake({ product_id: gA.id, received_kg: 100, grade_b_qty: 20, grade_b_product_id: gB.id, waste_qty: 10, unit_cost: "10" });
   check("intake with a grade-B SKU and waste -> recorded (held)", r.status === 201 || r.status === 200, r.body);
   const glB = ((await call("sara", "GET", "/api/approvals?status=pending")).body.approvals ?? []).find((x: { type: string; title: string }) => x.type === "inventory.grading_loss" && x.title.includes(gA.name));
-  if (glB) await call("sara", "POST", `/api/approvals/${glB.id}/decide`, { decision: "approve", comment: TAG });
+  check("…the grading loss is held for approval (an inventory.grading_loss request exists)", !!glB);
+  check("…while held, the grade-B SKU is not sellable", (await avail(gB.id)) === 0, await avail(gB.id));
+  r = await call("sara", "POST", `/api/approvals/${glB?.id}/decide`, { decision: "approve", comment: TAG });
+  check("…the supervisor releases it -> 200", r.status === 200, r.body);
   const val = (await call("karim", "GET", "/api/inventory/reports/valuation")).body;
   const rowB = (val.rows ?? val.items ?? []).find((x: { productId: string }) => x.productId === gB.id);
   check("grade-B SKU released with its cost: 20 kg × 10 = 200.00 (not 0)", rowB && Number(rowB.value) === 200, rowB ?? val);
@@ -235,8 +242,16 @@ async function main() {
 
   section("14. Cash never goes negative, whatever the path");
   const cash = ((await call("karim", "GET", "/api/accounting/cash-accounts")).body.cashAccounts ?? []).find((c: { type: string }) => c.type === "cash");
+  check("the cash box exists", !!cash?.id, cash);
+  const db = new PrismaClient();
+  const cashBefore = cash?.balance;
+  const [jeBefore, payBefore] = await Promise.all([db.journalEntry.count(), db.supplierPayment.count()]);
   r = await call("karim", "POST", "/api/accounting/payments", { party_id: sup.id, cash_account_id: cash?.id, amount: "999999999", date: today, method: "cash" });
-  check("a payment larger than the box -> 409, nothing posted", r.status === 409 && /بالسالب|below zero|Not enough/.test(r.body.error), r.body);
+  check("a payment larger than the box -> 409", r.status === 409 && /بالسالب|below zero|Not enough/.test(r.body.error), r.body);
+  const cashAfter = ((await call("karim", "GET", "/api/accounting/cash-accounts")).body.cashAccounts ?? []).find((c: { id: string }) => c.id === cash?.id)?.balance;
+  const [jeAfter, payAfter] = await Promise.all([db.journalEntry.count(), db.supplierPayment.count()]);
+  await db.$disconnect();
+  check("…nothing posted: no journal entry, no payment, box balance unchanged", jeAfter === jeBefore && payAfter === payBefore && cashAfter === cashBefore, { jeBefore, jeAfter, payBefore, payAfter, cashBefore, cashAfter });
 
   finish("SALES-STOCK-INTEGRITY");
 }

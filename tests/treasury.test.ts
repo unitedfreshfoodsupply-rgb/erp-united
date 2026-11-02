@@ -11,7 +11,7 @@
    Settings touched are restored at the end. */
 import { PrismaClient } from "@prisma/client";
 import { call, login, makeChecker } from "./_harness";
-import { taxNo, manualJournal } from "./_stock";
+import { taxNo, manualJournal, approvalProof } from "./_stock";
 import { assertTestDatabase } from "./_guard";
 import { todayBiz } from "./_days";
 
@@ -183,7 +183,8 @@ async function main() {
   // Manual journals post once a second person approves them (CTL-01).
   const rentJ = await manualJournal({ date: today, description: `${TAG} rent prepaid`, lines: [{ account_id: prepaid.id, debit: 600 }, { account_id: A("1100"), credit: 600 }] });
   const loanJ = await manualJournal({ date: today, description: `${TAG} loan`, lines: [{ account_id: A("1100"), debit: 2000 }, { account_id: loan.id, credit: 2000 }] });
-  check("prepaid rent and loan journals posted after approval", !!rentJ.journal?.id && !!loanJ.journal?.id, [rentJ.decision?.body, loanJ.decision?.body]);
+  check("prepaid rent journal: approval required (202 + request, nothing posted while pending), decided by admin (200), then posted", approvalProof(rentJ).length === 0, approvalProof(rentJ));
+  check("loan journal: the same, proven", approvalProof(loanJ).length === 0, approvalProof(loanJ));
   let cf = (await call("karim", "GET", `/api/management/cash-flow?from=${today}&to=${today}`)).body.report;
   const line = (sec: string, c: string) => cf.sections[sec].lines.find((l: any) => l.accountCode === c);
   check("cash flow: prepaid rent −600 in operating", n(line("operating", prepaid.code)?.amount) === -600, cf.sections.operating.lines);

@@ -79,9 +79,14 @@ export const login = (u: string, p = "1234") => call(u, "POST", "/api/auth/login
 export function makeChecker() {
   const failures: string[] = [];
   let pass = 0;
+  // UNITED_TEST_VERBOSE=1 lists every passing check too, so a run can be shown to have
+  // actually executed a given assertion (evidence), not merely to have no failures.
+  const verbose = process.env.UNITED_TEST_VERBOSE === "1";
   const check = (name: string, cond: boolean, detail?: unknown) => {
-    if (cond) pass++;
-    else {
+    if (cond) {
+      pass++;
+      if (verbose) console.log(`  PASS  ${name}`);
+    } else {
       failures.push(name);
       console.log(`  FAIL  ${name}`, detail !== undefined ? JSON.stringify(detail).slice(0, 300) : "");
     }

@@ -213,8 +213,21 @@ async function main() {
   check("re-dispatch -> 200", r.status === 200, r.body);
   check("re-dispatch issues afresh: 150", (await detail()).onHand === "150");
   check("…with a second, live ISS document", (await call("hossam", "GET", "/api/inventory/documents?type=issue")).body.documents.filter((x: any) => x.sourceId === o1.id && x.status === "posted" && !x.reversalOfId).length === 1);
+  // Test hardening (legacy exceptions on reopen): a dispatch made under the retired lenient
+  // policy may have left an OPEN stock-issue exception. Reopening the order must void it —
+  // the dispatch it described is no longer the record — with the reason, who and when, and
+  // an audit row; the issue is reversed and the order holds its stock again.
+  assertTestDatabase();
+  const dbv = new PrismaClient();
+  const legacyOpen = await dbv.stockIssueException.create({ data: { orderId: o1.id, orderItemId: o1.items[0].id, productId: mango.id, productName: o1.items[0].productName, unit: "KG", requestedQty: "70", issuedQty: "66", reason: "insufficient", status: "open" } });
+  check("setup: a legacy OPEN exception exists on the dispatched order", (await call("hossam", "GET", `/api/inventory/exceptions?order_id=${o1.id}`)).body.exceptions.some((x: any) => x.id === legacyOpen.id && x.status === "open"));
   r = await call("sara", "POST", `/api/orders/${o1.id}/reopen`, { to: "loading", reason: "رجعت تاني" });
   check("a second reopen reverses only the live issue (not the earlier reversal)", r.status === 200 && (await detail()).onHand === "216", r.body);
+  const voided = await dbv.stockIssueException.findUniqueOrThrow({ where: { id: legacyOpen.id } });
+  check("…the legacy exception is VOIDED (not resolved, not left open), with the reopen reason, who and when", voided.status === "voided" && (voided.resolution ?? "").includes("رجعت تاني") && voided.resolvedBy !== null && voided.resolvedAt !== null && voided.resolutionKind === null && voided.version === legacyOpen.version + 1, voided);
+  check("…an audit row stock_issue_exception_voided names it", (await dbv.auditLog.count({ where: { action: "stock_issue_exception_voided", entityId: legacyOpen.id } })) === 1);
+  check("…and the reopened order holds its 66 kg again (available 150), no other exception touched", (await detail()).available === "150" && (await dbv.stockIssueException.count({ where: { orderId: o1.id, status: "open" } })) === 0);
+  await dbv.$disconnect();
   r = await call("sara", "POST", `/api/orders/${o1.id}/status`, { to: "dispatched", reason: "خرجت", ...ship });
   check("…and dispatching once more issues again: 150", r.status === 200 && (await detail()).onHand === "150");
 

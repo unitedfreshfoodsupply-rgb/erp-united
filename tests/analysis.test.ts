@@ -7,7 +7,7 @@
    found again after a reload. */
 import { Prisma, PrismaClient } from "@prisma/client";
 import { call, login, makeChecker } from "./_harness";
-import { manualJournal } from "./_stock";
+import { manualJournal, approvalProof } from "./_stock";
 import { assertTestDatabase } from "./_guard";
 import { todayBiz } from "./_days";
 import { comparisonRange } from "@/lib/accounting/comparatives";
@@ -83,7 +83,7 @@ async function main() {
   check("a system account cannot lose its class -> 400", (await call("karim", "PATCH", "/api/accounting/accounts/acc_1300", { liquidity: null })).status === 400);
   // Manual journals wait for a second person (CTL-01): submitted by karim, approved by admin.
   const loanJ = await manualJournal({ date: today, description: `${TAG} قرض`, lines: [{ account_id: "acc_1200", debit: 7000 }, { account_id: loan.id, credit: 7000 }] });
-  check("a 7000 loan received into the bank (approved by a second person)", !!loanJ.journal?.id, [loanJ.submit.status, loanJ.submit.body, loanJ.decision?.body]);
+  check("a 7000 loan received into the bank: approval required (202 + request, nothing posted while pending), decided by a second person (200), then posted", approvalProof(loanJ).length === 0, approvalProof(loanJ));
   let bsr = (await call("karim", "GET", `/api/accounting/balance-sheet?as_of=${today}`)).body;
   const sumL = (k: string) => n(bsr.sections.liabilities[k]);
   check("balance sheet: the loan is reported as unclassified (listed, not guessed), and the sides add up", bsr.unclassifiedAccounts.some((x: any) => x.code === loanCode && n(x.amount) === 7000) && bsr.classificationComplete === false && Math.abs(sumL("current") + sumL("nonCurrent") + sumL("unclassified") - sumL("total")) < 0.005, [bsr.sections.liabilities.total, bsr.sections.liabilities.current, bsr.sections.liabilities.nonCurrent, bsr.sections.liabilities.unclassified]);

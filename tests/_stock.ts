@@ -181,10 +181,31 @@ export async function manualJournal(body: Record<string, unknown>, opts: { who?:
   if (!req) return { submit, decision: null as Res | null, journal: null };
   const pending = await pendingApproval(approver, "accounting.manual_journal", { entityId: req.id });
   if (!pending) throw new Error(`journal setup: no pending approval for ${req.id}`);
+  const requests = async () => ((await call(who, "GET", "/api/accounting/journal-requests")).body?.requests ?? []).find((x: { id: string }) => x.id === req.id);
+  const beforeDecision = await requests();
   const decision: Res = await approve(approver, pending.id);
-  const posted = ((await call(who, "GET", "/api/accounting/journal-requests")).body?.requests ?? []).find((x: { id: string }) => x.id === req.id);
+  const posted = await requests();
   const journal = posted?.entry?.id ? (await call(who, "GET", `/api/accounting/journals/${posted.entry.id}`)).body.journal : null;
-  return { submit, decision, journal };
+  return { submit, decision, journal, beforeDecision, approver: { who, approver } };
+}
+
+/**
+ * What an approved manual journal must show — the approval was REQUIRED (the submit
+ * answered 202 with a request and no journal; nothing was posted while it waited), it
+ * was decided by someone other than the submitter (200), and only then did it post.
+ * Returns the failed conditions; an empty list means proven.
+ */
+export function approvalProof(j: Awaited<ReturnType<typeof manualJournal>>): string[] {
+  const failed: string[] = [];
+  if (j.submit.status !== 202) failed.push(`submit status ${j.submit.status}, expected 202`);
+  if (!j.submit.body?.journalRequest?.id) failed.push("no journalRequest in the submit response");
+  if (j.submit.body?.journal) failed.push("the submit posted a journal without approval");
+  if (!("beforeDecision" in j) || !j.beforeDecision) failed.push("the request was not listed while pending");
+  else if (j.beforeDecision.entry) failed.push("an entry existed before the decision");
+  if (!("approver" in j) || !j.approver || j.approver.who === j.approver.approver) failed.push("decided by the submitter");
+  if (j.decision?.status !== 200) failed.push(`decision status ${j.decision?.status}, expected 200`);
+  if (!j.journal?.id) failed.push("no journal posted after the approval");
+  return failed;
 }
 
 const CASH_GL: Record<string, string> = { cash_main: "acc_1100", bank_main: "acc_1200" };
