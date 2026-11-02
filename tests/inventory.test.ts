@@ -3,6 +3,8 @@
    see and do what. */
 import { call, login, makeChecker } from "./_harness";
 import { todayBiz } from "./_days";
+import { PrismaClient } from "@prisma/client";
+import { assertTestDatabase } from "./_guard";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZINVE-${Date.now()}`;
@@ -10,7 +12,7 @@ const today = todayBiz(); // the Cairo business day the server books on (tests/_
 let r: any;
 
 async function main() {
-  for (const u of ["admin", "sara", "hossam", "ahmed"]) await login(u);
+  for (const u of ["admin", "sara", "hossam", "ahmed", "mostafa"]) await login(u);
   const sup = (await call("hossam", "POST", "/api/stock/suppliers", { name: `${TAG} مزرعة` })).body.supplier;
   const mango = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Mango`, name_ar: `${TAG} مانجا`, unit: "KG" })).body.product;
   const customer = (await call("admin", "POST", "/api/sales/customers", { name: `${TAG} فندق` })).body.customer;
@@ -85,12 +87,16 @@ async function main() {
 
   section("6. RESERVATIONS");
   const order = (await manualOrder(`${TAG} فندق`, [{ product_name: mango.nameAr, quantity: 100 }], "2026-12-04")).body.order;
+  // WF-01 (replaces "reserve 100 kg for an order line -> 201"): the confirmed order
+  // already holds its 100 kg from the moment it exists; reserving the line again is a
+  // replay of that same hold, never a second one.
+  d = await detail();
+  check("the order holds its 100 kg at creation: available = 222 - 100", d.reserved === "100" && d.available === "122", { reserved: d.reserved, available: d.available });
   r = await call("sara", "POST", "/api/inventory/reservations", { product_id: mango.id, quantity: 100, source_type: "order", source_id: order.id, source_line_id: order.items[0].id });
-  check("reserve 100 kg for an order line -> 201", r.status === 201, r.body);
+  check("reserving the order line again -> 200, the order's own reservation", r.status === 200 && r.body.reservation?.sourceLineId === order.items[0].id && r.body.reservation?.quantity === "100", r.body);
   const res = r.body.reservation;
   check("same line again is idempotent (200, same reservation)", (await call("sara", "POST", "/api/inventory/reservations", { product_id: mango.id, quantity: 100, source_type: "order", source_id: order.id, source_line_id: order.items[0].id })).body.reservation?.id === res.id);
-  d = await detail();
-  check("available = 222 - 100", d.reserved === "100" && d.available === "122", { reserved: d.reserved, available: d.available });
+  check("…still one hold of 100", (await detail()).reserved === "100");
   check("cannot reserve beyond available -> 400", (await call("sara", "POST", "/api/inventory/reservations", { product_id: mango.id, quantity: 123, source_type: "manual", source_id: `${TAG}-x` })).status === 400);
   check("scrap that would eat reserved stock -> 400", (await call("hossam", "POST", "/api/inventory/scrap", { reason: "x", lines: [{ product_id: mango.id, quantity: 130 }] })).status === 400);
   check("reserving for a line not on the order -> 400", (await call("sara", "POST", "/api/inventory/reservations", { product_id: mango.id, quantity: 1, source_type: "order", source_id: order.id, source_line_id: "nope" })).status === 400);
@@ -157,15 +163,23 @@ async function main() {
 
   section("10. DISPATCH ISSUES STOCK (ORDER → LEDGER)");
   const ship = { vehicle: "ن ق ل 123", driver_name: "سواق", crate_count: 4 };
-  const o1 = (await integrationOrder(`${TAG} مطعم`, [
+  // WF-01 (replaces "the unknown line rides along and becomes an exception at dispatch"):
+  // an integration order naming a product the catalog does not know is refused whole.
+  r = await integrationOrder(`${TAG} مطعم`, [
     { stock_product_id: mango.id, product_name: `${TAG} Mango`, quantity: 30 },
     { stock_product_id: mango.id, product_name: `${TAG} Mango`, quantity: 2, unit: "CRATE" },
     { product_name: `${TAG} شيء مش متعرف`, quantity: 5 },
+  ], "2026-12-05");
+  check("integration order with an unmapped product -> 409, line 3 unmapped", r.status === 409 && r.body.code === "stock_unavailable" && r.body.details?.shortfalls?.some((x: any) => x.line === 3 && x.reason === "unmapped"), r.body);
+  check("…nothing held for it", (await detail()).reserved === "0");
+  const o1 = (await integrationOrder(`${TAG} مطعم`, [
+    { stock_product_id: mango.id, product_name: `${TAG} Mango`, quantity: 30 },
+    { stock_product_id: mango.id, product_name: `${TAG} Mango`, quantity: 2, unit: "CRATE" },
   ], "2026-12-05")).body.order;
   check("order lines named after the product are mapped to it", o1.items.filter((i: any) => i.stockProductId === mango.id).length === 2, o1.items);
-  await call("sara", "POST", "/api/inventory/reservations", { product_id: mango.id, quantity: 30, source_type: "order", source_id: o1.id, source_line_id: o1.items[0].id });
-  check("30 reserved for it: available 186", (await detail()).available === "186");
-  const hossamUnreadBefore = (await call("hossam", "GET", "/api/notifications")).body.unread;
+  // WF-01 (replaces "30 reserved for it: available 186", a manual reservation of one line):
+  // the order holds both lines in full at creation — 30 kg + 2 crates × 18 = 66 kg.
+  check("the order holds 66 kg from creation: available 216 - 66 = 150", (await detail()).available === "150");
   r = await call("sara", "POST", `/api/orders/${o1.id}/status`, { to: "dispatched", reason: "خروج مباشر", ...ship });
   check("dispatch -> 200", r.status === 200 && r.body.order.status === "dispatched", r.body);
   d = await detail();
@@ -174,9 +188,10 @@ async function main() {
   const issues = (await call("hossam", "GET", "/api/inventory/documents?type=issue")).body.documents.filter((x: any) => x.sourceId === o1.id);
   check("one ISS document for the dispatch", issues.length === 1 && /^ISS-/.test(issues[0].number) && issues[0].status === "posted", issues);
   check("…picked FEFO, one movement per bucket, all negative", issues[0].movements.length >= 1 && issues[0].movements.every((m: any) => Number(m.quantity) < 0));
+  // WF-01 (replaces "unmapped line recorded as an exception" + "stock controller notified"):
+  // every line was issued in full, so the dispatch raised no stock-issue exception.
   let exs = (await call("hossam", "GET", `/api/inventory/exceptions?order_id=${o1.id}`)).body.exceptions;
-  check("unmapped integration product is recorded as an exception", exs.length === 1 && exs[0].reason === "unmapped", exs);
-  check("stock controller is notified", (await call("hossam", "GET", "/api/notifications")).body.unread > hossamUnreadBefore);
+  check("a full issue raises no stock-issue exception", exs.length === 0, exs);
   check("cancel a dispatched order is still refused", (await call("sara", "POST", `/api/orders/${o1.id}/cancel`, { reason: "x" })).status === 400);
   check("the issue cannot be reversed from the stock screen -> 400", (await call("hossam", "POST", `/api/inventory/documents/${issues[0].id}/reverse`, { reason: "x" })).status === 400);
 
@@ -185,8 +200,9 @@ async function main() {
   d = await detail();
   check("reopen returns the 66 kg: 216", d.onHand === "216", d.onHand);
   check("the issue is marked reversed", (await call("hossam", "GET", "/api/inventory/documents?type=issue")).body.documents.find((x: any) => x.id === issues[0].id)?.status === "reversed");
+  check("…and the reopened order holds its 66 kg again: available 150", (await detail()).available === "150");
   exs = (await call("hossam", "GET", `/api/inventory/exceptions?order_id=${o1.id}&status=voided`)).body.exceptions;
-  check("its exceptions are voided with the reason", exs.length === 1 && exs.every((e: any) => /العربية مخرجتش/.test(e.resolution)));
+  check("no exception existed, so none is voided (replaces: exceptions voided with the reason)", exs.length === 0, exs);
   r = await call("sara", "POST", `/api/orders/${o1.id}/status`, { to: "dispatched", reason: "خرجت فعلاً", ...ship });
   check("re-dispatch -> 200", r.status === 200, r.body);
   check("re-dispatch issues afresh: 150", (await detail()).onHand === "150");
@@ -196,40 +212,81 @@ async function main() {
   r = await call("sara", "POST", `/api/orders/${o1.id}/status`, { to: "dispatched", reason: "خرجت", ...ship });
   check("…and dispatching once more issues again: 150", r.status === 200 && (await detail()).onHand === "150");
 
-  section("11. SHORT STOCK: STRICT BLOCKS, LENIENT RECORDS");
-  const o2 = (await manualOrder(`${TAG} فندق كبير`, [{ product_name: mango.nameAr, quantity: 500 }], "2026-12-06")).body.order;
+  section("11. SHORT STOCK: REFUSED AT ORDER, STRICT AT DISPATCH, LEGACY EXCEPTIONS RECONCILED");
+  // WF-01 replaces "strict blocks, lenient records": an order the books cannot cover is
+  // never confirmed, the lenient policy cannot be chosen, and dispatch refuses any
+  // shortfall. Exceptions left by the retired lenient policy are closed by a late issue
+  // or an approved no-movement closure — never by a note.
+  r = await manualOrder(`${TAG} فندق كبير`, [{ product_name: mango.nameAr, quantity: 500 }], "2026-12-06");
+  check("order for 500 kg against 150 available -> 409 stock_unavailable", r.status === 409 && r.body.code === "stock_unavailable" && r.body.details?.shortfalls?.[0]?.available === "150", r.body);
+  d = await detail();
+  check("…nothing held, nothing moved", d.onHand === "150" && d.reserved === "0", { onHand: d.onHand, reserved: d.reserved });
   const pol = (await call("admin", "GET", "/api/admin/settings")).body.settings.find((x: any) => x.key === "inventory.dispatch_issue_policy");
-  check("policy setting defaults to lenient", pol?.value === "lenient" && pol?.isDefault === true, pol);
+  check("policy setting defaults to strict", pol?.value === "strict" && pol?.isDefault === true, pol);
   check("an unknown policy value -> 400", (await call("admin", "PATCH", "/api/admin/settings/inventory.dispatch_issue_policy", { value: "maybe", reason: TAG, expected_version: pol.version })).status === 400);
-  await call("admin", "PATCH", "/api/admin/settings/inventory.dispatch_issue_policy", { value: "strict", reason: TAG, expected_version: pol.version });
+  check("lenient can no longer be chosen -> 400", (await call("admin", "PATCH", "/api/admin/settings/inventory.dispatch_issue_policy", { value: "lenient", reason: TAG, expected_version: pol.version })).status === 400);
+  const o2 = (await manualOrder(`${TAG} فندق كبير`, [{ product_name: mango.nameAr, quantity: 100 }], "2026-12-06")).body.order;
+  check("an order the books can cover (100 of 150) is confirmed and held", !!o2?.id && (await detail()).available === "50", o2);
+  await call("sara", "POST", `/api/orders/${o2.id}/status`, { to: "preparing", expected_version: o2.version });
+  await call("sara", "POST", `/api/orders/${o2.id}/items/${o2.items[0].id}/prepare`, { quantity: 100, mark_done: true });
+  await call("sara", "POST", `/api/orders/${o2.id}/status`, { to: "ready_for_loading" });
+  await call("mostafa", "POST", `/api/orders/${o2.id}/status`, { to: "loading" });
+  await call("mostafa", "POST", `/api/orders/${o2.id}/items/${o2.items[0].id}/load`, { quantity: 200, mark_done: true });
+  let o2v = (await call("sara", "GET", `/api/orders/${o2.id}`)).body.order;
+  if (o2v.needsReview) await call("sara", "POST", `/api/orders/${o2.id}/approve`, { reason: "حمولة زيادة", expected_version: o2v.version });
+  r = await call("mostafa", "POST", `/api/orders/${o2.id}/status`, { to: "loaded" });
+  check("200 kg loaded on a 100 kg order (review approved)", r.status === 200, r.body);
   r = await call("sara", "POST", `/api/orders/${o2.id}/status`, { to: "dispatched", reason: "x", ...ship });
-  check("strict: 500 kg against 150 on the books -> 409", r.status === 409 && /150/.test(r.body.error), r.body);
-  check("…and the order did not move", (await call("sara", "GET", `/api/orders/${o2.id}`)).body.order.status === "new");
+  check("strict: 200 kg loaded against 150 on the books -> 409 dispatch_stock_shortfall", r.status === 409 && r.body.code === "dispatch_stock_shortfall", r.body);
+  check("…and the order did not move", (await call("sara", "GET", `/api/orders/${o2.id}`)).body.order.status === "loaded");
   check("…nor did the stock", (await detail()).onHand === "150");
-  const polNow = (await call("admin", "GET", "/api/admin/settings")).body.settings.find((x: any) => x.key === "inventory.dispatch_issue_policy");
-  await call("admin", "PATCH", "/api/admin/settings/inventory.dispatch_issue_policy", { value: null, reason: TAG, expected_version: polNow.version });
-  r = await call("sara", "POST", `/api/orders/${o2.id}/status`, { to: "dispatched", reason: "x", ...ship });
-  check("lenient: the order leaves", r.status === 200, r.body);
-  check("what was on the books is issued, never below zero", (await detail()).onHand === "0");
-  exs = (await call("hossam", "GET", `/api/inventory/exceptions?order_id=${o2.id}`)).body.exceptions;
-  check("one 'insufficient' exception: 500 asked, 150 issued", exs.length === 1 && exs[0].reason === "insufficient" && exs[0].requestedQty === "500" && exs[0].issuedQty === "150", exs);
-  check("preparer cannot resolve it -> 403", (await call("ahmed", "POST", `/api/inventory/exceptions/${exs[0].id}/resolve`, { resolution: "x" })).status === 403);
-  check("resolving needs an explanation -> 400", (await call("hossam", "POST", `/api/inventory/exceptions/${exs[0].id}/resolve`, {})).status === 400);
-  r = await call("hossam", "POST", `/api/inventory/exceptions/${exs[0].id}/resolve`, { resolution: "استلام 350 كيلو اتسجل متأخر", expected_version: exs[0].version });
-  check("stock controller resolves it", r.status === 200 && r.body.exception.status === "resolved", r.body);
-  check("resolved twice -> 409", (await call("hossam", "POST", `/api/inventory/exceptions/${exs[0].id}/resolve`, { resolution: "x" })).status === 409);
+  check("…and no exception was raised", (await call("hossam", "GET", `/api/inventory/exceptions?order_id=${o2.id}`)).body.exceptions.length === 0);
+  o2v = (await call("sara", "GET", `/api/orders/${o2.id}`)).body.order;
+  r = await call("sara", "POST", `/api/orders/${o2.id}/cancel`, { reason: "حمولة غلط", expected_version: o2v.version });
+  check("the over-loaded order is cancelled, releasing its 100 kg", r.status === 200 && (await detail()).available === "150", r.body);
+
+  // Legacy exceptions (raised by the retired lenient dispatch before the remediation)
+  // are put on the dispatched order o1 directly — no current path creates one.
+  assertTestDatabase();
+  const db = new PrismaClient();
+  const legacy = (requested: string) => db.stockIssueException.create({ data: { orderId: o1.id, orderItemId: o1.items[0].id, productId: mango.id, productName: o1.items[0].productName, unit: "KG", requestedQty: requested, issuedQty: "30", reason: "insufficient" } });
+  const ex1 = await legacy("40");
+  const ex2 = await legacy("35");
+  await db.$disconnect();
+  exs = (await call("hossam", "GET", `/api/inventory/exceptions?order_id=${o1.id}`)).body.exceptions;
+  check("two legacy 'insufficient' exceptions are open on o1", exs.length === 2, exs);
+  check("preparer cannot resolve it -> 403", (await call("ahmed", "POST", `/api/inventory/exceptions/${ex1.id}/resolve`, { resolution: "x", action: "issue_now" })).status === 403);
+  check("resolving needs an explanation -> 400", (await call("hossam", "POST", `/api/inventory/exceptions/${ex1.id}/resolve`, {})).status === 400);
+  // Replaces "stock controller resolves it" with a free-text note: a note alone never closes one.
+  check("a note alone does not close it -> 400 (choose issue_now or close_no_movement)", (await call("hossam", "POST", `/api/inventory/exceptions/${ex1.id}/resolve`, { resolution: "استلام 350 كيلو اتسجل متأخر", expected_version: ex1.version })).status === 400);
+  r = await call("hossam", "POST", `/api/inventory/exceptions/${ex1.id}/resolve`, { action: "issue_now", resolution: "الكمية الناقصة خرجت فعلاً — تتصرف دلوقتي", expected_version: ex1.version });
+  check("stock controller resolves it by issuing the missing 10 kg now", r.status === 200 && r.body.exception.exception?.status === "resolved" && r.body.exception.exception?.resolutionKind === "late_issue" && /^ISS-/.test(r.body.exception.document?.number ?? ""), r.body);
+  check("…the late issue takes the 10 kg off the books: 140", (await detail()).onHand === "140");
+  check("resolved twice -> 409", (await call("hossam", "POST", `/api/inventory/exceptions/${ex1.id}/resolve`, { action: "issue_now", resolution: "تاني مرة" })).status === 409);
+  r = await call("hossam", "POST", `/api/inventory/exceptions/${ex2.id}/resolve`, { action: "close_no_movement", resolution: "متحملش على العربية — مفيش حاجة خرجت" });
+  check("closing with no stock movement waits for an approval", r.status === 200 && r.body.exception.pending === true && r.body.exception.approval?.type === "stock.issue_exception_close", r.body);
+  const closeReq = r.body.exception?.approval;
+  check("…the exception is still open meanwhile", (await call("hossam", "GET", `/api/inventory/exceptions?order_id=${o1.id}`)).body.exceptions.some((e: any) => e.id === ex2.id));
+  check("…the requester cannot approve it -> 403", (await call("hossam", "POST", `/api/approvals/${closeReq?.id}/decide`, { decision: "approve", comment: "x" })).status === 403);
+  r = await call("sara", "POST", `/api/approvals/${closeReq?.id}/decide`, { decision: "approve", comment: "متأكد" });
+  check("someone else approves -> closed with no movement", r.status === 200, r.body);
+  const closed = (await call("hossam", "GET", `/api/inventory/exceptions?order_id=${o1.id}&status=resolved`)).body.exceptions.find((e: any) => e.id === ex2.id);
+  check("…resolved as no_movement, stock untouched at 140", closed?.resolutionKind === "no_movement" && (await detail()).onHand === "140", closed);
 
   section("12. CANCEL RELEASES RESERVATIONS");
   await call("hossam", "POST", "/api/stock/intakes", { supplier_id: sup.id, product_id: mango.id, received_date: today, received_kg: 20, unit_cost: "15" });
   const o3 = (await manualOrder(`${TAG} كافيه`, [{ product_name: mango.nameAr, quantity: 8 }], "2026-12-07")).body.order;
   await call("sara", "POST", "/api/inventory/reservations", { product_id: mango.id, quantity: 8, source_type: "order", source_id: o3.id, source_line_id: o3.items[0].id });
-  check("8 reserved of 20", (await detail()).available === "12");
+  // Numbers recomputed: the lenient dispatch used to issue all 150 kg (on hand 0), so the
+  // 20 kg receipt left 20 available. Under WF-01 the 500 kg order was refused and the
+  // legacy late issue took 10: 140 + 20 = 160 available before this order.
+  check("the order holds its 8 kg at creation: 152 of 160 available", (await detail()).available === "152");
   check("cancel the order", (await call("sara", "POST", `/api/orders/${o3.id}/cancel`, { reason: "العميل لغى" })).status === 200);
-  check("its reservation is released: 20 available", (await detail()).available === "20");
+  check("its reservation is released: 160 available", (await detail()).available === "160");
 
   section("13. AUDIT");
   const audit = (await call("hossam", "GET", "/api/stock/audit")).body.logs.map((l: any) => l.action);
-  for (const a of ["inventory_transfer_posted", "inventory_scrap_posted", "stock_reserved", "stock_reservation_released", "inventory_adjustment_requested", "stock_adjustment_created", "inventory_customer_return_posted", "inventory_supplier_return_posted", "inventory_document_reversed", "product_packaging_saved", "stock_lot_updated", "inventory_issue_posted", "stock_issue_exception_raised", "stock_issue_exception_voided", "stock_issue_exception_resolved"]) {
+  for (const a of ["inventory_transfer_posted", "inventory_scrap_posted", "stock_reserved", "stock_reservation_released", "inventory_adjustment_requested", "stock_adjustment_created", "inventory_customer_return_posted", "inventory_supplier_return_posted", "inventory_document_reversed", "product_packaging_saved", "stock_lot_updated", "inventory_issue_posted", "stock_issue_exception_resolved"]) {
     check(`stock audit records ${a}`, audit.includes(a), audit.slice(0, 12));
   }
 

@@ -4,6 +4,7 @@
 import { deflateRawSync } from "node:zlib";
 import { call, login, makeChecker, BASE, cookieFor } from "./_harness";
 import { todayBiz } from "./_days";
+import { setSetting } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZIMP${Date.now()}`;
@@ -131,6 +132,19 @@ async function main() {
   section("6. OPENING STOCK AND PARTY BALANCES");
   const today = todayBiz();
   const stockCsv = csv(`sku,quantity,unit,unit_cost,expiry_date,location_code\n${SKU},20,KG,12,2099-12-31,COLD-1\n`);
+  // CTL-01: direct opening entries are closed by default (accounting.direct_opening_entries
+  // = false) — opening stock and party balances go through an approved opening batch.
+  const onHand0 = (await call("hossam", "GET", `/api/inventory/products/${product.id}`)).body.onHand;
+  const stockOff = await upload("admin", "opening_stock", "opening.csv", stockCsv, "commit", today);
+  check("default (direct opening OFF): opening stock commit -> 409 direct_opening_disabled", stockOff.status === 409 && stockOff.body.code === "direct_opening_disabled", [stockOff.status, stockOff.body]);
+  check("…and no stock was posted", (await call("hossam", "GET", `/api/inventory/products/${product.id}`)).body.onHand === onHand0);
+  const offBalanceCsv = csv(`party_type,party_code,date,due_date,amount,reference\ncustomer,${customer.code},${today},${today},500,${TAG}-AR-OFF\n`);
+  const balanceOff = await upload("admin", "opening_balances", "balances.csv", offBalanceCsv, "commit");
+  check("default (direct opening OFF): party opening balance rows are refused, none created", balanceOff.body.created === 0 && balanceOff.body.failed === 1, balanceOff.body);
+  // This section is about the import path itself: switch direct entry on by an audited
+  // settings change for the scenario, and restore the default at the end of it.
+  const on = await setSetting("accounting.direct_opening_entries", true, `${TAG} data-import scenario`);
+  check("direct opening entries switched ON for the import scenario", on.status === 200, on.body);
   const stockPreview = await upload("admin", "opening_stock", "opening.csv", stockCsv, "preview", today);
   check("opening stock previews against SKU, location and business date", stockPreview.status === 200 && stockPreview.body.errorCount === 0, stockPreview.body);
   const stockCommit = await upload("admin", "opening_stock", "opening.csv", stockCsv, "commit", today);
@@ -147,6 +161,8 @@ async function main() {
   check("customer and supplier balances import", balanceCommit.status === 200 && balanceCommit.body.created === 2 && balanceCommit.body.failed === 0, balanceCommit.body);
   check("imported customer balance is visible in its statement", (await call("karim", "GET", `/api/sales/customers/${customer.id}/statement?from=2000-01-01&to=2099-12-31`)).body.closing === "500.00");
   check("imported supplier balance is visible in its statement", (await call("karim", "GET", `/api/purchasing/suppliers/${supplier.id}/statement?from=2000-01-01&to=2099-12-31`)).body.payable === "300.00");
+  const restored = await setSetting("accounting.direct_opening_entries", null, `${TAG} data-import scenario done`);
+  check("direct opening entries restored to the default (OFF)", restored.status === 200, restored.body);
 
   section("7. BILINGUAL NAMES: CODE, name_ar AND name_en SURVIVE PREVIEW, COMMIT AND RE-READ");
   const BSKU = `${TAG}-GUAVA`;

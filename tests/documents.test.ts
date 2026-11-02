@@ -1,6 +1,7 @@
 /* Document attachments end to end: multipart upload, content sniffing, size limit,
    per-record permissions, idempotent re-upload, download headers, soft delete, audit. */
 import { call, login, makeChecker, BASE, cookieFor } from "./_harness";
+import { stockUp } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZDOC-${Date.now()}`;
@@ -33,6 +34,7 @@ async function main() {
   for (const u of ["admin", "sara", "ahmed", "hossam"]) await login(u);
   const customer = (await call("admin", "POST", "/api/sales/customers", { name: `${TAG} فندق` })).body.customer;
   const product = (await call("admin", "POST", "/api/stock/products", { name: `${TAG} Mango`, unit: "KG" })).body.product;
+  await stockUp(product.id, 5); // a confirmed line must be fully reservable (WF-01)
   const order = (await call("sara", "POST", "/api/orders", {
     customer_account_id: customer.id, customer_name: customer.name,
     delivery_date: "2026-12-03",

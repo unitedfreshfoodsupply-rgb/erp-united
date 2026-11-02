@@ -1,11 +1,13 @@
 /* Product Master: normalization, exact matching, aliases, ambiguity, mapping,
    RBAC, concurrency, and proof that history is untouched. */
 import { call, login, makeChecker } from "./_harness";
+import { stockUp } from "./_stock";
 
 const TAG = `zzpm${Date.now().toString().slice(-8)}`;
 
 const { check, section, finish } = makeChecker();
 const createdProducts: string[] = [];
+let r0: any;
 
 async function main() {
   for (const u of ["admin", "sara", "hossam", "ahmed", "mostafa"]) await login(u);
@@ -135,38 +137,100 @@ async function main() {
   check("untracked product cannot take an intake", untrackedIntake.status === 400, untrackedIntake.body);
 
   section("11. MANUAL MAPPING OF EXISTING ORDER LINES");
+  // WF-01 setup: every confirmed line holds stock, so the products this section orders
+  // or maps live lines onto receive stock first. These receipts are the only stock
+  // movements the suite makes on purpose; section 15 sets them aside and still proves
+  // mapping/aliasing/resolving created no stock.
+  const ledgerBeforeSetup = new Set((await call("hossam", "GET", "/api/stock/ledger?limit=500")).body.movements.map((m: any) => m.id));
+  const spare = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Spare`, unit: "KG" })).body.product;
+  createdProducts.push(spare.id);
+  await stockUp(MANGO.id, 5);
+  await stockUp(spare.id, 4);
+  const setupMovementIds = new Set<string>((await call("hossam", "GET", "/api/stock/ledger?limit=500")).body.movements.map((m: any) => m.id).filter((id: string) => !ledgerBeforeSetup.has(id)));
+  check("setup receipts recorded exactly two movements", setupMovementIds.size === 2, [...setupMovementIds]);
+
   const realName = cov0.body.rows.find((r: any) => r.productName === "Mango Naomi");
   check("the real order name 'Mango Naomi' exists and is unmapped", !!realName && realName.status === "unmapped", realName);
+  const historyLine = () => call("sara", "GET", "/api/orders").then((x) => x.body.orders.find((o: any) => o.orderNumber === "UN-DEMO-0004")?.items.find((i: any) => i.productName === "Mango Naomi"));
+  check("…it is a line of the dispatched seed order", (await historyLine())?.stockProductId === null);
   const mapped = await call("hossam", "POST", "/api/stock/products/mapping", {
     product_name: "Mango Naomi", product_id: MANGO.id, create_alias: true, reason: "اختبار الربط",
   });
   check("manual mapping -> 201", mapped.status === 201, mapped.body);
-  check("it linked the existing order lines", mapped.body.linkedLines === realName.lineCount, { linked: mapped.body.linkedLines, expected: realName.lineCount });
+  // Remediation 2026-11 (replaces "it linked the existing order lines" = every line with
+  // the name): history is never rewritten — only lines of live orders are linked, and the
+  // only "Mango Naomi" line belongs to a dispatched order.
+  check("it linked only live order lines: none (the only one is dispatched history)", mapped.body.linkedLines === 0, { linked: mapped.body.linkedLines, lineCount: realName.lineCount });
+  check("…the dispatched order keeps the product it left with", (await historyLine())?.stockProductId === null);
 
   const cov1 = await call("hossam", "GET", "/api/stock/products/coverage");
   const mangoRow = cov1.body.rows.find((r: any) => r.productName === "Mango Naomi");
-  check("coverage now shows it mapped", mangoRow.status === "mapped" && mangoRow.product.id === MANGO.id, mangoRow);
-  check("mapping changed coverage by exactly one", cov1.body.summary.mapped === baselineMapped + 1 && cov1.body.summary.unmapped === baselineUnmapped - 1, cov1.body.summary);
+  // Replaces "coverage now shows it mapped" / "changed coverage by exactly one": coverage
+  // counts order lines, and the history line was (rightly) not rewritten.
+  check("coverage still shows the history line unmapped", mangoRow.status === "unmapped" && mangoRow.lineCount === realName.lineCount, mangoRow);
+  check("mapping history changed coverage by nothing", cov1.body.summary.mapped === baselineMapped && cov1.body.summary.unmapped === baselineUnmapped, cov1.body.summary);
   check("future orders resolve that name automatically", (await R("Mango Naomi")).product?.id === MANGO.id);
+
+  // WF-01 (replaces "unknown line stays unmapped, order not blocked"): an integration
+  // order carrying a product the catalog does not know is refused whole with the line
+  // marked unmapped — an unmapped line can never be reserved, prepared or invoiced.
+  const mixedExt = `${TAG}-mixed-order`;
+  const mixed = await call(null, "POST", "/api/orders", {
+    source: "n8n", external_id: mixedExt,
+    customer_name: `${TAG} عميل`, delivery_date: "2026-10-05",
+    items: [{ stock_product_id: MANGO.id, product_name: "Mango Naomi", quantity: 5 }, { product_name: "Totally Unknown Thing", quantity: 3 }],
+  }, { "x-api-key": process.env.N8N_API_KEY! });
+  check("order with an unknown product -> 409 stock_unavailable", mixed.status === 409 && mixed.body.code === "stock_unavailable", mixed.body);
+  check("…the unknown line is reported unmapped (line 2)", mixed.body.details?.shortfalls?.some((x: any) => x.line === 2 && x.reason === "unmapped"), mixed.body.details);
+  check("…and nothing was created for it", !(await call("sara", "GET", "/api/orders")).body.orders.some((o: any) => o.externalId === mixedExt));
 
   const newOrder = await call(null, "POST", "/api/orders", {
     source: "n8n", external_id: `${TAG}-new-order`,
     customer_name: `${TAG} عميل`, delivery_date: "2026-10-05",
-    items: [{ stock_product_id: MANGO.id, product_name: "Mango Naomi", quantity: 5 }, { product_name: "Totally Unknown Thing", quantity: 3 }],
+    items: [{ stock_product_id: MANGO.id, product_name: "Mango Naomi", quantity: 5 }],
   }, { "x-api-key": process.env.N8N_API_KEY! });
   check("new order created", newOrder.status === 201, newOrder.body);
   const newItems = newOrder.body.order.items;
   check("known line got the canonical link", newItems.find((i: any) => i.stockProductId === MANGO.id)?.stockProductId === MANGO.id, newItems);
-  check("unknown line stayed UNMAPPED, not rejected", newItems.find((i: any) => i.productName === "Totally Unknown Thing").stockProductId === null);
-  check("order was NOT blocked by the unknown product", newOrder.body.order.items.length === 2);
+
+  // Re-mapping a LIVE line moves its stock hold to the new product: refused while the
+  // new product has no stock for it, accepted once it does.
+  const liveOrder = (await call(null, "POST", "/api/orders", {
+    source: "n8n", external_id: `${TAG}-live-order`,
+    customer_name: `${TAG} عميل`, delivery_date: "2026-10-05",
+    items: [{ stock_product_id: spare.id, product_name: spare.name, quantity: 4 }],
+  }, { "x-api-key": process.env.N8N_API_KEY! })).body.order;
+  check("a live order holds 4 kg of the spare product", liveOrder?.items?.[0]?.stockProductId === spare.id, liveOrder);
+  // The card is renamed afterwards: the live line keeps the old name, which now resolves
+  // to nothing — so it can be mapped by hand onto another product.
+  const ren = await call("hossam", "PATCH", `/api/stock/products/${spare.id}`, { name: `${TAG} Spare Renamed`, expected_version: spare.version });
+  check("spare card renamed; its old name no longer resolves", ren.status === 200 && (await R(spare.name)).status === "unmapped", ren.body);
+  const lemonAvailable = async () => Number((await call("sara", "GET", `/api/inventory/products/${LEMON.id}`)).body.available);
+  r0 = await call("hossam", "POST", "/api/stock/products/mapping", { product_name: spare.name, product_id: LEMON.id, reason: "اختبار الربط" });
+  check("mapping a live line onto a product with no stock -> 409 stock_unavailable", r0.status === 409 && r0.body.code === "stock_unavailable", r0.body);
+  check("…the live line keeps its product", (await call("sara", "GET", `/api/orders/${liveOrder.id}`)).body.order.items[0].stockProductId === spare.id);
+  await stockUp(LEMON.id, 4);
+  for (const m of (await call("hossam", "GET", "/api/stock/ledger?limit=500")).body.movements) if (!ledgerBeforeSetup.has(m.id) && m.productId === LEMON.id) setupMovementIds.add(m.id);
+  r0 = await call("hossam", "POST", "/api/stock/products/mapping", { product_name: spare.name, product_id: LEMON.id, reason: "اختبار الربط" });
+  check("with the stock received, the live line is re-mapped -> 201, one line", r0.status === 201 && r0.body.linkedLines === 1, r0.body);
+  check("…and the order now holds the new product's 4 kg", (await call("sara", "GET", `/api/orders/${liveOrder.id}`)).body.order.items[0].stockProductId === LEMON.id && (await lemonAvailable()) === 0);
 
   section("12. UNMAPPING");
   const unmapped = await call("hossam", "DELETE", "/api/stock/products/mapping", { product_name: "Mango Naomi", remove_alias: true, reason: "اختبار" });
   check("unmap -> 200", unmapped.status === 200, unmapped.body);
-  check("lines cleared", unmapped.body.clearedLines > 0, unmapped.body);
+  // Replaces "lines cleared > 0": the only "Mango Naomi" line is dispatched history.
+  check("no history line is cleared", unmapped.body.clearedLines === 0, unmapped.body);
   check("alias removed so it stops auto-resolving", (await R("Mango Naomi")).status === "unmapped");
   const cov2 = await call("hossam", "GET", "/api/stock/products/coverage");
   check("coverage back to unmapped for that name", cov2.body.rows.find((r: any) => r.productName === "Mango Naomi").status === "unmapped");
+  r0 = await call("hossam", "DELETE", "/api/stock/products/mapping", { product_name: spare.name, reason: "اختبار" });
+  check("unmapping a name whose live line holds stock -> 409", r0.status === 409, r0.body);
+  check("…the line keeps its product and its hold", (await call("sara", "GET", `/api/orders/${liveOrder.id}`)).body.order.items[0].stockProductId === LEMON.id && (await lemonAvailable()) === 0);
+  const lv = (await call("sara", "GET", `/api/orders/${liveOrder.id}`)).body.order;
+  check("the live order is cancelled (its hold released)", (await call("sara", "POST", `/api/orders/${liveOrder.id}/cancel`, { reason: "اختبار", expected_version: lv.version })).status === 200 && (await lemonAvailable()) === 4);
+  r0 = await call("hossam", "DELETE", "/api/stock/products/mapping", { product_name: spare.name, reason: "اختبار" });
+  check("unmapping it now -> 200 and the cancelled line (history) is not cleared", r0.status === 200 && r0.body.clearedLines === 0, r0.body);
+  check("…the cancelled order keeps its product", (await call("sara", "GET", `/api/orders/${liveOrder.id}`)).body.order.items[0].stockProductId === LEMON.id);
 
   section("13. RBAC");
   check("PREPARER cannot read the master", (await call("ahmed", "GET", "/api/stock/products")).status === 403);
@@ -211,8 +275,9 @@ async function main() {
   );
   check("no historical quantity, name, unit or version changed", afterSnapshot === beforeSnapshot, { before: beforeSnapshot.slice(0, 200), after: afterSnapshot.slice(0, 200) });
   const afterLedger = await call("hossam", "GET", "/api/stock/ledger?limit=500");
-  check("stock ledger unchanged", JSON.stringify(afterLedger.body.movements.map((m: any) => [m.id, m.quantityKg]).sort()) === beforeLedgerSnapshot);
-  check("no stock was created by any of this", afterLedger.body.movements.length === beforeLedger.body.movements.length);
+  const afterMovements = afterLedger.body.movements.filter((m: any) => !setupMovementIds.has(m.id));
+  check("stock ledger unchanged (apart from the setup receipts)", JSON.stringify(afterMovements.map((m: any) => [m.id, m.quantityKg]).sort()) === beforeLedgerSnapshot);
+  check("no stock was created by any of this", afterMovements.length === beforeLedger.body.movements.length);
 
   section("16. AUDIT");
   const audit = await call("hossam", "GET", "/api/stock/audit");
