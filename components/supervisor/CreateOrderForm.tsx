@@ -324,7 +324,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
                       <input
                         type="number" min={0} step="0.01" inputMode="decimal" dir="ltr"
                         className="field w-28"
-                        placeholder={l.listPrice ?? t("create.no-list-price")}
+                        placeholder={l.listPrice ?? "0.00"}
                         value={row.unit_price}
                         onChange={(e) => updateRow(i, { unit_price: e.target.value })}
                         aria-label={t("create.unit-price", { unit: unitLabel(row.unit, locale) })}
@@ -337,6 +337,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
                         onChange={(e) => updateRow(i, { discount_pct: e.target.value })}
                         aria-label={t("create.discount")}
                       />
+                      {l.listPrice === null && <span className="text-xs text-united-muted">{t("create.no-list-price")}</span>}
                     </>
                   ) : (
                     <span className="font-bold" dir="ltr">{l.listPrice ?? t("create.no-list-price")}</span>
