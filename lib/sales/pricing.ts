@@ -507,7 +507,7 @@ export async function orderValue(db: Pick<Tx, "orderItem">, orderId: string) {
 export async function orderPricing(orderId: string) {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { customerAccount: { select: { id: true, code: true, name: true, nameAr: true, priceListId: true } }, items: { include: { price: true }, orderBy: { id: "asc" } } },
+    include: { customerAccount: { select: { id: true, code: true, name: true, nameAr: true, priceListId: true } }, items: { include: { price: true, stockProduct: { select: { name: true, nameAr: true } } }, orderBy: { id: "asc" } } },
   });
   if (!order) throw new ApiError(404, "الأوردر مش موجود");
   const list = await priceListFor(prisma, order.customerAccountId);
@@ -518,6 +518,9 @@ export async function orderPricing(orderId: string) {
     return {
       itemId: i.id,
       productName: i.productName,
+      // I18N-04: the product card's names, so the screen can show the reader's language.
+      productNameEn: i.stockProduct?.name ?? null,
+      productNameAr: i.stockProduct?.nameAr ?? null,
       unit: i.unit,
       mapped: !!i.stockProductId,
       quantity: qty.toString(),

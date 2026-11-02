@@ -14,6 +14,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
+import { formatNumber } from "@/lib/format";
 
 /**
  * Invoicing for the accountant: orders that left and are not invoiced yet, drafts to
@@ -222,10 +223,10 @@ function Aging() {
               {q.data.rows.map((r) => (
                 <tr key={r.customer.id} className="border-t border-united-dark/5 font-bold">
                   <td className="p-2"><Link href={`/sales?customer=${r.customer.id}`}>{localName(r.customer, locale)}</Link></td>
-                  {cols.map(([k]) => <td key={k} dir="ltr" className={`p-2 text-center ${k === "d90_plus" && Number(r[k as keyof typeof r]) > 0 ? "text-united-danger" : ""}`}>{Number(r[k as keyof typeof r]) ? Number(r[k as keyof typeof r]).toLocaleString("en-US", { minimumFractionDigits: 2 }) : "—"}</td>)}
+                  {cols.map(([k]) => <td key={k} dir="ltr" className={`p-2 text-center ${k === "d90_plus" && Number(r[k as keyof typeof r]) > 0 ? "text-united-danger" : ""}`}>{Number(r[k as keyof typeof r]) ? formatNumber(r[k as keyof typeof r] as string, { minDp: 2, maxDp: 2 }) : "—"}</td>)}
                 </tr>
               ))}
-              <tr className="border-t-2 border-united-dark/20 font-extrabold"><td className="p-2">{t("sales.invoice.age.total")}</td>{cols.map(([k]) => <td key={k} dir="ltr" className="p-2 text-center">{Number(q.data!.totals[k]).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>)}</tr>
+              <tr className="border-t-2 border-united-dark/20 font-extrabold"><td className="p-2">{t("sales.invoice.age.total")}</td>{cols.map(([k]) => <td key={k} dir="ltr" className="p-2 text-center">{formatNumber(q.data!.totals[k], { minDp: 2, maxDp: 2 })}</td>)}</tr>
             </tbody>
           </table>
         </div>

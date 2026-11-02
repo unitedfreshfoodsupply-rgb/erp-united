@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { systemText } from "@/lib/locale/system-text";
 import { apiFetch } from "@/lib/api-client";
@@ -18,8 +19,11 @@ import { EventIcon } from "@/components/ui/EventIcon";
  * weighing. Raw audit fields are deliberately not shown here — they remain on the
  * supervisor's audit screen under the technical view.
  */
+const RECENT = 8;
+
 export function Timeline({ orderId }: { orderId: string }) {
   const { t, locale } = useLocale();
+  const [showAll, setShowAll] = useState(false);
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["audit", orderId],
     queryFn: () => apiFetch<{ logs: AuditLogDTO[] }>(`/api/audit?orderId=${orderId}`),
@@ -40,10 +44,20 @@ export function Timeline({ orderId }: { orderId: string }) {
       </p>
     );
 
-  const events = buildTimeline(data?.logs ?? [], locale);
-  if (!events.length) return <p className="text-united-dark/50">{t("ui.timeline.empty")}</p>;
+  const allEvents = buildTimeline(data?.logs ?? [], locale);
+  if (!allEvents.length) return <p className="text-united-dark/50">{t("ui.timeline.empty")}</p>;
+  // UX-01: a busy order has dozens of entries; the page shows the latest few and the rest
+  // on request, so the timeline supports the order instead of burying it.
+  const hidden = showAll ? 0 : Math.max(0, allEvents.length - RECENT);
+  const events = allEvents.slice(hidden);
 
   return (
+    <>
+    {hidden > 0 && (
+      <button type="button" className="btn-ghost btn-sm mb-2 text-united-green" onClick={() => setShowAll(true)}>
+        {t("ui.timeline.show-all", { count: allEvents.length })}
+      </button>
+    )}
     <ul className="flex flex-col">
       {events.map((e, i) => (
         <li key={e.id} className="flex gap-3 items-start relative pb-4">
@@ -78,5 +92,6 @@ export function Timeline({ orderId }: { orderId: string }) {
         </li>
       ))}
     </ul>
+    </>
   );
 }

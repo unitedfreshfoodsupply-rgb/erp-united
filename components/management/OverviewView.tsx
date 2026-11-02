@@ -12,7 +12,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { EmptyState, ErrorState } from "@/components/States";
 import { SkeletonLine } from "@/components/Skeleton";
 import { ManagementSwitch } from "@/components/management/ManagementSwitch";
-import { BarList, ChartCard, ChartTable, ColumnChart, LineChart, ORDINAL, SERIES, useChartFormat } from "@/components/charts/Charts";
+import { PRODUCE, BarList, ChartCard, ChartTable, ColumnChart, LineChart, SERIES, useChartFormat } from "@/components/charts/Charts";
 import type { ManagementOverview } from "@/lib/management/overview";
 
 const RANGES = { "4w": 4, "12w": 12, "26w": 26 } as const;
@@ -97,9 +97,9 @@ export function OverviewView() {
         const labels = d.weekly.map((w) => f.week(w.week));
         const sales = d.weekly.map((w) => n(w.sales)), purchases = d.weekly.map((w) => n(w.purchases));
         const grading = [
-          { key: "good", label: t("mgmt.overview.grade.good"), color: ORDINAL[0], values: d.weekly.map((w) => n(w.good)) },
-          { key: "gradeB", label: t("mgmt.overview.grade.b"), color: ORDINAL[1], values: d.weekly.map((w) => n(w.gradeB)) },
-          { key: "waste", label: t("mgmt.overview.grade.waste"), color: ORDINAL[2], values: d.weekly.map((w) => n(w.waste)) },
+          { key: "good", label: t("mgmt.overview.grade.good"), color: PRODUCE.good, values: d.weekly.map((w) => n(w.good)) },
+          { key: "gradeB", label: t("mgmt.overview.grade.b"), color: PRODUCE.gradeB, values: d.weekly.map((w) => n(w.gradeB)) },
+          { key: "waste", label: t("mgmt.overview.grade.waste"), color: PRODUCE.waste, values: d.weekly.map((w) => n(w.waste)) },
         ];
         const trend = [
           { key: "sales", label: t("mgmt.overview.sales"), color: SERIES[0], values: sales },

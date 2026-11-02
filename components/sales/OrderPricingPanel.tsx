@@ -16,7 +16,7 @@ type Pricing = {
   priceList: { code: string; name: string } | null;
   customer: { code: string; name: string; nameAr: string | null } | null;
   lines: {
-    itemId: string; productName: string; unit: string; mapped: boolean; quantity: string; quantityBasis: "loaded" | "prepared" | "required";
+    itemId: string; productName: string; productNameEn?: string | null; productNameAr?: string | null; unit: string; mapped: boolean; quantity: string; quantityBasis: "loaded" | "prepared" | "required";
     price: { unitPrice: string; discountPct: string; taxCode: string; taxRate: string; source: string; reason: string | null; setBy: string; version: number } | null;
     amounts: Amounts | null;
   }[];
@@ -78,7 +78,7 @@ export function OrderPricingPanel({ orderId }: { orderId: string }) {
         {p.lines.map((l) => (
           <li key={l.itemId} className="py-2 flex flex-col gap-1">
             <div className="flex justify-between gap-2 text-sm">
-              <span className="font-extrabold">{l.productName}</span>
+              <span className="font-extrabold">{l.productNameEn ? localName({ name: l.productNameEn, nameAr: l.productNameAr ?? null }, locale) : l.productName}</span>
               <span dir="ltr" className="font-extrabold">{l.amounts ? fmtMoney(l.amounts.total) : "—"}</span>
             </div>
             <div className="flex justify-between gap-2 text-xs font-bold text-united-muted">
@@ -116,7 +116,8 @@ export function OrderPricingPanel({ orderId }: { orderId: string }) {
           </li>
         ))}
       </ul>
-      <dl className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-sm font-bold">
+      {/* 2 × 2: the panel lives in the order page's side column on desk screens (UX-01). */}
+      <dl className="grid grid-cols-2 gap-2 text-center text-sm font-bold">
         {[["pricing.gross", p.totals.gross], ["pricing.discount-total", p.totals.discount], ["pricing.tax", p.totals.tax], ["pricing.total", p.totals.total]].map(([k, v]) => (
           <div key={k} className={`rounded-xl p-2 ${k === "pricing.total" ? "bg-united-green/10 text-united-green" : "bg-united-dark/[0.03]"}`}>
             <dt className="text-xs text-united-muted">{t(k)}</dt>

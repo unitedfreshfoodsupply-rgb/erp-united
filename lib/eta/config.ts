@@ -21,10 +21,10 @@ export const ETA_ENVIRONMENTS = ["preprod", "production"] as const;
 export type EtaEnvironment = (typeof ETA_ENVIRONMENTS)[number];
 
 /**
- * The known ETA hosts per environment. ⚠ The SDK pages do not list hostnames (they use
- * relative paths); these are the hosts ETA publishes to registered ERP integrators.
- * Confirm against the ERP registration e-mail before the first pre-production run; a
- * change here is a reviewed code change, never an environment variable.
+ * The known ETA hosts per environment, as listed in the ETA SDK FAQ (sdk.invoicing.eta.gov.eg,
+ * checked November 2026 — see the maturity research note). Still confirm against the ERP
+ * registration e-mail before the first pre-production run; a change here is a reviewed
+ * code change, never an environment variable.
  */
 export const ETA_KNOWN_HOSTS: Record<EtaEnvironment, { api: string; id: string }> = {
   preprod: { api: "api.preprod.invoicing.eta.gov.eg", id: "id.preprod.eta.gov.eg" },

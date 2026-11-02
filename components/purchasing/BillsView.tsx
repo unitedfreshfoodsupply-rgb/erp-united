@@ -17,6 +17,7 @@ import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { isServiceBillAccount } from "@/lib/purchasing/service-accounts";
 import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
+import { formatNumber } from "@/lib/format";
 
 /**
  * Supplier bills and payables (finance). A bill is booked from the supplier's invoice
@@ -467,10 +468,10 @@ function Payables() {
           {a.rows.map((r) => (
             <tr key={r.supplier.id} className="border-t border-united-dark/5">
               <td className="p-1"><button type="button" className="font-extrabold text-united-green underline text-start" onClick={() => setSupplier(r.supplier)}>{localName(r.supplier, locale)}</button></td>
-              {buckets.map(([k]) => <td key={k} dir="ltr" className={`p-1 num font-bold ${k === "total" ? "font-extrabold" : ""} ${k.startsWith("d") && Number(r[k]) > 0 ? "text-united-danger" : ""}`}>{Number(r[k]) ? Number(r[k]).toLocaleString("en-US", { minimumFractionDigits: 2 }) : "—"}</td>)}
+              {buckets.map(([k]) => <td key={k} dir="ltr" className={`p-1 num font-bold ${k === "total" ? "font-extrabold" : ""} ${k.startsWith("d") && Number(r[k]) > 0 ? "text-united-danger" : ""}`}>{Number(r[k]) ? formatNumber(r[k], { minDp: 2, maxDp: 2 }) : "—"}</td>)}
             </tr>
           ))}
-          <tr className="border-t-2 border-united-dark/20 font-extrabold"><td className="p-1">{t("purchasing.bill.total_bucket")}</td>{buckets.map(([k]) => <td key={k} dir="ltr" className="p-1 num">{Number(a.totals[k]).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>)}</tr>
+          <tr className="border-t-2 border-united-dark/20 font-extrabold"><td className="p-1">{t("purchasing.bill.total_bucket")}</td>{buckets.map(([k]) => <td key={k} dir="ltr" className="p-1 num">{formatNumber(a.totals[k], { minDp: 2, maxDp: 2 })}</td>)}</tr>
         </tbody>
       </table>
     </section>

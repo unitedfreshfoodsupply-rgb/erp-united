@@ -22,7 +22,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { Pagination } from "@/components/ui/Pagination";
 import { useLocale } from "@/lib/locale";
-import { intlLocale, unitLabel } from "@/lib/format";
+import { formatNumber, intlLocale, unitLabel } from "@/lib/format";
 import { localName, type LocalizedNameSource } from "@/lib/locale/names";
 import { useDialogs } from "@/components/ui/Dialog";
 import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
@@ -512,7 +512,7 @@ function Trial() {
           {/* All shown amounts are formatted identically (2 decimals); a negative
               opening/closing balance means the account stands at credit — shown
               explicitly as creditor label so the sign is never misread. */}
-          {(() => { const fmt = (v: string) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 }); return (
+          {(() => { const fmt = (v: string) => formatNumber(v, { minDp: 2, maxDp: 2 }); return (
           <table className="data-table">
             <thead><tr><th>{t("accounting.tb.account")}</th><th className="num">{t("accounting.tb-opening")}</th><th className="num">{t("accounting.tb-debit")}</th><th className="num">{t("accounting.tb-credit")}</th><th className="num">{t("accounting.tb-closing")}</th></tr></thead>
             <tbody>

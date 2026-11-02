@@ -18,6 +18,8 @@ import { useLocale } from "@/lib/locale";
  */
 
 export const SERIES = ["var(--viz-1)", "var(--viz-2)"] as const;
+/** Produce quality (good / grade B / waste), ordered by lightness — see app/globals.css .viz. */
+export const PRODUCE = { good: "var(--viz-good)", gradeB: "var(--viz-gradeb)", waste: "var(--viz-waste)" } as const;
 /** Ordered parts, lightest first: the darkest step goes to the part that needs attention (waste). */
 export const ORDINAL = ["var(--viz-ord-3)", "var(--viz-ord-2)", "var(--viz-ord-1)"] as const;
 

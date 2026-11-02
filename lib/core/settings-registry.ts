@@ -222,10 +222,13 @@ export const SETTING_DEFS = {
   "sales.eta_person_id_threshold": def({
     group: "sales",
     label: "حد الرقم القومي في الفاتورة الإلكترونية",
-    description: "فاتورة لشخص طبيعي (مش شركة) بالمبلغ ده أو أكتر مايتبعتش لمصلحة الضرائب من غير الرقم القومي للعميل. القيمة حسب قواعد المنظومة المنشورة — يتأكد منها المحاسب.",
+    description: "فاتورة لشخص طبيعي (مش شركة) بالمبلغ ده أو أكتر مايتبعتش لمصلحة الضرائب من غير الرقم القومي للعميل. الافتراضي 25,000 ج.م: المصلحة خفّضت الحد من 50,000 من أغسطس 2024 حسب المنشور في الصحافة (المصدر الرسمي مش منشور في الـ SDK) — يتأكد منها المحاسب من البوابة. الحد الأقل هو الاتجاه الآمن: فاتورة أكتر محتاجة الرقم القومي بدل ما ترتفض.",
     unit: "ج.م",
     schema: z.number().min(0).max(100_000_000),
-    default: 50_000,
+    // Maturity 2026-11 (TAX-01): 25,000 per ETA's reported reduction effective 1 Aug 2024
+    // (secondary sources; the SDK says only "threshold limit defined"). The lower value is
+    // the safe direction — see UNITED_AUDIT .../maturity/EGYPT_TAX_RESEARCH.md §2.
+    default: 25_000,
   }),
   "sales.quotation_validity_days": def({
     group: "sales",
@@ -551,7 +554,7 @@ export const SETTING_EN: Record<SettingKey, { label: string; description: string
   "inventory.dispatch_issue_policy": { label: "Stock issue at dispatch", description: "Always strict: an order leaves only if every line is issued in full from the books. The lenient mode was retired (November 2026 remediation) — goods not on the books are never sold." },
   "sales.credit_check_mode": { label: "Credit control", description: "Off: no control. Warn: the order goes on and accounting is alerted if a credit customer is over their limit or on hold. Block: the order cannot start preparation without accounting approval." },
   "sales.auto_reserve": { label: "Reserve stock for orders", description: "Mandatory: every line of a confirmed order reserves its full quantity from sellable stock when it is confirmed; if it is not available the order is not confirmed. Cannot be switched off." },
-  "sales.eta_person_id_threshold": { label: "National ID threshold on e-invoices", description: "An invoice to a person (not a company) at or above this amount is not sent to the Tax Authority without the customer's national ID. The value follows the published system rules \u2014 to be confirmed by the accountant." },
+"sales.eta_person_id_threshold": { label: "National ID threshold on e-invoices", description: "An invoice to a person (not a company) at or above this amount is not sent to the Tax Authority without the customer's national ID. Default 25,000 EGP: ETA lowered it from 50,000 from August 2024 as reported in the press (the SDK does not publish the figure) — to be confirmed by the accountant on the portal. The lower value is the safe direction: more invoices need the ID instead of being rejected." },
   "sales.quotation_validity_days": { label: "Quotation validity", description: "Days a quotation stays valid when no date is given." },
   "auth.session_ttl_hours": { label: "Session lifetime (hours)", description: "How long a sign-in lasts before the user must sign in again. Anything under 1 hour counts as one hour; anything over 24 hours counts as 24 (a fixed security cap)." },
   "auth.login_ip_lockout_threshold": { label: "Failed sign-ins from one address", description: "If sign-in fails this many times from the same IP within 15 minutes, that address is locked for 15 minutes \u2014 whatever the user name. Zero = no IP lock." },

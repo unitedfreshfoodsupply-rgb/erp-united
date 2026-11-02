@@ -5,24 +5,19 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api-client";
 import { storageLocationTypeLabel } from "@/lib/core/reference-data";
 import { localName } from "@/lib/locale/names";
-import { activeLocale } from "@/lib/locale/active";
-import { unitLabel } from "@/lib/format";
+import { money, qty, unitLabel } from "@/lib/format";
 import { useLocale } from "@/lib/locale";
 
 /** Quantities arrive as decimal strings (exact). Display only — never computed on. */
+/** Display helpers kept for their many callers; the format itself lives in lib/format.ts. */
 export function fmtQty(q: string | number | null | undefined, unit?: string) {
   if (q === null || q === undefined || q === "") return "—";
-  const n = Number(q);
-  const s = Number.isFinite(n) ? n.toLocaleString("en-US", { maximumFractionDigits: 3 }) : String(q);
+  const s = qty(q);
   return unit ? `${s} ${unitLabel(unit)}` : s;
 }
 
 export function fmtMoney(v: string | number | null | undefined) {
-  if (v === null || v === undefined) return "—";
-  const n = Number(v);
-  // The currency suffix follows the UI language (see lib/locale/active.ts).
-  const currency = activeLocale() === "en" ? "EGP" : "ج.م";
-  return Number.isFinite(n) ? `${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}` : String(v);
+  return money(v);
 }
 
 export type LocationDTO = { id: string; code: string; name: string; nameAr: string | null; type: string; active: boolean };
@@ -87,8 +82,31 @@ export function Tabs<T extends string>({ value, onChange, items }: { value: T; o
     ? `linear-gradient(to var(--u-tabs-end), ${edge.start ? "transparent 0, #000 2.5rem" : "#000 0"}, ${edge.end ? "#000 calc(100% - 2.5rem), transparent 100%" : "#000 100%"})`
     : undefined;
 
+  // UX-02: a mouse user has no scrollbar to reach hidden tabs (the strip hides it), so a
+  // small button appears at whichever edge has more tabs behind it.
+  const scrollBy = (towardsEnd: boolean) => {
+    const el = ref.current;
+    if (!el) return;
+    const rtl = getComputedStyle(el).direction === "rtl";
+    const step = Math.max(160, el.clientWidth * 0.7) * (towardsEnd ? 1 : -1) * (rtl ? -1 : 1);
+    el.scrollBy({ left: step, behavior: "smooth" });
+  };
+  const edgeButton = (towardsEnd: boolean) => (
+    <button
+      type="button"
+      tabIndex={-1}
+      aria-hidden
+      onClick={() => scrollBy(towardsEnd)}
+      className={`absolute top-0 bottom-px z-10 flex w-8 items-center justify-center bg-white/90 text-united-muted hover:text-united-dark ${towardsEnd ? "end-0" : "start-0"}`}
+    >
+      <span className={`inline-block text-lg leading-none ${towardsEnd ? "rtl:rotate-180" : "ltr:rotate-180"}`}>›</span>
+    </button>
+  );
+
   return (
-    <div className="u-tabs mb-4 border-b border-united-border">
+    <div className="u-tabs relative mb-4 border-b border-united-border">
+      {edge.start && edgeButton(false)}
+      {edge.end && edgeButton(true)}
       <div
         ref={ref}
         role="tablist"

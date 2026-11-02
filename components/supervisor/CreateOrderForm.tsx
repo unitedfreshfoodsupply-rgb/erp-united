@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/Toast";
 import { todayLocalISO } from "@/lib/localDate";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
+import { formatNumber } from "@/lib/format";
 
 /**
  * Order entry (remediation 2026-11). Each line shows what can be promised now — the
@@ -40,7 +41,7 @@ type Shortfall = { line: number; productName: string; unit: string; requested: s
 let nextKey = 1;
 const emptyRow = (): Row => ({ key: nextKey++, stock_product_id: "", quantity: "", unit: "", unit_price: "", discount_pct: "", search: "" });
 const fmt = (n: number, dp = 3) => (Number.isFinite(n) ? String(Math.round(n * 10 ** dp) / 10 ** dp) : "—");
-const money = (n: number) => (Number.isFinite(n) ? n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—");
+const money = (n: number) => (Number.isFinite(n) ? formatNumber(n, { minDp: 2, maxDp: 2 }) : "—");
 
 export function CreateOrderForm({ onDone }: { onDone: () => void }) {
   const qc = useQueryClient();

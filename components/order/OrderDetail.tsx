@@ -345,7 +345,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   }
 
   return (
-    <div className="page-container max-w-2xl">
+    <div className="page-container max-w-2xl lg:max-w-6xl">
       <div className="flex items-center justify-between mb-3">
         <Link
           href={backHref}
@@ -368,6 +368,10 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
+      {/* UX-01: on a desk screen the work (record, lines, actions) and the context
+          (prices and documents, timeline) sit side by side instead of one long column. */}
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,25rem)] lg:gap-5 lg:items-start">
+      <div className="min-w-0">
       {/* Header / operational record */}
       <div className="card p-5">
         <div className="flex items-start justify-between gap-2 mb-1">
@@ -678,7 +682,9 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      <div className="card p-5 mt-4">
+      </div>
+      <aside className="min-w-0 flex flex-col">
+      <div className="card p-5 mt-4 lg:mt-0">
         <h2 className="font-extrabold mb-2 text-united-dark">{t("orders.documents")}</h2>
         <OrderPricingPanel orderId={orderId} />
         <AttachmentsPanel entityType="order" entityId={orderId} canManage={isSupervisor} />
@@ -688,10 +694,12 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         <h2 className="font-extrabold mb-2 text-united-dark">{t("orders.timeline")}</h2>
         <Timeline orderId={orderId} />
       </div>
+      </aside>
+      </div>
 
       {stickyAction && (
         <div className="fixed bottom-0 inset-x-0 bg-white border-t-2 border-united-green/20 p-4 z-10">
-          <div className="max-w-2xl mx-auto">{stickyAction}</div>
+          <div className="max-w-2xl lg:max-w-6xl mx-auto">{stickyAction}</div>
         </div>
       )}
     </div>

@@ -6,6 +6,7 @@
  * Bilingual by structure: every label comes from one dictionary per language, the
  * direction follows the language, and figures are always Latin digits, left-to-right.
  */
+import { formatNumber } from "@/lib/format";
 
 export type InvoiceLang = "ar" | "en";
 
@@ -56,9 +57,9 @@ export type InvoiceDocInput = {
   lang: InvoiceLang;
 };
 
-const money = (v: Num) => Number(v.toString()).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const qty = (v: Num) => Number(v.toString()).toLocaleString("en-US", { maximumFractionDigits: 3 });
-const price = (v: Num) => Number(v.toString()).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+const money = (v: Num) => formatNumber(v.toString(), { minDp: 2, maxDp: 2 });
+const qty = (v: Num) => formatNumber(v.toString(), { maxDp: 3 });
+const price = (v: Num) => formatNumber(v.toString(), { minDp: 2, maxDp: 4 });
 const cairo = (d: Date | string, opts: Intl.DateTimeFormatOptions) => new Date(d).toLocaleString("en-GB", { timeZone: "Africa/Cairo", ...opts });
 
 export function invoiceDocument(input: InvoiceDocInput) {

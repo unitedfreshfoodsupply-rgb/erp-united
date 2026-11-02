@@ -43,11 +43,31 @@ export function deliverySlot(dateISO: string, time: string | null | undefined, l
   return time ? `${day} · ${time}` : `${day} · ${locale === "en" ? "no set time" : "من غير ميعاد محدد"}`;
 }
 
-/** Quantities: trim trailing zeros, never render "10.00 kg" or a bare "0.30000000004". */
-export function qty(n: number | null | undefined): string {
-  if (n === null || n === undefined) return "—";
-  const rounded = Math.round(n * 1000) / 1000;
-  return String(rounded);
+/**
+ * THE number format (I18N-06). Every figure on screen — quantities, money, KPIs — goes
+ * through here: Western digits in both languages (one digit system per screen, matching
+ * document numbers), thousands grouped, rounding crumbs dropped, and never "-0.00" (a
+ * zero that rounded from a tiny negative is a zero).
+ */
+export function formatNumber(n: number | string | null | undefined, opts: { minDp?: number; maxDp?: number } = {}): string {
+  if (n === null || n === undefined || n === "") return "—";
+  const v = typeof n === "number" ? n : Number(n);
+  if (!Number.isFinite(v)) return String(n);
+  const maxDp = opts.maxDp ?? 3;
+  const r = Number(v.toFixed(maxDp));
+  return (r === 0 ? 0 : r).toLocaleString("en-US", { minimumFractionDigits: opts.minDp ?? 0, maximumFractionDigits: maxDp });
+}
+
+/** Quantities: grouped, up to 3 decimals, trailing zeros trimmed ("3,840", "12.5"). */
+export function qty(n: number | string | null | undefined): string {
+  return formatNumber(n, { maxDp: 3 });
+}
+
+/** Money: always 2 decimals, grouped, with the currency in the reader's language ("1,234.50 ج.م" / "1,234.50 EGP"). */
+export function money(v: number | string | null | undefined, locale: "ar" | "en" = activeLocale()): string {
+  if (v === null || v === undefined || v === "") return "—";
+  const s = formatNumber(v, { minDp: 2, maxDp: 2 });
+  return `${s} ${locale === "en" ? "EGP" : "ج.م"}`;
 }
 
 /** Units are stored as codes (KG, BOX — the unit-of-measure catalog's keys, used in imports,

@@ -33,6 +33,43 @@ const SHORTCUTS: { key: string; href: string; icon: LucideIcon; permission: Perm
 
 const n = (v: string | number | null | undefined) => Number(v ?? 0);
 
+/**
+ * One figure with its definition (UX: every KPI says what it is). The definition is the
+ * accessible description and the hover title, so it is never decoration only.
+ */
+function Metric({ label, value, def, big, sub }: { label: string; value: string; def?: string; big?: boolean; sub?: { text: string; tone?: "danger" | "warn" } }) {
+  if (big) {
+    return (
+      <div className="flex flex-col gap-0.5" title={def}>
+        <span className="text-xs font-medium text-united-muted">{label}{def && <span className="sr-only"> — {def}</span>}</span>
+        <span className="num text-3xl font-bold text-united-dark" dir="ltr" style={{ textAlign: "start" }}>{value}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-start justify-between gap-3 py-2" title={def}>
+      <dt className="text-united-muted">{label}{def && <span className="sr-only"> — {def}</span>}</dt>
+      <dd className="flex flex-col items-end">
+        <span className="num font-semibold text-united-dark" dir="ltr">{value}</span>
+        {sub && <span className={`text-xs ${sub.tone === "danger" ? "font-semibold text-united-danger" : sub.tone === "warn" ? "font-semibold text-united-warn" : "text-united-muted"}`}>{sub.text}</span>}
+      </dd>
+    </div>
+  );
+}
+
+/** A count that asks for attention when it is not zero, and links to where it is handled. */
+function AttentionRow({ href, label, def, count, neutral }: { href: string; label: string; def?: string; count: number; neutral?: boolean }) {
+  const hot = !neutral && count > 0;
+  return (
+    <li title={def}>
+      <Link href={href} className="flex min-h-[44px] items-center justify-between gap-3 py-2 hover:text-united-green">
+        <span className="text-united-muted">{label}{def && <span className="sr-only"> — {def}</span>}</span>
+        <span className={`num rounded-full px-2.5 py-0.5 text-sm font-semibold ${hot ? "bg-united-warn/10 text-united-warn" : "bg-united-subtle text-united-dark"}`} dir="ltr">{count.toLocaleString("en-US")}</span>
+      </Link>
+    </li>
+  );
+}
+
 export function HomeView({ name }: { name: string }) {
   const { t, locale } = useLocale();
   const { can } = usePermissions();
@@ -109,59 +146,92 @@ export function HomeView({ name }: { name: string }) {
             )}
           </section>
 
+          {/* Today's flow: where every open order stands, left to right as the work moves. */}
           {q.data.operations && (
-            <section className="card flex min-w-0 flex-col gap-3 p-5" aria-labelledby="home-ops">
-              <header className="flex items-center justify-between">
-                <h2 id="home-ops" className="section-title">{t("home.ops.title")}</h2>
-                <Link href="/supervisor" className="text-xs font-semibold text-united-green hover:underline">{t("home.open")}</Link>
+            <section className="card min-w-0 p-5 lg:col-span-3" aria-labelledby="home-flow">
+              <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h2 id="home-flow" className="section-title">{t("home.flow.title")}</h2>
+                <span className="flex items-center gap-3 text-xs text-united-muted">
+                  {q.data.operations.late > 0 && <span className="pill-danger"><span className="pill-dot" />{t("home.flow.late", { count: num(q.data.operations.late) })}</span>}
+                  <Link href="/supervisor" className="font-semibold text-united-green hover:underline">{t("home.open")}</Link>
+                </span>
               </header>
-              <p className="text-3xl font-bold text-united-dark" dir="ltr">{num(q.data.operations.open)}</p>
-              <p className="-mt-2 text-xs text-united-muted">{t("home.ops.open")}{q.data.operations.late > 0 && <> · <span className="font-semibold text-united-danger">{t("home.ops.late", { count: num(q.data.operations.late) })}</span></>}</p>
-              <ul className="flex flex-col gap-1.5 text-sm">
-                {ORDER_STATUS_ORDER.filter((s) => q.data!.operations!.byStatus[s]).map((s) => (
-                  <li key={s} className="flex items-center justify-between gap-2"><span className="text-united-muted">{t(`orders.status.${s}`)}</span><span className="num font-semibold" dir="ltr">{num(q.data!.operations!.byStatus[s])}</span></li>
+              <ol className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                {[...ORDER_STATUS_ORDER.map((st) => ({ key: st, label: t(`orders.status.${st}`), count: q.data!.operations!.byStatus[st] ?? 0, done: false })),
+                  { key: "dispatched-today", label: t("home.flow.dispatched"), count: q.data.operations.dispatchedToday, done: true }].map((stage, i) => (
+                  <li key={stage.key} className={`relative flex min-h-[76px] flex-col justify-between rounded-xl border p-3 ${stage.done ? "border-united-green/30 bg-united-green/5" : stage.count ? "border-united-border-strong bg-white" : "border-united-border bg-united-subtle/60"}`}>
+                    <span className="text-xs font-medium text-united-muted">{stage.label}</span>
+                    <span className={`num text-2xl font-bold ${stage.count ? (stage.done ? "text-united-green" : "text-united-dark") : "text-united-muted/70"}`} dir="ltr">{num(stage.count)}</span>
+                    {i < ORDER_STATUS_ORDER.length && <span aria-hidden className="absolute -end-1.5 top-1/2 hidden -translate-y-1/2 text-united-border-strong sm:block rtl:rotate-180">›</span>}
+                  </li>
                 ))}
-              </ul>
+              </ol>
             </section>
           )}
 
-          {q.data.sales && (
-            <section className="card flex min-w-0 flex-col gap-3 p-5" aria-labelledby="home-sales">
+          {(q.data.sales || q.data.cash) && (
+            <section className="card flex min-w-0 flex-col gap-3 p-5" aria-labelledby="home-money">
               <header className="flex items-center justify-between">
-                <h2 id="home-sales" className="section-title">{t("home.sales.title")}</h2>
+                <h2 id="home-money" className="section-title">{t("home.money.title")}</h2>
                 <Link href="/management/overview" className="text-xs font-semibold text-united-green hover:underline">{t("home.open")}</Link>
               </header>
-              <p className="text-3xl font-bold text-united-dark" dir="ltr">{money(n(q.data.sales.monthToDate))}</p>
-              <p className="-mt-2 text-xs text-united-muted">
-                {t("home.sales.mtd", { count: num(q.data.sales.invoicesIssued) })}
-                {n(q.data.sales.previousToDate) > 0 && (() => {
-                  const ch = ((n(q.data!.sales!.monthToDate) - n(q.data!.sales!.previousToDate)) / n(q.data!.sales!.previousToDate)) * 100;
-                  return <> · <span className={`font-semibold ${ch >= 0 ? "text-united-green" : "text-united-danger"}`} dir="ltr">{`${ch >= 0 ? "+" : ""}${ch.toFixed(1)}%`}</span> {t("home.sales.vs-last-month")}</>;
-                })()}
-              </p>
-              <dl className="flex flex-col gap-1.5 text-sm">
-                <div className="flex justify-between gap-2"><dt className="text-united-muted">{t("mgmt.overview.collected")}</dt><dd className="num font-semibold" dir="ltr">{money(n(q.data.sales.collected))}</dd></div>
-                {q.data.receivables && <>
-                  <div className="flex justify-between gap-2"><dt className="text-united-muted">{t("mgmt.overview.receivables")}</dt><dd className="num font-semibold" dir="ltr">{money(n(q.data.receivables.total))}</dd></div>
-                  <div className="flex justify-between gap-2"><dt className="text-united-muted">{t("home.sales.overdue")}</dt><dd className={`num font-semibold ${n(q.data.receivables.overdue) > 0 ? "text-united-warn" : ""}`} dir="ltr">{money(n(q.data.receivables.overdue))}</dd></div>
-                </>}
+              {q.data.sales && <>
+                <Metric big label={t("home.sales.title")} def={t("home.def.sales")} value={money(n(q.data.sales.monthToDate))} />
+                <p className="-mt-2 text-xs text-united-muted">
+                  {t("home.sales.mtd", { count: num(q.data.sales.invoicesIssued) })}
+                  {n(q.data.sales.previousToDate) > 0 && (() => {
+                    const ch = ((n(q.data!.sales!.monthToDate) - n(q.data!.sales!.previousToDate)) / n(q.data!.sales!.previousToDate)) * 100;
+                    return <> · <span className={`font-semibold ${ch >= 0 ? "text-united-green" : "text-united-danger"}`} dir="ltr">{`${ch >= 0 ? "+" : ""}${ch.toFixed(1)}%`}</span> {t("home.sales.vs-last-month")}</>;
+                  })()}
+                </p>
+              </>}
+              <dl className="flex flex-col divide-y divide-united-border text-sm">
+                {q.data.sales && <Metric label={t("mgmt.overview.collected")} def={t("home.def.collected")} value={money(n(q.data.sales.collected))} />}
+                {q.data.receivables && <Metric label={t("mgmt.overview.receivables")} def={t("home.def.receivables")} value={money(n(q.data.receivables.total))} sub={n(q.data.receivables.overdue) > 0 ? { text: t("home.sales.overdue") + " " + money(n(q.data.receivables.overdue)), tone: "danger" } : undefined} />}
+                {q.data.payables && <Metric label={t("home.money.payables")} def={t("home.def.payables")} value={money(n(q.data.payables.total))} sub={n(q.data.payables.overdue) > 0 ? { text: t("home.money.payables-overdue") + " " + money(n(q.data.payables.overdue)), tone: "warn" } : undefined} />}
+                {q.data.cash && <Metric label={t("home.money.cash-bank")} def={t("home.def.cash")} value={money(n(q.data.cash.total))} sub={{ text: `${t("home.money.cash")} ${money(n(q.data.cash.cash))} · ${t("home.money.bank")} ${money(n(q.data.cash.bank))}` }} />}
               </dl>
             </section>
           )}
 
-          {q.data.stock && (
-            <section className="card flex min-w-0 flex-col gap-3 p-5" aria-labelledby="home-stock">
-              <header className="flex items-center justify-between">
-                <h2 id="home-stock" className="section-title">{t("home.stock.title")}</h2>
-                <Link href="/stock" className="text-xs font-semibold text-united-green hover:underline">{t("home.open")}</Link>
-              </header>
-              <p className="text-3xl font-bold text-united-dark" dir="ltr">{num(n(q.data.stock.receivedTodayKg))} <span className="text-base font-medium text-united-muted">{t("mgmt.overview.kg")}</span></p>
-              <p className="-mt-2 text-xs text-united-muted">{t("home.stock.received-today", { count: num(q.data.stock.receiptsToday) })}</p>
-              <dl className="flex flex-col gap-1.5 text-sm">
-                <div className="flex justify-between gap-2"><dt className="text-united-muted">{t("home.stock.products")}</dt><dd className="num font-semibold" dir="ltr">{num(q.data.stock.activeProducts)}</dd></div>
-              </dl>
-            </section>
-          )}
+          {q.data.stock && (() => {
+            const g = q.data.stock!.gradedToday;
+            const parts = [{ k: "good", v: n(g.good), cls: "bg-[var(--viz-good)]" }, { k: "gradeB", v: n(g.gradeB), cls: "bg-[var(--viz-gradeb)]" }, { k: "waste", v: n(g.waste), cls: "bg-[var(--viz-waste)]" }];
+            const total = parts.reduce((s0, p) => s0 + p.v, 0);
+            const wastePct = total > 0 ? (n(g.waste) / total) * 100 : 0;
+            return (
+              <section className="viz card flex min-w-0 flex-col gap-3 p-5 lg:col-span-2" aria-labelledby="home-produce">
+                <header className="flex items-center justify-between">
+                  <h2 id="home-produce" className="section-title">{t("home.produce.title")}</h2>
+                  <Link href="/stock" className="text-xs font-semibold text-united-green hover:underline">{t("home.open")}</Link>
+                </header>
+                <div className="grid gap-4 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+                  <div className="flex min-w-0 flex-col gap-2">
+                    <Metric big label={t("home.stock.received-today", { count: num(q.data.stock!.receiptsToday) })} def={t("home.def.received")} value={`${num(n(q.data.stock!.receivedTodayKg))} ${t("mgmt.overview.kg")}`} />
+                    {total > 0 ? (
+                      <>
+                        <div className="flex h-3 w-full overflow-hidden rounded-full bg-united-subtle" role="img" aria-label={parts.map((p) => `${t(`home.produce.${p.k}`)} ${p.v}`).join("، ")}>
+                          {parts.map((p) => p.v > 0 && <span key={p.k} className={p.cls} style={{ width: `${(p.v / total) * 100}%` }} />)}
+                        </div>
+                        <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                          {parts.map((p) => (
+                            <li key={p.k} className="flex items-center gap-1.5 text-united-muted"><span aria-hidden className={`inline-block h-2.5 w-2.5 rounded-sm ${p.cls}`} />{t(`home.produce.${p.k}`)} <span className="num font-semibold text-united-dark" dir="ltr">{num(p.v)}</span></li>
+                          ))}
+                        </ul>
+                        <p className={`text-xs font-semibold ${wastePct > 5 ? "text-united-warn" : "text-united-muted"}`} title={t("home.def.waste")}>{t("home.produce.waste-rate", { pct: wastePct.toFixed(1) })}</p>
+                      </>
+                    ) : <p className="text-sm text-united-muted">{t("home.produce.none")}</p>}
+                  </div>
+                  <ul className="flex flex-col divide-y divide-united-border text-sm">
+                    <AttentionRow href="/stock/inventory" label={t("home.stock.low")} def={t("home.def.low")} count={q.data.stock!.lowStock} />
+                    <AttentionRow href="/supervisor/exceptions" label={t("home.stock.exceptions")} def={t("home.def.exceptions")} count={q.data.stock!.openExceptions} />
+                    {q.data.purchaseRequests && <AttentionRow href="/purchasing/requests" label={t("home.stock.prs")} def={t("home.def.prs")} count={q.data.purchaseRequests.open} />}
+                    <AttentionRow href="/stock/setup" label={t("home.stock.products")} count={q.data.stock!.activeProducts} neutral />
+                  </ul>
+                </div>
+              </section>
+            );
+          })()}
         </div>
       )}
     </div>

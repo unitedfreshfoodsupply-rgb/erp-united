@@ -4,6 +4,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { OPEN_STATUSES } from "@/lib/orderPresentation";
 import { APPROVAL_TYPES, type ApprovalType } from "@/lib/core/approvals";
 import { agingReport } from "@/lib/sales/invoicing";
+import { apAgingReport } from "@/lib/purchasing/bills";
 
 /**
  * The home dashboard: what is waiting for this person, and how today looks in the parts of the
@@ -34,10 +35,17 @@ export async function homeSummary(viewer: Viewer) {
   const tasks: Promise<unknown>[] = [];
   const out: {
     actions: HomeAction[];
-    operations?: { byStatus: Record<string, number>; open: number; late: number };
+    operations?: { byStatus: Record<string, number>; open: number; late: number; dispatchedToday: number };
     sales?: { monthToDate: string; previousToDate: string; collected: string; invoicesIssued: number };
     receivables?: { total: string; overdue: string };
-    stock?: { receiptsToday: number; receivedTodayKg: string; activeProducts: number };
+    stock?: {
+      receiptsToday: number; receivedTodayKg: string; activeProducts: number;
+      gradedToday: { good: string; gradeB: string; waste: string; rejected: string };
+      lowStock: number; openExceptions: number;
+    };
+    payables?: { total: string; overdue: string };
+    cash?: { cash: string; bank: string; total: string };
+    purchaseRequests?: { open: number };
   } = { actions: [] };
   const push = (a: HomeAction | null) => { if (a && a.count > 0) out.actions.push(a); };
 
@@ -71,8 +79,12 @@ export async function homeSummary(viewer: Viewer) {
   if (can(viewer, "orders.view", "reports.view")) {
     tasks.push(prisma.order.groupBy({ by: ["status"], where: { status: { in: OPEN_STATUSES } }, _count: { _all: true } }).then(async (rows) => {
       const byStatus = Object.fromEntries(rows.map((r) => [r.status, r._count._all]));
-      const late = await prisma.order.count({ where: { status: { in: OPEN_STATUSES }, deliveryDate: { lt: today } } });
-      out.operations = { byStatus, open: rows.reduce((s, r) => s + r._count._all, 0), late };
+      const [late, dispatched] = await Promise.all([
+        prisma.order.count({ where: { status: { in: OPEN_STATUSES }, deliveryDate: { lt: today } } }),
+        // Orders whose stock left today (a posted, unreversed issue document dated today).
+        prisma.inventoryDocument.findMany({ where: { type: "issue", status: "posted", businessDate: today, sourceType: "order" }, select: { sourceId: true }, distinct: ["sourceId"] }).then((d) => d.length),
+      ]);
+      out.operations = { byStatus, open: rows.reduce((s, r) => s + r._count._all, 0), late, dispatchedToday: dispatched };
     }));
   }
   if (can(viewer, "reports.finance")) {
@@ -90,13 +102,45 @@ export async function homeSummary(viewer: Viewer) {
       const t = a.totals;
       out.receivables = { total: t.total, overdue: D(t.d1_30).plus(D(t.d31_60)).plus(D(t.d61_90)).plus(D(t.d90_plus)).toFixed(2) };
     }));
+    // What UNITED owes suppliers, and what is already past due (the AP aging).
+    tasks.push(apAgingReport(today).then((a) => {
+      const t = a.totals;
+      out.payables = { total: D(t.total).toFixed(2), overdue: D(t.d1_30).plus(D(t.d31_60)).plus(D(t.d61_90)).plus(D(t.d90_plus)).toFixed(2) };
+    }));
+    // Cash in hand and at the bank: the GL balance of every active cash/bank account.
+    tasks.push(prisma.$queryRaw<{ type: string; b: Prisma.Decimal | null }[]>`
+      SELECT c."type", sum(l."debit" - l."credit") AS b
+      FROM "CashAccount" c JOIN "JournalLine" l ON l."accountId" = c."accountId"
+      WHERE c."active" GROUP BY c."type"`
+      .then((rows) => {
+        const of = (t: string) => D(rows.find((r) => r.type === t)?.b ?? 0);
+        out.cash = { cash: of("cash").toFixed(2), bank: of("bank").toFixed(2), total: of("cash").plus(of("bank")).toFixed(2) };
+      }));
   }
   if (can(viewer, "stock.view")) {
     tasks.push(Promise.all([
-      prisma.stockIntake.aggregate({ where: { status: "posted", receivedDate: today, product: { unit: "KG" } }, _sum: { receivedQty: true } }),
+      // Weighed produce only (pieces are not kilos): received, and how it graded.
+      prisma.stockIntake.aggregate({ where: { status: "posted", receivedDate: today, product: { unit: "KG" } }, _sum: { receivedQty: true, goodQty: true, gradeBQty: true, wasteQty: true, rejectedQty: true } }),
       prisma.stockIntake.count({ where: { status: "posted", receivedDate: today } }),
       prisma.stockProduct.count({ where: { active: true } }),
-    ]).then(([kg, receipts, products]) => { out.stock = { receiptsToday: receipts, receivedTodayKg: D(kg._sum.receivedQty).toFixed(0), activeProducts: products }; }));
+      // Products at or below their reorder point, counting only sellable locations.
+      prisma.$queryRaw<{ n: bigint }[]>`
+        SELECT count(*) AS n FROM "StockProduct" p
+        WHERE p."active" AND p."reorderPointQty" IS NOT NULL
+          AND coalesce((SELECT sum(m."quantity") FROM "StockMovement" m JOIN "StorageLocation" l ON l."id" = m."locationId"
+                        WHERE m."productId" = p."id" AND l."type" NOT IN ('waste', 'quarantine')), 0) <= p."reorderPointQty"`,
+      prisma.stockIssueException.count({ where: { status: "open" } }),
+    ]).then(([kg, receipts, products, low, exceptions]) => {
+      const s = kg._sum;
+      out.stock = {
+        receiptsToday: receipts, receivedTodayKg: D(s.receivedQty).toFixed(0), activeProducts: products,
+        gradedToday: { good: D(s.goodQty).toFixed(1), gradeB: D(s.gradeBQty).toFixed(1), waste: D(s.wasteQty).toFixed(1), rejected: D(s.rejectedQty).toFixed(1) },
+        lowStock: Number(low[0]?.n ?? 0), openExceptions: exceptions,
+      };
+    }));
+  }
+  if (can(viewer, "purchasing.requests.view")) {
+    tasks.push(prisma.purchaseRequest.count({ where: { status: { in: ["pending_approval", "approved"] } } }).then((count) => { out.purchaseRequests = { open: count }; }));
   }
 
   await Promise.all(tasks);

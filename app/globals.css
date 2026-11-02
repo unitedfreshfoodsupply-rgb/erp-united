@@ -6,16 +6,34 @@
    these variables are for plain CSS (dialogs, focus) and future components.
    Rationale and usage: docs/erp/DESIGN_SYSTEM.md. */
 :root {
-  --u-ink: #1f3d24;
-  --u-primary: #227c43;
-  --u-accent: #9fce5c;
-  --u-bg: #f5f7f4;
-  --u-surface: #ffffff;
-  --u-subtle: #eef2ed;
-  --u-border: #dfe5de;
-  --u-field: #879687;
-  --u-muted: #5b6b5d;
-  --u-focus: #227c43;
+  /* Semantic colour tokens, as RGB channels so Tailwind's opacity modifiers work
+     (tailwind.config.js reads every united.* colour from here — one source of truth).
+     Values unchanged from the audited palette (WCAG AA text on white, see DESIGN_SYSTEM.md). */
+  --u-ink-rgb: 31 61 36;          /* #1F3D24 text, headings */
+  --u-primary-rgb: 34 124 67;     /* #227C43 actions, success */
+  --u-accent-rgb: 159 206 92;     /* #9FCE5C logo lime — decorative only */
+  --u-bg-rgb: 245 247 244;        /* #F5F7F4 page */
+  --u-surface-rgb: 255 255 255;   /* cards */
+  --u-subtle-rgb: 238 242 237;    /* quiet fills */
+  --u-border-rgb: 223 229 222;    /* hairlines */
+  --u-border-strong-rgb: 195 205 194;
+  --u-field-rgb: 135 150 135;     /* form-control outline, 3.1:1 */
+  --u-muted-rgb: 91 107 93;       /* secondary text, 5.7:1 */
+  --u-warn-rgb: 180 83 9;         /* #B45309 */
+  --u-danger-rgb: 180 35 24;      /* #B42318 */
+  --u-info-rgb: 29 95 160;        /* #1D5FA0 */
+
+  /* Plain-CSS aliases (dialogs, focus, charts). */
+  --u-ink: rgb(var(--u-ink-rgb));
+  --u-primary: rgb(var(--u-primary-rgb));
+  --u-accent: rgb(var(--u-accent-rgb));
+  --u-bg: rgb(var(--u-bg-rgb));
+  --u-surface: rgb(var(--u-surface-rgb));
+  --u-subtle: rgb(var(--u-subtle-rgb));
+  --u-border: rgb(var(--u-border-rgb));
+  --u-field: rgb(var(--u-field-rgb));
+  --u-muted: rgb(var(--u-muted-rgb));
+  --u-focus: rgb(var(--u-primary-rgb));
   --u-radius: 0.75rem;
   --u-sidebar: 15.5rem;
 }
@@ -56,8 +74,17 @@ body {
    data-viz checker against the white card: blue/orange CVD ΔE 24.7, ordinal ramp monotone with
    its light end at 2.1:1. Status colours (warn/danger) are never used as series. */
 .viz {
-  --viz-1: #2a78d6;
-  --viz-2: #eb6834;
+  /* Business series (UX-03, maturity 2026-11): sales in the brand green, purchases in a warm
+     amber — distinct in hue and in lightness (L* ≈ 45 vs 58), so they stay apart for
+     colour-vision deficiency too; legends always name them. */
+  --viz-1: #227c43;
+  --viz-2: #b7791f;
+  /* Produce quality, ordered by lightness (CVD-safe without relying on hue): good is the
+     green it is, grade B the amber of "second", waste a dark brick — no longer the most
+     prominent colour on the chart. */
+  --viz-good: #3c9a5f;
+  --viz-gradeb: #e0b23a;
+  --viz-waste: #8e3b2e;
   --viz-ord-1: #184f95;
   --viz-ord-2: #3987e5;
   --viz-ord-3: #86b6ef;

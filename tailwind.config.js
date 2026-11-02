@@ -11,20 +11,22 @@ module.exports = {
       // without making desk screens sparse. Use as `coarse:min-h-[44px]`.
       screens: { coarse: { raw: "(pointer: coarse)" } },
       colors: {
+        // Read from the CSS variables in app/globals.css (RGB channels, so `/opacity` works):
+        // the palette has one source of truth. Values are the audited ones listed there.
         united: {
-          dark: "#1F3D24", // ink — headings, primary text (12.0:1 on white)
-          green: "#227C43", // primary — actions, active, success (5.2:1 with white text)
-          light: "#9FCE5C", // logo lime — accents only, never text
-          bg: "#F5F7F4", // page
-          surface: "#FFFFFF",
-          subtle: "#EEF2ED", // quiet fills: table heads, secondary buttons
-          warn: "#B45309", // 5.0:1 on white — keep warning text off the subtle fill (4.4:1)
-          danger: "#B42318", // 6.6:1
-          info: "#1D5FA0", // 6.6:1
-          border: "#DFE5DE",
-          "border-strong": "#C3CDC2",
-          field: "#879687", // form-control outline (3.1:1, WCAG 1.4.11)
-          muted: "#5B6B5D", // secondary text (5.7:1) — was a 55% alpha that measured ~3.2:1
+          dark: "rgb(var(--u-ink-rgb) / <alpha-value>)", // ink — headings, primary text (12.0:1 on white)
+          green: "rgb(var(--u-primary-rgb) / <alpha-value>)", // primary — actions, active, success
+          light: "rgb(var(--u-accent-rgb) / <alpha-value>)", // logo lime — accents only, never text
+          bg: "rgb(var(--u-bg-rgb) / <alpha-value>)", // page
+          surface: "rgb(var(--u-surface-rgb) / <alpha-value>)",
+          subtle: "rgb(var(--u-subtle-rgb) / <alpha-value>)", // quiet fills: table heads, secondary buttons
+          warn: "rgb(var(--u-warn-rgb) / <alpha-value>)", // 5.0:1 on white
+          danger: "rgb(var(--u-danger-rgb) / <alpha-value>)", // 6.6:1
+          info: "rgb(var(--u-info-rgb) / <alpha-value>)", // 6.6:1
+          border: "rgb(var(--u-border-rgb) / <alpha-value>)",
+          "border-strong": "rgb(var(--u-border-strong-rgb) / <alpha-value>)",
+          field: "rgb(var(--u-field-rgb) / <alpha-value>)", // form-control outline (3.1:1, WCAG 1.4.11)
+          muted: "rgb(var(--u-muted-rgb) / <alpha-value>)", // secondary text (5.7:1)
         },
       },
       fontFamily: {

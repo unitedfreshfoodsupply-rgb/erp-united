@@ -10,6 +10,7 @@ import { getRun } from "@/lib/hr/payroll";
 import { PrintButton } from "@/app/sales/invoices/[id]/print/PrintButton";
 import { localName } from "@/lib/locale/names";
 import { printDir, printLocale, type PrintLocale } from "@/lib/locale/print";
+import { formatNumber } from "@/lib/format";
 
 /**
  * One payslip, A4, in the reader's language (`?lang=en`, like the other prints), from the
@@ -21,7 +22,7 @@ const D = (v: Prisma.Decimal.Value) => new Prisma.Decimal(v);
 export default async function PayslipPrint({ params, searchParams }: { params: { id: string; employeeId: string }; searchParams?: { lang?: string } }) {
   const locale: PrintLocale = printLocale(searchParams);
   const L = (ar: string, en: string) => (locale === "en" ? en : ar);
-  const money = (v: Prisma.Decimal.Value) => D(v).toNumber().toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const money = (v: Prisma.Decimal.Value) => formatNumber(D(v).toNumber(), { minDp: 2, maxDp: 2 });
   const gate = await requireAnyPagePermission([...READ]);
   if (!gate.ok) return <AccessDenied missing={gate.missing} role={gate.user.role} homeHref="/hr/payroll" />;
   const run = await getRun(params.id, serviceActorFromContext(gate.user)).catch((e) => {
