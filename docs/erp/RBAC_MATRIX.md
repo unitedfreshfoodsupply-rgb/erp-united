@@ -216,6 +216,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/admin/overview` | `users.view` | ✓ |  |  |  |  |  |  |  |  |
 | PATCH | `/api/admin/settings/[key]` | `settings.manage` | ✓ |  |  |  |  |  |  |  |  |
 | GET | `/api/admin/settings` | `settings.manage` | ✓ |  |  |  |  |  |  |  |  |
+| POST | `/api/admin/users/[id]/mfa/reset` | `users.edit` | ✓ |  |  |  |  |  |  |  |  |
 | GET | `/api/admin/users/[id]/permissions` | `users.view` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/admin/users/[id]/permissions` | `settings.manage` | ✓ |  |  |  |  |  |  |  |  |
 | GET | `/api/admin/users/[id]` | `users.view` | ✓ |  |  |  |  |  |  |  |  |
@@ -251,6 +252,11 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/auth/login` | public | · | · | · | · | · | · | · | · | · |
 | POST | `/api/auth/logout` | public | · | · | · | · | · | · | · | · | · |
 | GET | `/api/auth/me` | public | · | · | · | · | · | · | · | · | · |
+| POST | `/api/auth/mfa/disable` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| POST | `/api/auth/mfa/enroll/confirm` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| POST | `/api/auth/mfa/enroll` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| POST | `/api/auth/mfa/recovery-codes` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| GET | `/api/auth/mfa` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | GET | `/api/core/reference` | any of `core.masterdata.view`, `stock.view`, `orders.view` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |  |
 | POST | `/api/eta/credit-notes/[id]/reconcile` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/eta/credit-notes/[id]/refresh` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
@@ -265,6 +271,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | PUT | `/api/eta/receivers/[customerId]` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/eta` | `accounting.eta.view` | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | PUT | `/api/eta/units/[code]` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/health/deep` | `settings.manage` | ✓ |  |  |  |  |  |  |  |  |
 | GET | `/api/health` | public | · | · | · | · | · | · | · | · | · |
 | GET | `/api/home` | any of `users.view`, `reports.view`, `reports.finance`, `sales.customers.view`, `purchasing.orders.view`, `accounting.view`, `accounting.receipts.manage`, `accounting.payments.manage`, `stock.view`, `hr.employees.view` | ✓ | ✓ | ✓ |  |  | ✓ | ✓ | ✓ | ✓ |
 | POST | `/api/hr/attendance/compile` | `hr.attendance.record` | ✓ | ✓ |  |  |  |  |  |  |  |

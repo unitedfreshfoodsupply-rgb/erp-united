@@ -126,31 +126,31 @@ async function main() {
   check("SUPER_ADMIN can cancel", (await call("admin","POST",`/api/orders/${ord.id}/cancel`,{reason:"تنظيف",expected_version:ordV2.version})).status === 200);
 
   section("4. DISABLED USER CUT OFF IMMEDIATELY");
-  const victim = (await call("admin","POST","/api/admin/users",{name:"حساب اختبار",username:`${TAG}dis`,password:"test1234",role:"PREPARER"})).body.user;
+  const victim = (await call("admin","POST","/api/admin/users",{name:"حساب اختبار",username:`${TAG}dis`,password:"test1234-ws6",role:"PREPARER"})).body.user;
   createdUserIds.push(victim.id);
-  check("new user can sign in", (await login(`${TAG}dis`,"test1234")).status === 200);
+  check("new user can sign in", (await login(`${TAG}dis`,"test1234-ws6")).status === 200);
   check("new user can use its permission", (await call(`${TAG}dis`,"GET","/api/orders")).status === 200);
   const dis = await call("admin","PATCH",`/api/admin/users/${victim.id}`,{active:false,expected_version:victim.version});
   check("admin disabled the account", dis.status === 200 && dis.body.user.active === false);
   check("EXISTING session refused at once", (await call(`${TAG}dis`,"GET","/api/orders")).status === 401);
   const disPage = await page(`${TAG}dis`, "/prep");
   check("disabled user bounced to /login", [302,307].includes(disPage.status) && (disPage.location ?? "").includes("/login"));
-  check("disabled user cannot sign in again", (await call(null,"POST","/api/auth/login",{username:`${TAG}dis`,password:"test1234"})).status === 401);
+  check("disabled user cannot sign in again", (await call(null,"POST","/api/auth/login",{username:`${TAG}dis`,password:"test1234-ws6"})).status === 401);
   const re = await call("admin","PATCH",`/api/admin/users/${victim.id}`,{active:true,expected_version:dis.body.user.version});
   check("re-enabled", re.status === 200 && re.body.user.active === true);
-  check("can sign in again", (await login(`${TAG}dis`,"test1234")).status === 200);
+  check("can sign in again", (await login(`${TAG}dis`,"test1234-ws6")).status === 200);
 
   section("4b. PASSWORD CHANGE ENDS EXISTING SESSIONS");
   // A second device (or a stolen cookie) holding a session from before the change.
   const other = `${TAG}dis#device2`;
-  check("second device signs in", (await call(other,"POST","/api/auth/login",{username:`${TAG}dis`,password:"test1234"})).status === 200);
+  check("second device signs in", (await call(other,"POST","/api/auth/login",{username:`${TAG}dis`,password:"test1234-ws6"})).status === 200);
   check("second device works", (await call(other,"GET","/api/orders")).status === 200);
   const ver = (await call("admin","GET","/api/admin/users")).body.users.find((u: any) => u.id === victim.id).version;
-  check("admin resets the password", (await call("admin","PATCH",`/api/admin/users/${victim.id}`,{password:"newpass99",expected_version:ver})).status === 200);
+  check("admin resets the password", (await call("admin","PATCH",`/api/admin/users/${victim.id}`,{password:"newpass99-ws6",expected_version:ver})).status === 200);
   check("old session on device 1 refused -> 401", (await call(`${TAG}dis`,"GET","/api/orders")).status === 401);
   check("old session on device 2 refused -> 401", (await call(other,"GET","/api/orders")).status === 401);
-  check("old password no longer signs in", (await call(null,"POST","/api/auth/login",{username:`${TAG}dis`,password:"test1234"})).status === 401);
-  check("new password signs in", (await login(`${TAG}dis`,"newpass99")).status === 200);
+  check("old password no longer signs in", (await call(null,"POST","/api/auth/login",{username:`${TAG}dis`,password:"test1234-ws6"})).status === 401);
+  check("new password signs in", (await login(`${TAG}dis`,"newpass99-ws6")).status === 200);
   check("and the new session works", (await call(`${TAG}dis`,"GET","/api/orders")).status === 200);
   const verName = (await call("admin","GET","/api/admin/users")).body.users.find((u: any) => u.id === victim.id).version;
   check("a name change does NOT sign the user out", (await call("admin","PATCH",`/api/admin/users/${victim.id}`,{name:"حساب اختبار ٢",expected_version:verName})).status === 200
@@ -158,7 +158,7 @@ async function main() {
 
   section("5. PRIVILEGE ESCALATION");
   check("role not taken from login payload", (await call(null,"POST","/api/auth/login",{username:"ahmed",password:"1234",role:"SUPER_ADMIN"})).body?.user?.role === "PREPARER");
-  check("PREPARER cannot create a user", (await call("ahmed","POST","/api/admin/users",{name:"x",username:`${TAG}esc`,password:"test1234",role:"SUPER_ADMIN"})).status === 403);
+  check("PREPARER cannot create a user", (await call("ahmed","POST","/api/admin/users",{name:"x",username:`${TAG}esc`,password:"test1234-ws6",role:"SUPER_ADMIN"})).status === 403);
   check("PREPARER cannot change a role", (await call("ahmed","PATCH",`/api/admin/users/${victim.id}`,{role:"SUPER_ADMIN"})).status === 403);
   check("SUPERVISOR cannot reach user admin", (await call("sara","PATCH",`/api/admin/users/${victim.id}`,{role:"SUPERVISOR"})).status === 403);
   check("STOCK_CONTROLLER cannot set overrides", (await call("hossam","POST",`/api/admin/users/${victim.id}/permissions`,{permission:"orders.view",effect:"grant"})).status === 403);
@@ -189,7 +189,7 @@ async function main() {
   check("cannot demote the last SUPER_ADMIN", (await call("admin","PATCH",`/api/admin/users/${adminUser.id}`,{role:"SUPERVISOR",expected_version:adminUser.version})).status >= 400);
   const stillAdmin = (await call("admin","GET","/api/admin/users")).body.users.find((x: any) => x.username === "admin");
   check("still active and still SUPER_ADMIN", stillAdmin.active === true && stillAdmin.role === "SUPER_ADMIN");
-  const second = (await call("admin","POST","/api/admin/users",{name:"مدير ثاني",username:`${TAG}sa`,password:"test1234",role:"SUPER_ADMIN"})).body.user;
+  const second = (await call("admin","POST","/api/admin/users",{name:"مدير ثاني",username:`${TAG}sa`,password:"test1234-ws6",role:"SUPER_ADMIN"})).body.user;
   createdUserIds.push(second.id);
   check("a second SUPER_ADMIN can be created", second?.role === "SUPER_ADMIN");
   check("with two, the second can be demoted", (await call("admin","PATCH",`/api/admin/users/${second.id}`,{role:"SUPERVISOR",expected_version:second.version})).status === 200);
@@ -228,12 +228,14 @@ async function main() {
 
   section("10. LOGIN HARDENING");
   check("7-char password rejected on user creation", (await call("admin","POST","/api/admin/users",{name:"x",username:`${TAG}short`,password:"short12",role:"PREPARER"})).status === 400);
-  const hardened = (await call("admin","POST","/api/admin/users",{name:"حساب اختبار",username:`${TAG}lock`,password:"test1234",role:"PREPARER"})).body.user;
+  // WS6: the minimum rose from 8 to 10 — a 9-character password (accepted before) is now refused.
+  check("9-char password rejected on user creation (WS6 minimum 10)", (await call("admin","POST","/api/admin/users",{name:"x",username:`${TAG}short9`,password:"short1234",role:"PREPARER"})).status === 400);
+  const hardened = (await call("admin","POST","/api/admin/users",{name:"حساب اختبار",username:`${TAG}lock`,password:"test1234-ws6",role:"PREPARER"})).body.user;
   createdUserIds.push(hardened.id);
   for (let i = 0; i < 5; i++) {
     await call(null,"POST","/api/auth/login",{username:`${TAG}lock`,password:"wrong-password"});
   }
-  const lockedOut = await call(null,"POST","/api/auth/login",{username:`${TAG}lock`,password:"test1234"});
+  const lockedOut = await call(null,"POST","/api/auth/login",{username:`${TAG}lock`,password:"test1234-ws6"});
   check("account locked after repeated failed logins, even with the RIGHT password", lockedOut.status === 429, lockedOut);
 
   section("11. CLEAN UP TEST ACCOUNTS");

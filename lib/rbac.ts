@@ -27,6 +27,7 @@ const ERRORS_AR: Record<string, string> = {
   "auth.change-password": "لازم تغيّر كلمة السر الأول",
   "auth.invalid-login": "بيانات الدخول غلط",
   "auth.enter-credentials": "دخّل اسم المستخدم وكلمة السر",
+  "auth.mfa-enroll-required": "لازم تفعّل التحقق بخطوتين الأول",
 };
 
 const ERRORS_EN: Record<string, string> = {
@@ -42,6 +43,7 @@ const ERRORS_EN: Record<string, string> = {
   "auth.change-password": "You must change your password first",
   "auth.invalid-login": "Invalid login credentials",
   "auth.enter-credentials": "Enter username and password",
+  "auth.mfa-enroll-required": "Set up two-step sign-in first",
 };
 
 function localeFromReq(req?: NextRequest): "ar" | "en" {
@@ -60,13 +62,16 @@ export function handleApiError(err: unknown, req?: NextRequest) {
   if (err instanceof ApiError) {
     // A known code has a fixed translation; any other message is translated from the
     // catalog with its specific details intact (unknown text stays as written).
+    // WS6: the client needs to tell "held at MFA enrolment" from any other 403, so this
+    // one code travels in the body (no other error body changes shape).
+    const extra = err.code === "auth.mfa-enroll-required" ? { code: err.code } : {};
     if (err.code && loc === "en") {
       const translated = ERRORS_EN[err.code];
       if (translated) {
-        return NextResponse.json({ error: translated }, { status: err.status });
+        return NextResponse.json({ error: translated, ...extra }, { status: err.status });
       }
     }
-    return NextResponse.json({ error: localizeServerMessage(err.message, loc) }, { status: err.status });
+    return NextResponse.json({ error: localizeServerMessage(err.message, loc), ...extra }, { status: err.status });
   }
   // A short reference ties what the user reports to the server log line.
   const ref = randomUUID().slice(0, 8);

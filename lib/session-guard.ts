@@ -1,10 +1,16 @@
 import { redirect } from "next/navigation";
-import { getAuthContext, type AuthContext } from "@/lib/authz";
+import { getAuthContext, isMfaEnrollmentPending, type AuthContext } from "@/lib/authz";
 import { homePathFor } from "@/lib/nav";
 import type { Permission } from "@/lib/permissions";
 import { HOME_BY_ROLE } from "@/lib/types";
 
 export { HOME_BY_ROLE };
+
+/** Where a visitor without a usable session goes: the sign-in form, or — when the
+ * session is held until a second factor is set up (WS6) — the enrolment page. */
+export async function signInPath(): Promise<string> {
+  return (await isMfaEnrollmentPending()) ? "/mfa/setup" : "/login";
+}
 
 export type PageGate =
   | { ok: true; user: AuthContext }
@@ -25,7 +31,7 @@ export async function requirePagePermission(
   permission: Permission | Permission[]
 ): Promise<PageGate> {
   const user = await getAuthContext();
-  if (!user) redirect("/login");
+  if (!user) redirect(await signInPath());
   const needed = Array.isArray(permission) ? permission : [permission];
   const missing = needed.filter((p) => !user.can(p));
   if (missing.length > 0) return { ok: false, user, missing };
@@ -35,7 +41,7 @@ export async function requirePagePermission(
 /** Like requirePagePermission, but any one of the permissions opens the page. */
 export async function requireAnyPagePermission(permissions: Permission[]): Promise<PageGate> {
   const user = await getAuthContext();
-  if (!user) redirect("/login");
+  if (!user) redirect(await signInPath());
   if (permissions.some((p) => user.can(p))) return { ok: true, user };
   return { ok: false, user, missing: permissions };
 }
@@ -43,6 +49,6 @@ export async function requireAnyPagePermission(permissions: Permission[]): Promi
 /** Landing page for the signed-in user, derived from what they can actually reach. */
 export async function resolveHomePath() {
   const user = await getAuthContext();
-  if (!user) redirect("/login");
+  if (!user) redirect(await signInPath());
   return homePathFor(user.permissions, user.role);
 }

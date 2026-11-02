@@ -21,7 +21,13 @@ const isProduction = process.env.NODE_ENV === "production" && !isBuildPhase;
 const REQUIRED_IN_PRODUCTION = [
   ["DATABASE_URL", "Postgres connection used by Prisma at runtime"],
   ["JWT_SECRET", "signs the session cookie — without it sessions cannot be trusted"],
+  // WS6: the key the TOTP (two-step sign-in) secrets are encrypted with at rest. Without
+  // it no enrolled user could sign in, and no new secret could be stored safely.
+  ["MFA_ENCRYPTION_KEY", "encrypts two-step sign-in (TOTP) secrets at rest — at least 32 random characters"],
 ] as const;
+
+/** A key shorter than this is refused in production: it would be guessable offline. */
+export const MFA_KEY_MIN_LENGTH = 32;
 
 /**
  * Needed for one feature rather than for the server itself. Missing values here
@@ -39,15 +45,29 @@ const REQUIRED_FOR_INTEGRATIONS = [
       ] as const)),
 ] as const;
 
-function missing(vars: readonly (readonly [string, string])[]) {
-  return vars.filter(([name]) => !process.env[name]?.trim());
+function missing(vars: readonly (readonly [string, string])[], env: NodeJS.ProcessEnv = process.env) {
+  return vars.filter(([name]) => !env[name]?.trim());
+}
+
+/**
+ * What would stop a production boot, as [name, why] pairs — empty when the environment
+ * is complete. Exported so the rule itself is unit-tested without booting a server.
+ * Never returns or logs a value, only names.
+ */
+export function productionEnvProblems(env: NodeJS.ProcessEnv = process.env): [string, string][] {
+  const problems: [string, string][] = missing(REQUIRED_IN_PRODUCTION, env).map(([n, w]) => [n, w]);
+  const mfaKey = env.MFA_ENCRYPTION_KEY?.trim();
+  if (mfaKey && mfaKey.length < MFA_KEY_MIN_LENGTH) {
+    problems.push(["MFA_ENCRYPTION_KEY", `too short — at least ${MFA_KEY_MIN_LENGTH} random characters (openssl rand -base64 48)`]);
+  }
+  return problems;
 }
 
 if (isProduction) {
-  const fatal = missing(REQUIRED_IN_PRODUCTION);
+  const fatal = productionEnvProblems();
   if (fatal.length > 0) {
     throw new Error(
-      "Refusing to start: missing required environment variable(s) in production —\n" +
+      "Refusing to start: missing or invalid required environment variable(s) in production —\n" +
         fatal.map(([name, why]) => `  - ${name}: ${why}`).join("\n") +
         "\nSee .env.example. No value is ever defaulted: an insecure fallback is worse than no boot."
     );
@@ -60,3 +80,11 @@ if (isProduction) {
 
 /** The session signing secret. Guaranteed non-empty in production by the check above. */
 export const JWT_SECRET = process.env.JWT_SECRET ?? "insecure-dev-secret-do-not-use-in-production";
+
+/**
+ * Key material for encrypting TOTP secrets (lib/security/mfa-crypto.ts derives the
+ * actual AES key from it with HKDF). Guaranteed present and long enough in production
+ * by the check above; development and tests fall back to a fixed, public dev value so
+ * a fresh clone works — which is exactly why production refuses to boot without one.
+ */
+export const MFA_ENCRYPTION_KEY = process.env.MFA_ENCRYPTION_KEY?.trim() || "insecure-dev-mfa-key-do-not-use-in-production";
