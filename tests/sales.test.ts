@@ -1,6 +1,9 @@
 /* Sales end to end: the customer master, credit terms, and how an incoming order
    finds its customer account (exactly, or not at all). */
 import { call, login, makeChecker } from "./_harness";
+import { stockUp, setSetting } from "./_stock";
+import { PrismaClient } from "@prisma/client";
+import { assertTestDatabase } from "./_guard";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZSAL${Date.now() % 1_000_000_000}`;
@@ -64,8 +67,12 @@ async function main() {
   check("…exactly one primary remains", contacts.filter((c: any) => c.isPrimary).length === 1 && contacts.find((c: any) => c.id === c1.id)?.isPrimary === false);
 
   section("4. ORDERS FIND THEIR CUSTOMER — EXACTLY");
+  // WF-01: integration lines must name a catalog product with sellable stock. These
+  // orders are about the CUSTOMER match, so their line is a stocked catalog product.
+  const fruit = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Fruit`, unit: "KG" })).body.product;
+  await stockUp(fruit.id, 200);
   const order = (name: string, extra: Record<string, unknown> = {}) => incomingOrder({
-    customer_name: name, delivery_date: "2026-12-10", items: [{ product_name: "Mango", quantity: 5 }], ...extra,
+    customer_name: name, delivery_date: "2026-12-10", items: [{ product_name: fruit.name, quantity: 5 }], ...extra,
   });
   r = await order(`${TAG} grand_hotel`);
   check("written differently (case, separators) → mapped by name", r.body.order?.customerAccountId === hotel.id, r.body.order);
@@ -112,6 +119,10 @@ async function main() {
   const mango = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Mango`, unit: "KG" })).body.product;
   await call("hossam", "POST", `/api/inventory/products/${mango.id}/packagings`, { uom: "CRATE", qty_in_base_unit: 18 });
   const juice = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Juice`, unit: "KG" })).body.product;
+  // WF-01: every order below holds its stock at creation — receive it first (cost 10/kg,
+  // below every price used here, so no line is a below-cost price exception).
+  await stockUp(mango.id, 300);
+  await stockUp(juice.id, 20);
   check("stock controller cannot see price lists -> 403", (await call("hossam", "GET", "/api/sales/price-lists")).status === 403);
   check("accountant can read prices", (await call("karim", "GET", "/api/sales/price-lists")).status === 200);
   check("accountant cannot create a price list -> 403", (await call("karim", "POST", "/api/sales/price-lists", { code: `${TAG}X`, name: "x" })).status === 403);
@@ -148,13 +159,28 @@ async function main() {
   check("assigning a customer list needs pricing.manage (accountant -> 403)", (await call("karim", "PATCH", `/api/sales/customers/${hotel.id}/price-list`, { price_list_id: hotelList.id, reason: "x" })).status === 403);
   r = await call("mona", "PATCH", `/api/sales/customers/${hotel.id}/price-list`, { price_list_id: hotelList.id, reason: "عقد الفنادق" });
   check("the hotel gets the hotel list", r.status === 200 && r.body.customer.priceListId === hotelList.id, r.body);
+  // WF-01 (replaces an order created with an unknown 4th line left unpriced): a line the
+  // catalog does not know refuses the whole integration order.
   r = await incomingOrder({ customer_name: `${TAG} Grand Hotel`, customer_account_id: hotel.id, delivery_date: "2026-12-10", items: [
     { product_name: `${TAG} Mango`, quantity: 10 },
     { product_name: `${TAG} Mango`, quantity: 2, unit: "CRATE" },
     { product_name: `${TAG} Juice`, quantity: 3 },
     { product_name: `${TAG} شيء مش متعرف`, quantity: 1 },
   ] });
+  check("an order with an unknown product -> 409 (line 4 unmapped)", r.status === 409 && r.body.code === "stock_unavailable" && r.body.details?.shortfalls?.some((x: any) => x.line === 4 && x.reason === "unmapped"), r.body);
+  r = await incomingOrder({ customer_name: `${TAG} Grand Hotel`, customer_account_id: hotel.id, delivery_date: "2026-12-10", items: [
+    { product_name: `${TAG} Mango`, quantity: 10 },
+    { product_name: `${TAG} Mango`, quantity: 2, unit: "CRATE" },
+    { product_name: `${TAG} Juice`, quantity: 3 },
+  ] });
   const po = r.body.order;
+  // A legacy order (taken before the remediation, when an unknown line could ride along)
+  // still carries one unmapped line: the pricing and later-mapping checks run on it.
+  assertTestDatabase();
+  const db = new PrismaClient();
+  const legacyOrder = await db.order.create({ data: { orderNumber: `${TAG}-LEGACY`, customerName: hotel.name, customerAccountId: hotel.id, deliveryDate: "2026-12-10", source: "n8n", status: "new", items: { create: [{ productName: `${TAG} شيء مش متعرف`, unit: "KG", requiredQuantity: 1 }] } }, include: { items: true } });
+  await db.$disconnect();
+  const legacyPricing = async () => (await call("mona", "GET", `/api/orders/${legacyOrder.id}/pricing`)).body;
   check("order created", r.status === 201, r.body);
   check("the order payload itself carries no prices", po.items.every((i: any) => i.price === undefined && i.unitPrice === undefined));
   let pr = (await call("mona", "GET", `/api/orders/${po.id}/pricing`)).body;
@@ -162,7 +188,8 @@ async function main() {
   check("mango from the hotel list: 10 × 18 = 180", ln(0).amounts?.net === "180.00" && ln(0).price.source === "list", ln(0));
   check("a crate = 18 kg × 18 = 324; 2 crates = 648", ln(1).price?.unitPrice === "324" && ln(1).amounts?.net === "648.00", ln(1));
   check("juice is not on the hotel list → default list: 3 × 30 = 90 + 14% = 102.60", ln(2).amounts?.net === "90.00" && ln(2).amounts?.tax === "12.60" && ln(2).amounts?.total === "102.60", ln(2));
-  check("the unknown product stays unpriced", ln(3).price === null && pr.unpricedLines === 1);
+  check("no unknown product reaches a live order: nothing unpriced", pr.unpricedLines === 0, pr.unpricedLines);
+  check("the legacy order's unknown line stays unpriced", (await legacyPricing()).lines[0].price === null && (await legacyPricing()).unpricedLines === 1);
   check("totals: net 918.00, tax 12.60, total 930.60", pr.totals.net === "918.00" && pr.totals.tax === "12.60" && pr.totals.total === "930.60", pr.totals);
   check("preparer cannot read prices -> 403", (await call("ahmed", "GET", `/api/orders/${po.id}/pricing`)).status === 403);
   check("stock controller cannot read prices -> 403", (await call("hossam", "GET", `/api/orders/${po.id}/pricing`)).status === 403);
@@ -175,7 +202,7 @@ async function main() {
   check("preparer cannot override -> 403", (await call("ahmed", "PATCH", `/api/orders/${po.id}/items/${po.items[2].id}/price`, { unit_price: 1, reason: "x" })).status === 403);
   check("override without a reason -> 400", (await call("mona", "PATCH", `/api/orders/${po.id}/items/${po.items[2].id}/price`, { unit_price: 28 })).status === 400);
   check("discount above 100% -> 400", (await call("mona", "PATCH", `/api/orders/${po.id}/items/${po.items[2].id}/price`, { unit_price: 28, discount_pct: 101, reason: "x" })).status === 400);
-  check("pricing an unmapped line -> 400 (its tax is unknown)", (await call("mona", "PATCH", `/api/orders/${po.id}/items/${po.items[3].id}/price`, { unit_price: 5, reason: "x" })).status === 400);
+  check("pricing an unmapped line -> 400 (its tax is unknown)", (await call("mona", "PATCH", `/api/orders/${legacyOrder.id}/items/${legacyOrder.items[0].id}/price`, { unit_price: 5, reason: "x" })).status === 400);
   r = await call("mona", "PATCH", `/api/orders/${po.id}/items/${po.items[2].id}/price`, { unit_price: "28", discount_pct: 5, reason: "عرض أسبوعي" });
   check("juice at 28 with 5% off", r.status === 200 && r.body.price.source === "manual", r.body);
   pr = (await call("mona", "GET", `/api/orders/${po.id}/pricing`)).body;
@@ -194,10 +221,15 @@ async function main() {
   r = await call("sara", "POST", "/api/stock/products", { name: `${TAG} شيء مش متعرف بقى معروف`, unit: "KG" });
   const known = r.body.product;
   await call("mona", "POST", `/api/sales/price-lists/${std.id}/prices`, { valid_from: "2026-12-01", prices: [{ product_id: known.id, unit_price: "7" }] });
+  // WF-01: mapping a live order's line makes it hold the product's stock — refused
+  // while there is none, accepted once it is received.
+  r = await call("sara", "POST", "/api/stock/products/mapping", { product_name: `${TAG} شيء مش متعرف`, product_id: known.id, reason: "ده نفس الصنف" });
+  check("mapping the live line onto a product with no stock -> 409", r.status === 409 && r.body.code === "stock_unavailable", r.body);
+  await stockUp(known.id, 1);
   r = await call("sara", "POST", "/api/stock/products/mapping", { product_name: `${TAG} شيء مش متعرف`, product_id: known.id, reason: "ده نفس الصنف" });
   check("map the unknown line to a product", r.status === 200 || r.status === 201, r.body);
-  pr = (await call("mona", "GET", `/api/orders/${po.id}/pricing`)).body;
-  check("…and it is priced (7 from the default list)", ln(3).price?.unitPrice === "7" && pr.unpricedLines === 0, ln(3));
+  const lp = await legacyPricing();
+  check("…and it is priced (7 from the default list)", lp.lines[0].price?.unitPrice === "7" && lp.unpricedLines === 0, lp.lines[0]);
   r = await call("mona", "POST", "/api/sales/customers/map", { customer_name: `${TAG} walk-in`, customer_id: hotel.id });
   check("map the walk-in name to the hotel", r.status === 200);
   check("…its order is repriced from the hotel list (18 on Dec 5th)", (await call("mona", "GET", `/api/orders/${walkIn.id}/pricing`)).body.lines[0].price?.unitPrice === "18");
@@ -306,20 +338,26 @@ async function main() {
   await setting("sales.credit_check_mode", null);
 
   section("16. AUTOMATIC RESERVATION");
+  // WF-01 replaces "auto_reserve switched on for the scenario" and "a bigger order than the
+  // stock reserves what there is (never refused)": every order holds its stock in full,
+  // always; the switch cannot be turned off and a bigger order is refused.
   await call("hossam", "POST", "/api/stock/intakes", { supplier_id: (await call("hossam", "POST", "/api/stock/suppliers", { name: `${TAG} مورد` })).body.supplier.id, product_id: mango.id, received_kg: 100 });
   const avail = async () => (await call("sara", "GET", `/api/inventory/products/${mango.id}`)).body;
   const base = await avail();
-  await setting("sales.auto_reserve", true);
+  const ar = (await call("admin", "GET", "/api/admin/settings")).body.settings.find((x: any) => x.key === "sales.auto_reserve");
+  check("reservation is always on", ar?.value === true, ar);
+  check("…and cannot be switched off -> 400", (await setSetting("sales.auto_reserve", false, TAG)).status === 400);
   r = await incomingOrder({ customer_account_id: hotel.id, customer_name: "x", delivery_date: "2026-12-10", items: [{ product_name: `${TAG} Mango`, quantity: 30 }] });
   const ro = r.body.order;
   let a = await avail();
   check("an order reserves its 30 kg on arrival", Number(a.reserved) - Number(base.reserved) === 30, [base.reserved, a.reserved]);
   check("editing the required quantity moves the reservation", (await call("sara", "POST", `/api/orders/${ro.id}/items/${ro.items[0].id}/required`, { quantity: 40, reason: "زودوا" })).status === 200 && Number((await avail()).reserved) - Number(base.reserved) === 40);
-  r = await incomingOrder({ customer_account_id: hotel.id, customer_name: "x", delivery_date: "2026-12-10", items: [{ product_name: `${TAG} Mango`, quantity: 500 }] });
   a = await avail();
-  check("a bigger order than the stock reserves what there is (never refused)", r.status === 201 && a.available === "0", a.available);
-  check("cancelling releases it", (await call("sara", "POST", `/api/orders/${r.body.order.id}/cancel`, { reason: "x" })).status === 200 && Number((await avail()).available) > 0);
-  await setting("sales.auto_reserve", null);
+  r = await call("sara", "POST", `/api/orders/${ro.id}/items/${ro.items[0].id}/required`, { quantity: 40 + Number(a.available) + 1, reason: "زودوا تاني" });
+  check("raising it above what is free -> 409, the hold stays at 40", r.status === 409 && Number((await avail()).reserved) - Number(base.reserved) === 40, r.body);
+  r = await incomingOrder({ customer_account_id: hotel.id, customer_name: "x", delivery_date: "2026-12-10", items: [{ product_name: `${TAG} Mango`, quantity: Number(a.available) + 1 }] });
+  check("a bigger order than the free stock -> 409, nothing reserved", r.status === 409 && r.body.code === "stock_unavailable" && (await avail()).reserved === a.reserved, r.body);
+  check("cancelling releases it", (await call("sara", "POST", `/api/orders/${ro.id}/cancel`, { reason: "x" })).status === 200 && (await avail()).reserved === base.reserved);
 
   section("17. INVOICE A DISPATCHED ORDER");
   const ship = { vehicle: "ن ق ل 1", driver_name: "سواق", crate_count: 2 };
