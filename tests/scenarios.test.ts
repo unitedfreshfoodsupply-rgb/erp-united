@@ -5,6 +5,7 @@
    (docs/erp/SCENARIO_COMPLETENESS_AUDIT.md); every defect it found has a check here. */
 import { call, login, makeChecker } from "./_harness";
 import { local } from "./_days";
+import { setSetting, fundCash } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const T = `ZZSCN${Date.now() % 1_000_000_000}`;
@@ -22,10 +23,21 @@ async function main() {
   const stockIn = (id: string, qty: number, cost = "5", expiry = local(6)) => call("karim", "POST", "/api/accounting/opening-stock", { business_date: today, lines: [{ product_id: id, quantity: qty, unit_cost: cost, expiry_date: expiry, location_id: "loc_cold_1" }] });
   const tomato = await mkProduct("Tomato");
   const mango = await mkProduct("Mango");
+  // CTL-01: direct opening entries are closed by default. This suite exercises the direct
+  // opening path itself (expiry rules, idempotent cut-over keys) and uses it to stock its
+  // products, so it asserts the default refusal, switches it on by an audited settings
+  // change, and restores the default at the end (also if the suite fails).
+  r = await stockIn(tomato.id, 500);
+  check("default (direct opening OFF): opening stock -> 409 direct_opening_disabled", r.status === 409 && r.body.code === "direct_opening_disabled", r.body);
+  check("direct opening entries switched ON for the scenario suite", (await setSetting("accounting.direct_opening_entries", true, `${T} scenarios`)).status === 200);
+  // L2: cash and bank never go negative — the owner funds both before anything is paid out.
+  await fundCash("cash_main", 2000);
+  await fundCash("bank_main", 2000);
   await stockIn(tomato.id, 500);
   await stockIn(mango.id, 100, "8");
   const hotel = (await call("mona", "POST", "/api/sales/customers", { name: `${T} Hotel`, tax_registration_no: reg9(1), type: "hotel" })).body.customer;
-  const cafe = (await call("mona", "POST", "/api/sales/customers", { name: `${T} Cafe`, type: "cafe" })).body.customer;
+  // MIG-01: every customer this suite invoices carries a 9-digit tax number.
+  const cafe = (await call("mona", "POST", "/api/sales/customers", { name: `${T} Cafe`, type: "cafe", tax_registration_no: reg9(2) })).body.customer;
   const farm = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${T} Farm`, payment_terms_days: 30 })).body.supplier;
   const statement = async (id: string) => n((await call("karim", "GET", `/api/sales/customers/${id}/statement?from=2000-01-01&to=2099-12-31`)).body.closing);
 
@@ -73,13 +85,17 @@ async function main() {
   // ===========================================================================
   section("2. UNITS: an order in crates, issued and invoiced through the packaging");
   await call("hossam", "POST", `/api/inventory/products/${mango.id}/packagings`, { uom: "CRATE", qty_in_base_unit: 12.5 });
-  const oc = await order(hotel, mango, 1.5, "200", "CRATE");
+  // WF-01 (replaces an order for 1.5 crates): a confirmed line respects its unit's
+  // precision — CRATE is a whole unit (precision 0). The order is for 2 crates instead.
+  r = await call("mona", "POST", "/api/orders", { customer_account_id: hotel.id, customer_name: hotel.name, delivery_date: today, items: [{ stock_product_id: mango.id, product_name: mango.name, quantity: 1.5, unit: "CRATE" }] });
+  check("1.5 crates -> 400 (crates are whole units)", r.status === 400, r.body);
+  const oc = await order(hotel, mango, 2, "200", "CRATE");
   check("the crate line is mapped to the product", !!oc.items[0].stockProductId && oc.items[0].unit === "CRATE");
   let before = await onHand(mango.id);
-  await dispatch(oc, 1.5);
-  check("1.5 crates × 12.5 kg = 18.75 kg left stock", n(before - (await onHand(mango.id))) === 18.75, before - (await onHand(mango.id)));
+  await dispatch(oc, 2);
+  check("2 crates × 12.5 kg = 25 kg left stock", n(before - (await onHand(mango.id))) === 25, before - (await onHand(mango.id)));
   const ic = await invoice(oc);
-  check("invoiced 1.5 crates × 200 = 300", ic.total === "300" && n(ic.lines[0].quantity) === 1.5, [ic.total, ic.lines[0].quantity]);
+  check("invoiced 2 crates × 200 = 400", ic.total === "400" && n(ic.lines[0].quantity) === 2, [ic.total, ic.lines[0].quantity]);
   before = await onHand(mango.id);
   r = await call("karim", "POST", `/api/sales/invoices/${ic.id}/credit-notes`, { reason: "نص صندوق تالف", restock: true, lines: [{ invoice_line_id: ic.lines[0].id, quantity: 0.5 }] });
   check("half a crate returned: credit 100, 6.25 kg back in stock", r.status === 201 && n(r.body.creditNote.total) === 100 && n((await onHand(mango.id)) - before) === 6.25, [r.status, r.body.creditNote?.total]);
@@ -192,7 +208,7 @@ async function main() {
   section("9. REFUNDS: credit a party holds, paid back in money");
   const accounts = (await call("karim", "GET", "/api/accounting/accounts")).body.accounts;
   const gl = async (code: string) => n((await call("karim", "GET", `/api/accounting/accounts/${accounts.find((a: any) => a.code === code).id}/ledger?from=2000-01-01&to=2099-12-31`)).body.ledger.closing);
-  const guest = (await call("mona", "POST", "/api/sales/customers", { name: `${T} Guest House`, type: "hotel" })).body.customer;
+  const guest = (await call("mona", "POST", "/api/sales/customers", { name: `${T} Guest House`, type: "hotel", tax_registration_no: reg9(3) })).body.customer;
   const og = await order(guest, tomato, 10, "10");
   await dispatch(og, 10);
   const ig = await invoice(og);
@@ -263,7 +279,12 @@ async function main() {
   check("…the same key on another amount -> 409", (await call("karim", "POST", "/api/accounting/opening-balances", { party_type: "customer", party_id: hotel.id, date: today, amount: 11, idempotency_key: `${T}-ob-1` })).status === 409);
   const mj = `${T} ضيافة (مكرر؟)`;
   r = await tri("/api/accounting/journals", { date: today, description: mj, lines: [{ account_id: accounts.find((a: any) => a.code === "6100").id, debit: 7 }, { account_id: accounts.find((a: any) => a.code === "1100").id, credit: 7 }], idempotency_key: `${T}-je-1` });
-  check("manual journal submitted 3× with one key → one entry", r.every((x: any) => x.status === 201) && (await call("karim", "GET", "/api/accounting/journals?source_type=manual")).body.journals.filter((j: any) => j.description === mj).length === 1, r.map((x: any) => x.status));
+  // CTL-01 (replaces "3× -> three 201s, one entry"): a manual journal waits for approval, so
+  // the three submits are one request (202); approved once by someone else, it is one entry.
+  check("manual journal submitted 3× with one key → one request waiting for approval", r.every((x: any) => x.status === 202) && new Set(r.map((x: any) => x.body.journalRequest?.id)).size === 1, r.map((x: any) => x.status));
+  const mjReq = (await call("admin", "GET", "/api/approvals?status=pending")).body.approvals.find((a: any) => a.type === "accounting.manual_journal" && a.entityId === r[0].body.journalRequest?.id);
+  await call("admin", "POST", `/api/approvals/${mjReq?.id}/decide`, { decision: "approve", comment: "ضيافة" });
+  check("…approved once → one entry", (await call("karim", "GET", "/api/accounting/journals?source_type=manual")).body.journals.filter((j: any) => j.description === mj).length === 1);
   const exAcc = (await call("sara", "GET", "/api/hr/expense-accounts")).body.accounts[0];
   r = await tri("/api/hr/expenses", { account_id: exAcc.id, amount: 15, description: `${T} شاي وقهوة`, payment_mode: "cash", cash_account_id: "cash_main", idempotency_key: `${T}-ex-1` }, "sara");
   check("expense submitted 3× with one key → one expense", one(r, (b) => b.expense), r.map((x: any) => x.status));
@@ -295,10 +316,12 @@ async function main() {
   // check allows); the report sums the unrounded valuation layers. Equal up to that rounding.
   check("management report: cost of sales (stock issued − returned) = GL cost of goods sold (5100), up to per-posting piastre rounding", Math.abs(Number(fr.sales.cost) + plLine("5100")) < 0.5, [fr.sales.cost, plLine("5100")]);
 
+  check("direct opening entries restored to the default (OFF)", (await setSetting("accounting.direct_opening_entries", null, `${T} scenarios done`)).status === 200);
   finish("SCENARIO COMPLETENESS");
 }
 
-main().catch((e) => {
+main().catch(async (e) => {
   console.error(e);
+  await setSetting("accounting.direct_opening_entries", null, "scenarios crashed: restore default").catch(() => undefined);
   process.exit(1);
 });

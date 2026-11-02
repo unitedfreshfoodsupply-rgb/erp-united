@@ -7,6 +7,7 @@
 
    Bodies here are invalid by construction, so the suite changes no business data. */
 import { call, login, page, makeChecker, BASE, cookieFor } from "./_harness";
+import { setSetting } from "./_stock";
 import { scanRoutes } from "../scripts/rbac/route-scan";
 
 const { check, section, finish } = makeChecker();
@@ -96,7 +97,13 @@ async function main() {
   check("NUL byte in a text field → 400", r.status === 400 && /NUL/.test(r.body.error), r);
   r = await call("admin", "GET", "/api/sales/customers?q=a%00b");
   check("NUL byte in a search → 400", r.status === 400, r);
+  // CTL-01: direct opening stock is closed by default (409 before any input is read); the
+  // input-robustness check needs the direct path open, so it is switched on for this call.
   r = await call("admin", "POST", "/api/accounting/opening-stock", { warehouse_id: [{ a: 1 }], lines: [{ product_id: "x", quantity: 1, unit_cost: "1" }] });
+  check("opening stock while direct opening is OFF (default) → 409 direct_opening_disabled, not a 500", r.status === 409 && r.body?.code === "direct_opening_disabled", r);
+  await setSetting("accounting.direct_opening_entries", true, "robustness: opening-stock input check");
+  r = await call("admin", "POST", "/api/accounting/opening-stock", { warehouse_id: [{ a: 1 }], lines: [{ product_id: "x", quantity: 1, unit_cost: "1" }] });
+  await setSetting("accounting.direct_opening_entries", null, "robustness: opening-stock input check done");
   check("opening stock with an object as warehouse → 400", r.status === 400, r);
   r = await call("admin", "GET", "/api/stock/dashboard?date=2026-10-08T99");
   check("dashboard with an impossible date → 400", r.status === 400, r);

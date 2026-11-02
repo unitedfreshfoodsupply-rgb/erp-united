@@ -153,11 +153,11 @@ export async function approve(who: string, requestId: string, comment = "e2e app
  * different user holding stock.approve_adjustments approves it, which posts it.
  * Returns the request response and the decision (null when the request did not wait).
  */
-export async function adjustWithApproval(body: Record<string, unknown>, opts: { who?: string; approver?: string } = {}) {
+export async function adjustWithApproval(body: Record<string, unknown>, opts: { who?: string; approver?: string; path?: string } = {}) {
   const who = opts.who ?? "hossam";
   const approver = opts.approver ?? "sara";
   await ensureLogin(who);
-  const request = await call(who, "POST", "/api/stock/adjustments", body);
+  const request = await call(who, "POST", opts.path ?? "/api/stock/adjustments", body);
   if (request.status !== 202) return { request, decision: null as Res | null };
   const pending = await pendingApproval(approver, "inventory.adjustment", { entityId: request.body.document.id });
   if (!pending) throw new Error(`adjustment setup: no pending approval for ${request.body.document.id}`);

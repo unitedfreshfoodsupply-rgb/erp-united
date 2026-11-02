@@ -17,6 +17,12 @@ async function main() {
   await call("hossam", "POST", "/api/stock/intakes", { supplier_id: sup.id, received_date: today, product_id: prod.id, received_kg: 200, unit_cost: "10" });
   const cust = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل` })).body.customer;
 
+  const tryOrder = (quantity: number, tag: string) => call("mona", "POST", "/api/orders", {
+    customer_account_id: cust.id, customer_name: `${TAG} ${tag}`, delivery_date: today,
+    items: [{ stock_product_id: prod.id, product_name: prod.name, quantity }],
+  });
+  const available = async () => (await call("sara", "GET", `/api/inventory/products/${prod.id}`)).body;
+
   // Helper: create an order, move it to "loaded", ready to dispatch
   async function makeOrder(quantity: number, tag: string) {
     const o = (await call("mona", "POST", "/api/orders", {
@@ -58,19 +64,14 @@ async function main() {
   check("N2 order B dispatched", dB.status === 200, [dB.status, dB.body?.error]);
 
   // =========================================================================
-  section("N3. Order C with 200 cannot dispatch (only 40 left after A+B)");
-  const oC = await makeOrder(200, "C");
-  // Remaining stock = 200 - 80 - 80 = 40. Order C reserves 200.
-  // available = 40 - 200 = -160. own = 200.
-  // free = min(-160 + 200, 40) = 40 -> insufficient (needs 200, has 40).
-  const dC = await call("mostafa", "POST", `/api/orders/${oC.id}/status`, {
-    to: "dispatched", vehicle: "x", driver_name: "y", crate_count: 1, reason: TAG,
-  });
-  check("N3 order C dispatched with shortfall (lenient policy)", dC.status === 200, [dC.status, dC.body?.error]);
-  // The dispatch creates exceptions (shortfalls recorded in doc), not an order shortage flag.
-  check("N3 dispatch reduced available stock correctly", true, true);
+  section("N3. Order C with 200 cannot be confirmed (only 40 left after A+B)");
+  // WF-01 (replaces "order C dispatched with a shortfall (lenient policy)"): an order the
+  // sellable stock cannot cover is refused when it is placed, so it never reaches the truck.
+  const dC = await tryOrder(200, "C");
+  check("N3 order C for 200 refused -> 409 stock_unavailable, 40 available", dC.status === 409 && dC.body.code === "stock_unavailable" && dC.body.details?.shortfalls?.[0]?.available === "40", [dC.status, dC.body?.error]);
+  const avC = await available();
+  check("N3 nothing was held for it: 40 on hand, 40 available", avC.onHand === "40" && avC.available === "40", [avC.onHand, avC.available]);
 
-  // =========================================================================
   section("N4. Order D (40 remaining) → dispatches successfully");
   const oD = await makeOrder(40, "D");
   // Remaining stock = 40. Order D reserves 40 -> available = 40 - 40 = 0. own = 40.
@@ -84,15 +85,13 @@ async function main() {
 
   // =========================================================================
   section("N5. Remaining stock zero — new order cannot be satisfied");
-  const oE = await makeOrder(10, "E");
-  const dE = await call("mostafa", "POST", `/api/orders/${oE.id}/status`, {
-    to: "dispatched", vehicle: "x", driver_name: "y", crate_count: 1, reason: TAG,
-  });
-  // Lenient: proceeds with shortfall exception
-  check("N5 order E dispatched (shortfall)", dE.status === 200, [dE.status, dE.body?.error]);
+  // WF-01 (replaces "order E dispatched with a shortfall exception (lenient)"): refused at the order.
+  const dE = await tryOrder(10, "E");
+  check("N5 order E refused -> 409 (nothing sellable left)", dE.status === 409 && dE.body.details?.shortfalls?.[0]?.available === "0", [dE.status, dE.body?.error]);
 
-  // =========================================================================
   section("N6. RBAC — LOADER cannot approve shortage");
+  // Stock for order F is received first (WF-01: it must be held in full when placed).
+  await call("hossam", "POST", "/api/stock/intakes", { supplier_id: sup.id, received_date: today, product_id: prod.id, received_kg: 50, unit_cost: "10" });
   const oF = await makeOrder(50, "F");
   const apF = (await call("sara", "GET", `/api/orders/${oF.id}`)).body.order;
   if (apF.needsReview) {
