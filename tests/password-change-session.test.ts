@@ -30,6 +30,12 @@ async function main() {
   // Policy flip: mustChangePassword is informational — it does NOT strip permissions.
   const ordersAfterAdminSet = await call("pwtab", "GET", "/api/orders");
   check("user works normally with the admin-set password (orders 200)", ordersAfterAdminSet.status === 200, ordersAfterAdminSet.status);
+  // SEC-01 (maturity 2026-11): the routes that only require a signed-in user used to answer
+  // 403 auth.change-password while the flag was set — a lock the user could not undo.
+  for (const path of ["/api/notifications", "/api/approvals?status=pending", "/api/settings/operational"]) {
+    const r = await call("pwtab", "GET", path);
+    check(`flagged user is not locked out of ${path} (200, not 403 auth.change-password)`, r.status === 200, [r.status, r.body?.code]);
+  }
 
   section("2. SELF-SERVICE PASSWORD CHANGE IS GONE");
   const selfSvc = await call("pwtab", "POST", "/api/auth/password", { current_password: "temp12345-ws6", new_password: "mine12345" });
@@ -71,6 +77,13 @@ async function main() {
   section("7. NO SELF-EDIT OF PROFILE VIA API");
   const selfEdit = await call("ahmed", "PATCH", "/api/auth/me", { name: "حايل" });
   check("self-profile edit endpoint does not exist (404/405)", [404, 405].includes(selfEdit.status), selfEdit.status);
+
+  section("7b. NOBODY CHANGES THEIR OWN PASSWORD — NOT EVEN AN ADMINISTRATOR (SEC-02)");
+  const me = (await call("admin", "GET", "/api/auth/me")).body.user;
+  const meRow = ((await call("admin", "GET", "/api/admin/users")).body.users as any[]).find((u) => u.id === me.id);
+  const selfReset = await call("admin", "PATCH", `/api/admin/users/${me.id}`, { password: "ChangedByMyself2026", expected_version: meRow.version });
+  check("an administrator setting their own password via the admin route -> 403 auth.self_password_change", selfReset.status === 403 && selfReset.body?.code === "auth.self_password_change", [selfReset.status, selfReset.body]);
+  check("…and their own sign-in is unchanged (the test password still works)", (await login("admin")).status === 200);
 
   section("8. LOGOUT STILL WORKS (tab-scoped)");
   const out = await call("pwtab", "POST", "/api/auth/logout");

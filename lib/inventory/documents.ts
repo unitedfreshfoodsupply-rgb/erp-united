@@ -548,9 +548,11 @@ export async function postApprovedAdjustment(tx: Tx, documentId: string, decider
     where: { id: doc.id, version: doc.version, status: "pending_approval" },
     data: { status: "posted", postedAt: new Date(), version: { increment: 1 } },
   });
-  // Posted by the approver: the movements are theirs; who asked is on the document.
-  await postAdjustmentLines(tx, updated, plan, decider, "adjustment");
-  await auditDoc(tx, updated, decider, "stock_adjustment_created", `${plan.length} سطر — بعد الموافقة`);
+  // Posted by the approver: the movements are theirs; who asked is on the document. A
+  // scrap waiting for approval (CTL-D18) posts as scrap.
+  const kind = updated.type === "scrap" ? "scrap" : "adjustment";
+  await postAdjustmentLines(tx, updated, plan, decider, kind);
+  await auditDoc(tx, updated, decider, kind === "scrap" ? "inventory_scrap_posted" : "stock_adjustment_created", `${plan.length} سطر — بعد الموافقة`);
 }
 
 export async function rejectPendingAdjustment(tx: Tx, documentId: string, decider: ServiceActor) {
@@ -575,17 +577,49 @@ export async function createScrap(input: Record<string, unknown>, actor: Service
   const date = businessDate(input.business_date);
   const raw = lines(input);
   const requestHash = requestFingerprint(input);
+  const [threshold, approvalRequired] = await Promise.all([getSetting("inventory.adjustment_approval_threshold").then(D), getSetting("inventory.adjustment_approval_required")]);
   const result = await idempotent(key, requestHash, () =>
     inTx(async (tx) => {
       const wh = await resolveWarehouse(tx, input.warehouse_id as string | undefined);
       const plan: PlannedAdjustment[] = [];
+      const wasteLines: boolean[] = [];
       for (const l of raw) {
         const product = await loadProduct(tx, l.product_id);
         const qty = await lineQty(tx, product, l);
-        const locationId = typeof l.location_id === "string" && l.location_id ? (await resolveLocation(tx, wh.id, l.location_id)).id : null;
-        plan.push({ productId: product.id, quantity: qty.negated().toFixed(), locationId, lotId: typeof l.lot_id === "string" && l.lot_id ? l.lot_id : null });
+        const location = typeof l.location_id === "string" && l.location_id ? await resolveLocation(tx, wh.id, l.location_id) : null;
+        plan.push({ productId: product.id, quantity: qty.negated().toFixed(), locationId: location?.id ?? null, lotId: typeof l.lot_id === "string" && l.lot_id ? l.lot_id : null });
+        wasteLines.push(location?.type === "waste");
       }
-      const doc = await createDoc(tx, "scrap", { warehouseId: wh.id, businessDate: date, status: "posted", reason, idempotencyKey: key, requestHash, payload: { lines: plan } }, actor);
+      // CTL-D18: writing off sellable stock is a loss someone else signs off, under the same
+      // rule as an adjustment. Writing off the waste location only completes a grading loss
+      // that was approved when the produce was graded.
+      const needsApproval = requiresAdjustmentApproval(plan.filter((_, i) => !wasteLines[i]), threshold, approvalRequired);
+      const doc = await createDoc(tx, "scrap", { warehouseId: wh.id, businessDate: date, status: needsApproval ? "pending_approval" : "posted", reason, idempotencyKey: key, requestHash, payload: { lines: plan } }, actor);
+      if (needsApproval) {
+        // Refused now if it could not post (balance, reserved stock, quarantine): the exact
+        // posting runs as a dry run inside a savepoint and is rolled back — same rules,
+        // nothing kept. The approval re-checks against the balances of its own moment.
+        await tx.$executeRawUnsafe("SAVEPOINT scrap_dry_run");
+        try {
+          await postAdjustmentLines(tx, doc, plan, actor, "scrap");
+        } finally {
+          await tx.$executeRawUnsafe("ROLLBACK TO SAVEPOINT scrap_dry_run");
+        }
+        const names = await tx.stockProduct.findMany({ where: { id: { in: plan.map((l) => l.productId) } }, select: { id: true, name: true, unit: true } });
+        const nameOf = new Map(names.map((n) => [n.id, n]));
+        await requestApproval(tx, {
+          type: "inventory.adjustment",
+          entityId: doc.id,
+          title: `${doc.number} · إعدام · ${wh.code}`,
+          summary: plan.map((l) => `${nameOf.get(l.productId)?.name}: ${l.quantity} ${nameOf.get(l.productId)?.unit}`).join("، "),
+          amount: plan.reduce((s, l) => s.plus(D(l.quantity).abs()), D(0)),
+          payload: { lines: plan },
+          reason,
+          requester: actor,
+        });
+        await auditDoc(tx, doc, actor, "inventory_adjustment_requested", `إعدام ${plan.length} سطر — مستني موافقة`);
+        return doc;
+      }
       await postAdjustmentLines(tx, doc, plan, actor, "scrap");
       await auditDoc(tx, doc, actor, "inventory_scrap_posted", `${plan.length} سطر`);
       return doc;
@@ -987,8 +1021,11 @@ export async function reverseDocument(documentId: string, input: Record<string, 
   const reason = typeof input.reason === "string" ? input.reason.trim() : "";
   if (!reason) throw new ApiError(400, "لازم تكتب سبب الإلغاء");
   const reversalId = await inTx(async (tx) => {
-    const doc = await tx.inventoryDocument.findUnique({ where: { id: documentId }, select: { type: true } });
+    const doc = await tx.inventoryDocument.findUnique({ where: { id: documentId }, select: { type: true, sourceType: true } });
     if (doc?.type === "issue") throw new ApiError(400, "الصرف بيتلغي من الأوردر نفسه، مش من هنا");
+    // CTL-D13: undoing the opening stock changes opening equity — the decision of whoever
+    // approves opening balances, not of any stock controller alone.
+    if (doc?.sourceType === "opening_balance") assertPermission(actor, "accounting.opening.approve");
     return reverseDocumentInTx(tx, documentId, reason, actor);
   });
   // Read after commit: inside the transaction, the global client cannot see it yet.

@@ -37,12 +37,18 @@ const sell = async (productId: string, qty: number, ref: string) => {
 // These scenarios exercise the direct opening-stock form, closed by default since
 // November 2026 (accounting.direct_opening_entries): switched on for the file only.
 let restoreDirectOpening: () => Promise<void> = async () => {};
+let restoreScrapApproval: () => Promise<void> = async () => {};
 before(async () => {
   restoreDirectOpening = await withSetting("accounting.direct_opening_entries", true);
+  // CTL-D18 (maturity 2026-11): scrapping sellable stock waits for a second person; this
+  // file tests which buckets a scrap takes, so it records scrap directly. The approval path
+  // is proven in tests/integration/controls.test.ts.
+  restoreScrapApproval = await withSetting("inventory.adjustment_approval_required", false);
   sold = await twoLots("Lettuce");
   scrapped = await twoLots("Herbs");
 });
 after(async () => {
+  await restoreScrapApproval();
   await restoreDirectOpening();
   await prisma.$disconnect();
 });

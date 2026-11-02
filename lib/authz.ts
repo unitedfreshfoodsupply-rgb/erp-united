@@ -207,6 +207,8 @@ export async function requireAnyPermission(
 export async function requireAuth(req?: NextRequest): Promise<AuthContext> {
   const ctx = await getAuthContext(deviceIdOf(req));
   if (!ctx) return noContext();
-  if (ctx.mustChangePassword) throw new ApiError(403, "لازم تغيّر كلمة السر الأول", "auth.change-password");
+  // SEC-01: there is no self-service password change (an administrator sets passwords), so
+  // "must change password" is a notice, never a lock: refusing here locked the user out of
+  // every authenticated-only route with no way to clear the flag themselves.
   return ctx;
 }

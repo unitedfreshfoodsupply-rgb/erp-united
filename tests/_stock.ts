@@ -134,6 +134,19 @@ export async function approveGradingLoss(entityIds: string[], approver = "sara")
   return out;
 }
 
+/**
+ * CTL-D18 (maturity 2026-11): scrapping sellable stock waits for a second person. Submits
+ * the scrap, then has `approver` approve the pending request; returns both responses.
+ */
+export async function scrapWithApproval(who: string, body: Record<string, unknown>, approver = "sara") {
+  await ensureLogin(who);
+  const submit = await call(who, "POST", "/api/inventory/scrap", body);
+  if (submit.status !== 202) return { submit, decision: null as Res | null };
+  const pending = await pendingApproval(approver, "inventory.adjustment", { entityId: submit.body.document.id });
+  if (!pending) throw new Error(`scrap: no pending approval for ${submit.body.document.id}`);
+  return { submit, decision: await approve(approver, pending.id) };
+}
+
 /** Finds the pending approval request of `type` for `entityId` (or whose title contains `titleIncludes`). */
 export async function pendingApproval(who: string, type: string, match: { entityId?: string; titleIncludes?: string }) {
   await ensureLogin(who);

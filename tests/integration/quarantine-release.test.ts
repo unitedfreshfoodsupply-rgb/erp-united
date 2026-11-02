@@ -16,14 +16,20 @@ let quarId = "";
 
 // Uses the direct opening-stock form (off by default since November 2026) as its setup.
 let restoreDirectOpening: () => Promise<void> = async () => {};
+let restoreScrapApproval: () => Promise<void> = async () => {};
 before(async () => {
   restoreDirectOpening = await withSetting("accounting.direct_opening_entries", true);
+  // CTL-D18 (maturity 2026-11): scrapping sellable stock waits for a second person; this
+  // file tests which buckets a scrap takes, so it records scrap directly. The approval path
+  // is proven in tests/integration/controls.test.ts.
+  restoreScrapApproval = await withSetting("inventory.adjustment_approval_required", false);
   productId = (await prisma.stockProduct.create({ data: { name: `${TAG} Tomato` } })).id;
   quarId = (await prisma.storageLocation.create({ data: { warehouseId: "wh_main", code: TAG.slice(-12), name: "Quarantine (test)", type: "quarantine" } })).id;
   await postOpeningStock({ lines: [{ product_id: productId, quantity: 10, unit_cost: "6", location_id: "loc_cold_1" }] }, who);
 });
 
 after(async () => {
+  await restoreScrapApproval();
   await restoreDirectOpening();
   await prisma.storageLocation.update({ where: { id: quarId }, data: { active: false } });
   await prisma.$disconnect();

@@ -30,7 +30,8 @@ import { controlAccountMovedBy, postJournal } from "@/lib/accounting/ledger";
  * A transfer is income for nobody: it touches only cash accounts (and the fee expense), so
  * the P&L and the cash-flow statement's total are unchanged by it. Above the approval
  * threshold (when approval is switched on) it waits, unposted, for someone else to approve.
- * A cash box never goes below zero; a bank account may (overdraft is the bank's business).
+ * No cash box or bank account goes below zero (a database rule) — unless a bank account is
+ * explicitly allowed an overdraft by an administrator, with a reason (D20).
  */
 
 const D = (v: Prisma.Decimal.Value) => new Prisma.Decimal(v);
@@ -111,13 +112,21 @@ export async function createCashAccount(input: unknown, actor: ServiceActor) {
  */
 export async function updateCashAccount(id: string, input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.manage");
-  const v = parse(z.object({ name: text("الاسم بالإنجليزي", 100).optional(), name_ar: text("الاسم بالعربي", 100).optional(), bank_name: optText("اسم البنك", 100).optional(), account_number: optText("رقم الحساب / IBAN", 50).optional(), notes: optText("ملاحظات", 500).optional(), active: z.boolean().optional(), version: z.number().int().optional() }), input);
+  const v = parse(z.object({ name: text("الاسم بالإنجليزي", 100).optional(), name_ar: text("الاسم بالعربي", 100).optional(), bank_name: optText("اسم البنك", 100).optional(), account_number: optText("رقم الحساب / IBAN", 50).optional(), notes: optText("ملاحظات", 500).optional(), active: z.boolean().optional(), allow_overdraft: z.boolean().optional(), overdraft_reason: optText("سبب السحب على المكشوف", 500).optional(), version: z.number().int().optional() }), input);
   return inTx(async (tx) => {
     const c = await tx.cashAccount.findUnique({ where: { id } });
     if (!c) throw new ApiError(404, "الخزينة / الحساب البنكي مش موجود");
     await advisoryXactLock(tx, `accounting:cash-account:${c.id}`);
     if (v.version !== undefined && v.version !== c.version) throw new ApiError(409, "اتعدّل من واحد تاني — حدّث الشاشة");
     if (c.type === "cash" && (v.bank_name || v.account_number)) throw new ApiError(400, "الخزينة مالهاش بنك أو رقم حساب");
+    // D20: an overdraft is a policy, not a bookkeeping detail — a bank account only, set by
+    // an administrator (settings.manage) with a reason, audited. Never on a cash box.
+    if (v.allow_overdraft !== undefined && v.allow_overdraft !== c.allowOverdraft) {
+      assertPermission(actor, "settings.manage");
+      if (c.type !== "bank") throw new ApiError(400, "الخزينة مينفعش تبقى بالسالب — السحب على المكشوف لحساب بنكي بس", "overdraft_bank_only");
+      if (!v.overdraft_reason) throw new ApiError(400, "اكتب سبب تغيير السحب على المكشوف (مثلاً رقم موافقة البنك)", "overdraft_reason_required");
+      if (!v.allow_overdraft && (await balanceOf(tx, c.accountId)).lt(0)) throw new ApiError(409, "الحساب بالسالب دلوقتي — غطّيه الأول قبل ما تقفل السحب على المكشوف");
+    }
     if (v.active === false && c.active) {
       const bal = await balanceOf(tx, c.accountId);
       if (!bal.isZero()) throw new ApiError(409, `الرصيد ${bal.toFixed(2)} — حوّله لحساب تاني قبل الإيقاف`);
@@ -130,13 +139,14 @@ export async function updateCashAccount(id: string, input: unknown, actor: Servi
         ...(v.name !== undefined ? { name: v.name } : {}), ...(v.name_ar !== undefined ? { nameAr: v.name_ar } : {}),
         ...(v.bank_name !== undefined ? { bankName: v.bank_name } : {}), ...(v.account_number !== undefined ? { accountNumber: v.account_number } : {}),
         ...(v.notes !== undefined ? { notes: v.notes } : {}), ...(v.active !== undefined ? { active: v.active } : {}),
+        ...(v.allow_overdraft !== undefined ? { allowOverdraft: v.allow_overdraft } : {}),
         version: { increment: 1 },
       },
     });
     if (v.active !== undefined || v.name !== undefined || v.name_ar !== undefined) {
       await tx.account.update({ where: { id: c.accountId }, data: { ...(v.active !== undefined ? { active: v.active } : {}), ...(v.name !== undefined ? { name: v.name } : {}), ...(v.name_ar !== undefined ? { nameAr: v.name_ar } : {}), version: { increment: 1 } } });
     }
-    const detail = [v.active !== undefined && v.active !== c.active ? (v.active ? "تفعيل" : "إيقاف") : null, v.name_ar && v.name_ar !== c.nameAr ? `الاسم: ${v.name_ar}` : null, v.bank_name !== undefined ? `البنك: ${v.bank_name ?? "—"}` : null, v.account_number !== undefined ? "رقم الحساب اتغيّر" : null].filter(Boolean).join(" · ");
+    const detail = [v.active !== undefined && v.active !== c.active ? (v.active ? "تفعيل" : "إيقاف") : null, v.name_ar && v.name_ar !== c.nameAr ? `الاسم: ${v.name_ar}` : null, v.bank_name !== undefined ? `البنك: ${v.bank_name ?? "—"}` : null, v.account_number !== undefined ? "رقم الحساب اتغيّر" : null, v.allow_overdraft !== undefined && v.allow_overdraft !== c.allowOverdraft ? `السحب على المكشوف: ${v.allow_overdraft ? "مسموح" : "ممنوع"} — ${v.overdraft_reason}` : null].filter(Boolean).join(" · ");
     await audit(tx, actor, "cash_account", c.id, v.active === false ? "cash_account_deactivated" : v.active === true && !c.active ? "cash_account_activated" : "cash_account_updated", detail || "تعديل");
     return updated;
   });

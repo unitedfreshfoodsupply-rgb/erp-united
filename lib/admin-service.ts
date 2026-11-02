@@ -183,6 +183,11 @@ export async function updateUser(
   const existing = await prisma.user.findUnique({ where: { id } });
   if (!existing) throw new ApiError(404, "المستخدم مش موجود");
   assertMayManage(actor, existing);
+  // SEC-02: nobody changes their own password — not even an administrator through the
+  // admin screen. Another administrator sets it (keep two active SUPER_ADMINs, D9).
+  if (fields.password !== undefined && actor.id === existing.id) {
+    throw new ApiError(403, "مينفعش تغيّر كلمة السر بتاعتك بنفسك — مدير تاني هو اللي يغيّرها", "auth.self_password_change");
+  }
   if (expectedVersion !== undefined && expectedVersion !== existing.version) {
     throw new ApiError(409, `بيانات المستخدم اتغيّرت من واحد تاني (النسخة الحالية: ${existing.version})`);
   }

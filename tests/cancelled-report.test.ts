@@ -2,6 +2,7 @@
    original↔reversal links for every reversal/cancellation/void in the system,
    and be gated by accounting.manage (senior finance). */
 import { call, login, makeChecker } from "./_harness";
+import { todayBiz } from "./_days";
 import { manualJournal } from "./_stock";
 
 const { check, section, finish } = makeChecker();
@@ -30,7 +31,9 @@ async function main() {
   // CTL-01: a manual journal waits for a second person — submitted by the accountant
   // (202), approved by management, then posted.
   const journal = await manualJournal({
-    date: "2099-06-01",
+    // Dated today: a posting beyond the current month is refused (ACC-10, maturity 2026-11);
+    // this test used 2099 only to keep the entry apart, which the report filter already does.
+    date: todayBiz(),
     description: `${TAG} test entry`,
     lines: [
       { account_id: cashMain.id, credit: 500 },

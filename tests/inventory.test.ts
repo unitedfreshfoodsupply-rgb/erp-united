@@ -5,6 +5,7 @@ import { call, login, makeChecker } from "./_harness";
 import { todayBiz } from "./_days";
 import { PrismaClient } from "@prisma/client";
 import { assertTestDatabase } from "./_guard";
+import { approve, pendingApproval, scrapWithApproval } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZINVE-${Date.now()}`;
@@ -81,7 +82,11 @@ async function main() {
   const body = { reason: "تالف في النقل", idempotency_key: `${TAG}-scrap`, lines: [{ product_id: mango.id, quantity: 2, location_id: "loc_cold_2" }] };
   const s1 = await call("hossam", "POST", "/api/inventory/scrap", body);
   const s2 = await call("hossam", "POST", "/api/inventory/scrap", body);
-  check("first scrap -> 201, retry -> 200 with the same document", s1.status === 201 && s2.status === 200 && s1.body.document.id === s2.body.document.id, [s1.status, s2.status]);
+  // CTL-D18: scrapping sellable stock waits for a second person (202), nothing moves yet.
+  check("first scrap -> 202 (waits for approval), retry -> 200 with the same document", s1.status === 202 && s2.status === 200 && s1.body.document.id === s2.body.document.id, [s1.status, s2.status]);
+  check("…nothing scrapped while it waits: 224 on hand", (await detail()).onHand === "224");
+  const pendScrap = await pendingApproval("sara", "inventory.adjustment", { entityId: s1.body.document.id });
+  check("…a second person approves it -> 200", (await approve("sara", pendScrap!.id)).status === 200);
   check("scrapped once: 222 on hand", (await detail()).onHand === "222");
   check("scrap without a reason -> 400", (await call("hossam", "POST", "/api/inventory/scrap", { lines: [{ product_id: mango.id, quantity: 1 }] })).status === 400);
 
@@ -138,7 +143,7 @@ async function main() {
   check("a return against an order that does not exist -> 404", (await call("hossam", "POST", "/api/inventory/returns", { direction: "customer", order_id: "no-such-order", reason: "x", lines: [{ product_id: mango.id, quantity: 1 }] })).status === 404);
   r = await call("hossam", "POST", "/api/inventory/returns", { direction: "customer", order_id: order.orderNumber, reason: "بالرقم", lines: [{ product_id: mango.id, quantity: 1 }] });
   check("…the printed order number works too", r.status === 201 && r.body.document.sourceId === order.id, r.body);
-  await call("hossam", "POST", "/api/inventory/scrap", { reason: "توازن الاختبار", lines: [{ product_id: mango.id, quantity: 1, location_id: r.body.document.movements[0].locationId }] });
+  check("balancing scrap posted after approval", (await scrapWithApproval("hossam", { reason: "توازن الاختبار", lines: [{ product_id: mango.id, quantity: 1, location_id: r.body.document.movements[0].locationId }] })).decision?.status === 200);
   r = await call("hossam", "POST", "/api/inventory/returns", { direction: "supplier", supplier_id: sup.id, reason: "جودة", lines: [{ product_id: mango.id, quantity: 4, lot_id: rc1.lot.id, location_id: "loc_cold_1" }] });
   check("supplier return out of a named lot -> 201", r.status === 201, r.body);
   const supRet = r.body.document;

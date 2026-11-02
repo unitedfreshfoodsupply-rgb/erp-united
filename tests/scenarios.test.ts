@@ -5,7 +5,7 @@
    (docs/erp/SCENARIO_COMPLETENESS_AUDIT.md); every defect it found has a check here. */
 import { call, login, makeChecker } from "./_harness";
 import { local } from "./_days";
-import { setSetting, fundCash } from "./_stock";
+import { setSetting, fundCash, approve, pendingApproval } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const T = `ZZSCN${Date.now() % 1_000_000_000}`;
@@ -145,8 +145,13 @@ async function main() {
   check("3 trucks of 80 kg against a 100 kg PO at once → one received, two refused by the tolerance (never 240 kg)", r.filter((x: any) => x.status === 201).length === 1 && r.filter((x: any) => x.status === 409).length === 2, r.map((x: any) => x.status));
   const thin = await mkProduct("Herbs");
   await stockIn(thin.id, 30);
+  // CTL-D18: each scrap of sellable stock waits for approval; the race is at posting time —
+  // three approvals of the whole stock at once → one posts, two are refused, never negative.
   r = await par(3, () => call("hossam", "POST", "/api/inventory/scrap", { reason: "تلف", lines: [{ product_id: thin.id, quantity: 30 }] }));
-  check("3 scraps of the whole stock at once → one, stock 0, never negative", r.filter((x: any) => x.status === 201).length === 1 && (await onHand(thin.id)) === 0, r.map((x: any) => x.status));
+  check("3 scraps of the whole stock → each waits for approval (202), nothing moved", r.every((x: any) => x.status === 202) && (await onHand(thin.id)) === 30, r.map((x: any) => x.status));
+  const scrapReqs = await Promise.all(r.map((x: any) => pendingApproval("sara", "inventory.adjustment", { entityId: x.body.document.id })));
+  const decided = await Promise.all(scrapReqs.map((a) => approve("sara", a!.id)));
+  check("3 approvals at once → exactly one posts, two are refused, stock 0, never negative", decided.filter((x) => x.status === 200).length === 1 && decided.filter((x) => x.status >= 400).length === 2 && (await onHand(thin.id)) === 0, decided.map((x) => x.status));
 
   // ===========================================================================
   section("5. STATE MACHINES: illegal, backward and repeated transitions");

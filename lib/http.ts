@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { normalizeNumerals } from "@/lib/numerals";
 import { ApiError } from "@/lib/rbac";
 
 /**
@@ -78,7 +79,8 @@ function jsonObject(body: unknown): JsonBody {
     throw new ApiError(400, "جسم الطلب لازم يكون كائن JSON");
   }
   if (hasNul(body)) throw new ApiError(400, "النص فيه حرف غير مسموح (NUL)");
-  return body as JsonBody;
+  // I18N-02: a number typed with Arabic-Indic digits means the same number.
+  return normalizeNumerals(body) as JsonBody;
 }
 
 /**

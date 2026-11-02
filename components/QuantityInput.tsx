@@ -1,6 +1,7 @@
 "use client";
 
 import { useLocale } from "@/lib/locale";
+import { toLatinDigits } from "@/lib/numerals";
 
 export function QuantityInput({
   value,
@@ -32,7 +33,8 @@ export function QuantityInput({
         disabled={disabled}
         value={Number.isFinite(value) ? value : 0}
         onChange={(e) => {
-          const n = Number(e.target.value);
+          // I18N-02: an Arabic keyboard types ١٢٫٥ — the same number, not NaN → 0.
+          const n = Number(toLatinDigits(e.target.value));
           onChange(Number.isFinite(n) ? Math.max(0, n) : 0);
         }}
         className="tap-target w-24 text-center text-2xl font-extrabold border-2 border-united-dark/10 rounded-xl focus:border-united-green outline-none disabled:opacity-50"
