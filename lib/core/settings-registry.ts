@@ -88,7 +88,7 @@ export const SETTING_DEFS = {
       "لو مفعّل، اللي طلب الموافقة (أو اللي سجّل الكمية الناقصة) مينفعش يوافق بنفسه — لازم شخص تاني عنده الصلاحية. مفعّل افتراضيًا (فصل المهام). لو مفيش على النظام غير مدير واحد عنده الصلاحية، يقدر يوافق لنفسه في الطوارئ بسبب مكتوب، والموافقة دي بتتسجل وبيتبلغ بيها.",
     unit: "",
     schema: z.boolean({ invalid_type_error: "القيمة لازم تكون true أو false" }),
-    default: false,
+    default: true as boolean,
   }),
   "documents.max_upload_mb": def({
     group: "documents",
@@ -360,7 +360,7 @@ export const SETTING_DEFS = {
     description: "لو مفعّل، القيد اليدوي اللي مبلغه فوق الحد بيستنى موافقة شخص تاني عنده صلاحية اعتماد القيود قبل ما يترحّل. مفعّل افتراضيًا (فصل المهام).",
     unit: "",
     schema: z.boolean({ invalid_type_error: "القيمة لازم تكون true أو false" }),
-    default: false,
+    default: true as boolean,
   }),
   "accounting.manual_journal_approval_threshold": def({
     group: "accounting",
@@ -376,7 +376,7 @@ export const SETTING_DEFS = {
     description: "لو مفعّل، التحويل اللي مبلغه فوق الحد بيستنى موافقة شخص تاني قبل ما يترحّل. مفعّل افتراضيًا (فصل المهام).",
     unit: "",
     schema: z.boolean({ invalid_type_error: "القيمة لازم تكون true أو false" }),
-    default: false,
+    default: true as boolean,
   }),
   "accounting.transfer_approval_threshold": def({
     group: "accounting",
