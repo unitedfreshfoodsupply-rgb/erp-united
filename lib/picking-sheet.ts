@@ -17,7 +17,13 @@ const ELIGIBLE_STATUSES = ["new", "preparing", "ready_for_loading", "loading"];
  * state, and never duplicates quantities when an order is reopened.
  */
 export interface ConsolidatedLine {
+  /** Stable group key: the product card (p:<id>) or, for an unlinked line, its text (n:<text>). */
+  productKey: string;
+  /** Arabic-first display name (kept for existing consumers and the printed sheet). */
   productName: string;
+  /** The product card's names, for the reader's language (null for an unlinked line). */
+  productNameEn: string | null;
+  productNameAr: string | null;
   unit: string;
   totalRequired: number;
   totalPrepared: number;
@@ -69,21 +75,28 @@ export async function dailyConsolidatedSheet(date: string): Promise<DailySheetDT
     include: {
       items: {
         orderBy: { id: "asc" },
+        include: { stockProduct: { select: { id: true, name: true, nameAr: true } } },
       },
     },
     orderBy: [{ deliveryTime: "asc" }, { customerName: "asc" }],
   });
 
-  // Group items by (productName, unit)
+  // Group items by (product, unit). I18N-03: the product card, not the text typed on each
+  // order — "Tomatoes" and "طماطم" on two orders are one pick line. A line not yet linked to
+  // a product groups by its text, as before.
   const groups = new Map<string, ConsolidatedLine>();
 
   for (const order of orders) {
     for (const item of order.items) {
-      const key = `${item.productName}__${item.unit}`;
+      const productKey = item.stockProduct ? `p:${item.stockProduct.id}` : `n:${item.productName}`;
+      const key = `${productKey}__${item.unit}`;
       let group = groups.get(key);
       if (!group) {
         group = {
-          productName: item.productName,
+          productKey,
+          productName: item.stockProduct ? item.stockProduct.nameAr ?? item.stockProduct.name : item.productName,
+          productNameEn: item.stockProduct?.name ?? null,
+          productNameAr: item.stockProduct?.nameAr ?? null,
           unit: item.unit,
           totalRequired: 0,
           totalPrepared: 0,

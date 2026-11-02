@@ -14,8 +14,9 @@ import { MoveForms } from "./MoveForms";
 import { ProductCosting } from "./ProductCosting";
 import { Pagination } from "@/components/ui/Pagination";
 import { useLocale } from "@/lib/locale";
-import { intlLocale, unitLabel } from "@/lib/format";
+import { formatNumber, intlLocale, unitLabel } from "@/lib/format";
 import { localName } from "@/lib/locale/names";
+import { SortHeader, useSorted } from "@/components/ui/SortableTable";
 
 /**
  * The stock controller's screen: what is where, what is free to sell, what is about
@@ -677,6 +678,16 @@ function DocumentCard({ d, highlight, canReverse }: { d: DocumentDTO; highlight:
 
 // ---------------------------------------------------------------------------
 
+type ValuationRow = { productId: string; productName: string; productNameAr: string | null; costingMethod: string; quantity: string; value: string; averageCost: string | null; receivedWithoutCost: string };
+const VALUATION_SORT = (locale: string) => ({
+  name: (r: ValuationRow) => localName({ name: r.productName, nameAr: r.productNameAr }, locale as "ar" | "en"),
+  method: (r: ValuationRow) => r.costingMethod,
+  qty: (r: ValuationRow) => Number(r.quantity),
+  avg: (r: ValuationRow) => (r.averageCost == null ? null : Number(r.averageCost)),
+  value: (r: ValuationRow) => Number(r.value),
+  nocost: (r: ValuationRow) => Number(r.receivedWithoutCost),
+});
+
 function Valuation() {
   const { t, locale } = useLocale();
   const q = useQuery({
@@ -686,6 +697,8 @@ function Valuation() {
         "/api/inventory/reports/valuation"
       ),
   });
+  const rows = q.data?.rows ?? [];
+  const { sorted, sort, toggle } = useSorted(rows, VALUATION_SORT(locale), { key: "value", dir: "desc" });
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   return (
@@ -694,30 +707,38 @@ function Valuation() {
         <span>{t("stock.val-total-title")}</span>
         <span dir="ltr">{fmtMoney(q.data.totalValue)}</span>
       </div>
-      <div className="card overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-united-muted text-xs">
-              <th className="p-2 text-start">{t("stock.val-col-item")}</th>
-              <th className="p-2">{t("stock.val-col-method")}</th>
-              <th className="p-2">{t("stock.val-col-qty")}</th>
-              <th className="p-2">{t("stock.val-col-avg-cost")}</th>
-              <th className="p-2">{t("stock.val-col-total-value")}</th>
-              <th className="p-2">{t("stock.val-col-nocode")}</th>
+      {/* UX-04: the shared data-table look, a sticky head, sortable columns, end-aligned figures. */}
+      <div className="card max-h-[70vh] overflow-auto">
+        <table className="data-table">
+          <thead className="sticky top-0 z-[1]">
+            <tr>
+              <SortHeader label={t("stock.val-col-item")} sortKey="name" sort={sort} onSort={toggle} />
+              <SortHeader label={t("stock.val-col-method")} sortKey="method" sort={sort} onSort={toggle} />
+              <SortHeader label={t("stock.val-col-qty")} sortKey="qty" sort={sort} onSort={toggle} numeric />
+              <SortHeader label={t("stock.val-col-avg-cost")} sortKey="avg" sort={sort} onSort={toggle} numeric />
+              <SortHeader label={t("stock.val-col-total-value")} sortKey="value" sort={sort} onSort={toggle} numeric />
+              <SortHeader label={t("stock.val-col-nocode")} sortKey="nocost" sort={sort} onSort={toggle} numeric />
             </tr>
           </thead>
           <tbody>
-            {q.data.rows.map((r) => (
-              <tr key={r.productId} className="border-t border-united-dark/5 font-bold">
-                <td className="p-2">{localName({ name: r.productName, nameAr: r.productNameAr }, locale)}</td>
-                <td className="p-2 text-center whitespace-nowrap">{["avco", "fifo", "standard"].includes(r.costingMethod) ? t(`stock.costing.${r.costingMethod}` as "stock.costing.avco") : r.costingMethod}</td>
-                <td className="p-2 text-center whitespace-nowrap tabular-nums" dir="ltr">{fmtQty(r.quantity, r.unit)}</td>
-                <td className="p-2 text-center whitespace-nowrap tabular-nums" dir="ltr">{r.averageCost ?? "—"}</td>
-                <td className="p-2 text-center whitespace-nowrap tabular-nums" dir="ltr">{fmtMoney(r.value)}</td>
-                <td className="p-2 text-center whitespace-nowrap tabular-nums" dir="ltr">{Number(r.receivedWithoutCost) > 0 ? fmtQty(r.receivedWithoutCost, r.unit) : "—"}</td>
+            {sorted.map((r) => (
+              <tr key={r.productId}>
+                <td className="font-medium">{localName({ name: r.productName, nameAr: r.productNameAr }, locale)}</td>
+                <td className="whitespace-nowrap text-united-muted">{["avco", "fifo", "standard"].includes(r.costingMethod) ? t(`stock.costing.${r.costingMethod}` as "stock.costing.avco") : r.costingMethod}</td>
+                <td className="num" dir="ltr">{fmtQty(r.quantity, r.unit)}</td>
+                <td className="num" dir="ltr">{r.averageCost == null ? "—" : formatNumber(r.averageCost, { minDp: 2, maxDp: 4 })}</td>
+                <td className="num font-semibold" dir="ltr">{fmtMoney(r.value)}</td>
+                <td className="num" dir="ltr">{Number(r.receivedWithoutCost) > 0 ? fmtQty(r.receivedWithoutCost, r.unit) : "—"}</td>
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={4}>{t("stock.val-total-title")}</td>
+              <td className="num" dir="ltr">{fmtMoney(q.data.totalValue)}</td>
+              <td />
+            </tr>
+          </tfoot>
         </table>
       </div>
       <p className="text-xs font-bold text-united-muted">{t("stock.val-info-uncosted")}</p>

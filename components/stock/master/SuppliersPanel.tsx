@@ -9,6 +9,7 @@ import { useToast } from "@/components/ui/Toast";
 import { invalidateStockData } from "@/lib/stockInvalidation";
 import type { SupplierDTO } from "@/lib/stock-client-types";
 import { localName } from "@/lib/locale/names";
+import { Field } from "@/components/stock/inventory/shared";
 
 /** Suppliers. Unchanged behaviour, moved here so the Product Master screen owns all
  * three reference lists in one place. */
@@ -18,6 +19,7 @@ export function SuppliersPanel({ canManage }: { canManage: boolean }) {
   const { t, locale } = useLocale();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [nameAr, setNameAr] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -33,10 +35,11 @@ export function SuppliersPanel({ canManage }: { canManage: boolean }) {
     setBusy(true);
     setError(null);
     try {
-      await apiPost("/api/stock/suppliers", { name, phone: phone || undefined });
+      await apiPost("/api/stock/suppliers", { name, name_ar: nameAr || undefined, phone: phone || undefined });
       await invalidateStockData(qc);
       toast.show(t("suppliers.toast-added"), "success");
       setName("");
+      setNameAr("");
       setPhone("");
     } catch (err) {
       const msg = err instanceof ApiClientError ? err.message : t("ui.error");
@@ -65,8 +68,9 @@ export function SuppliersPanel({ canManage }: { canManage: boolean }) {
       {canManage && <form onSubmit={add} className="card p-4 flex flex-col gap-3">
         <h2 className="font-extrabold text-united-dark">{t("suppliers.form-title")}</h2>
         {error && <p className="text-united-danger font-bold text-sm">{error}</p>}
-        <input placeholder={t("suppliers.name-field")} value={name} onChange={(e) => setName(e.target.value)} className="field" />
-        <input placeholder={t("suppliers.phone-field")} value={phone} onChange={(e) => setPhone(e.target.value)} className="field" inputMode="tel" />
+        <Field label={t("suppliers.name-field")} required><input value={name} onChange={(e) => setName(e.target.value)} className="field" dir="auto" required /></Field>
+        <Field label={t("suppliers.name-ar-field")}><input value={nameAr} onChange={(e) => setNameAr(e.target.value)} className="field" dir="rtl" lang="ar" /></Field>
+        <Field label={t("suppliers.phone-field")}><input value={phone} onChange={(e) => setPhone(e.target.value)} className="field" inputMode="tel" dir="ltr" /></Field>
         <button type="submit" disabled={busy || !name.trim()} className="btn-primary text-sm">
           {t("suppliers.btn-add")}
         </button>

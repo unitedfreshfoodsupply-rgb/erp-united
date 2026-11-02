@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     const actor = await requireStockActor(req, "stock.manage_suppliers");
     const body = await readJson(req);
     const supplier = await createSupplier(
-      { name: body.name, phone: body.phone, notes: body.notes },
+      { name: body.name, name_ar: body.name_ar, phone: body.phone, notes: body.notes },
       actor
     );
     return jsonFor(actor, { supplier }, { status: 201 });

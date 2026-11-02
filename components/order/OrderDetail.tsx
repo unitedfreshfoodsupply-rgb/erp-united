@@ -33,6 +33,7 @@ import { useOperationalSettings } from "@/lib/use-operational-settings";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { orderCustomerName } from "@/lib/locale/names";
+import { OrderStepper } from "@/components/order/OrderStepper";
 
 // Map order source → translation key
 const SOURCE_TKEY: Record<string, string> = {
@@ -380,6 +381,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         </div>
         {/* What the stage actually means, not just its name. */}
         <p className="text-sm font-bold text-united-muted mb-2">{(locale === "en" ? STATUS_MEANING_EN : STATUS_MEANING)[order.status]}</p>
+        <div className="mb-3"><OrderStepper status={order.status} /></div>
 
         <p className="text-united-green font-bold mb-2">
           {t("orders.delivery_slot")} {deliverySlot(order.deliveryDate, order.deliveryTime, locale === "en" ? "en" : "ar")}

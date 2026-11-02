@@ -60,7 +60,7 @@ export const NAV_LINKS: NavLink[] = [
   // Every permission that can decide some approval type — see lib/core/approvals.ts.
   // The page lists what you may decide AND what you raised, so anyone may open it.
   { href: "/approvals", labelKey: "nav.link.approvals", label: "الموافقات", permission: ["orders.approve", "stock.approve_adjustments", "sales.credit.manage", "purchasing.orders.approve", "purchasing.bills.approve", "hr.expenses.approve", "hr.attendance.approve", "hr.leave.approve", "hr.payroll.approve", "accounting.manage", "accounting.journals.approve", "accounting.periods.reopen", "accounting.opening.approve", "purchasing.requests.approve", "sales.pricing.approve"], group: "control", primary: true, pageOpenToAll: true },
-  { href: "/sales", labelKey: "nav.link.sales", label: "العملاء", permission: "sales.customers.view", group: "sales", primary: true },
+  { href: "/sales", labelKey: "nav.link.sales", label: "العملاء والفواتير", permission: "sales.customers.view", group: "sales", primary: true },
   { href: "/purchasing", labelKey: "nav.link.purchasing", label: "المشتريات", permission: "purchasing.orders.view", group: "purchasing", primary: true },
   { href: "/purchasing/requests", labelKey: "nav.link.purchase-requests", label: "طلبات الشراء", permission: "purchasing.requests.view", group: "purchasing", primary: false },
   { href: "/accounting", labelKey: "nav.link.accounting", label: "الحسابات", permission: ["accounting.view", "accounting.receipts.manage", "accounting.payments.manage"], group: "finance", primary: true },

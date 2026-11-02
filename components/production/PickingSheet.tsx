@@ -11,6 +11,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { qty, unitLabel } from "@/lib/format";
 import type { DailySheetDTO } from "@/lib/picking-sheet";
 import { useLocale } from "@/lib/locale";
+import { localName } from "@/lib/locale/names";
 
 // Dictionary keys, translated at render.
 const STATUS_LABEL: Record<string, string> = {
@@ -28,7 +29,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export function PickingSheet() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const today = todayLocalISO();
   const [date, setDate] = useState(today);
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
@@ -187,14 +188,14 @@ export function PickingSheet() {
                   (line.totalPrepared / line.totalRequired) * 100
                 )
               : 0;
-          const isExpanded = expandedProduct === line.productName;
+          const isExpanded = expandedProduct === line.productKey;
           const allocationSet = new Set(
             line.allocations.map((a) => a.orderId)
           );
 
           return (
             <div
-              key={line.productName}
+              key={line.productKey}
               className={`card p-4 border-2 ${
                 line.totalRemaining > 0
                   ? "border-amber-200"
@@ -206,13 +207,13 @@ export function PickingSheet() {
                 className="w-full text-start flex items-center justify-between gap-2"
                 onClick={() =>
                   setExpandedProduct(
-                    isExpanded ? null : line.productName
+                    isExpanded ? null : line.productKey
                   )
                 }
               >
                 <div>
                   <span className="text-lg font-extrabold text-united-dark">
-                    {line.productName}
+                    {line.productNameEn ? localName({ name: line.productNameEn, nameAr: line.productNameAr }, locale) : line.productName}
                   </span>
                   <span className="text-xs text-united-muted ms-2">
                     {unitLabel(line.unit)}
@@ -283,7 +284,7 @@ export function PickingSheet() {
                     );
                     return (
                       <div
-                        key={`${a.orderId}-${line.productName}`}
+                        key={`${a.orderId}-${line.productKey}`}
                         className={`rounded-xl p-2 ${
                           a.rejected
                             ? "bg-red-50 border border-red-200"

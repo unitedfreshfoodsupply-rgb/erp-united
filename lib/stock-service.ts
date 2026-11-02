@@ -103,17 +103,19 @@ export async function listSuppliers(opts: { includeInactive?: boolean } = {}) {
 }
 
 export async function createSupplier(
-  input: { name: string; phone?: string; notes?: string },
+  input: { name: string; name_ar?: unknown; phone?: string; notes?: string },
   actor: StockActor
 ) {
   const name = asText(input.name, "name")?.trim();
   if (!name) throw new ApiError(400, "اسم المورد مطلوب");
+  // I18N-07: the quick-create in Stock setup carries the Arabic name too (master data is bilingual).
+  const nameAr = asText(input.name_ar, "name_ar")?.trim() || null;
 
   return inTx(async (tx) => {
     let supplier;
     try {
       supplier = await tx.supplier.create({
-        data: { code: await nextDocumentNumber(tx, "purchasing.supplier", todayLocalISO()), name, phone: asText(input.phone, "phone")?.trim() || null, notes: asText(input.notes, "notes")?.trim() || null },
+        data: { code: await nextDocumentNumber(tx, "purchasing.supplier", todayLocalISO()), name, nameAr, phone: asText(input.phone, "phone")?.trim() || null, notes: asText(input.notes, "notes")?.trim() || null },
       });
     } catch (err) {
       // Unique on name and on lower(name) — the second is what catches "Mango"/"mango".
