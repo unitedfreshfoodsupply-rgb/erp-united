@@ -1405,4 +1405,5 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["{}: الكمية لازم تكون بحد أقصى {} خانات عشرية للوحدة {}", "{0}: the quantity may have at most {1} decimals for the unit {2}"],
   ["الاستلام ده عليه خسارة فرز محتاجة موافقة، ومفيش مكان حجر (quarantine) في المخزن — عرّف مكان حجر الأول", "This receipt has a grading loss that needs approval and the warehouse has no quarantine location — create one first"],
   ["حدد الصنف والوحدة والتاريخ", "Give the product, unit and date"],
+  ["الاسم ده مربوط بسطور في أوردرات شغالة حاجزة مخزون ({}) — عدّل أو الغي الأوردرات دي الأول", "That name is linked to lines of live orders that hold stock ({0}) — change or cancel those orders first"],
 ];
