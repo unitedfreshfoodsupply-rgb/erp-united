@@ -96,7 +96,8 @@ export type AuditInput = {
     | "integration"
     | "product_packaging"
     | "customer_group"
-    | "customer_legal_entity";
+    | "customer_legal_entity"
+    | "purchase_request";
   entityId: string;
   orderId?: string | null;
   fieldChanged?: string;

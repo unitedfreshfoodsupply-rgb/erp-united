@@ -65,6 +65,7 @@ export const PERMISSION_DEFS = [
   { key: "sales.pricing.view", group: "sales", label: "عرض الأسعار", description: "يشوف قوائم الأسعار وأسعار وقيمة الأوردرات" },
   { key: "sales.pricing.manage", group: "sales", label: "إدارة الأسعار", description: "يعمل قوائم الأسعار ويسجل الأسعار اليومية ويحدد ضريبة الصنف وقائمة العميل" },
   { key: "sales.price_override", group: "sales", label: "تعديل سعر أوردر", description: "يغيّر سعر أو خصم سطر في أوردر بسبب مكتوب، ويعيد تسعير الأوردر" },
+  { key: "sales.pricing.approve", group: "sales", label: "اعتماد استثناءات الأسعار", description: "يوافق على سطر سعره أقل من التكلفة أو خصمه فوق الحد — لأوردر عمله أو سعّره شخص تاني" },
   { key: "sales.quotations.view", group: "sales", label: "عرض عروض الأسعار", description: "يشوف عروض الأسعار وحالتها" },
   { key: "sales.quotations.manage", group: "sales", label: "إدارة عروض الأسعار", description: "يعمل ويبعت عروض الأسعار ويسجل رد العميل ويحوّلها لأوردر" },
   { key: "sales.invoices.view", group: "sales", label: "عرض الفواتير", description: "يشوف الفواتير والإشعارات الدائنة وكشف حساب العميل وأعمار الديون" },
@@ -80,6 +81,9 @@ export const PERMISSION_DEFS = [
   { key: "purchasing.orders.view", group: "purchasing", label: "عرض أوامر الشراء", description: "يشوف أوامر الشراء والكميات المطلوبة والمستلمة (الأسعار محتاجة صلاحية عرض أسعار الشراء)" },
   { key: "purchasing.orders.manage", group: "purchasing", label: "إدارة أوامر الشراء", description: "يعمل ويعدّل ويبعت ويلغي أوامر الشراء" },
   { key: "purchasing.orders.approve", group: "purchasing", label: "اعتماد أوامر الشراء", description: "يوافق على أوامر الشراء اللي فوق حد الاعتماد" },
+  { key: "purchasing.requests.view", group: "purchasing", label: "عرض طلبات الشراء", description: "يشوف طلبات الشراء اللي اتعملت لطلبات عملاء الرصيد مايكفيهاش وحالتها" },
+  { key: "purchasing.requests.create", group: "purchasing", label: "عمل طلب شراء", description: "يعمل طلب شراء لصنف مش متاح للعميل بدل ما يضيفه في الأوردر" },
+  { key: "purchasing.requests.approve", group: "purchasing", label: "اعتماد طلبات الشراء", description: "يوافق أو يرفض طلب شراء عمله شخص تاني" },
   { key: "purchasing.bills.view", group: "purchasing", label: "عرض فواتير الموردين", description: "يشوف فواتير الموردين وأرصدتهم وأعمار الدائنين" },
   { key: "purchasing.bills.manage", group: "purchasing", label: "تسجيل فواتير الموردين", description: "يسجل فواتير الموردين ويطابقها مع أمر الشراء والاستلام، ويعمل إشعارات مدينة" },
   { key: "accounting.view", group: "accounting", label: "عرض الحسابات", description: "يشوف دليل الحسابات والقيود وميزان المراجعة والنقدية" },
@@ -179,6 +183,8 @@ const PRICING: Permission[] = ["sales.pricing.view", "sales.pricing.manage", "sa
 const QUOTATIONS: Permission[] = ["sales.quotations.view", "sales.quotations.manage"];
 /** Buying: suppliers' commercial side, their prices, RFQs and purchase orders. */
 const PURCHASING: Permission[] = [
+  "purchasing.requests.view",
+  "purchasing.requests.approve",
   "purchasing.suppliers.view",
   "purchasing.suppliers.manage",
   "purchasing.prices.view",
@@ -197,11 +203,11 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   LOADER: ["orders.view", "orders.load", "orders.dispatch"],
   // New in Phase 3. Sales staff take and follow orders and own the customer master;
   // they do not touch the floor workflow or stock.
-  SALES: ["orders.view", "orders.create", ...CUSTOMER_MASTER, ...PRICING, ...QUOTATIONS, "sales.invoices.view"],
+  SALES: ["orders.view", "orders.create", ...CUSTOMER_MASTER, ...PRICING, ...QUOTATIONS, "sales.invoices.view", "purchasing.requests.view", "purchasing.requests.create"],
   // Accounting reads what was sold and what stock is worth, owns credit, invoicing and
   // tax classification, and reads the audit trail. Not the floor: no operational
   // reports (reports.view is the operations board), no order or stock actions.
-  ACCOUNTANT: ["orders.view", "stock.view", "stock.valuation.view", "sales.customers.view", "sales.pricing.view", "sales.quotations.view", "sales.invoices.view", "sales.invoices.manage", "sales.credit.manage", "sales.tax.manage",
+  ACCOUNTANT: ["orders.view", "sales.pricing.approve", "stock.view", "stock.valuation.view", "sales.customers.view", "sales.pricing.view", "sales.quotations.view", "sales.invoices.view", "sales.invoices.manage", "sales.credit.manage", "sales.tax.manage",
     // Finance controls spend and owns payables: approves POs above the threshold, books supplier bills.
     "purchasing.suppliers.view", "purchasing.suppliers.manage", "purchasing.prices.view", "purchasing.orders.view", "purchasing.orders.approve", "purchasing.bills.view", "purchasing.bills.manage",
     // The ledger, cash and bank: Phase 6.
@@ -311,6 +317,10 @@ export const PERMISSION_LABEL_EN: Record<Permission, string> = {
   "purchasing.bills.approve": "Approve Bills",
   "purchasing.bills.view": "View Supplier Bills",
   "purchasing.orders.approve": "Approve Purchase Orders",
+  "purchasing.requests.view": "View Purchase Requests",
+  "sales.pricing.approve": "Approve Price Exceptions",
+  "purchasing.requests.create": "Create Purchase Requests",
+  "purchasing.requests.approve": "Approve Purchase Requests",
   "purchasing.orders.view": "View Purchase Orders",
   "purchasing.suppliers.manage": "Manage Suppliers",
   "purchasing.suppliers.view": "View Suppliers",
@@ -398,6 +408,10 @@ export const PERMISSION_DESC_EN: Record<Permission, string> = {
   "purchasing.bills.approve": "Approve supplier bills",
   "purchasing.bills.view": "View supplier bills and invoices",
   "purchasing.orders.approve": "Approve purchase orders",
+  "purchasing.requests.view": "See purchase requests raised for customer demand the stock cannot meet, and their status",
+  "sales.pricing.approve": "Approve a line priced below cost or discounted above the limit, on an order someone else priced",
+  "purchasing.requests.create": "Raise a purchase request for an unavailable product instead of adding it to an order",
+  "purchasing.requests.approve": "Approve or reject a purchase request raised by someone else",
   "purchasing.orders.view": "View purchase orders",
   "purchasing.suppliers.manage": "Create, edit, and manage suppliers",
   "purchasing.suppliers.view": "View supplier accounts",

@@ -174,6 +174,14 @@ const DESCRIBE: Record<string, Describe> = {
 
   stock_issue_exception_raised: (l, x) => ({ icon: "⚠️", headline: pick(x, "الكمية اللي خرجت أكتر من المسجل في المخزن", "more left than the stock records hold"), detail: l.newValue ?? undefined, milestone: false }),
   stock_issue_exception_resolved: (l, x) => ({ icon: "✅", headline: pick(x, "اتحلّ فرق المخزن", "the stock difference was resolved"), detail: l.newValue ?? undefined, milestone: false }),
+  emergency_self_approval: (l, x) => ({ icon: "⚠️", headline: pick(x, "موافقة ذاتية طارئة (مفيش موافق تاني)", "emergency self-approval (no other approver)"), detail: [l.newValue, l.reason].filter(Boolean).join(" · ") || undefined, milestone: true }),
+  grading_loss_released: (l, x) => ({ icon: "🔓", headline: pick(x, "اتفرج عن بضاعة الفرز بعد اعتماد الخسارة", "graded stock released after the loss was approved"), detail: l.newValue ?? undefined, milestone: false }),
+  purchase_request_created: (l, x) => ({ icon: "🧾", headline: pick(x, "اتعمل طلب شراء", "purchase request raised"), detail: l.newValue ?? undefined, milestone: false }),
+  purchase_request_approved: (l, x) => ({ icon: "✅", headline: pick(x, "اتوافق على طلب الشراء", "purchase request approved"), detail: l.newValue ?? undefined, milestone: false }),
+  purchase_request_rejected: (l, x) => ({ icon: "⛔", headline: pick(x, "اترفض طلب الشراء", "purchase request rejected"), detail: [l.newValue, l.reason].filter(Boolean).join(" · ") || undefined, milestone: false }),
+  purchase_request_ordered: (l, x) => ({ icon: "📦", headline: pick(x, "طلب الشراء اتحول لأمر شراء", "purchase request turned into a purchase order"), detail: l.newValue ?? undefined, milestone: false }),
+  purchase_request_cancelled: (l, x) => ({ icon: "✖️", headline: pick(x, "اتلغى طلب الشراء", "purchase request cancelled"), detail: [l.newValue, l.reason].filter(Boolean).join(" · ") || undefined, milestone: false }),
+  purchase_request_fulfilled: (l, x) => ({ icon: "🚚", headline: pick(x, "طلب الشراء اتنفذ بأوردر للعميل", "purchase request fulfilled with a customer order"), detail: l.newValue ?? undefined, milestone: true }),
   stock_issue_exception_voided: (_, x) => ({ icon: "↩️", headline: pick(x, "فرق المخزن اتلغى (الأوردر اتفتح تاني)", "the stock difference was voided (the order was reopened)"), milestone: false }),
   inventory_issue_posted: (l, x) => ({ icon: "📤", headline: pick(x, "البضاعة اتخصمت من المخزن", "the goods were issued from stock"), detail: l.newValue ?? undefined, milestone: false }),
 

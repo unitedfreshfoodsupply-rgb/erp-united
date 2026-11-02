@@ -6,6 +6,8 @@ import { getSetting } from "@/lib/core/settings-service";
 import { recordDecision, type ApprovalType, type Decider } from "@/lib/core/approvals";
 import { applyIssueExceptionClose } from "@/lib/inventory/dispatch";
 import { releaseGradingHoldInTx } from "@/lib/inventory/documents";
+import { applyPurchaseRequestDecision } from "@/lib/purchasing/requests";
+import { applyPriceExceptionDecision } from "@/lib/sales/price-exceptions";
 import type { ServiceActor } from "@/lib/core/actor";
 import type { Role } from "@/lib/types";
 import { applyShortageApproval } from "@/lib/orders-service";
@@ -62,6 +64,14 @@ const HANDLERS: Record<ApprovalType, Handler> = {
     // moment — if stock moved since the request, the ledger rules decide again.
     onApproved: (tx, req, decider) => postApprovedAdjustment(tx, req.entityId, asActor(decider)),
     onRejected: (tx, req, decider) => rejectPendingAdjustment(tx, req.entityId, asActor(decider)),
+  },
+  "sales.price_exception": {
+    onApproved: (tx, req, decider, comment) => applyPriceExceptionDecision(tx, req.entityId, true, decider, comment),
+    onRejected: (tx, req, decider, comment) => applyPriceExceptionDecision(tx, req.entityId, false, decider, comment),
+  },
+  "purchasing.request": {
+    onApproved: (tx, req, decider, comment) => applyPurchaseRequestDecision(tx, req.entityId, true, decider, comment),
+    onRejected: (tx, req, decider, comment) => applyPurchaseRequestDecision(tx, req.entityId, false, decider, comment),
   },
   "purchasing.order": {
     // Approved: the buyer may send it. Rejected: back to draft for the buyer to change.

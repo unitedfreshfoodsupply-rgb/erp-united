@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { asText } from "@/lib/http";
 import { writeAudit, writeAuditMany } from "@/lib/audit";
@@ -31,9 +31,10 @@ import { notify } from "@/lib/core/notifications";
 import { issueForDispatch, reverseDispatchIssue } from "@/lib/inventory/dispatch";
 import { releaseAllForSource } from "@/lib/inventory/reservations";
 import { resolveCustomer } from "@/lib/sales/customers";
-import { applyListPrices } from "@/lib/sales/pricing";
+import { applyListPrices, setAgreedLinePriceInTx } from "@/lib/sales/pricing";
 import { evaluateOrderCredit } from "@/lib/sales/credit";
 import { assertQuantityFitsUnit, commitOrderStock } from "@/lib/sales/stock-commitment";
+import { assertPricingCleared, evaluateOrderPricing } from "@/lib/sales/price-exceptions";
 import { releaseOrderInvoiceForReopen } from "@/lib/sales/invoicing";
 
 function assertValidQuantity(quantity: unknown, label: string): asserts quantity is number {
@@ -202,6 +203,18 @@ export async function createOrder(
     if (existing) return existing; // idempotent create for n8n retries
   }
 
+  // Typed prices (remediation 2026-11): parsed up front; who may set them is a permission.
+  const typedPrices = input.items.map((i, idx) => {
+    if (i.unit_price === undefined || i.unit_price === null || i.unit_price === "") return null;
+    const raw = String(i.unit_price).trim().replace(/,/g, "");
+    if (!/^\d{1,12}(\.\d{1,4})?$/.test(raw)) throw new ApiError(400, `سعر الصنف رقم ${idx + 1} لازم يكون رقم موجب بحد أقصى 4 خانات عشرية`);
+    const disc = i.discount_pct === undefined || i.discount_pct === null || i.discount_pct === "" ? "0" : String(i.discount_pct).trim();
+    if (!/^\d{1,3}(\.\d{1,2})?$/.test(disc) || Number(disc) > 100) throw new ApiError(400, `خصم الصنف رقم ${idx + 1} لازم يكون بين 0 و 100`);
+    return { unitPrice: new Prisma.Decimal(raw), discountPct: new Prisma.Decimal(disc), reason: asText(i.price_reason, "price_reason")?.trim() || null };
+  });
+  if (typedPrices.some(Boolean) && !actor.permissions.includes("sales.price_override")) {
+    throw new ApiError(403, "مالكش صلاحية تحدد سعر السطر — السعر بيتاخد من قائمة الأسعار");
+  }
   const validatedItems = await validateProducts(input.items);
   for (const [idx, i] of validatedItems.entries()) await assertQuantityFitsUnit(prisma, i.unit, i.quantity, `الصنف رقم ${idx + 1} (${i.productName})`);
   // Sales policies, read before the transaction opens.
@@ -286,8 +299,20 @@ export async function createOrder(
           },
           tx
         );
-        // Priced in the same transaction: an order is never visible half-priced.
+        // Priced in the same transaction: an order is never visible half-priced. List
+        // prices first; a price typed on the line is the agreed price (manual snapshot).
         await applyListPrices(tx, created.id, actor);
+        if (typedPrices.some(Boolean)) {
+          // Lines were created in input order; identical lines are interchangeable.
+          const pool = [...created.items];
+          for (const [idx, vi] of validatedItems.entries()) {
+            const at = pool.findIndex((it) => it.stockProductId === vi.stockProductId && it.unit === vi.unit && it.requiredQuantity === vi.quantity);
+            const item = pool.splice(at, 1)[0];
+            const tp = typedPrices[idx];
+            if (item && tp) await setAgreedLinePriceInTx(tx, item.id, tp, actor);
+          }
+        }
+        await evaluateOrderPricing(tx, created.id, actor);
         if (opts.afterCreate) await opts.afterCreate(tx, created);
         // Every line is reserved in full or the order is not created (WF-01): a confirmed
         // order never promises stock that is not sellable now.
@@ -496,6 +521,8 @@ export async function moveOrderStatus(
   // Credit control gates the first step of work (leaving "new"). The evaluation is
   // committed on its own — a refused move must still leave its approval request
   // behind for finance — and only then may the move proceed.
+  // A price exception holds the order before preparation (remediation 2026-11).
+  if (order.status === "new") assertPricingCleared(order, "مينفعش يبدأ التجهيز");
   if (order.status === "new") {
     const creditMode = await getSetting("sales.credit_check_mode");
     if (creditMode !== "off") {
@@ -928,6 +955,7 @@ export async function editOrder(
 
     if (customerIdentityChanged) {
       await applyListPrices(tx, orderId, actor, { refresh: true });
+      await evaluateOrderPricing(tx, orderId, actor);
       await evaluateOrderCredit(tx, orderId, await getSetting("sales.credit_check_mode"), actor);
     }
 

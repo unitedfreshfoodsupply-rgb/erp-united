@@ -64,6 +64,20 @@ export const APPROVAL_TYPES = {
     levels: 1,
     link: (id) => `/stock/inventory?doc=${id}`,
   },
+  "sales.price_exception": {
+    label: "اعتماد سعر أقل من التكلفة أو خصم فوق الحد",
+    entityType: "order",
+    approvePermission: "sales.pricing.approve",
+    levels: 1,
+    link: (id) => `/orders/${id}`,
+  },
+  "purchasing.request": {
+    label: "اعتماد طلب شراء",
+    entityType: "purchase_request",
+    approvePermission: "purchasing.requests.approve",
+    levels: 1,
+    link: (id) => `/purchasing/requests?id=${id}`,
+  },
   "purchasing.order": {
     label: "اعتماد أمر شراء",
     entityType: "purchase_order",

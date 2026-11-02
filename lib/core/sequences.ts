@@ -45,6 +45,7 @@ export const SEQUENCE_DEFS = {
   "purchasing.supplier": { prefix: "SUP", padding: 5, reset: "never", label: "كود مورد" },
   "purchasing.rfq": { prefix: "RFQ", padding: 5, reset: "yearly", label: "طلب عرض سعر" },
   "purchasing.order": { prefix: "PO", padding: 5, reset: "yearly", label: "أمر شراء" },
+  "purchasing.request": { prefix: "PR", padding: 5, reset: "yearly", label: "طلب شراء" },
   "purchasing.bill": { prefix: "BILL", padding: 5, reset: "yearly", label: "فاتورة مورد" },
   "purchasing.debit_note": { prefix: "DN", padding: 5, reset: "yearly", label: "إشعار مدين لمورد" },
   "operations.trip": { prefix: "TRP", padding: 5, reset: "yearly", label: "رحلة توزيع" },

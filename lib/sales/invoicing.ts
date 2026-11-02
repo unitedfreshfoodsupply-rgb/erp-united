@@ -1,3 +1,4 @@
+import { assertPricingCleared } from "@/lib/sales/price-exceptions";
 import { Prisma, type SalesInvoice } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -63,6 +64,7 @@ export async function createInvoiceFromOrder(orderId: string, actor: ServiceActo
     if (!order) throw new ApiError(404, "الأوردر مش موجود");
     if (order.status !== "dispatched") throw new ApiError(409, "الفاتورة بتتعمل للأوردر بعد ما يخرج");
     if (!order.customerAccountId) throw new ApiError(409, "اربط الأوردر بحساب عميل الأول — الفاتورة لازم تكون لعميل معروف");
+    assertPricingCleared(order, "مينفعش تتعمل فاتورة");
     const existing = await tx.salesInvoice.findFirst({ where: { orderId, status: { not: "void" } } });
     if (existing) return { invoice: existing, created: false };
     // Revenue never stands without its cost (WF-01): an order whose dispatch left a

@@ -1,3 +1,4 @@
+import { evaluateOrderPricing } from "@/lib/sales/price-exceptions";
 import { Prisma, type PriceList } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -416,8 +417,59 @@ export async function overrideLinePrice(orderId: string, itemId: string, input: 
       }),
       tx
     );
+    await evaluateOrderPricing(tx, orderId, actor);
     return row;
   });
+}
+
+/**
+ * The agreed price typed on a new order line (remediation 2026-11). Stored as a manual
+ * snapshot — never touched by list refreshes — and audited. When a list price exists
+ * and differs, a reason is required; with no list price, the typed price is the price.
+ */
+export async function setAgreedLinePriceInTx(
+  tx: Tx,
+  itemId: string,
+  input: { unitPrice: Prisma.Decimal; discountPct: Prisma.Decimal; reason?: string | null },
+  actor: Actorish
+) {
+  const item = await tx.orderItem.findUniqueOrThrow({ where: { id: itemId }, include: { price: true, stockProduct: { include: { salesTax: true } } } });
+  if (!item.stockProduct) throw new ApiError(400, "اربط السطر بصنف من دليل الأصناف الأول — الضريبة بتتحدد من الصنف");
+  if (input.unitPrice.lt(0)) throw new ApiError(400, `سعر "${item.productName}" مينفعش يكون سالب`);
+  if (input.discountPct.lt(0) || input.discountPct.gt(100)) throw new ApiError(400, `خصم "${item.productName}" لازم يكون بين 0 و 100`);
+  const cur = item.price;
+  const differs = !!cur && (!cur.unitPrice.equals(input.unitPrice) || !cur.discountPct.equals(input.discountPct));
+  if (cur && !differs) return cur; // the list price was typed as-is
+  const reason = input.reason?.trim() || (cur ? "" : "سعر متفق عليه مع العميل عند تسجيل الأوردر");
+  if (!reason) throw new ApiError(400, `سعر "${item.productName}" مختلف عن سعر القائمة (${cur!.unitPrice.toString()}) — اكتب السبب`);
+  const data = {
+    unitPrice: input.unitPrice,
+    discountPct: input.discountPct,
+    taxCode: item.stockProduct.salesTaxCode,
+    taxRate: item.stockProduct.salesTax.rate,
+    source: "manual",
+    priceListItemId: null,
+    reason,
+    setById: actor.id,
+    setBy: actor.name,
+  };
+  const row = cur
+    ? await tx.orderItemPrice.update({ where: { orderItemId: itemId }, data: { ...data, version: { increment: 1 } } })
+    : await tx.orderItemPrice.create({ data: { orderItemId: itemId, currencyCode: "EGP", ...data } });
+  await writeAudit(
+    audit(actor, {
+      action: "order_line_price_overridden",
+      entityType: "order_item",
+      entityId: itemId,
+      orderId: item.orderId,
+      fieldChanged: "price",
+      oldValue: cur ? `${cur.unitPrice.toString()} (خصم ${cur.discountPct.toString()}%) · ${cur.source}` : null,
+      newValue: `${input.unitPrice.toString()} (خصم ${input.discountPct.toString()}%) · عند تسجيل الأوردر`,
+      reason,
+    }),
+    tx
+  );
+  return row;
 }
 
 /** Reprices an order's list-priced lines (e.g. after a price correction). */
@@ -428,7 +480,9 @@ export async function repriceOrder(orderId: string, actor: ServiceActor) {
     if (!o) throw new ApiError(404, "الأوردر مش موجود");
     if (o.status === "cancelled") throw new ApiError(409, "الأوردر ملغي");
     await assertNotInvoiced(tx, orderId);
-    return applyListPrices(tx, orderId, actor, { refresh: true });
+    const res = await applyListPrices(tx, orderId, actor, { refresh: true });
+    await evaluateOrderPricing(tx, orderId, actor);
+    return res;
   });
 }
 

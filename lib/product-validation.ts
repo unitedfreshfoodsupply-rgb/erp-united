@@ -23,6 +23,10 @@ export type RawIncomingItem = {
   product_name?: string;
   quantity: number;
   unit?: string;
+  /** The agreed selling price for one `unit` (remediation 2026-11), optional. */
+  unit_price?: number | string;
+  discount_pct?: number | string;
+  price_reason?: string;
 };
 
 export type ValidatedItem = {

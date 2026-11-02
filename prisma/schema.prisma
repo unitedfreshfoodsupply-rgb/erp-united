@@ -113,26 +113,29 @@ model UserPermissionOverride {
 // new -> preparing -> ready_for_loading -> loading -> loaded -> dispatched
 // flags: shortage, needs_review, cancelled (cancelled is terminal, never deleted)
 model Order {
-  id           String   @id @default(cuid())
-  orderNumber  String   @unique
+  id            String   @id @default(cuid())
+  orderNumber   String   @unique
   /// n8n / email / WhatsApp source id. Unique: the same external message can never
   /// become two orders, even through a path that skips the service's advisory lock.
-  externalId   String?  @unique
-  customerId   String?
-  customerName String
-  deliveryDate String // YYYY-MM-DD
-  deliveryTime String? // HH:mm
-  notes        String?
-  status       String   @default("new")
-  shortage     Boolean  @default(false)
-  needsReview  Boolean  @default(false)
-  vehicle      String? // رقم/اسم العربية
-  driverName   String? // اسم السواق
-  crateCount   Int? // عدد البرنيكة
-  source       String   @default("manual") // manual | system | n8n | hermes
-  version      Int      @default(1)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  externalId    String?  @unique
+  customerId    String?
+  customerName  String
+  deliveryDate  String // YYYY-MM-DD
+  deliveryTime  String? // HH:mm
+  notes         String?
+  status        String   @default("new")
+  shortage      Boolean  @default(false)
+  needsReview   Boolean  @default(false)
+  vehicle       String? // رقم/اسم العربية
+  driverName    String? // اسم السواق
+  crateCount    Int? // عدد البرنيكة
+  source        String   @default("manual") // manual | system | n8n | hermes
+  /// ok | pending_approval | rejected — a price exception (below cost, discount over the
+  /// limit) holds the order until someone else approves it (sales.price_exception).
+  pricingStatus String   @default("ok")
+  version       Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   items                OrderItem[]
   auditLogs            AuditLog[]
@@ -152,9 +155,11 @@ model Order {
   invoices     SalesInvoice[]
 
   /// Who is preparing it (assigned by a supervisor, or whoever started it).
-  assignedToId   String?
-  assignedToName String?
-  tripStops      TripStop[]
+  assignedToId      String?
+  assignedToName    String?
+  tripStops         TripStop[]
+  purchaseRequests  PurchaseRequest[] @relation("PurchaseRequestOrigin")
+  fulfilledRequests PurchaseRequest[] @relation("PurchaseRequestFulfilment")
 
   @@index([status])
   @@index([deliveryDate])
@@ -398,6 +403,7 @@ model StockProduct {
 
   supplierBillLines SupplierBillLine[]
   etaItemCode       EtaItemCode?
+  purchaseRequests  PurchaseRequest[]
 
   @@index([active])
   @@index([category])
@@ -1130,9 +1136,10 @@ model Customer {
   /// Optional legacy link to a shared billing entity; kept for compatibility. The
   /// hotel's OWN legalName/legalNameAr and taxRegistrationNo are authoritative for
   /// invoices and ETA, so a link never overrides them.
-  legalEntityId String?
-  legalEntity   CustomerLegalEntity?  @relation(fields: [legalEntityId], references: [id], onDelete: Restrict)
-  groupMembers  CustomerGroupMember[]
+  legalEntityId    String?
+  legalEntity      CustomerLegalEntity?  @relation(fields: [legalEntityId], references: [id], onDelete: Restrict)
+  groupMembers     CustomerGroupMember[]
+  purchaseRequests PurchaseRequest[]
 
   @@index([active, name])
   @@index([legalEntityId])
@@ -1594,6 +1601,53 @@ model SupplierQuoteLine {
   @@unique([rfqSupplierId, rfqLineId])
 }
 
+/// A customer need the shelf cannot meet (remediation 2026-11, WF-01): approved by
+/// someone other than the requester, turned into a purchase order, and — once the goods
+/// are received, graded and sellable — fulfilled by a normal, stock-checked sales order.
+model PurchaseRequest {
+  id                  String    @id @default(cuid())
+  number              String    @unique
+  /// pending_approval | approved | rejected | cancelled | ordered | fulfilled
+  status              String    @default("pending_approval")
+  productId           String
+  uomCode             String
+  quantity            Decimal   @db.Decimal(18, 3)
+  customerId          String?
+  /// The order the customer asked on (its other lines went ahead without this one).
+  orderId             String?
+  customerReference   String?
+  neededBy            String?
+  notes               String?
+  requestedById       String?
+  requestedBy         String
+  decidedById         String?
+  decidedBy           String?
+  decidedAt           DateTime?
+  decisionNote        String?
+  purchaseOrderId     String?
+  purchaseOrderLineId String?   @unique
+  /// The stock-checked sales order that finally served the request.
+  fulfilledOrderId    String?
+  cancelReason        String?
+  version             Int       @default(1)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  product           StockProduct       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  customer          Customer?          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  order             Order?             @relation("PurchaseRequestOrigin", fields: [orderId], references: [id], onDelete: Restrict)
+  purchaseOrder     PurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  purchaseOrderLine PurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id], onDelete: Restrict)
+  fulfilledOrder    Order?             @relation("PurchaseRequestFulfilment", fields: [fulfilledOrderId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@index([productId])
+  @@index([customerId])
+  @@index([orderId])
+  @@index([purchaseOrderId])
+  @@index([fulfilledOrderId])
+}
+
 model PurchaseOrder {
   id               String    @id @default(cuid())
   /// PO-YYYY-#####
@@ -1623,10 +1677,11 @@ model PurchaseOrder {
   createdBy        String
   createdAt        DateTime  @default(now())
 
-  supplier  Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  warehouse Warehouse           @relation(fields: [warehouseId], references: [id])
-  rfq       Rfq?                @relation(fields: [rfqId], references: [id], onDelete: Restrict)
-  lines     PurchaseOrderLine[]
+  supplier         Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  warehouse        Warehouse           @relation(fields: [warehouseId], references: [id])
+  rfq              Rfq?                @relation(fields: [rfqId], references: [id], onDelete: Restrict)
+  lines            PurchaseOrderLine[]
+  purchaseRequests PurchaseRequest[]
 
   @@index([supplierId, status])
   @@index([status, expectedDate])
@@ -1657,7 +1712,8 @@ model PurchaseOrderLine {
   supplierPrice SupplierPrice? @relation(fields: [supplierPriceId], references: [id], onDelete: Restrict)
   intakes       StockIntake[]
 
-  billLines SupplierBillLine[]
+  billLines       SupplierBillLine[]
+  purchaseRequest PurchaseRequest?
 
   @@unique([poId, lineNo])
   @@index([productId])
@@ -2136,19 +2192,21 @@ model JournalLine {
 }
 
 model CashAccount {
-  id            String   @id @default(cuid())
-  code          String   @unique
-  name          String
-  nameAr        String?
+  id             String   @id @default(cuid())
+  code           String   @unique
+  name           String
+  nameAr         String?
   /// cash | bank
-  type          String
-  accountId     String   @unique
-  active        Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  bankName      String?
-  accountNumber String?
-  notes         String?
-  version       Int      @default(1)
+  type           String
+  accountId      String   @unique
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  bankName       String?
+  accountNumber  String?
+  notes          String?
+  /// Off by default: the database refuses any posting that takes the account below zero.
+  allowOverdraft Boolean  @default(false)
+  version        Int      @default(1)
 
   account         Account              @relation(fields: [accountId], references: [id], onDelete: Restrict)
   transfersOut    CashTransfer[]       @relation("TransferFrom")

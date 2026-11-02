@@ -104,6 +104,8 @@ function clientFault(err: unknown, loc: "ar" | "en"): { status: number; message:
   if (typeof e.message === "string" && /invalid byte sequence for encoding \\"?UTF8\\"?": 0x00|unsupported Unicode escape sequence/.test(e.message)) return { status: 400, message: msg(loc, "nul_char", "النص فيه حرف غير مسموح (NUL)") };
   // A database rule refused the row (CHECK / foreign key). The transaction rolled back,
   // nothing was written; the request cannot succeed as sent.
+  const cashNeg = typeof e.message === "string" ? /cash_account_negative: (\S+) would be (-?[0-9.]+)/.exec(e.message) : null;
+  if (cashNeg) return { status: 409, message: loc === "en" ? `Not enough money in ${cashNeg[1]}: this would take its balance to ${cashNeg[2]}` : `الرصيد مش كفاية في ${cashNeg[1]}: العملية دي هتخلي الرصيد ${cashNeg[2]} — الخزينة والبنك مينفعش يبقوا بالسالب` };
   const check = typeof e.message === "string" ? /violates check constraint \\"?([A-Za-z0-9_]+)\\?"/.exec(e.message) : null;
   if (check) return { status: 422, message: loc === "en" ? `Data violates rule: ${check[1]} — check dates and quantities` : `البيانات مخالفة لقاعدة: ${check[1]} — راجع التواريخ والكميات`, loud: true };
   if ((e.name === "PrismaClientKnownRequestError" && e.code === "P2003") || (typeof e.message === "string" && /violates foreign key constraint/.test(e.message)))
