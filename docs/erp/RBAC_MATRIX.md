@@ -153,6 +153,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/accounting/customer-refunds` | any of `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/customer-refunds` | `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | GET | `/api/accounting/customers/[id]/open-invoices` | any of `accounting.view`, `accounting.receipts.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
+| GET | `/api/accounting/cutover-readiness` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/fiscal-years/[code]/close` | `accounting.periods.close` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/fiscal-years/[code]/reopen` | `accounting.periods.close` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/fiscal-years/[code]` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |

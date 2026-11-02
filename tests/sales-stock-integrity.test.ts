@@ -193,7 +193,7 @@ async function main() {
   r = await call("karim", "POST", "/api/accounting/payments", { supplier_id: sup.id, cash_account_id: cash?.id, amount: "999999999", date: today, method: "cash" });
   check("a payment larger than the box -> 409, nothing posted", r.status === 409 && /بالسالب|below zero|Not enough/.test(r.body.error), r.body);
 
-  finish();
+  finish("SALES-STOCK-INTEGRITY");
 }
 
 main().catch((e) => {

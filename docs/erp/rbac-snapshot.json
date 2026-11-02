@@ -418,6 +418,16 @@
       }
     },
     {
+      "method": "GET",
+      "path": "/api/accounting/cutover-readiness",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
       "method": "POST",
       "path": "/api/accounting/fiscal-years/[code]/close",
       "gate": {
