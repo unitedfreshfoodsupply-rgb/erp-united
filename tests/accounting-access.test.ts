@@ -4,6 +4,7 @@
    records customer receipts and supplier payments and reads only what those need. Checked at
    the API (direct calls, exports, related-record endpoints), not just in the interface. */
 import { call, login, makeChecker } from "./_harness";
+import { fundCash } from "./_stock";
 
 const TAG = `zzacc${Date.now() % 1_000_000_000}`;
 const { check, section, finish } = makeChecker();
@@ -19,6 +20,9 @@ async function main() {
   const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مورد` })).body.supplier;
   const account = (await call("karim", "GET", "/api/accounting/accounts")).body.accounts?.[0];
   check("fixtures ready", !!customer?.id && !!supplier?.id && !!account?.id, [customer?.id, supplier?.id, account?.id]);
+  // L2: the cash box never goes negative — reversing the clerk's 25 receipt after the 15
+  // payment would take it below zero, so the owner puts money in first.
+  await fundCash("cash_main", 100);
 
   section("1. THE CLERK CANNOT SEE FINANCIAL POSITION OR REPORTS (403)");
   const denied: [string, string][] = [

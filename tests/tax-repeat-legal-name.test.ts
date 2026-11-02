@@ -1,6 +1,7 @@
 /* Focused: repeated tax IDs, distinct legal names, group search, format handling.
    No real customer data is imported; only ephemeral TEST-prefixed data. */
 import { call, login, makeChecker, BASE, cookieFor } from "./_harness";
+import { stockUp } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZTAX${Date.now() % 1_000_000_000}`;
@@ -93,6 +94,7 @@ async function main() {
   });
   // order → dispatch → draft → issue
   const prod = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Mango`, unit: "KG" })).body.product;
+  await stockUp(prod.id, 2); // WF-01: the integration order below must be fully reservable
   const pl = (await call("mona", "POST", "/api/sales/price-lists", { code: `${TAG}-PL`, name: "P", is_default: true })).body.priceList;
   await call("mona", "POST", `/api/sales/price-lists/${pl.id}/prices`, { valid_from: "2026-12-01", prices: [{ product_id: prod.id, unit_price: "20" }] });
   const o = await call(null, "POST", "/api/orders", { customer_name: `${TAG} JAZ Aqua`, customer_account_id: card.id, delivery_date: "2026-12-10", items: [{ product_name: `${TAG} Mango`, quantity: 2, product_id: prod.id }] }, { "x-api-key": process.env.N8N_API_KEY! });

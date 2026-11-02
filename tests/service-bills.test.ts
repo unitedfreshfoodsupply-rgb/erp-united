@@ -3,6 +3,7 @@
    tax; posting is Dr those accounts / Dr input VAT / Cr the supplier, and from there the
    bill is paid, aged, stated and VAT-summarised exactly like a goods bill. */
 import { call, login, makeChecker } from "./_harness";
+import { fundCash } from "./_stock";
 import { todayBiz } from "./_days";
 
 const TAG = `ZZSVC-${Date.now()}`;
@@ -92,6 +93,8 @@ async function main() {
   check("bill open now 570 (equipment line + its tax)", after?.open === "570.00", after);
 
   section("5. PAID LIKE ANY BILL");
+  // L2: cash and bank never go negative — the owner funds the account before it pays out.
+  await fundCash("bank_main", 1000);
   const pay = await call("karim", "POST", "/api/accounting/payments", { party_id: landlord.id, amount: "570", method: "bank_transfer", cash_account_id: "bank_main", auto: true });
   check("payment 570 -> 201", pay.status === 201, pay.body);
   check("supplier owed nothing", (await call("karim", "GET", `/api/purchasing/suppliers/${landlord.id}/statement`)).body.payable === "0.00");

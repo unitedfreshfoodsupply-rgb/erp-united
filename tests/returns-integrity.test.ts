@@ -4,6 +4,7 @@
    never exceeds the invoiced quantity. Uses its own products/customer so the
    tightly-coupled UAT totals are untouched. */
 import { call, login, makeChecker } from "./_harness";
+import { taxNo } from "./_stock";
 import { todayBiz } from "./_days";
 
 const TAG = `ZZRET-${Date.now()}`;
@@ -21,7 +22,8 @@ async function main() {
   if (r1.status !== 201) throw new Error("supplier: " + JSON.stringify(r1.body));
   const sup = r1.body.supplier;
   const p = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} ملفوف`, unit: "KG" })).body.product;
-  const c = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل` })).body.customer;
+  // MIG-01: invoices issued below need the buyer's 9-digit tax number (on the card).
+  const c = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل`, tax_registration_no: taxNo() })).body.customer;
   check("setup supplier/product/customer", !!sup && !!p && !!c);
 
   // Stock in the warehouse so the sale can be dispatched.
@@ -99,7 +101,7 @@ async function main() {
   // no price at all is refused, and one with no agreed price carries a PROVISIONAL cost until
   // the supplier bill revalues it. The sale's COGS must still not be presented as confirmed.
   const p2 = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} بصل`, unit: "KG" })).body.product;
-  const c2 = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل تكلفة` })).body.customer;
+  const c2 = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل تكلفة`, tax_registration_no: taxNo() })).body.customer;
   check("intake WITHOUT any cost -> 400 (no more unknown-cost receipts)", (await call("hossam", "POST", "/api/stock/intakes", { supplier_id: sup.id, product_id: p2.id, received_date: today, received_kg: 2000 })).status === 400);
   const intake2 = await call("hossam", "POST", "/api/stock/intakes", { supplier_id: sup.id, product_id: p2.id, received_date: today, received_kg: 2000, provisional_unit_cost: "3" });
   check("intake at a PROVISIONAL cost -> 201", intake2.status === 201 && intake2.body.intake.costProvisional === true, intake2.body);

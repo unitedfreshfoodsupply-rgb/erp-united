@@ -6,6 +6,7 @@ import { call, login, makeChecker } from "./_harness";
 import { todayBiz } from "./_days";
 import { PrismaClient } from "@prisma/client";
 import { assertTestDatabase } from "./_guard";
+import { taxedCustomer, approveGradingLoss } from "./_stock";
 
 const TAG = `ZZGC${Date.now() % 1_000_000_000}`;
 const { check, section, finish } = makeChecker();
@@ -164,7 +165,11 @@ async function main() {
     // the management report COGS — always uses the layers, independent of the current
     // policy setting.  No need to set the policy or re-add prices here.
   // d4b has 25 kg at unit ≈2.297. Sell 10.
-  const cust = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل` })).body.customer;
+  // CTL-01: the D4 sort had a grading loss, so its outputs wait in quarantine for the
+  // supervisor's approval before they are sellable. MIG-01: the buyer has a tax number.
+  const gl4 = await approveGradingLoss([i4.id, s4.body.document.id]);
+  check("D4 grading loss approved by the supervisor", gl4.length === 1 && gl4[0].status === 200, gl4.map((x) => [x.status, x.body?.error]));
+  const cust = await taxedCustomer(`${TAG} عميل`);
   const o = (await call("mona", "POST", "/api/orders", { customer_account_id: cust.id, customer_name: cust.name, delivery_date: today, items: [{ stock_product_id: d4b.id, product_name: (await product(d4b.id)).name, quantity: 10 }] })).body.order;
   await call("mona", "PATCH", `/api/orders/${o.id}/items/${o.items[0].id}/price`, { unit_price: "3", reason: TAG });
   await call("sara", "POST", `/api/orders/${o.id}/status`, { to: "loading", reason: TAG });

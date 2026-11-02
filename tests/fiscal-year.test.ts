@@ -9,6 +9,7 @@
      reverses the closing entry. The suite leaves 2015 open so it can run again. */
 import { Prisma, PrismaClient } from "@prisma/client";
 import { call, login, makeChecker } from "./_harness";
+import { manualJournal } from "./_stock";
 import { assertTestDatabase } from "./_guard";
 
 const { check, section, finish } = makeChecker();
@@ -42,13 +43,15 @@ async function main() {
   }
 
   section("1. A YEAR WITH A RESULT");
-  let r = await call("karim", "POST", "/api/accounting/journals", { date: "2015-12-15", description: "مبيعات 2015", lines: [{ account_id: "acc_1100", debit: 1000 }, { account_id: "acc_4100", credit: 1000 }] });
-  check("revenue 1000 in Dec 2015", r.status === 201, r.body);
-  r = await call("karim", "POST", "/api/accounting/journals", { date: "2015-12-16", description: "مصروف 2015", lines: [{ account_id: "acc_6100", debit: 300 }, { account_id: "acc_1100", credit: 300 }] });
-  check("expense 300 in Dec 2015", r.status === 201, r.body);
+  // CTL-01: manual journals wait for a second person and post on approval (202 → approved).
+  let mj = await manualJournal({ date: "2015-12-15", description: "مبيعات 2015", lines: [{ account_id: "acc_1100", debit: 1000 }, { account_id: "acc_4100", credit: 1000 }] });
+  check("revenue 1000 in Dec 2015 (posted after approval)", mj.submit.status === 202 && mj.decision?.status === 200 && !!mj.journal?.id, [mj.submit.body, mj.decision?.body]);
+  mj = await manualJournal({ date: "2015-12-16", description: "مصروف 2015", lines: [{ account_id: "acc_6100", debit: 300 }, { account_id: "acc_1100", credit: 300 }] });
+  check("expense 300 in Dec 2015 (posted after approval)", mj.submit.status === 202 && mj.decision?.status === 200 && !!mj.journal?.id, [mj.submit.body, mj.decision?.body]);
+  let r: any;
   const june = await period("2015-06");
   if (!june || june.status === "open") {
-    await call("karim", "POST", "/api/accounting/journals", { date: "2015-06-10", description: "مصروف يونيو 2015", lines: [{ account_id: "acc_6200", debit: 50 }, { account_id: "acc_1100", credit: 50 }] });
+    await manualJournal({ date: "2015-06-10", description: "مصروف يونيو 2015", lines: [{ account_id: "acc_6200", debit: 50 }, { account_id: "acc_1100", credit: 50 }] });
     const pv = (await call("karim", "GET", `/api/accounting/fiscal-years/${Y}`)).body.year;
     check("an open month inside the year blocks the close", pv.problems.some((p: any) => p.code === "months_open" && p.params.months.includes("2015-06")), pv.problems);
     check("…and the close is refused (409)", (await call("karim", "POST", `/api/accounting/fiscal-years/${Y}/close`, {})).status === 409);

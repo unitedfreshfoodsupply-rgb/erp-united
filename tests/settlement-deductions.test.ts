@@ -5,6 +5,7 @@
    reversal brings every leg back. Settings are restored at the end so the suites that
    follow see the feature off, as shipped. */
 import { call, login, makeChecker } from "./_harness";
+import { setSetting as setAuditedSetting, fundCash } from "./_stock";
 import { todayBiz } from "./_days";
 
 const TAG = `ZZSETTLE-${Date.now()}`;
@@ -36,10 +37,20 @@ async function main() {
   check("four accounts created", Object.values(accounts).every((a: any) => !!a?.id), accounts);
   const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} فندق` })).body.customer;
   const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مزرعة` })).body.supplier;
+  // The open documents this suite settles are go-live balances. CTL-01 closes direct
+  // opening entries by default (409); the setup opens them by an audited settings change
+  // for these three documents only and restores the default right after.
+  const obOff = await call("karim", "POST", "/api/accounting/opening-balances", { party_type: "customer", party_id: customer.id, date: today, amount: "1000", reference: `${TAG}-AR-OFF` });
+  check("default (direct opening OFF): party opening balance -> 409 direct_opening_disabled", obOff.status === 409 && obOff.body.code === "direct_opening_disabled", obOff.body);
+  await setAuditedSetting("accounting.direct_opening_entries", true, `${TAG} setup: open documents`);
   const ob = await call("karim", "POST", "/api/accounting/opening-balances", { party_type: "customer", party_id: customer.id, date: today, amount: "1000", reference: `${TAG}-AR` });
   const ob2 = await call("karim", "POST", "/api/accounting/opening-balances", { party_type: "customer", party_id: customer.id, date: today, amount: "500.50", reference: `${TAG}-AR2` });
   const obs = await call("karim", "POST", "/api/accounting/opening-balances", { party_type: "supplier", party_id: supplier.id, date: today, amount: "1000", reference: `${TAG}-AP` });
   check("open documents: customer 1,000 + 500.50, supplier 1,000", ob.status === 201 && ob2.status === 201 && obs.status === 201, [ob.status, ob2.status, obs.status]);
+  check("direct opening entries restored to the default (OFF)", (await setAuditedSetting("accounting.direct_opening_entries", null, `${TAG} setup done`)).status === 200);
+  // L2: the bank never goes negative — the receipt reversal and the supplier payment
+  // below take money out of it, so the owner funds it first.
+  await fundCash("bank_main", 2000);
 
   section("1. OFF UNTIL CONFIGURED");
   const off = await call("karim", "POST", "/api/accounting/receipts", { party_id: customer.id, amount: "1000", method: "bank_transfer", cash_account_id: "bank_main", auto: true, deductions: [{ kind: "withholding", amount: "10" }] });

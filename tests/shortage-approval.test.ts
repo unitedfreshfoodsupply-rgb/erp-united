@@ -12,6 +12,7 @@
       later stage (e.g. a still-short load) demands its own approval decision.
 */
 import { call, login, makeChecker } from "./_harness";
+import { stockUp } from "./_stock";
 
 async function main() {
   const { check, section, finish } = makeChecker();
@@ -24,6 +25,7 @@ async function main() {
     n += 1;
     const cust = (await call("admin", "POST", "/api/sales/customers", { name: `${TAG}-c${n}` })).body.customer;
     const prod = (await call("admin", "POST", "/api/stock/products", { name: `${TAG}-m${n}`, unit: "KG" })).body.product;
+    await stockUp(prod.id, qty); // WF-01: a confirmed line must be fully reservable
     const created = await call("sara", "POST", "/api/orders", {
       customer_account_id: cust.id, customer_name: cust.name, delivery_date: "2026-12-02",
       items: [{ stock_product_id: prod.id, product_name: prod.name, quantity: qty, unit: "KG" }],

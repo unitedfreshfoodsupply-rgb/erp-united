@@ -6,6 +6,7 @@
    and refuses to issue on a mismatch; the accountant must explicitly reprice
    the draft (audited) before issuing. Issued invoices are never touched. */
 import { call, login, makeChecker } from "./_harness";
+import { taxNo, stockUp } from "./_stock";
 
 async function main() {
   const { check, section, finish } = makeChecker();
@@ -16,8 +17,10 @@ async function main() {
 
   async function setupOrder() {
     n += 1;
-    const cust = (await call("admin", "POST", "/api/sales/customers", { name: `${TAG} عميل ${n}` })).body.customer;
+    // MIG-01: invoices issued below need the buyer's 9-digit tax number (on the card).
+    const cust = (await call("admin", "POST", "/api/sales/customers", { name: `${TAG} عميل ${n}`, tax_registration_no: taxNo() })).body.customer;
     const prod = (await call("admin", "POST", "/api/stock/products", { name: `${TAG} برتقال ${n}`, unit: "KG" })).body.product;
+    await stockUp(prod.id, 10, { unitCost: "5" }); // WF-01: the 10 kg line must be fully reservable (cost below the price of 10)
     const priceList = (await call("admin", "POST", "/api/sales/price-lists", { code: `${TAG}PL`, name: `${TAG} لستة` })).body.priceList ?? (await call("admin", "POST", "/api/sales/price-lists", { code: `${TAG}PL`, name: `${TAG} لستة` })).body;
     const created = await call("sara", "POST", "/api/orders", {
       customer_account_id: cust.id, customer_name: cust.name, delivery_date: "2026-12-20",

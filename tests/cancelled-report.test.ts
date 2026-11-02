@@ -2,6 +2,7 @@
    original↔reversal links for every reversal/cancellation/void in the system,
    and be gated by accounting.manage (senior finance). */
 import { call, login, makeChecker } from "./_harness";
+import { manualJournal } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZCAN${Date.now() % 1_000_000_000}`;
@@ -26,7 +27,9 @@ async function main() {
   const expense = accounts.find((a: any) => a.code === "6100");
   check("chart of accounts available", !!cashMain?.id && !!expense?.id);
 
-  const journal = await call("karim", "POST", "/api/accounting/journals", {
+  // CTL-01: a manual journal waits for a second person — submitted by the accountant
+  // (202), approved by management, then posted.
+  const journal = await manualJournal({
     date: "2099-06-01",
     description: `${TAG} test entry`,
     lines: [
@@ -34,9 +37,9 @@ async function main() {
       { account_id: expense.id, debit: 500 },
     ],
   });
-  check("manual journal created", journal.status === 201 && !!journal.body.journal?.id, journal.status);
+  check("manual journal created (202, approved by someone else, posted)", journal.submit.status === 202 && journal.decision?.status === 200 && !!journal.journal?.id, [journal.submit.status, journal.decision?.status]);
 
-  const rev = await call("karim", "POST", `/api/accounting/journals/${journal.body.journal.id}/reverse`, { reason: `${TAG} test reversal` });
+  const rev = await call("karim", "POST", `/api/accounting/journals/${journal.journal.id}/reverse`, { reason: `${TAG} test reversal` });
   check("journal reversal created", rev.status === 201 && !!rev.body.journal?.id, rev.status);
 
   section("3. REPORT CONTAINS THE REVERSAL");

@@ -9,6 +9,7 @@
    permission; the requester cannot approve it; rejection and withdrawal post nothing. */
 import { Prisma, PrismaClient } from "@prisma/client";
 import { call, login, makeChecker } from "./_harness";
+import { taxNo, fundCash } from "./_stock";
 import { assertTestDatabase } from "./_guard";
 import { todayBiz } from "./_days";
 import { inTx } from "@/lib/tx";
@@ -51,6 +52,10 @@ async function main() {
   const today = todayBiz();
 
   section("1. A RETURN THAT ONLY CARRIES INPUT FORWARD");
+  // L2: cash and bank never go negative — the owner funds both on D1, before this suite's
+  // cash reversal, the VAT payment (bank) and the manual journals (cash).
+  await fundCash("cash_main", 20000, { date: D1 });
+  await fundCash("bank_main", 5000, { date: D1 });
   const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مالك المخزن` })).body.supplier;
   let r = await call("karim", "POST", "/api/purchasing/bills", { kind: "service", supplier_id: supplier.id, supplier_invoice_no: `${TAG}-1`, bill_date: D1, lines: [{ account_id: "acc_6100", description: "إيجار", amount: "400", tax_code: "VAT14" }] });
   const bill1 = r.body.bill;
@@ -98,7 +103,8 @@ async function main() {
   await call("karim", "PATCH", `/api/sales/products/${prod.id}/tax`, { tax_code: "VAT14", reason: "عصير مصنّع — خاضع" });
   const sup3 = (await call("hossam", "POST", "/api/stock/suppliers", { name: `${TAG} مصنع` })).body.supplier;
   await call("admin", "POST", "/api/stock/intakes", { supplier_id: sup3.id, product_id: prod.id, received_kg: 50, unit_cost: "10" });
-  const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} كافيه` })).body.customer;
+  // MIG-01: invoices issued below need the buyer's 9-digit tax number (on the card).
+  const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} كافيه`, tax_registration_no: taxNo() })).body.customer;
   const o = (await call("sara", "POST", "/api/orders", { customer_account_id: customer.id, customer_name: customer.name, delivery_date: today, items: [{ stock_product_id: prod.id, product_name: prod.name, quantity: 20 }] })).body.order;
   await call("mona", "PATCH", `/api/orders/${o.id}/items/${o.items[0].id}/price`, { unit_price: "200", reason: "عقد" });
   await call("sara", "POST", `/api/orders/${o.id}/status`, { to: "loading", reason: "مباشر" });
@@ -147,8 +153,11 @@ async function main() {
 
   section("5. MANUAL JOURNALS ABOVE THE THRESHOLD NEED SOMEONE ELSE");
   const lines = (amount: number) => [{ account_id: "acc_6100", debit: amount }, { account_id: "acc_1100", credit: amount }];
+  // CTL-01 (replaces "approval off (default): a large journal posts at once -> 201"):
+  // approval is on by default with threshold 0 — even this journal waits for someone else.
   r = await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${TAG} off`, lines: lines(5000) });
-  check("approval off (default): a large journal posts at once -> 201", r.status === 201 && !!r.body.journal?.number, r.body);
+  check("approval on (default): a large journal waits -> 202, nothing posted", r.status === 202 && r.body.journalRequest?.status === "pending_approval" && !r.body.journal, r.body);
+  await call("karim", "POST", `/api/accounting/journal-requests/${r.body.journalRequest?.id}/cancel`, { reason: "اختبار الإعداد الافتراضي فقط" });
   await setSetting("accounting.manual_journal_approval", true);
   await setSetting("accounting.manual_journal_approval_threshold", 1000);
   r = await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${TAG} small`, lines: lines(500) });

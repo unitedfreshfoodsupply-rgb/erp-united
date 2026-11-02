@@ -7,6 +7,7 @@
    Findings that are not test failures (limitations) are printed as OBSERVATIONS. */
 import { call, login, makeChecker, page } from "./_harness";
 import { local } from "./_days";
+import { setSetting, fundCash, manualJournal } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const T = `ZZUAT${Date.now() % 1_000_000_000}`;
@@ -67,6 +68,11 @@ async function main() {
   const hotel = await cust("فندق النيل", { tax_registration_no: reg9(1), type: "hotel" });
   const chain = await cust("سلسلة مطاعم الشرق", { tax_registration_no: reg9(2), type: "restaurant" });
   const cafe = await cust("كافيه الزمالك", { type: "cafe" });
+  // MIG-01: an invoice needs a buyer identity. The cash café has no tax number; its owner
+  // is a natural person, so its billing legal entity is a person (receiver type P) with a
+  // national ID — the identity an invoice to a person carries.
+  const cafeLe = (await call("mona", "POST", "/api/sales/legal-entities", { code: `${T.slice(-6)}CAFE`, name: `${T} صاحب الكافيه`, receiver_type: "P", receiver_id: "29001010101010" })).body.legalEntity;
+  await call("mona", "PATCH", `/api/sales/customers/${cafe.id}`, { legal_entity_id: cafeLe?.id });
   await call("karim", "PATCH", `/api/sales/customers/${hotel.id}/credit`, { payment_terms_days: 30, reason: "إعداد UAT" });
   await call("karim", "PATCH", `/api/sales/customers/${chain.id}/credit`, { payment_terms_days: 14, reason: "إعداد UAT" });
   check("three customers: two B2B with tax numbers, one cash café", [hotel, chain, cafe].every((c) => c?.id) && !!hotel.taxRegistrationNo && !cafe.taxRegistrationNo, [hotel, chain, cafe]);
@@ -74,9 +80,20 @@ async function main() {
   const farm = await sup("مزرعة الصالحية", 30);
   const market = await sup("سوق العبور — المعلم حسن", 0);
   check("two suppliers (farm on terms, market on cash)", !!farm?.id && !!market?.id);
+  // L2: cash and bank never go negative — the owner funds both before any payment.
+  await fundCash("cash_main", 6000);
+  await fundCash("bank_main", 6000);
 
   // =========================================================================
   section("10. OPENING BALANCES (go-live from Odoo)");
+  // CTL-01: direct opening entries are closed by default (the approved opening batch is the
+  // path). This go-live exercises the direct path itself: it asserts the default refusal,
+  // switches it on by an audited settings change, and restores the default afterwards.
+  r = await call("karim", "POST", "/api/accounting/opening-stock", { business_date: today, lines: [{ product_id: tomato.id, quantity: 1, unit_cost: "6", location_id: "loc_cold_1" }] });
+  check("default (direct opening OFF): opening stock -> 409 direct_opening_disabled", r.status === 409 && r.body.code === "direct_opening_disabled", r.body);
+  r = await call("karim", "POST", "/api/accounting/opening-balances", { party_type: "customer", party_id: hotel.id, date: today, amount: 1, reference: "x" });
+  check("default (direct opening OFF): party opening balance -> 409 direct_opening_disabled", r.status === 409 && r.body.code === "direct_opening_disabled", r.body);
+  check("direct opening entries switched ON for the go-live", (await setSetting("accounting.direct_opening_entries", true, `${T} go-live`)).status === 200);
   let s0 = await snap();
   r = await call("karim", "POST", "/api/accounting/opening-stock", { business_date: today, lines: [
     { product_id: tomato.id, quantity: 300, unit_cost: "6", expiry_date: local(5), location_id: "loc_cold_1" },
@@ -97,6 +114,7 @@ async function main() {
   check("a go-live balance posts on the cut-off date but ages from its original overdue due date", openingAging?.d31_60 === "12000.00" && openingAging?.total === "12000.00", openingAging);
   r = (await call("karim", "GET", `/api/accounting/trial-balance?from=2000-01-01&to=2099-12-31`)).body.trialBalance;
   check("trial balance balanced after go-live", r.balanced === true && r.totals.debit === r.totals.credit, r.totals);
+  check("direct opening entries restored to the default (OFF)", (await setSetting("accounting.direct_opening_entries", null, `${T} go-live done`)).status === 200);
 
   // =========================================================================
   section("3. PURCHASE: RFQ → QUOTES → AWARD → PO → RECEIVE (lot / expiry / sorting) → BILL → AP → PAYMENT");
@@ -406,9 +424,11 @@ async function main() {
   check("every document posted exactly one entry (invoice, credit note, bill, debit note, receipt, payment, expense)",
     (await entry("sales_invoice", I1.number)).count === 1 && ce.count === 1 && (await entry("supplier_bill", billM.number)).count === 1 && dnE.count === 1 && (await entry("expense", ex.number)).count === 1);
   const A = (code: string) => acc(code);
-  r = await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${T} بوفيه وضيافة`, lines: [{ account_id: A("6100"), debit: 250 }, { account_id: A("1100"), credit: 250 }] });
-  check("manual journal (general expense from the cash box): Dr 6100 250 / Cr 1100 250", r.status === 201 && same((await entry("manual", `${T} بوفيه`)).lines, { "6100": 250, "1100": -250 }), r.body);
-  const manualJe = r.body.journal;
+  // CTL-01: a manual journal waits for a second person (submitted by the accountant,
+  // approved by management) — then posts exactly its lines.
+  const mj = await manualJournal({ date: today, description: `${T} بوفيه وضيافة`, lines: [{ account_id: A("6100"), debit: 250 }, { account_id: A("1100"), credit: 250 }] });
+  check("manual journal (general expense from the cash box) waits for approval (202), then: Dr 6100 250 / Cr 1100 250", mj.submit.status === 202 && mj.decision?.status === 200 && same((await entry("manual", `${T} بوفيه`)).lines, { "6100": 250, "1100": -250 }), [mj.submit.body, mj.decision?.body]);
+  const manualJe = mj.journal;
   check("a manual journal cannot touch receivables / payables / inventory -> 400", (await call("karim", "POST", "/api/accounting/journals", { date: today, description: "x", lines: [{ account_id: A("1400"), debit: 10 }, { account_id: A("3300"), credit: 10 }] })).status === 400);
 
   // =========================================================================
@@ -426,7 +446,12 @@ async function main() {
   r = await call("karim", "POST", "/api/accounting/journals", { date: `${period}-10`, description: "x", lines: [{ account_id: A("6100"), debit: 1 }, { account_id: A("1100"), credit: 1 }] });
   check("a manual journal into the closed month -> 409 (period lock)", r.status === 409, [r.status, r.body]);
   check("a customer receipt dated in the closed month -> 409", (await call("karim", "POST", "/api/accounting/receipts", { party_id: cafe.id, cash_account_id: "cash_main", amount: 10, method: "cash", date: `${period}-10` })).status === 409);
-  check("an opening balance dated in the closed month -> 409", (await call("karim", "POST", "/api/accounting/opening-balances", { party_type: "customer", party_id: cafe.id, date: `${period}-10`, amount: 10 })).status === 409);
+  // The period lock is what is under test here, so the direct-opening switch is on for
+  // this one call (otherwise the default refusal would answer 409 for another reason).
+  await setSetting("accounting.direct_opening_entries", true, `${T} period lock check`);
+  r = await call("karim", "POST", "/api/accounting/opening-balances", { party_type: "customer", party_id: cafe.id, date: `${period}-10`, amount: 10 });
+  check("an opening balance dated in the closed month -> 409", r.status === 409 && r.body.code !== "direct_opening_disabled", r.body);
+  await setSetting("accounting.direct_opening_entries", null, `${T} period lock check done`);
   r = await call("karim", "POST", `/api/accounting/journals/${manualJe.id}/reverse`, { reason: "اتسجل بالغلط" });
   check("correction: the manual journal is reversed by a new entry (open period)", r.status === 201 && r.body.journal.reversalOfId === manualJe.id, r.body);
   const invJe = (await call("karim", "GET", "/api/accounting/journals?source_type=sales_invoice")).body.journals.find((j: any) => j.description.includes(I2.number));

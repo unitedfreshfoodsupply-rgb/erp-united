@@ -3,6 +3,7 @@
    notified, and the decision — from the inbox or the order screen — releases the
    order in the same transaction. */
 import { call, login, makeChecker, BASE, cookieFor } from "./_harness";
+import { stockUp } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZWF-${Date.now()}`;
@@ -12,7 +13,10 @@ let workflowProduct: any;
 
 async function newOrderInPreparation(qty = 100) {
   workflowCustomer ??= (await call("admin", "POST", "/api/sales/customers", { name: `${TAG} عميل` })).body.customer;
-  workflowProduct ??= (await call("admin", "POST", "/api/stock/products", { name: `${TAG} Mango`, unit: "KG" })).body.product;
+  if (!workflowProduct) {
+    workflowProduct = (await call("admin", "POST", "/api/stock/products", { name: `${TAG} Mango`, unit: "KG" })).body.product;
+    await stockUp(workflowProduct.id, 1000); // confirmed lines must be fully reservable (WF-01)
+  }
   const customer = workflowCustomer;
   const product = workflowProduct;
   const created = (await call("sara", "POST", "/api/orders", {
@@ -143,9 +147,9 @@ async function main() {
   section("10. SEGREGATION OF DUTIES (SETTING)");
   const seg = "approvals.require_different_approver";
   const segRow = (await call("admin", "GET", "/api/admin/settings")).body.settings.find((s: any) => s.key === seg);
-  check("off by default", segRow?.value === false && segRow?.isDefault === true, segRow);
-  r = await call("admin", "PATCH", `/api/admin/settings/${seg}`, { value: true, reason: `${TAG} أربع عيون`, expected_version: segRow.version });
-  check("admin turns it on", r.status === 200 && r.body.setting.value === true, r.body);
+  // CTL-01 (replaces "off by default" + "admin turns it on"): segregation is the default,
+  // nobody has to switch it on.
+  check("on by default (CTL-01)", segRow?.value === true && segRow?.isDefault === true, segRow);
   const o4 = await newOrderInPreparation();
   await prepare(o4.id, 60, "sara"); // the supervisor records the short quantity herself
   const req6 = (await approvalsFor("sara", o4.id, "pending"))[0];
@@ -155,7 +159,7 @@ async function main() {
   check("…nor from the order screen -> 403", (await call("sara", "POST", `/api/orders/${o4.id}/approve`, { reason: "x", expected_version: o4v.version })).status === 403);
   check("someone else can", (await decide("admin", req6.id, { decision: "approve", comment: "تمام" })).status === 200);
   const segNow = (await call("admin", "GET", "/api/admin/settings")).body.settings.find((s: any) => s.key === seg);
-  check("setting reset to default", (await call("admin", "PATCH", `/api/admin/settings/${seg}`, { value: null, reason: "رجوع", expected_version: segNow.version })).status === 200);
+  check("setting still on its default (on), untouched by the scenario", segNow?.value === true && segNow?.isDefault === true && segNow?.version === segRow.version, segNow);
 
   section("11. NOTIFICATION INBOX");
   check("unauthenticated -> 401", (await call(null, "GET", "/api/notifications")).status === 401);

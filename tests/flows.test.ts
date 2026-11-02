@@ -5,6 +5,7 @@
    suite: one source of truth, no module stopping short of the next. */
 import { call, login, makeChecker } from "./_harness";
 import { todayBiz, bizDay } from "./_days";
+import { setSetting, taxNo, fundCash } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZFLOW${Date.now() % 1_000_000_000}`;
@@ -26,9 +27,19 @@ async function main() {
   // -------------------------------------------------------------------------
   section("1. GO-LIVE: OPENING BALANCES FROM ODOO");
   const potato = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Potato`, unit: "KG" })).body.product;
-  const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} سلسلة مطاعم` })).body.customer;
+  // MIG-01: the chain is invoiced below, so its card carries a 9-digit tax number.
+  const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} سلسلة مطاعم`, tax_registration_no: taxNo() })).body.customer;
   const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مزرعة البطاطس`, payment_terms_days: 30 })).body.supplier;
   check("only accounting brings balances over -> 403 for the floor and sales", (await call("hossam", "POST", "/api/accounting/opening-stock", { lines: [] })).status === 403 && (await call("mona", "POST", "/api/accounting/opening-balances", {})).status === 403);
+  // CTL-01: direct opening entries are closed by default (an approved opening batch is the
+  // path). This go-live scenario exercises the direct path itself, so it switches it on by
+  // an audited settings change and restores the default at the end of the section.
+  r = await call("karim", "POST", "/api/accounting/opening-stock", { business_date: today, lines: [{ product_id: potato.id, quantity: 200, unit_cost: "6", expiry_date: "2099-01-01" }] });
+  check("default (direct opening OFF): opening stock -> 409 direct_opening_disabled", r.status === 409 && r.body.code === "direct_opening_disabled", r.body);
+  r = await call("karim", "POST", "/api/accounting/opening-balances", { party_type: "customer", party_id: customer.id, date: today, amount: 5000, reference: "رصيد أودو" });
+  check("default (direct opening OFF): party opening balance -> 409 direct_opening_disabled", r.status === 409 && r.body.code === "direct_opening_disabled", r.body);
+  check("…nothing was posted", (await onHand(potato.id)) === 0 && (await receivable(customer.id)) === "0.00");
+  check("direct opening entries switched ON for the go-live scenario", (await setSetting("accounting.direct_opening_entries", true, `${TAG} go-live scenario`)).status === 200);
   check("opening stock without a unit cost -> 400 (never valued at zero by accident)", (await call("karim", "POST", "/api/accounting/opening-stock", { business_date: today, lines: [{ product_id: potato.id, quantity: 5 }] })).status === 400);
   let s0 = await snapshot();
   r = await call("karim", "POST", "/api/accounting/opening-stock", { business_date: today, lines: [{ product_id: potato.id, quantity: 200, unit_cost: "6", expiry_date: "2099-01-01" }] });
@@ -41,9 +52,12 @@ async function main() {
   await call("karim", "POST", "/api/accounting/opening-balances", { party_type: "supplier", party_id: supplier.id, date: today, amount: 3000, reference: "رصيد أودو" });
   check("…the customer's statement and the GL agree: 5000", (await receivable(customer.id)) === "5000.00");
   check("…the supplier's statement says we owe 3000", (await payable(supplier.id)) === "3000.00");
+  check("direct opening entries restored to the default (OFF)", (await setSetting("accounting.direct_opening_entries", null, `${TAG} go-live scenario done`)).status === 200);
 
   // -------------------------------------------------------------------------
   section("2. PURCHASE: PO → RECEIVE (SORTED) → STOCK & VALUE → BILL → AP → PAYMENT");
+  // L2: the bank never goes negative — the owner funds it before the supplier is paid.
+  await fundCash("bank_main", 5000);
   const po = (await call("omar", "POST", "/api/purchasing/orders", { supplier_id: supplier.id, lines: [{ product_id: potato.id, quantity: 500, unit_price: "5" }] })).body.order;
   await call("omar", "POST", `/api/purchasing/orders/${po.id}/submit`, {});
   check("PO approved and sent", (await call("omar", "POST", `/api/purchasing/orders/${po.id}/send`, {})).body.order?.status === "sent");
@@ -74,8 +88,9 @@ async function main() {
 
   // -------------------------------------------------------------------------
   section("3. SALE: ORDER → RESERVE → PREPARE → LOAD → TRIP → PARTIAL DELIVERY → INVOICE → PAYMENT");
+  // WF-01 (replaces switching sales.auto_reserve on for the scenario): reservation is always on.
   const cur = (await call("admin", "GET", "/api/admin/settings")).body.settings.find((x: any) => x.key === "sales.auto_reserve");
-  await call("admin", "PATCH", "/api/admin/settings/sales.auto_reserve", { value: true, reason: TAG, expected_version: cur.version });
+  check("automatic reservation is always on", cur?.value === true, cur);
   const order = (await call("mona", "POST", "/api/orders", { customer_account_id: customer.id, customer_name: customer.name, delivery_date: today, items: [{ stock_product_id: potato.id, product_name: potato.name, quantity: 100 }] })).body.order;
   check("sales takes the order", !!order?.id && order.items[0].stockProductId === potato.id, order);
   await call("mona", "PATCH", `/api/orders/${order.id}/items/${order.items[0].id}/price`, { unit_price: "9", reason: "سعر العقد" });
@@ -160,7 +175,6 @@ async function main() {
 
   // -------------------------------------------------------------------------
   section("5. ONE SOURCE OF TRUTH");
-  await call("admin", "PATCH", "/api/admin/settings/sales.auto_reserve", { value: null, reason: TAG, expected_version: cur.version + 1 });
   const integ = (await call("karim", "GET", "/api/accounting/integrity")).body.integrity;
   for (const c of integ.checks) check(`integrity: ${c.label}`, c.ok, c);
   check("the floor cannot read the integrity check -> 403", (await call("ahmed", "GET", "/api/accounting/integrity")).status === 403);

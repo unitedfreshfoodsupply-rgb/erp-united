@@ -7,6 +7,7 @@
    found again after a reload. */
 import { Prisma, PrismaClient } from "@prisma/client";
 import { call, login, makeChecker } from "./_harness";
+import { manualJournal } from "./_stock";
 import { assertTestDatabase } from "./_guard";
 import { todayBiz } from "./_days";
 import { comparisonRange } from "@/lib/accounting/comparatives";
@@ -97,7 +98,8 @@ async function main() {
   const bank = (await call("karim", "POST", "/api/accounting/cash-accounts", { type: "bank", name: `${TAG} Bank`, name_ar: `${TAG} بنك`, bank_name: "T" })).body.cashAccount;
   check("a fresh bank account", !!bank?.id, bank);
   bank.accountId = (await db.cashAccount.findUniqueOrThrow({ where: { id: bank.id } })).accountId;
-  const je = (date: string, amount: number, description: string) => call("karim", "POST", "/api/accounting/journals", { date, description, lines: amount > 0 ? [{ account_id: bank.accountId, debit: amount }, { account_id: "acc_3100", credit: amount }] : [{ account_id: "acc_6100", debit: -amount }, { account_id: bank.accountId, credit: -amount }] });
+  // CTL-01: each manual journal is submitted (202) and approved by someone else, then posts.
+  const je = async (date: string, amount: number, description: string) => { const m = await manualJournal({ date, description, lines: amount > 0 ? [{ account_id: bank.accountId, debit: amount }, { account_id: "acc_3100", credit: amount }] : [{ account_id: "acc_6100", debit: -amount }, { account_id: bank.accountId, credit: -amount }] }); return { status: m.journal ? 201 : m.submit.status, body: { journal: m.journal, submit: m.submit.body, decision: m.decision?.body } }; };
   const d = (k: number) => addDays(today, -k);
   for (const [k, amt, desc] of [[5, 1000, `${TAG} إيداع أ`], [5, 1000, `${TAG} إيداع ب`], [3, -250, `${TAG} مصروف بنكي`], [2, 777, `${TAG} تحويل`], [1, 500, `${TAG} INV-77 تحصيل`], [1, 500, `${TAG} تحصيل آخر`]] as const) {
     const r = await je(d(k), amt, desc);

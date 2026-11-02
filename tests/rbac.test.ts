@@ -1,6 +1,7 @@
 /* RBAC matrix: every role x every permission group, direct API + direct route access,
    disabled users, escalation attempts, last-super-admin protection, audit. */
 import { call, page, login, makeChecker } from "./_harness";
+import { stockUp } from "./_stock";
 
 const TAG = `zzrbac${Date.now().toString().slice(-8)}`;
 const { check, section, finish } = makeChecker();
@@ -19,9 +20,10 @@ async function main() {
   // approve_adjustments / valuation.view (Phase 2) + sales.customers.view/manage,
   // sales.credit.manage, sales.pricing.view/manage, sales.price_override,
   // sales.quotations.view/manage, sales.invoices.view/manage (Phase 3),
-  // sales.tax.manage (RBAC audit), 10 purchasing.* (Phase 4). Update deliberately
-  // when the catalogue grows.
-  check("session exposes all 84 permissions for SUPER_ADMIN", me.body?.user?.permissions?.length === 84, me.body?.user?.permissions?.length);
+  // sales.tax.manage (RBAC audit), 10 purchasing.* (Phase 4), and from the November
+  // 2026 remediation sales.pricing.approve + purchasing.requests.view/create/approve.
+  // Update deliberately when the catalogue grows.
+  check("session exposes all 88 permissions for SUPER_ADMIN", me.body?.user?.permissions?.length === 88, me.body?.user?.permissions?.length);
   check("PREPARER has exactly orders.view + orders.prepare",
     JSON.stringify((await call("ahmed","GET","/api/auth/me")).body.user.permissions.sort()) === JSON.stringify(["orders.prepare","orders.view"]));
   check("LOADER has exactly view/load/dispatch",
@@ -42,12 +44,12 @@ async function main() {
   check("SUPERVISOR cannot change customer credit or prices", !saraPerms.includes("sales.credit.manage") && !saraPerms.includes("sales.pricing.manage") && !saraPerms.includes("sales.price_override"));
   const monaPerms = (await call("mona","GET","/api/auth/me")).body.user.permissions.sort();
   check("SALES: orders view/create + customer master + pricing, nothing on the floor or in stock",
-    JSON.stringify(monaPerms) === JSON.stringify(["orders.create","orders.view","sales.customers.manage","sales.customers.view","sales.invoices.view","sales.price_override","sales.pricing.manage","sales.pricing.view","sales.quotations.manage","sales.quotations.view"].sort()), monaPerms);
+    JSON.stringify(monaPerms) === JSON.stringify(["orders.create","orders.view","purchasing.requests.create","purchasing.requests.view","sales.customers.manage","sales.customers.view","sales.invoices.view","sales.price_override","sales.pricing.manage","sales.pricing.view","sales.quotations.manage","sales.quotations.view"].sort()), monaPerms);
   const karimPerms = (await call("karim","GET","/api/auth/me")).body.user.permissions.sort();
   // HR: prepares payroll, keeps compensation and statutory rules, posts and pays approved runs;
   // never approves payroll or reads private data.
   check("ACCOUNTANT: reads orders, stock value, customers; owns credit; cannot move stock or orders",
-    JSON.stringify(karimPerms) === JSON.stringify(["accounting.assets.manage","accounting.assets.view","accounting.eta.manage","accounting.eta.view","accounting.journals.approve","accounting.manage","accounting.payments.manage","accounting.periods.close","accounting.receipts.manage","accounting.view","audit.view","hr.advances.manage","hr.compensation.manage","hr.compensation.view","hr.employees.manage","hr.employees.view","hr.expenses.submit","hr.leave.request","hr.payroll.pay","hr.payroll.post","hr.payroll.prepare","hr.payroll.view","hr.statutory.manage","orders.view","purchasing.bills.manage","purchasing.bills.view","purchasing.orders.approve","purchasing.orders.view","purchasing.prices.view","purchasing.suppliers.manage","purchasing.suppliers.view","reports.finance","sales.credit.manage","sales.customers.view","sales.invoices.manage","sales.invoices.view","sales.pricing.view","sales.quotations.view","sales.tax.manage","stock.valuation.view","stock.view"]), karimPerms);
+    JSON.stringify(karimPerms) === JSON.stringify(["accounting.assets.manage","accounting.assets.view","accounting.eta.manage","accounting.eta.view","accounting.journals.approve","accounting.manage","accounting.payments.manage","accounting.periods.close","accounting.receipts.manage","accounting.view","audit.view","hr.advances.manage","hr.compensation.manage","hr.compensation.view","hr.employees.manage","hr.employees.view","hr.expenses.submit","hr.leave.request","hr.payroll.pay","hr.payroll.post","hr.payroll.prepare","hr.payroll.view","hr.statutory.manage","orders.view","purchasing.bills.manage","purchasing.bills.view","purchasing.orders.approve","purchasing.orders.view","purchasing.prices.view","purchasing.suppliers.manage","purchasing.suppliers.view","reports.finance","sales.credit.manage","sales.customers.view","sales.invoices.manage","sales.invoices.view","sales.pricing.approve","sales.pricing.view","sales.quotations.view","sales.tax.manage","stock.valuation.view","stock.view"]), karimPerms);
 
   section("1. DIRECT API ACCESS MATRIX");
   const probes: { label: string; method: string; path: string; body?: any; allowed: string[] }[] = [
@@ -106,6 +108,8 @@ async function main() {
   const customer = (await call("admin","POST","/api/sales/customers",{name:`${TAG} عميل اختبار`})).body.customer;
   const product = (await call("admin","POST","/api/stock/products",{name:`${TAG} ليمون`,sku:`${TAG.toUpperCase()}-LEMON`,unit:"KG"})).body.product;
   check("admin created stable customer and product master cards", !!customer?.id && !!product?.id, { customer: customer?.id, product: product?.id });
+  // A confirmed order line must be fully reservable (WF-01): receive the 5 kg first.
+  await stockUp(product.id, 5);
   const ord = (await call("sara","POST","/api/orders",{customer_account_id:customer?.id,customer_name:customer?.name,delivery_date:"2026-10-09",items:[{stock_product_id:product?.id,product_name:product?.name,quantity:5,unit:product?.unit}]})).body.order;
   check("supervisor created a test order", !!ord?.id, ord);
   check("STOCK_CONTROLLER cannot read that order", (await call("hossam","GET",`/api/orders/${ord.id}`)).status === 403);
@@ -217,11 +221,11 @@ async function main() {
   check("passwords never written in clear", ov.body.audit.filter((l: any) => l.fieldChanged === "password").every((l: any) => l.oldValue === null && l.newValue === "(اتغيّرت)"));
   check("non-admin cannot read the security audit", (await call("sara","GET","/api/admin/overview")).status === 403);
   const m = ov.body.matrix;
-  check("catalogue has 84 permissions (79 + 5 accounting: reopen, journal and opening approval, fixed assets)", m.permissions.length === 84, m.permissions.length);
+  check("catalogue has 88 permissions (79 + 5 accounting: reopen, journal and opening approval, fixed assets + 4 remediation 2026-11: sales.pricing.approve, purchasing.requests.view/create/approve)", m.permissions.length === 88, m.permissions.length);
   check("all 9 roles present (SALES, ACCOUNTANT in Phase 3; PURCHASER in Phase 4; ACCOUNTING_CLERK)", m.roles.length === 9);
   check("database bundles match the code", m.catalogueInSync === true, m.roles.filter((r: any) => !r.inSync));
   const byRole = Object.fromEntries(m.roles.map((r: any) => [r.role, r.permissions]));
-  check("SUPER_ADMIN holds everything", byRole.SUPER_ADMIN.length === 84);
+  check("SUPER_ADMIN holds everything", byRole.SUPER_ADMIN.length === 88);
   check("only SUPER_ADMIN approves supplier-bill variances by default (the accountant books them)", m.roles.filter((r: any) => r.permissions.includes("purchasing.bills.approve")).map((r: any) => r.role).join() === "SUPER_ADMIN");
   check("only SUPER_ADMIN manages master data", m.roles.filter((r: any) => r.permissions.includes("core.masterdata.manage")).length === 1);
   check("only SUPER_ADMIN has settings.manage", m.roles.filter((r: any) => r.permissions.includes("settings.manage")).length === 1);

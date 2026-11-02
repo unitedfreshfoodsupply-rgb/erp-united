@@ -4,6 +4,7 @@
 import { call, login, page, cookieFor, BASE, makeChecker } from "./_harness";
 import { PrismaClient } from "@prisma/client";
 import { assertTestDatabase } from "./_guard";
+import { stockUp, stockedProduct } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 
@@ -26,11 +27,16 @@ async function productCard(name: string, unit = "KG") {
   if (!pending) {
     pending = (async () => {
       const r = await call("admin", "POST", "/api/stock/products", { name, unit });
-      if (r.status === 201) return r.body.product;
-      const list = await call("admin", "GET", `/api/stock/products?q=${encodeURIComponent(name)}`);
-      const found = list.body?.products?.find((p: any) => p.name === name && (!unit || p.unit === unit));
-      if (found) return found;
-      throw new Error(`Could not create test product card: ${JSON.stringify(r.body)}`);
+      let card = r.status === 201 ? r.body.product : null;
+      if (!card) {
+        const list = await call("admin", "GET", `/api/stock/products?q=${encodeURIComponent(name)}`);
+        card = list.body?.products?.find((p: any) => p.name === name && (!unit || p.unit === unit)) ?? null;
+      }
+      if (!card) throw new Error(`Could not create test product card: ${JSON.stringify(r.body)}`);
+      // A confirmed order line must be fully reservable (WF-01): receive stock the
+      // regular way before any order uses the card.
+      await stockUp(card.id, 1000);
+      return card;
     })();
     productCards.set(key, pending);
   }
@@ -108,18 +114,25 @@ async function main() {
 
   section("IDEMPOTENCY");
   const key = process.env.N8N_API_KEY!;
+  // Integration lines map to catalog cards by name and must be reservable (WF-01):
+  // the cards exist and hold stock before the channel sends its orders.
+  // Run-unique names: a card called plainly "Mango Naomi" would auto-map the seed's
+  // historical lines that the product-master suite expects to find unmapped.
+  const RUN = `ZZORD${Date.now() % 1_000_000_000}`;
+  const FIG = `${RUN} Fig Green`, MANGO_N = `${RUN} Mango Naomi`, BANANA = `${RUN} Banana`;
+  for (const name of [FIG, MANGO_N, BANANA]) await stockedProduct(name, 100);
   const EXT = `reg-${Date.now()}`;
-  const p1 = await call(null,"POST","/api/orders",{external_id:EXT,source:"n8n",customer_name:"عميل n8n",delivery_date:"2026-09-21",items:[{product_name:"Fig Green",quantity:5}]},{"x-api-key":key});
+  const p1 = await call(null,"POST","/api/orders",{external_id:EXT,source:"n8n",customer_name:"عميل n8n",delivery_date:"2026-09-21",items:[{product_name:FIG,quantity:5}]},{"x-api-key":key});
   check("n8n create -> 201", p1.status === 201, p1.body);
   const N = p1.body.order;
   check("source=n8n", N.source === "n8n");
-  check("duplicate external_id returns same order", (await call(null,"POST","/api/orders",{external_id:EXT,source:"n8n",customer_name:"عميل n8n",delivery_date:"2026-09-21",items:[{product_name:"Fig Green",quantity:5}]},{"x-api-key":key})).body?.order?.id === N.id);
-  const p3 = await Promise.all([1,2,3,4].map(()=>call(null,"POST","/api/orders",{external_id:EXT,source:"n8n",customer_name:"عميل n8n",delivery_date:"2026-09-21",items:[{product_name:"Fig Green",quantity:5}]},{"x-api-key":key})));
+  check("duplicate external_id returns same order", (await call(null,"POST","/api/orders",{external_id:EXT,source:"n8n",customer_name:"عميل n8n",delivery_date:"2026-09-21",items:[{product_name:FIG,quantity:5}]},{"x-api-key":key})).body?.order?.id === N.id);
+  const p3 = await Promise.all([1,2,3,4].map(()=>call(null,"POST","/api/orders",{external_id:EXT,source:"n8n",customer_name:"عميل n8n",delivery_date:"2026-09-21",items:[{product_name:FIG,quantity:5}]},{"x-api-key":key})));
   check("4 concurrent retries -> same order", p3.every((x)=>x.body?.order?.id===N.id));
   const EXT2 = `reg-cold-${Date.now()}`;
-  const cold = await Promise.all([1,2,3,4,5].map(()=>call(null,"POST","/api/orders",{external_id:EXT2,source:"n8n",customer_name:"n8n سباق",delivery_date:"2026-09-28",items:[{product_name:"Mango Naomi",quantity:2}]},{"x-api-key":key})));
+  const cold = await Promise.all([1,2,3,4,5].map(()=>call(null,"POST","/api/orders",{external_id:EXT2,source:"n8n",customer_name:"n8n سباق",delivery_date:"2026-09-28",items:[{product_name:MANGO_N,quantity:2}]},{"x-api-key":key})));
   check("5 simultaneous first-time retries create exactly ONE order", [...new Set(cold.map((x)=>x.body?.order?.id).filter(Boolean))].length === 1, cold.map((x)=>x.status));
-  const hermes = await call(null,"POST","/api/orders",{external_id:`hermes-${Date.now()}`,source:"hermes",customer_name:"Hermes Co",delivery_date:"2026-09-21",items:[{product_name:"Banana",quantity:3}]},{"x-api-key":key});
+  const hermes = await call(null,"POST","/api/orders",{external_id:`hermes-${Date.now()}`,source:"hermes",customer_name:"Hermes Co",delivery_date:"2026-09-21",items:[{product_name:BANANA,quantity:3}]},{"x-api-key":key});
   check("hermes source recorded", hermes.body?.order?.source === "hermes");
   check("idempotent retries -> one order_created row", (await call("sara","GET",`/api/audit?orderId=${N.id}`)).body.logs.filter((l: any)=>l.action==="order_created").length === 1);
 
@@ -236,7 +249,12 @@ async function main() {
   const rd = (await call("sara","GET",`/api/orders/${oid}`)).body.order;
   for (const it of rd.items) await call("mostafa","POST",`/api/orders/${oid}/items/${it.id}/load`,{quantity:it.loadedQuantity??it.preparedQuantity,mark_done:true});
   let rd2 = (await call("sara","GET",`/api/orders/${oid}`)).body.order;
-  if (rd2.needsReview) { await call("sara","POST",`/api/orders/${oid}/approve`,{reason:"اعتماد بعد إعادة الفتح",expected_version:rd2.version}); rd2 = (await call("sara","GET",`/api/orders/${oid}`)).body.order; }
+  // CTL-01: sara reopened the order, so the shortage review it raised is hers — a
+  // different approver (admin) decides it, and sara herself is refused.
+  if (rd2.needsReview) {
+    check("the supervisor who reopened cannot approve the review it raised (different approver)", (await call("sara","POST",`/api/orders/${oid}/approve`,{reason:"اعتماد بعد إعادة الفتح",expected_version:rd2.version})).status === 403);
+    await call("admin","POST",`/api/orders/${oid}/approve`,{reason:"اعتماد بعد إعادة الفتح",expected_version:rd2.version}); rd2 = (await call("sara","GET",`/api/orders/${oid}`)).body.order;
+  }
   r = await call("mostafa","POST",`/api/orders/${oid}/status`,{to:"loaded",expected_version:rd2.version});
   check("reopened order loads again", r.status===200, r.body);
   r = await call("mostafa","POST",`/api/orders/${oid}/status`,{to:"dispatched",vehicle:"ABC-123",driver_name:"محمود سيد",crate_count:12,expected_version:r.body.order.version});
@@ -258,7 +276,11 @@ async function main() {
   check("clone 3 items", CL.items.length===3);
   check("clone no progress", CL.items.every((i: any)=>i.preparedQuantity===null&&i.loadedQuantity===null));
   check("clone no externalId", !CL.externalId);
-  check("clone audit is exactly created+cloned", (await call("sara","GET",`/api/audit?orderId=${CL.id}`)).body.logs.length===2);
+  // WF-01: a clone is a confirmed order, so it holds its stock at creation — one
+  // stock_reserved row per line. Nothing else (no progress, no copied history).
+  const clLogs = (await call("sara","GET",`/api/audit?orderId=${CL.id}`)).body.logs as any[];
+  const clActions = clLogs.map((l: any) => l.action).sort();
+  check("clone audit is exactly created+cloned, plus one stock_reserved per line", JSON.stringify(clActions) === JSON.stringify(["order_cloned","order_created",...CL.items.map(() => "stock_reserved")].sort()), clActions);
 
   section("AUDIT / REPORTS / INTELLIGENCE / LIVE SYNC");
   const full = await call("sara","GET","/api/audit");

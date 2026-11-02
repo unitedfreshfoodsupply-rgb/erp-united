@@ -11,6 +11,7 @@
    Isolated test database only: the month-end section closes every earlier open month. */
 import { Prisma, PrismaClient } from "@prisma/client";
 import { call, login, makeChecker } from "./_harness";
+import { taxNo, fundCash, approveGradingLoss } from "./_stock";
 import { assertTestDatabase } from "./_guard";
 import { todayBiz } from "./_days";
 
@@ -65,7 +66,8 @@ async function main() {
   section("0. MASTER DATA");
   const tomato = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} طماطم`, unit: "KG" })).body.product;
   const tomatoB = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} طماطم درجة تانية`, unit: "KG" })).body.product;
-  const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} سلسلة مطاعم` })).body.customer;
+  // MIG-01: invoices issued below need the buyer's 9-digit tax number (on the card).
+  const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} سلسلة مطاعم`, tax_registration_no: taxNo() })).body.customer;
   const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مزرعة الطماطم`, payment_terms_days: 30 })).body.supplier;
   const bankCharges = (await call("karim", "POST", "/api/accounting/accounts", { code: `6${SUF.slice(-3)}1`, name: `${TAG} Bank charges`, name_ar: `${TAG} مصاريف بنكية`, parent_id: "acc_6000" })).body.account;
   const whtPayable = (await call("karim", "POST", "/api/accounting/accounts", { code: `2${SUF.slice(-3)}1`, name: `${TAG} WHT payable`, name_ar: `${TAG} ضريبة خصم وإضافة مستحقة`, parent_id: "acc_2000" })).body.account;
@@ -73,6 +75,9 @@ async function main() {
   extra.bankCharges = bankCharges.id; extra.whtPayable = whtPayable.id;
   await setSetting("accounting.bank_charges_account", bankCharges.code);
   await setSetting("accounting.withholding_payable_account", whtPayable.code);
+  // L2: cash and bank never go negative — the owner funds the bank the supplier payment,
+  // the scale and the bank→cash transfer below are paid from (before any snapshot is taken).
+  await fundCash("bank_main", 20000);
 
   section("1. OPENING BALANCES — APPROVED BATCH, RECONCILED");
   let s0 = await snap();
@@ -110,6 +115,10 @@ async function main() {
   check("waste sits in the WASTE location, not sellable stock", wasteBucket === 50, wasteBucket);
   const vr = await call("hossam", "POST", `/api/stock/intakes/${intake.id}/void`, { reason: `${TAG} تجربة إلغاء` });
   check("voiding a graded receipt in place is refused, not half-done (its stock went to three places) — books unchanged", vr.status >= 400 && vr.status < 500 && moved(s1, await snap(), {}).length === 0, [vr.status, vr.body]);
+  // CTL-01: a grading loss holds the good and Grade B stock in quarantine until someone other
+  // than the receiver approves the loss; the supervisor approves it — no ledger effect.
+  const gl = await approveGradingLoss([intake.id]);
+  check("the grading loss is approved by the supervisor: stock released, books unchanged", gl.length === 1 && gl[0].status === 200 && moved(s1, await snap(), {}).length === 0, gl.map((x) => [x.status, x.body?.error]));
 
   section("3. SUPPLIER BILL MATCHED TO THE RECEIPT, PAID WITH WITHHOLDING");
   s0 = await snap();
@@ -134,8 +143,9 @@ async function main() {
   check(`supplier statement: 2000 opening + ${billTotal} − 5000`, eq(await payable(supplier.id), 2000 + billTotal - 5000), await payable(supplier.id));
 
   section("4. SALE: ORDER 300 kg @ 10 → PREPARE → LOAD → DISPATCH → 290 ACCEPTED → INVOICE");
+  // WF-01 (replaces switching sales.auto_reserve on for the month): reservation is always on.
   const cur = (await call("admin", "GET", "/api/admin/settings")).body.settings.find((x: any) => x.key === "sales.auto_reserve");
-  await call("admin", "PATCH", "/api/admin/settings/sales.auto_reserve", { value: true, reason: TAG, expected_version: cur.version });
+  check("automatic reservation is always on", cur?.value === true, cur);
   const order = (await call("mona", "POST", "/api/orders", { customer_account_id: customer.id, customer_name: customer.name, delivery_date: today, items: [{ stock_product_id: tomato.id, product_name: tomato.name, quantity: 300 }] })).body.order;
   await call("mona", "PATCH", `/api/orders/${order.id}/items/${order.items[0].id}/price`, { unit_price: "10", reason: "سعر العقد" });
   await call("ahmed", "POST", `/api/orders/${order.id}/status`, { to: "preparing" });
@@ -161,7 +171,6 @@ async function main() {
   const invNow = r.body.invoice;
   check("invoice issued for what was accepted: 290 × 10 = 2900 net", r.status === 200 && eq(n(invNow.net), 2900), invNow);
   check("GL: AR + total, sales − net, output VAT − tax", moved(s2, s3, { ar: n(invNow.total), sales: -n(invNow.net), vat_output: -n(invNow.taxTotal) }).length === 0, moved(s2, s3, { ar: n(invNow.total), sales: -n(invNow.net), vat_output: -n(invNow.taxTotal) }));
-  await call("admin", "PATCH", "/api/admin/settings/sales.auto_reserve", { value: null, reason: TAG, expected_version: cur.version + 1 });
 
   section("5. COLLECTION WITH A BANK CHARGE; PART OF THE OPENING BALANCE");
   s0 = await snap();
@@ -231,6 +240,17 @@ async function main() {
   check("preview output/input VAT = the ledger balances at today", eq(n(pv.outputTax), Math.max(n(vat.o), 0)) && eq(n(pv.inputTax), Math.max(n(vat.i), 0)), [pv.outputTax, pv.inputTax, vat]);
 
   section("11. MONTH-END CLOSE (BLOCKS POSTINGS) AND CONTROLLED REOPEN");
+  // CTL-01 (accounting.close_requires_waste_writeoff): a month does not close while waste
+  // is still valued in inventory. The month's waste (this cycle's 50 kg and any other on
+  // the test database) is written off with scrap documents first, the way the warehouse
+  // closes its month.
+  const wastePending = (await call("karim", "GET", "/api/accounting/integrity")).body.integrity.checks.find((c: any) => c.key === "waste_pending");
+  for (const w of (wastePending?.detail ?? []) as any[]) {
+    if (!(Number(w.quantity) > 0)) continue;
+    const sc = await call("hossam", "POST", "/api/inventory/scrap", { reason: `${TAG} إعدام هالك الشهر`, lines: [{ product_id: w.productId, quantity: w.quantity, location_id: "loc_waste" }] });
+    if (sc.status !== 201) check(`waste of ${w.productId} written off before the close`, false, sc.body);
+  }
+  check("no waste left valued in inventory before the close", !((await call("karim", "GET", "/api/accounting/integrity")).body.integrity.checks.find((c: any) => c.key === "waste_pending")?.detail ?? []).some((w: any) => Number(w.quantity) > 0));
   for (const p of await db.accountingPeriod.findMany({ where: { status: "open", code: { lt: month } }, orderBy: { code: "asc" } })) {
     const c = await call("karim", "POST", `/api/accounting/periods/${p.code}/close`, {});
     if (c.status !== 200) check(`closing earlier month ${p.code}`, false, c.body);

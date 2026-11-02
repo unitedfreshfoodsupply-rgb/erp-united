@@ -2,6 +2,7 @@
    data). Covers RBAC, validation, optimistic concurrency, audit, and that a changed
    setting actually changes business behaviour — not just a stored number. */
 import { call, login, makeChecker } from "./_harness";
+import { stockUp } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZCORE-${Date.now()}`;
@@ -27,6 +28,7 @@ async function settingRow(key: string) {
 async function orderInPreparation() {
   const customer = (await call("admin", "POST", "/api/sales/customers", { name: `${TAG} عميل` })).body.customer;
   const product = (await call("admin", "POST", "/api/stock/products", { name: `${TAG} Mango`, unit: "KG" })).body.product;
+  await stockUp(product.id, 100); // a confirmed line must be fully reservable (WF-01)
   const created = await call("sara", "POST", "/api/orders", {
     customer_account_id: customer.id, customer_name: customer.name,
     delivery_date: "2026-12-01",

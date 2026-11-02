@@ -5,6 +5,7 @@ import { call, login, makeChecker } from "./_harness";
 import { todayBiz } from "./_days";
 import { PrismaClient } from "@prisma/client";
 import { assertTestDatabase } from "./_guard";
+import { approveGradingLoss } from "./_stock";
 
 const TAG = `ZZQ${Date.now() % 1_000_000_000}`;
 const { check, section, finish } = makeChecker();
@@ -182,7 +183,12 @@ async function main() {
   // =========================================================================
   section("N13. WASTE CANNOT BE RELEASED (WASTE != QUARANTINE)");
   const n13g = await newProduct(`${TAG} N13good`);
-  await intake({ product_id: n13g.id, received_kg: 100, waste_qty: 30, unit_cost: "7" });
+  const i13 = (await intake({ product_id: n13g.id, received_kg: 100, waste_qty: 30, unit_cost: "7" })).body.intake;
+  // CTL-01: a grading loss holds the GOOD 70 kg in quarantine until someone else approves
+  // the loss; the waste itself goes straight to WASTE, never to quarantine.
+  check("good 70 kg held in quarantine pending grading-loss approval", Math.abs((await atQuar(n13g.id)) - 70) < 1e-9 && (await avail(n13g.id)) === 0, await atQuar(n13g.id));
+  const gl13 = await approveGradingLoss([i13.id]);
+  check("supervisor approves the grading loss", gl13.length === 1 && gl13[0].status === 200, gl13.map((x) => x.body));
   const w13 = await atQuar(n13g.id);
   check("waste landed at loc_waste (not quarantine)", Math.abs(w13) < 1e-9, w13);
   const w13W = n((((await product(n13g.id)).buckets) ?? []).find((b: any) => b.locationCode === "WASTE")?.quantity ?? 0);

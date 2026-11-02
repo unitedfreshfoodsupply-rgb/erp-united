@@ -2,6 +2,7 @@
    adjustments, concurrency, aggregation, supplier performance, audit. */
 import { call, page, login, BASE, makeChecker } from "./_harness";
 import { todayBiz } from "./_days";
+import { adjustWithApproval } from "./_stock";
 
 const TAG = `ZZTEST-${Date.now()}`;
 const { check, section, finish } = makeChecker();
@@ -151,11 +152,24 @@ async function main() {
   check("zero-quantity adjustment -> 400", (await call("hossam","POST","/api/stock/adjustments",{product_id:prodB.id,quantity_kg:0,reason:"x"})).status === 400);
   check("unknown product -> 404", (await call("hossam","POST","/api/stock/adjustments",{product_id:"nope",quantity_kg:5,reason:"x"})).status === 404);
   const balBBefore = await ledgerSum(prodB.id);
+  // CTL-01: every non-zero adjustment waits for someone else (approval required, threshold 0).
+  // The storekeeper's request is 202 and moves nothing; the supervisor's approval posts it.
   r = await call("hossam","POST","/api/stock/adjustments",{product_id:prodB.id,quantity_kg:-4,reason:"تلف أثناء التخزين"});
-  check("negative adjustment accepted", r.status===201 && near(r.body.movement.quantityKg,-4));
+  check("negative adjustment requested -> 202, waiting for approval (no movement yet)", r.status===202 && r.body.pendingApproval===true && r.body.document?.status==="pending_approval" && r.body.movement.id===null, r.body);
+  check("…nothing moved before the approval", near(await ledgerSum(prodB.id), balBBefore));
+  const adjB = (await call("sara","GET","/api/approvals?status=pending")).body.approvals.find((a: any)=>a.type==="inventory.adjustment"&&a.entityId===r.body.document.id);
+  check("…the requester cannot approve it", (await call("hossam","POST",`/api/approvals/${adjB?.id}/decide`,{decision:"approve",comment:"x"})).status === 403);
+  check("negative adjustment accepted (approved by the supervisor)", (await call("sara","POST",`/api/approvals/${adjB?.id}/decide`,{decision:"approve",comment:"معتمد"})).status === 200);
   check("adjustment reduces the balance", near(await ledgerSum(prodB.id), balBBefore-4));
-  check("positive adjustment accepted", (await call("hossam","POST","/api/stock/adjustments",{product_id:prodB.id,quantity_kg:2.5,reason:"جرد: فرق زيادة"})).status === 201);
-  check("adjustment below zero refused", (await call("hossam","POST","/api/stock/adjustments",{product_id:prodB.id,quantity_kg:-99999,reason:"محاولة"})).status === 400);
+  const posAdj = await adjustWithApproval({product_id:prodB.id,quantity_kg:2.5,reason:"جرد: فرق زيادة"});
+  check("positive adjustment accepted", posAdj.request.status === 202 && posAdj.decision?.status === 200, [posAdj.request.status, posAdj.decision?.body]);
+  // CTL-01: the request waits for approval and the balance is judged when it is approved
+  // (stock may move in between) — the approval of a below-zero adjustment is refused.
+  const below = await call("hossam","POST","/api/stock/adjustments",{product_id:prodB.id,quantity_kg:-99999,reason:"محاولة"});
+  const belowReq = (await call("sara","GET","/api/approvals?status=pending")).body.approvals.find((a: any)=>a.type==="inventory.adjustment"&&a.entityId===below.body?.document?.id);
+  const belowDecision = await call("sara","POST",`/api/approvals/${belowReq?.id}/decide`,{decision:"approve",comment:"محاولة"});
+  check("adjustment below zero refused (at approval: 400, nothing posted)", below.status === 202 && belowDecision.status === 400, [below.status, belowDecision.status, belowDecision.body]);
+  await call("sara","POST",`/api/approvals/${belowReq?.id}/decide`,{decision:"reject",comment:"تحت الصفر"});
   check("balance unchanged after refusal", near(await ledgerSum(prodB.id), balBBefore-4+2.5));
 
   section("7b. NO PATH TO NEGATIVE STOCK");
@@ -165,7 +179,8 @@ async function main() {
   const prodC = (await call("hossam","POST","/api/stock/products",{name:`${TAG} Guava`,unit:"KG"})).body.product;
   const recC = (await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supA.id,product_id:prodC.id,received_date:today,received_kg:10,rejected_kg:0})).body.intake;
   check("receipt puts 10 kg in", near(await ledgerSum(prodC.id), 10));
-  check("adjustment takes 8 kg out", (await call("hossam","POST","/api/stock/adjustments",{product_id:prodC.id,quantity_kg:-8,reason:"صرف للتجهيز"})).status === 201);
+  const take8 = await adjustWithApproval({product_id:prodC.id,quantity_kg:-8,reason:"صرف للتجهيز"});
+  check("adjustment takes 8 kg out", take8.request.status === 202 && take8.decision?.status === 200 && near(await ledgerSum(prodC.id), 2), [take8.request.status, take8.decision?.body]);
   r = await call("hossam","PATCH",`/api/stock/intakes/${recC.id}`,{received_kg:5,reason:"وزن غلط",expected_version:recC.version});
   check("downward correction below zero -> 400", r.status === 400, r.body);
   r = await call("hossam","POST",`/api/stock/intakes/${recC.id}/void`,{reason:"اتسجل بالغلط",expected_version:recC.version});
@@ -200,7 +215,10 @@ async function main() {
   check("double void: exactly one wins", dblVoid.filter((x)=>x.status===200).length===1, dblVoid.map((x)=>x.status));
   const balBeforeConc = await ledgerSum(prodA.id);
   const concAdj = await Promise.all([1,2,3,4,5].map(()=>call("hossam","POST","/api/stock/adjustments",{product_id:prodA.id,quantity_kg:1,reason:"تسوية متزامنة"})));
-  check("5 simultaneous adjustments recorded", concAdj.every((a)=>a.status===201));
+  check("5 simultaneous adjustments recorded (each waiting for approval)", concAdj.every((a)=>a.status===202) && new Set(concAdj.map((a)=>a.body?.document?.id)).size === 5, concAdj.map((a)=>a.status));
+  const concPending = (await call("sara","GET","/api/approvals?status=pending")).body.approvals.filter((a: any)=>a.type==="inventory.adjustment"&&concAdj.some((c)=>c.body?.document?.id===a.entityId));
+  const concDecisions = await Promise.all(concPending.map((a: any)=>call("sara","POST",`/api/approvals/${a.id}/decide`,{decision:"approve",comment:"تسوية متزامنة"})));
+  check("…5 simultaneous approvals all post", concPending.length === 5 && concDecisions.every((d: any)=>d.status===200), concDecisions.map((d: any)=>d.status));
   check("no adjustment lost — balance moved by exactly +5", near(await ledgerSum(prodA.id), balBeforeConc+5));
 
   section("9. LEDGER IS THE ONLY SOURCE OF TRUTH");

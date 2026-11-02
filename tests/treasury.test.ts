@@ -11,6 +11,7 @@
    Settings touched are restored at the end. */
 import { PrismaClient } from "@prisma/client";
 import { call, login, makeChecker } from "./_harness";
+import { taxNo, manualJournal } from "./_stock";
 import { assertTestDatabase } from "./_guard";
 import { todayBiz } from "./_days";
 
@@ -35,6 +36,11 @@ async function main() {
   // A run that stopped half-way may have left these switched on: start from the shipped defaults.
   for (const k of ["accounting.bank_charges_account", "accounting.transfer_approval", "accounting.transfer_approval_threshold"]) await setSetting(k, null);
 
+  // CTL-01: transfers and manual journals wait for a second person by default.
+  const shipped = (await call("admin", "GET", "/api/admin/settings")).body.settings as any[];
+  check("shipped default: transfers need approval (accounting.transfer_approval on, threshold 0)", shipped.find((x) => x.key === "accounting.transfer_approval")?.value === true && Number(shipped.find((x) => x.key === "accounting.transfer_approval_threshold")?.value) === 0);
+  check("shipped default: manual journals need approval", shipped.find((x) => x.key === "accounting.manual_journal_approval")?.value === true);
+
   section("1. ACCESS");
   check("sales cannot list cash accounts -> 403", (await call("mona", "GET", "/api/accounting/cash-accounts")).status === 403);
   check("the floor cannot create a cash account -> 403", (await call("mostafa", "POST", "/api/accounting/cash-accounts", { type: "cash", name: "x", name_ar: "x" })).status === 403);
@@ -57,14 +63,27 @@ async function main() {
   check("a role without money workflows cannot read the list (403)", formsView === 403);
 
   section("3. MONEY IN: capital to the main box, then a customer receipt into the new bank");
-  r = await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${TAG} capital`, lines: [{ account_id: A("1100"), debit: 50000 }, { account_id: A("3100"), credit: 50000 }] });
-  check("capital paid in (manual journal Dr cash / Cr capital)", r.status === 201, r.body);
-  const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل` })).body.customer;
+  const capital = await manualJournal({ date: today, description: `${TAG} capital`, lines: [{ account_id: A("1100"), debit: 50000 }, { account_id: A("3100"), credit: 50000 }] });
+  check("capital paid in (manual journal Dr cash / Cr capital: 202, approved by someone else, posted)", capital.submit.status === 202 && capital.decision?.status === 200 && !!capital.journal?.id, [capital.submit.body, capital.decision?.body]);
+  // MIG-01: invoices issued below need the buyer's 9-digit tax number (on the card).
+  const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل`, tax_registration_no: taxNo() })).body.customer;
   r = await call("karim", "POST", "/api/accounting/receipts", { party_id: customer.id, cash_account_id: bank.id, amount: 300, method: "bank_transfer" });
   check("a receipt can land in the new bank at once", r.status === 201, r.body);
   check("…the bank shows 300", (await balanceOf(bank.id)) === 300);
 
   section("4. TRANSFER: cash → new bank");
+  // Sections 4–5 test the transfer mechanics themselves (journal, idempotency, overdraw,
+  // races, fees). Under the shipped default every transfer first waits for approval, so
+  // that is shown once here, then the approval switch is turned off by an audited
+  // settings change for these two sections; section 6 tests the approval itself and
+  // restores the shipped default.
+  r = await call("karim", "POST", "/api/accounting/transfers", { from_cash_account_id: "cash_main", to_cash_account_id: bank.id, amount: "1", date: today });
+  check("shipped default: a transfer waits for approval -> 202, nothing posted", r.status === 202 && r.body.transfer?.status === "pending_approval" && !r.body.transfer?.entry, r.body);
+  {
+    const a = (await call("admin", "GET", "/api/approvals?status=pending")).body.approvals.find((x: any) => x.entityId === r.body.transfer?.id);
+    await call("admin", "POST", `/api/approvals/${a?.id}/decide`, { decision: "reject", comment: "اختبار الإعداد الافتراضي فقط" });
+  }
+  await setSetting("accounting.transfer_approval", false);
   const plBefore = (await call("karim", "GET", `/api/accounting/pnl?from=${today}&to=${today}`)).body;
   const cashBefore = await balanceOf("cash_main");
   const key = `${TAG}-tr-1`;
@@ -137,7 +156,13 @@ async function main() {
   const bv = rows.find((x) => x.id === bank.id);
   check("a bank with money cannot be deactivated -> 409", (await call("karim", "PATCH", `/api/accounting/cash-accounts/${bank.id}`, { active: false, version: bv.version })).status === 409);
   const boxRow = rows.find((x) => x.id === box.id);
-  await call("karim", "POST", "/api/accounting/transfers", { from_cash_account_id: box.id, to_cash_account_id: "cash_main", amount: boxRow.balance });
+  // Shipped default again (section 6 restored it): emptying the box waits for a second person.
+  r = await call("karim", "POST", "/api/accounting/transfers", { from_cash_account_id: box.id, to_cash_account_id: "cash_main", amount: boxRow.balance });
+  {
+    const a = (await call("admin", "GET", "/api/approvals?status=pending")).body.approvals.find((x: any) => x.entityId === r.body.transfer?.id);
+    const d = await call("admin", "POST", `/api/approvals/${a?.id}/decide`, { decision: "approve", comment: "تفريغ الخزينة" });
+    check("emptying the box: 202 under the default, posted once someone else approves", r.status === 202 && d.status === 200, [r.status, d.status, d.body]);
+  }
   const boxNow = (await cashRows()).find((x) => x.id === box.id);
   r = await call("karim", "PATCH", `/api/accounting/cash-accounts/${box.id}`, { active: false, version: boxNow.version });
   check("an emptied cash box is deactivated", r.status === 200 && r.body.cashAccount.active === false, r.body);
@@ -155,8 +180,10 @@ async function main() {
   check("the accountant can classify a loan as financing", loan?.cashFlowCategory === "financing", loan);
   check("revenue/expense accounts take no classification -> 400", (await call("karim", "POST", "/api/accounting/accounts", { code: code("66"), name: "z", name_ar: "z", parent_id: "acc_6000", cash_flow_category: "operating" })).status === 400);
   check("fixed-asset accounts are not created by hand -> 400", (await call("karim", "POST", "/api/accounting/accounts", { code: code("17"), name: "z", name_ar: "z", parent_id: "acc_1700" })).status === 400);
-  r = await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${TAG} rent prepaid`, lines: [{ account_id: prepaid.id, debit: 600 }, { account_id: A("1100"), credit: 600 }] });
-  r = await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${TAG} loan`, lines: [{ account_id: A("1100"), debit: 2000 }, { account_id: loan.id, credit: 2000 }] });
+  // Manual journals post once a second person approves them (CTL-01).
+  const rentJ = await manualJournal({ date: today, description: `${TAG} rent prepaid`, lines: [{ account_id: prepaid.id, debit: 600 }, { account_id: A("1100"), credit: 600 }] });
+  const loanJ = await manualJournal({ date: today, description: `${TAG} loan`, lines: [{ account_id: A("1100"), debit: 2000 }, { account_id: loan.id, credit: 2000 }] });
+  check("prepaid rent and loan journals posted after approval", !!rentJ.journal?.id && !!loanJ.journal?.id, [rentJ.decision?.body, loanJ.decision?.body]);
   let cf = (await call("karim", "GET", `/api/management/cash-flow?from=${today}&to=${today}`)).body.report;
   const line = (sec: string, c: string) => cf.sections[sec].lines.find((l: any) => l.accountCode === c);
   check("cash flow: prepaid rent −600 in operating", n(line("operating", prepaid.code)?.amount) === -600, cf.sections.operating.lines);
