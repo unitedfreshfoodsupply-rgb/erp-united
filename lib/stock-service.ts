@@ -21,7 +21,7 @@ import { getSetting } from "@/lib/core/settings-service";
 import { afterPoReceipt, guardPoReceipt, loadPoLine, poLineUnitCost, lockPoForReceipt } from "@/lib/purchasing/receiving";
 import { effectiveSupplierPrice } from "@/lib/purchasing/suppliers";
 import { assertReceiptNotBilled } from "@/lib/purchasing/bills";
-import { postJournal } from "@/lib/accounting/ledger";
+import { postingDate, postJournal } from "@/lib/accounting/ledger";
 
 /** Row-locks a receipt (a supplier bill being booked on it takes the same lock) and
  * refuses when it is already on a live bill — the bill was matched against it. */
@@ -633,13 +633,18 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
     // supplier is owed for: Dr inventory adjustments / Cr GRNI, in the same transaction, so
     // GRNI holds the full purchase value and clears when the bill arrives.
     if (gc.wasteLoss.gt(0)) {
-      const p = await tx.accountingPeriod.findUnique({ where: { code: receivedDate.slice(0, 7) }, select: { status: true } });
-      await postJournal(tx, {
-        date: p?.status === "closed" ? todayLocalISO() : receivedDate,
+      // ACC-17: the same date rule as the stock valuation it belongs to — a closed month,
+      // closed year or locked date moves it to today, and the move is audited.
+      const pd = await postingDate(tx, receivedDate);
+      const lossEntry = await postJournal(tx, {
+        date: pd.date,
         description: `هالك الفرز عند الاستلام ${created.receiptNumber} (${waste.toFixed()} ${product.unit})`,
         sourceType: "stock_valuation", sourceId: `intake-waste|${created.id}`,
         lines: [{ key: "inventory_adjustment", amount: gc.wasteLoss, description: "هالك الفرز" }, { key: "grni", amount: gc.wasteLoss.negated(), description: "هالك الفرز" }],
       }, { id: actor.id, name: actor.name, role: actor.role });
+      if (pd.redated && lossEntry) {
+        await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "stock_valuation_redated", entityType: "journal_entry", entityId: lossEntry.id, fieldChanged: "date", oldValue: receivedDate, newValue: pd.date, reason: "الفترة مقفولة — قيد هالك الفرز اترحّل بتاريخ النهاردة", source: "system" }, tx);
+      }
     }
 
     await writeAudit(

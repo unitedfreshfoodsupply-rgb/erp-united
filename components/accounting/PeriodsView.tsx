@@ -43,6 +43,20 @@ export function PeriodsView() {
   if (periods.isLoading || years.isLoading) return <LoadingState />;
   if (periods.isError || years.isError) return <ErrorState message={errorMessage(periods.error ?? years.error)} onRetry={() => { void periods.refetch(); void years.refetch(); }} />;
   const p = preview.data;
+  // ACC-13: before closing, say what is still unfinished in the month (warnings, not blocks).
+  async function closeMonth(code: string) {
+    try {
+      const c = await apiFetch<{ warnings: { code: string; count: number }[] }>(`/api/accounting/periods/${code}/checklist`);
+      if (c.warnings.length) {
+        const body = c.warnings.map((w) => `• ${t(`periods.close-warning.${w.code}` as "periods.close-warning.draft_invoices", { count: String(w.count) })}`).join("\n");
+        if (!(await dialogs.confirm({ title: t("periods.close-warnings-title", { code }), body, tone: "danger", confirmLabel: t("periods.close-anyway") }))) return;
+      }
+    } catch {
+      /* the checklist is advisory; the close itself enforces the hard rules */
+    }
+    await run(`/api/accounting/periods/${code}/close`, {}, t("accounting-toast-period-closed", { code }));
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {can("accounting.manage") && (
@@ -102,7 +116,7 @@ export function PeriodsView() {
                 {m.status === "open" ? t("accounting.period.open") : t("accounting.period.closed", { by: m.closedBy ?? "" })}
                 {m.reopenCount > 0 && <span className="block text-xs font-normal text-united-muted">{t("periods.reopened-times", { n: String(m.reopenCount), by: m.reopenedBy ?? "" })}</span>}
               </span>
-              {m.status === "open" && can("accounting.periods.close") && <button type="button" className="btn-danger btn-sm" onClick={() => run(`/api/accounting/periods/${m.code}/close`, {}, t("accounting-toast-period-closed", { code: m.code }))}>{t("accounting.button.close")}</button>}
+              {m.status === "open" && can("accounting.periods.close") && <button type="button" className="btn-danger btn-sm" onClick={() => closeMonth(m.code)}>{t("accounting.button.close")}</button>}
               {m.status === "closed" && can("accounting.periods.close") && <button type="button" className="btn-secondary btn-sm" onClick={() => askReopen(`/api/accounting/periods/${m.code}/reopen`, t("periods.reopen-month-title", { code: m.code }))}>{t("periods.request-reopen")}</button>}
             </li>
           ))}

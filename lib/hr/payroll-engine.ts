@@ -77,7 +77,10 @@ type Rule<C extends RuleCode> = { id: string; version: number; code: C; params: 
 type RunInput = { id: string; period: string; runType?: string | null; correctionOfRunId?: string | null };
 
 /** The tax of an annual taxable income under the default brackets or the high-income table it falls in. */
-function annualTaxOf(annual: Prisma.Decimal, p: RuleParams<"eg_salary_income_tax">) {
+export function annualTaxOf(annualIncome: Prisma.Decimal, p: RuleParams<"eg_salary_income_tax">) {
+  // PAY-01: the law rounds the annual income down (to the nearest lower 10 EGP) before the brackets.
+  const step = p.annual_income_round_down_to;
+  const annual = step ? annualIncome.div(step).floor().mul(step) : annualIncome;
   const table = [...(p.high_income_tables ?? [])].sort((a, b) => b.above - a.above).find((t) => annual.gt(t.above))?.brackets ?? p.brackets;
   let left = annual, lower = ZERO, annualTax = ZERO;
   for (const b of table) {

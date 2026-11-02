@@ -57,6 +57,13 @@ export const RULE_SCHEMAS = {
     annual_exemption: money,
     brackets,
     high_income_tables: z.array(z.object({ above: money, brackets })).max(20).optional(),
+    /**
+     * PAY-01 (maturity 2026-11): the annual taxable income is rounded DOWN to this many
+     * pounds before the brackets apply (Income Tax Law 91/2005 as amended by Law 7/2024:
+     * "rounded to the nearest lower ten pounds" → 10). Entered and verified with the rule
+     * set like every statutory value; absent = no rounding (the earlier behaviour).
+     */
+    annual_income_round_down_to: z.number().int().min(1).max(1000).optional(),
     rounding,
   }),
   /** Other levies, each a rate on a base, paid by the employee or the employer (§7 S9). */

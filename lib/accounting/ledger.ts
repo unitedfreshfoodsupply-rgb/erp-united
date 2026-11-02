@@ -323,7 +323,7 @@ const VALUATION_COUNTER: Record<string, SystemKey> = {
 const KIND_LABEL: Record<string, string> = { grni: "استلامات ومرتجعات موردين", cogs: "صرف ومرتجعات عملاء", inventory_adjustment: "تسويات وهالك وتحويلات", opening_equity: "رصيد مخزون افتتاحي" };
 
 /** A date to post on: the business date, unless its period is already closed — then today. */
-async function postingDate(tx: Tx, date: string): Promise<{ date: string; redated: boolean }> {
+export async function postingDate(tx: Tx, date: string): Promise<{ date: string; redated: boolean }> {
   const p = await tx.accountingPeriod.findUnique({ where: { code: date.slice(0, 7) }, select: { status: true } });
   if (p?.status === "closed") return { date: todayLocalISO(), redated: true };
   // ACC-02: a closed fiscal year or the books lock date close the date just as firmly.

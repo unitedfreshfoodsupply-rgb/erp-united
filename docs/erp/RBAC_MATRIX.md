@@ -111,7 +111,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `/supervisor/report` تقرير اليوم (`reports.view`) | ✓ | ✓ |  |  |  |  |  |  |  |
 | `/supervisor/audit` سجل المراجعة (`audit.view`) | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | `/approvals` الموافقات (`orders.approve` / `stock.approve_adjustments` / `sales.credit.manage` / `purchasing.orders.approve` / `purchasing.bills.approve` / `hr.expenses.approve` / `hr.attendance.approve` / `hr.leave.approve` / `hr.payroll.approve` / `accounting.manage` / `accounting.journals.approve` / `accounting.periods.reopen` / `accounting.opening.approve` / `purchasing.requests.approve` / `sales.pricing.approve`; page open to all, filters itself) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `/sales` العملاء (`sales.customers.view`) | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
+| `/sales` العملاء والفواتير (`sales.customers.view`) | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | `/purchasing` المشتريات (`purchasing.orders.view`) | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |
 | `/purchasing/requests` طلبات الشراء (`purchasing.requests.view`) | ✓ |  |  |  |  | ✓ |  | ✓ |  |
 | `/accounting` الحسابات (`accounting.view` / `accounting.receipts.manage` / `accounting.payments.manage`) | ✓ |  |  |  |  |  | ✓ |  | ✓ |
@@ -179,6 +179,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/accounting/payments/[id]/reverse` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/payments` | any of `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/payments` | `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
+| GET | `/api/accounting/periods/[code]/checklist` | any of `accounting.periods.close`, `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/periods/[code]/close` | `accounting.periods.close` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/periods/[code]/reopen` | `accounting.periods.close` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/periods` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |

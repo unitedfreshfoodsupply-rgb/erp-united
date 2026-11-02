@@ -679,6 +679,17 @@
       }
     },
     {
+      "method": "GET",
+      "path": "/api/accounting/periods/[code]/checklist",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "accounting.periods.close",
+          "accounting.view"
+        ]
+      }
+    },
+    {
       "method": "POST",
       "path": "/api/accounting/periods/[code]/close",
       "gate": {

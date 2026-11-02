@@ -11,6 +11,8 @@ import { apAgingReport, createBill, postBill } from "@/lib/purchasing/bills";
 import { decideApproval } from "@/lib/core/approval-handlers";
 import { ALL_PERMISSIONS } from "@/lib/permissions";
 import { createAdjustment, createSupplierReturn, createCustomerReturn, reverseDocument } from "@/lib/inventory/documents";
+import { issueStock } from "@/lib/inventory/reservations";
+import { periodCloseChecklist } from "@/lib/accounting/close-checklist";
 import { todayLocalISO } from "@/lib/localDate";
 
 const TAG = `ZZGAP${Date.now()}`;
@@ -265,4 +267,48 @@ test("ACC-08: an aging for a past day ignores payments made after it — the bil
   } finally {
     await restore();
   }
+});
+
+test("ACC-07: goods returned against an order come back at the cost they left at — not today's average", async () => {
+  const restore = await withSetting("inventory.adjustment_approval_required", false);
+  try {
+    const p = await prisma.stockProduct.create({ data: { name: `${TAG} RetCost`, unit: "KG" } });
+    await createIntake({ supplier_id: supplierId, product_id: p.id, received_kg: 10, unit_cost: "6", received_date: today } as never, boss);
+    const order = await prisma.order.create({ data: { orderNumber: `${TAG}-RC`, customerName: `${TAG} فندق`, deliveryDate: today } });
+    const { inTx } = await import("./_db");
+    await inTx((tx) => issueStock(tx, { warehouseId: "wh_main", sourceType: "order", sourceId: order.id, reference: `${TAG} RC`, lines: [{ productId: p.id, quantity: D(4), sourceLineId: `${TAG}-RC-1` }] }, boss as never));
+    // The average moves: 6 kg left at 6, 10 more arrive at 12 → (36 + 120) / 16 = 9.75.
+    await createIntake({ supplier_id: supplierId, product_id: p.id, received_kg: 10, unit_cost: "12", received_date: today } as never, boss);
+    const ret = docOf(await createCustomerReturn({ order_id: order.id, reason: "رجع من العميل", lines: [{ product_id: p.id, quantity: 2, location_id: "loc_recv" }] }, boss));
+    const layer = await prisma.stockValuationLayer.findFirstOrThrow({ where: { movement: { documentId: ret } } });
+    assert.equal(D(layer.unitCost).toFixed(2), "6.00", "back at the 6 it left at, not the 9.75 average");
+    assert.deepEqual(await glOfDocument(ret), { inventory: "12.00", cogs: "-12.00" }, "COGS reduced by exactly what it was charged");
+  } finally {
+    await restore();
+  }
+});
+
+test("ACC-13: the month-close checklist lists a dispatched order with no invoice (a warning, with where to fix it)", async () => {
+  const p = await prisma.stockProduct.create({ data: { name: `${TAG} Close`, unit: "KG" } });
+  await createIntake({ supplier_id: supplierId, product_id: p.id, received_kg: 5, unit_cost: "3", received_date: today } as never, boss);
+  const before = (await periodCloseChecklist(today.slice(0, 7))).warnings.find((w) => w.code === "dispatched_not_invoiced")?.count ?? 0;
+  const order = await prisma.order.create({ data: { orderNumber: `${TAG}-CL`, customerName: `${TAG} مطعم`, deliveryDate: today } });
+  const { inTx } = await import("./_db");
+  await inTx((tx) => issueStock(tx, { warehouseId: "wh_main", sourceType: "order", sourceId: order.id, reference: `${TAG} CL`, lines: [{ productId: p.id, quantity: D(1), sourceLineId: `${TAG}-CL-1` }] }, boss as never));
+  const w = (await periodCloseChecklist(today.slice(0, 7))).warnings.find((x) => x.code === "dispatched_not_invoiced");
+  assert.equal(w?.count, before + 1);
+  assert.equal(w?.href, "/sales");
+  await assert.rejects(periodCloseChecklist("2026-13x"), (e: { status?: number }) => e.status === 400);
+});
+
+test("standard costing: a customer return against an order comes back at the standard, with no variance", async () => {
+  const p = await prisma.stockProduct.create({ data: { name: `${TAG} StdRet`, unit: "KG", costingMethod: "standard", standardCost: "7" } });
+  await createIntake({ supplier_id: supplierId, product_id: p.id, received_kg: 10, unit_cost: "9", received_date: today } as never, boss);
+  const order = await prisma.order.create({ data: { orderNumber: `${TAG}-SR`, customerName: `${TAG} فندق`, deliveryDate: today } });
+  const { inTx } = await import("./_db");
+  await inTx((tx) => issueStock(tx, { warehouseId: "wh_main", sourceType: "order", sourceId: order.id, reference: `${TAG} SR`, lines: [{ productId: p.id, quantity: D(4), sourceLineId: `${TAG}-SR-1` }] }, boss as never));
+  const ret = docOf(await createCustomerReturn({ order_id: order.id, reason: "رجوع", lines: [{ product_id: p.id, quantity: 1, location_id: "loc_recv" }] }, boss));
+  const layer = await prisma.stockValuationLayer.findFirstOrThrow({ where: { movement: { documentId: ret } } });
+  assert.deepEqual([layer.costSource, D(layer.unitCost).toFixed(2), D(layer.priceVariance).toFixed(2)], ["standard", "7.00", "0.00"]);
+  assert.deepEqual(await glOfDocument(ret), { inventory: "7.00", cogs: "-7.00" });
 });

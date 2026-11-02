@@ -890,17 +890,22 @@ export async function postCustomerReturnInTx(tx: Tx, input: Record<string, unkno
   // returned goods never exceed what was dispatched for the order — a customer
   // can only send back what actually left.
   let issuedPerProduct: Map<string, Prisma.Decimal> | null = null;
+  let issuedCost: Map<string, Prisma.Decimal> | null = null;
   let alreadyReturned: Map<string, Prisma.Decimal> | null = null;
   if (orderId) {
     await advisoryXactLock(tx, `inventory:customer-return:${orderId}`);
-    const eligible = await tx.$queryRaw<{ productId: string; qty: Prisma.Decimal }[]>`
-      SELECT m."productId", -sum(m."quantity") AS qty
+    const eligible = await tx.$queryRaw<{ productId: string; qty: Prisma.Decimal; value: Prisma.Decimal | null }[]>`
+      SELECT m."productId", -sum(m."quantity") AS qty, -sum(v."value") AS value
       FROM "StockMovement" m JOIN "InventoryDocument" d ON d."id" = m."documentId"
+      LEFT JOIN "StockValuationLayer" v ON v."movementId" = m."id"
       WHERE d."type" = 'issue' AND d."reversalOfId" IS NULL
         AND d."sourceType" = 'order' AND d."sourceId" = ${orderId}
         AND m."kind" = 'issue'
       GROUP BY m."productId"`;
     issuedPerProduct = new Map(eligible.map((r) => [r.productId, D(r.qty)]));
+    // ACC-07: what each product left the order at, per unit — a return of those goods
+    // comes back at that cost, not at today's average (or zero when the product is out).
+    issuedCost = new Map(eligible.filter((r) => D(r.qty).gt(0) && r.value != null).map((r) => [r.productId, D(r.value!).dividedBy(D(r.qty)).toDecimalPlaces(4)]));
     const already = await tx.$queryRaw<{ productId: string; qty: Prisma.Decimal }[]>`
               SELECT m."productId", sum(m."quantity") AS qty
               FROM "StockMovement" m
@@ -931,7 +936,8 @@ export async function postCustomerReturnInTx(tx: Tx, input: Record<string, unkno
     const product = await loadProduct(tx, l.product_id);
     const qty = await lineQty(tx, product, l);
     const loc = l.location_id ? await resolveLocation(tx, wh.id, l.location_id as string) : quarantine ?? (await receivingLocation(tx, wh.id));
-    moves.push({ productId: product.id, warehouseId: wh.id, locationId: loc.id, lotId: typeof l.lot_id === "string" && l.lot_id ? l.lot_id : null, quantity: qty, kind: "customer_return", documentId: doc.id });
+    const cost = issuedCost?.get(product.id);
+    moves.push({ productId: product.id, warehouseId: wh.id, locationId: loc.id, lotId: typeof l.lot_id === "string" && l.lot_id ? l.lot_id : null, quantity: qty, kind: "customer_return", documentId: doc.id, ...(cost ? { unitCost: cost, costSource: "lot" as const } : {}) });
   }
   // Enforce the cumulative physical-return invariant: cumulative returns for an
   // order never exceed what was dispatched for it (issues, net of reversals).
