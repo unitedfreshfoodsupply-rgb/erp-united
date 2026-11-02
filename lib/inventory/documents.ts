@@ -316,7 +316,12 @@ export async function releaseFromQuarantine(input: Record<string, unknown>, acto
       }, actor);
 
       for (const m of moves) m.documentId = doc.id;
-      await postMovements(tx, moves, { actorId: actor.id, actorName: actor.name, effectiveDate: date });
+      // Out first, then in AT THE COST THAT LEFT (like a transfer): posting the pair at
+      // once valued the "in" from what remained, which is nothing when the released
+      // quantity is all of the product's valued stock — the cost was lost.
+      const mctx = { actorId: actor.id, actorName: actor.name, effectiveDate: date };
+      const [outRow] = await postMovements(tx, [moves[0]], mctx);
+      await postMovements(tx, [{ ...moves[1], unitCost: D(outRow.unitCost), costSource: "lot" }], mctx);
       await auditDoc(tx, doc, actor, "inventory_quarantine_release",
         `إفراج ${rawQty.toFixed(3)} كجم ${product.name} من ${from.code} إلى ${to.code}${lotId ? ` · ${lotId.slice(0, 8)}` : ""}${inspectionNote ? ` · فحص: ${inspectionNote}` : ""}`);
       return doc;
@@ -357,14 +362,14 @@ export async function releaseGradingHoldInTx(
   const date = todayLocalISO();
   const reason = `اعتماد خسارة الفرز · استلام ${intake.receiptNumber ?? intake.id}`;
   const doc = await createDoc(tx, "release", { warehouseId: wh.id, businessDate: date, status: "posted", reason, idempotencyKey: null, sourceType: "stock_intake", sourceId: intakeId, payload: { intakeId, fromLocationId: from.id, toLocationId: to.id, lines: payload.lines } }, actor as ServiceActor);
-  const moves: MoveInput[] = [];
+  const mctx = { actorId: actor.id, actorName: actor.name, effectiveDate: date };
   for (const l of payload.lines) {
     const qty = D(l.quantity);
     if (!qty.gt(0)) continue;
-    moves.push({ productId: l.productId, warehouseId: wh.id, locationId: from.id, lotId: l.lotId, quantity: qty.negated(), kind: "release_out", reason, documentId: doc.id });
-    moves.push({ productId: l.productId, warehouseId: wh.id, locationId: (l.destinationLocationId ? dest.get(l.destinationLocationId)! : to).id, lotId: l.lotId, quantity: qty, kind: "release_in", reason, documentId: doc.id });
+    // Out, then in at the cost that left (see releaseFromQuarantine).
+    const [outRow] = await postMovements(tx, [{ productId: l.productId, warehouseId: wh.id, locationId: from.id, lotId: l.lotId, quantity: qty.negated(), kind: "release_out", reason, documentId: doc.id }], mctx);
+    await postMovements(tx, [{ productId: l.productId, warehouseId: wh.id, locationId: (l.destinationLocationId ? dest.get(l.destinationLocationId)! : to).id, lotId: l.lotId, quantity: qty, kind: "release_in", reason, documentId: doc.id, unitCost: D(outRow.unitCost), costSource: "lot" }], mctx);
   }
-  await postMovements(tx, moves, { actorId: actor.id, actorName: actor.name, effectiveDate: date });
   await auditDoc(tx, doc, actor as ServiceActor, "grading_loss_released", `${from.code} → ${to.code}`);
   return doc;
 }

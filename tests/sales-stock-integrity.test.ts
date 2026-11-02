@@ -158,6 +158,18 @@ async function main() {
     check("…45 kg become sellable", (await avail(g.id)) === 45);
   }
 
+  section("12b. Releasing a held grading keeps the stock's cost (grade-B SKU that is all of its stock)");
+  const gA = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} خوخ`, unit: "KG" })).body.product;
+  const gB = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} خوخ فرزة`, unit: "KG" })).body.product;
+  r = await intake({ product_id: gA.id, received_kg: 100, grade_b_qty: 20, grade_b_product_id: gB.id, waste_qty: 10, unit_cost: "10" });
+  check("intake with a grade-B SKU and waste -> recorded (held)", r.status === 201 || r.status === 200, r.body);
+  const glB = ((await call("sara", "GET", "/api/approvals?status=pending")).body.approvals ?? []).find((x: { type: string; title: string }) => x.type === "inventory.grading_loss" && x.title.includes(gA.name));
+  if (glB) await call("sara", "POST", `/api/approvals/${glB.id}/decide`, { decision: "approve", comment: TAG });
+  const val = (await call("karim", "GET", "/api/inventory/reports/valuation")).body;
+  const rowB = (val.rows ?? val.items ?? []).find((x: { productId: string }) => x.productId === gB.id);
+  check("grade-B SKU released with its cost: 20 kg × 10 = 200.00 (not 0)", rowB && Number(rowB.value) === 200, rowB ?? val);
+  check("…and it is sellable", (await avail(gB.id)) === 20);
+
   section("13. Dispatch is strict; invoice needs a buyer tax identity");
   // Takes an order through preparation and loading with `loaded` pieces on the truck.
   async function toLoaded(qty: number, loaded: number) {
