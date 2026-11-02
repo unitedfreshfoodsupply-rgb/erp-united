@@ -158,6 +158,18 @@ async function main() {
     check("…45 kg become sellable", (await avail(g.id)) === 45);
   }
 
+  section("12b. Releasing a held grading keeps the stock's cost (grade-B SKU that is all of its stock)");
+  const gA = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} خوخ`, unit: "KG" })).body.product;
+  const gB = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} خوخ فرزة`, unit: "KG" })).body.product;
+  r = await intake({ product_id: gA.id, received_kg: 100, grade_b_qty: 20, grade_b_product_id: gB.id, waste_qty: 10, unit_cost: "10" });
+  check("intake with a grade-B SKU and waste -> recorded (held)", r.status === 201 || r.status === 200, r.body);
+  const glB = ((await call("sara", "GET", "/api/approvals?status=pending")).body.approvals ?? []).find((x: { type: string; title: string }) => x.type === "inventory.grading_loss" && x.title.includes(gA.name));
+  if (glB) await call("sara", "POST", `/api/approvals/${glB.id}/decide`, { decision: "approve", comment: TAG });
+  const val = (await call("karim", "GET", "/api/inventory/reports/valuation")).body;
+  const rowB = (val.rows ?? val.items ?? []).find((x: { productId: string }) => x.productId === gB.id);
+  check("grade-B SKU released with its cost: 20 kg × 10 = 200.00 (not 0)", rowB && Number(rowB.value) === 200, rowB ?? val);
+  check("…and it is sellable", (await avail(gB.id)) === 20);
+
   section("13. Dispatch is strict; invoice needs a buyer tax identity");
   // Takes an order through preparation and loading with `loaded` pieces on the truck.
   async function toLoaded(qty: number, loaded: number) {
@@ -193,6 +205,24 @@ async function main() {
   } else {
     check("legal entity created for the tax test", false, le.body);
   }
+
+  section("13a. One price everywhere: order line → invoice → receipt → credit note → ledger");
+  const full = (await call("karim", "GET", `/api/sales/invoices/${inv?.id}`)).body.invoice;
+  const line = full?.lines?.[0];
+  check("invoice line carries the agreed order price and quantity (60 × 2 pieces)", line && Number(line.unitPrice) === 60 && Number(line.quantity) === 2 && line.uomCode === "PIECE", line);
+  check("invoice net = Σ qty × price × (1 − discount)", full && Number(full.net) === 120, full && { net: full.net, total: full.total, tax: full.taxTotal });
+  check("invoice total = net + VAT", full && Number(full.total) === Number(full.net) + Number(full.taxTotal), full && { net: full.net, tax: full.taxTotal, total: full.total });
+  const stmt = (await call("karim", "GET", `/api/sales/customers/${cust.id}/statement`)).body;
+  check("customer statement shows the invoice at its total", JSON.stringify(stmt).includes(String(full?.number)) && JSON.stringify(stmt).includes(Number(full?.total).toFixed(2)), stmt?.lines?.slice?.(-3) ?? stmt);
+  const cnr = await call("karim", "POST", `/api/sales/invoices/${inv?.id}/credit-notes`, { reason: TAG, lines: [{ invoice_line_id: line?.id, quantity: 1 }] });
+  check("partial credit note (1 of 2 pieces) -> created", cnr.status === 201 || cnr.status === 200, cnr.body);
+  const cn = cnr.body.creditNote;
+  check("…credits exactly 60 net at the invoice's price, with the invoice's VAT rate", cn && Number(cn.net) === 60 && Number(cn.total) === 60 + Number(cn.taxTotal ?? 0), cn);
+  const after = (await call("karim", "GET", `/api/sales/invoices/${inv?.id}`)).body;
+  check("…the invoice's open amount drops by the credit", after && Number(after.open ?? after.invoice?.open) === Number(full.total) - Number(cn.total), after && { open: after.open ?? after.invoice?.open });
+  const health = (await call("karim", "GET", "/api/accounting/integrity")).body.integrity;
+  check("ledger: trial balance balanced and AR sub-ledger = GL after sale and credit", health.checks?.find((c: { key: string }) => c.key === "trial_balance")?.ok === true && health.checks?.find((c: { key: string }) => c.key === "ar")?.ok === true, health.checks?.filter((c: { ok: boolean }) => !c.ok));
+  check("ledger: inventory valuation = GL after the issue", health.checks?.find((c: { key: string }) => c.key === "inventory")?.ok === true, health.checks?.find((c: { key: string }) => c.key === "inventory"));
 
   section("13b. Product mapping never rewrites history or bypasses stock");
   const other = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} صنف بديل`, unit: "PIECE" })).body.product;
