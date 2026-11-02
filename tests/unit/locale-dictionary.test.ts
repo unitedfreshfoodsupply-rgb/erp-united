@@ -74,3 +74,12 @@ test("keys built from codes at render time all exist (the integrity script only 
   const missing = Object.entries(families).flatMap(([prefix, codes]) => codes.map((c) => `${prefix}.${c}`)).filter((k) => !dict[k]?.ar || !dict[k]?.en);
   assert.deepEqual(missing, []);
 });
+
+test("every accounting integrity check has a dictionary label (no Arabic server label leaks into English)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync("lib/accounting/integrity.ts", "utf8");
+  const keys = [...src.matchAll(/\bkey: "([a-z_]+)", label: "/g)].map((m) => m[1]);
+  assert.ok(keys.length >= 10, `found ${keys.length} integrity checks`);
+  const dict = DICTIONARY as Record<string, unknown>;
+  for (const k of keys) assert.ok(dict[`accounting.integrity.${k}`], `accounting.integrity.${k} is missing — English shows the server's Arabic label`);
+});

@@ -1491,6 +1491,9 @@ const accounting = {
   "accounting.integrity.grni": { ar: "بضاعة مستلمة لسه فواتيرها مجتش (معلومة)", en: "Goods received, not yet billed (information)" },
   "accounting.integrity.payroll": { ar: "صافي المرتبات المستحقة = حسابها في الأستاذ", en: "Net salaries owed = their ledger account" },
   "accounting.integrity.waste_pending": { ar: "هالك لسه في المخزون مستني الإعدام (معلومة)", en: "Waste still in stock, awaiting write-off (information)" },
+  "accounting.integrity.fixed_assets": { ar: "سجل الأصول الثابتة = حساباتها في الأستاذ (تكلفة ومجمع إهلاك)", en: "Fixed-asset register = its ledger accounts (cost and accumulated depreciation)" },
+  "accounting.integrity.vat_payable": { ar: "ضريبة القيمة المضافة المستحقة = الإقرارات اللي لسه متسددتش", en: "VAT payable = filed returns not yet paid" },
+  "accounting.integrity.provisional_cost_pending": { ar: "استلامات بسعر مؤقت لسه فاتورتها مترحّلتش (معلومة)", en: "Receipts at a provisional cost whose bill is not posted yet (information)" },
   "accounting.waste-note": { ar: "قيمة الهالك اللي في مكان الهالك ولسه متعملهوش مستند إعدام — بيفضل جزء من قيمة المخزون لحد ما يتعدم", en: "Value of waste in the waste location with no scrap document yet — it stays in stock value until written off" },
   "accounting.grni-note": { ar: "قيمة بضاعة استلمناها ولسه فاتورتها مجتش", en: "Value of goods received but invoice not yet received" },
   "accounting.health-matched": { ar: "✓ الدفاتر متطابقة: كل الأقسام بتقرا نفس الأرقام", en: "✓ Books match: all sections read the same numbers" },
@@ -1572,6 +1575,7 @@ const accounting = {
   "accounting.refund-supplier-header": { ar: "استرداد مبلغ من مورد (من رصيدنا عنده)", en: "Supplier refund (from our balance with them)" },
   // Success toast messages
   "accounting.toast-recorded": { ar: "{ref} اتسجل", en: "{ref} was recorded" },
+  "accounting.toast-payment-pending": { ar: "طلب السداد {ref} اتسجل — هيترحّل لما شخص تاني يعتمده", en: "Payment request {ref} recorded — it posts once another person approves it" },
   "accounting.toast-reversed": { ar: "{n} اتعكس — المستندات اللي كان متخصص عليها اتفتحت تاني", en: "{n} reversed — documents it was allocated to are now open again" },
   "accounting.toast-reconciled": { ar: "التسوية خلصت", en: "Reconciliation completed" },
   "accounting-toast-opening-saved": { ar: "اتسجل الرصيد الافتتاحي", en: "Opening balance recorded" },

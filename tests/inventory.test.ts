@@ -206,6 +206,24 @@ async function main() {
   d = await detail();
   check("reopen returns the 66 kg: 216", d.onHand === "216", d.onHand);
   check("the issue is marked reversed", (await call("hossam", "GET", "/api/inventory/documents?type=issue")).body.documents.find((x: any) => x.id === issues[0].id)?.status === "reversed");
+  {
+    // ACC-03: the reversal goes back through COGS — what the dispatch charged to COGS comes
+    // off COGS, and inventory adjustments are not touched (they used to absorb it).
+    const glDb = new PrismaClient();
+    const glOf = async (docId: string) => {
+      const rows = await glDb.$queryRaw<{ k: string | null; b: unknown }[]>`
+        SELECT a."systemKey" AS k, sum(l."debit" - l."credit") AS b FROM "StockValuationPosting" p
+        JOIN "StockMovement" m ON m."id" = p."movementId" JOIN "JournalLine" l ON l."entryId" = p."entryId" JOIN "Account" a ON a."id" = l."accountId"
+        WHERE m."documentId" = ${docId} GROUP BY a."systemKey"`;
+      return Object.fromEntries(rows.map((x) => [x.k, Number(x.b)]));
+    };
+    const rev = await glDb.inventoryDocument.findFirstOrThrow({ where: { reversalOfId: issues[0].id } });
+    const out = await glOf(issues[0].id), back = await glOf(rev.id);
+    check("ACC-03: the dispatch reversal is the exact opposite on the journal — COGS back, no inventory adjustment", out.cogs > 0 && back.cogs === -out.cogs && back.inventory === -out.inventory && !back.inventory_adjustment, { out, back });
+    const kinds = await glDb.stockMovement.findMany({ where: { documentId: rev.id }, select: { kind: true } });
+    check("…its movements are returns to stock (customer_return), so COGS reports by kind agree with the GL", kinds.length > 0 && kinds.every((k) => k.kind === "customer_return"), kinds);
+    await glDb.$disconnect();
+  }
   check("…and the reopened order holds its 66 kg again: available 150", (await detail()).available === "150");
   exs = (await call("hossam", "GET", `/api/inventory/exceptions?order_id=${o1.id}&status=voided`)).body.exceptions;
   check("no exception existed, so none is voided (replaces: exceptions voided with the reason)", exs.length === 0, exs);

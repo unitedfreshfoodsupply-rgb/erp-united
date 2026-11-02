@@ -3,7 +3,7 @@ import { handleApiError } from "@/lib/rbac";
 import { requireAnyPermission } from "@/lib/authz";
 import { listPayments } from "@/lib/accounting/cash";
 import { createPayment } from "@/lib/accounting/cash";
-import { postHandler } from "@/lib/route-handlers";
+import { documentStatus, postHandler } from "@/lib/route-handlers";
 
 export async function GET(req: NextRequest) {
   try {
@@ -16,4 +16,6 @@ export async function GET(req: NextRequest) {
     return handleApiError(err, req);
   }
 }
-export const POST = postHandler("accounting.payments.manage", async (body, actor) => ({ payment: await createPayment(body, actor) }));
+// ACC-04: 201 { payment } when it posted; 202 { paymentRequest } while it waits for a second
+// person (accounting.payment_approval); 200 for a replayed request.
+export const POST = postHandler("accounting.payments.manage", (body, actor) => createPayment(body, actor), documentStatus);

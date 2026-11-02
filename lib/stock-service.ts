@@ -759,9 +759,14 @@ export async function updateIntake(
   validateCrates(crateCount);
   const receivedDate = fields.received_date ?? existing.receivedDate;
   assertDate(receivedDate, "تاريخ الاستلام");
+  // The grading split (grade B, waste) is not editable here: it stays as received, so the
+  // good quantity moves only by what the correction changes (ACC-01 — it used to be
+  // recomputed without them, which the database refused for every graded receipt).
   const { received, rejected, good } = receivedNumbers(
     fields.received_kg ?? existing.receivedQty.toFixed(),
-    fields.rejected_kg ?? existing.rejectedQty.toFixed()
+    fields.rejected_kg ?? existing.rejectedQty.toFixed(),
+    existing.gradeBQty.toFixed(),
+    existing.wasteQty.toFixed()
   );
   const notes = fields.notes === undefined ? existing.notes : fields.notes.trim() || null;
 

@@ -61,6 +61,7 @@ export type AuditInput = {
     | "customer_refund"
     | "supplier_refund"
     | "supplier_payment"
+    | "supplier_payment_request"
     | "bank_reconciliation"
     | "account"
     | "cash_account"

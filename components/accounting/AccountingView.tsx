@@ -223,7 +223,7 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
             setBusy(true);
             try {
               const r = await apiPost<Record<string, { number: string }>>(`/api/accounting/${kind}`, { party_id: party, amount: form.amount, method: form.method, cash_account_id: form.cash_account_id, reference: form.reference || null, date: form.date, idempotency_key: key, ...(deductions.length ? { deductions } : {}), ...(explicit.length ? { allocations: explicit } : { auto: true }) });
-              toast.show(t("accounting.toast-recorded", { ref: (r.receipt ?? r.payment).number }), "success");
+              toast.show(r.paymentRequest ? t("accounting.toast-payment-pending", { ref: r.paymentRequest.number }) : t("accounting.toast-recorded", { ref: (r.receipt ?? r.payment).number }), "success");
               setForm({ ...form, amount: "", reference: "" });
               setAlloc({});
               setDed({ withholding: "", withholding_ref: "", bank_charge: "", write_off: "" });

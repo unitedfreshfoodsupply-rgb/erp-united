@@ -89,7 +89,8 @@
     "test:sales-stock-integrity": "tsx --env-file-if-exists=.env tests/sales-stock-integrity.test.ts",
     "test:mfa": "tsx --env-file-if-exists=.env tests/mfa.test.ts",
     "test:web-security": "tsx --env-file-if-exists=.env tests/web-security.test.ts",
-    "test:provisional-cost": "tsx --env-file-if-exists=.env tests/provisional-cost.test.ts"
+    "test:provisional-cost": "tsx --env-file-if-exists=.env tests/provisional-cost.test.ts",
+    "demo:dataset": "tsx --env-file-if-exists=.env tests/demo-dataset.ts"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans-arabic": "5.3.0",

@@ -76,6 +76,13 @@ export type MoveInput = {
   revaluationId?: string | null;
   /** standard_cost_out / standard_cost_in only: the StandardCostChange the pair belongs to. */
   standardCostChangeId?: string | null;
+  /**
+   * ACC-03: the movement this one undoes (a document reversal). Its valuation is the exact
+   * opposite of that movement's layer — value, purchase price variance and cost source —
+   * and its value goes back through the ORIGINAL movement's counter account (COGS, GRNI…),
+   * not inventory adjustments.
+   */
+  reverses?: string | null;
 };
 
 type Ctx = { actorId: string | null; actorName: string; effectiveDate: string };
@@ -162,7 +169,12 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
 
   // ---- 3. post, one move at a time (each sees the ones before it) ----------------
   const created: StockMovement[] = [];
-  const valued: { movementId: string; kind: string; documentId: string | null; intakeId: string | null; value: Dec; priceVariance: Dec }[] = [];
+  const valued: { movementId: string; kind: string; documentId: string | null; intakeId: string | null; value: Dec; priceVariance: Dec; counterKind?: string }[] = [];
+  // The layers being undone (ACC-03), read once.
+  const reversedIds = moves.map((m) => m.reverses).filter((x): x is string => !!x);
+  const reversed = new Map(
+    (reversedIds.length ? await tx.stockValuationLayer.findMany({ where: { movementId: { in: reversedIds } }, include: { movement: { select: { kind: true, quantity: true, productId: true } } } }) : []).map((l) => [l.movementId, l])
+  );
   for (const m of moves) {
     const product = productById.get(m.productId)!;
     const qty = q3(m.quantity);
@@ -187,7 +199,18 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
     let priceVariance = ZERO;
     const fifoConsumptions: { id: string; take: Dec }[] = [];
 
-    if (method === "standard") {
+    const undo = m.reverses ? reversed.get(m.reverses) : undefined;
+    if (m.reverses && (!undo || undo.movement.productId !== m.productId || !D(undo.movement.quantity).negated().equals(qty))) {
+      throw new ApiError(409, "الحركة اللي بتتلغي مش مطابقة للإلغاء (صنف أو كمية مختلفة)");
+    }
+    if (undo) {
+      // Exactly the opposite of what was posted, whatever the method or the cost today.
+      unitCost = q4(D(undo.unitCost));
+      costSource = undo.costSource as NonNullable<MoveInput["costSource"]>;
+      value = q4(D(undo.value).negated());
+      priceVariance = q4(D(undo.priceVariance).negated());
+      if (qty.lt(0) && method === "fifo") await planFifo(tx, m, qty.abs(), fifoConsumptions);
+    } else if (method === "standard") {
       // DEFECT-SC-01: a standard-cost product is carried at its standard, whatever the
       // movement. A purchase-linked movement priced by its caller moves GRNI at that price;
       // the difference from the standard is the purchase price variance. Any other caller
@@ -282,7 +305,7 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
       });
     }
     created.push(row);
-    valued.push({ movementId: row.id, kind: m.kind, documentId: m.documentId ?? null, intakeId: m.intakeId ?? null, value, priceVariance });
+    valued.push({ movementId: row.id, kind: m.kind, documentId: m.documentId ?? null, intakeId: m.intakeId ?? null, value, priceVariance, counterKind: undo?.movement.kind });
   }
   // ---- 4. the value of these movements reaches the GL in this same transaction ---
   await postMovementValuation(tx, valued, { id: ctx.actorId, name: ctx.actorName, effectiveDate: ctx.effectiveDate });

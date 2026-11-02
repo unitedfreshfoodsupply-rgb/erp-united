@@ -509,11 +509,16 @@ export async function createCreditNote(invoiceId: string, input: unknown, actor:
 // ---------------------------------------------------------------------------
 
 /** What has been taken off each issued invoice: credit notes + receipts allocated to it. */
-export async function openAmounts(db: Pick<Tx, "creditNote" | "receiptAllocation">, invoiceIds: string[]) {
+/**
+ * What has been credited and collected against each invoice — as of a date when given
+ * (ACC-08: an aging for a past day must not subtract credit notes or receipts dated after
+ * it, and money reversed only after that day still counted on that day).
+ */
+export async function openAmounts(db: Pick<Tx, "creditNote" | "receiptAllocation">, invoiceIds: string[], asOf?: string) {
   const [credits, paid] = invoiceIds.length
     ? await Promise.all([
-        db.creditNote.groupBy({ by: ["invoiceId"], where: { invoiceId: { in: invoiceIds } }, _sum: { total: true } }),
-        db.receiptAllocation.groupBy({ by: ["invoiceId"], where: { invoiceId: { in: invoiceIds }, receipt: { reversal: { is: null } } }, _sum: { amount: true } }),
+        db.creditNote.groupBy({ by: ["invoiceId"], where: { invoiceId: { in: invoiceIds }, ...(asOf ? { issueDate: { lte: asOf } } : {}) }, _sum: { total: true } }),
+        db.receiptAllocation.groupBy({ by: ["invoiceId"], where: { invoiceId: { in: invoiceIds }, receipt: asOf ? { date: { lte: asOf }, ...liveOn(asOf) } : { reversal: { is: null } } }, _sum: { amount: true } }),
       ])
     : [[], []];
   const out = new Map<string, Prisma.Decimal>();
@@ -637,6 +642,9 @@ export async function customerStatement(customerId: string, from: string, to: st
 }
 
 /** Open receivables by how overdue they are, per customer, as of a date. */
+/** Money (a receipt or payment) still standing on `asOf`: never reversed, or reversed only after it. */
+export const liveOn = (asOf: string) => ({ OR: [{ reversal: { is: null } }, { reversal: { is: { date: { gt: asOf } } } }] });
+
 export async function agingReport(asOf = todayLocalISO()) {
   // Every read is issued up front, in four independent chains, instead of one after
   // another (each is a round trip to a database a region away); party names come in one
@@ -647,20 +655,20 @@ export async function agingReport(asOf = todayLocalISO()) {
     prisma.salesInvoice.findMany({
       where: { status: "issued", issueDate: { lte: asOf } },
       select: { id: true, number: true, customerId: true, dueDate: true, total: true, customer: { select: { code: true, name: true, nameAr: true } } },
-    }).then(async (invs) => [invs, await openAmounts(prisma, invs.map((i) => i.id))] as const),
+    }).then(async (invs) => [invs, await openAmounts(prisma, invs.map((i) => i.id), asOf)] as const),
     prisma.partyOpeningBalance.findMany({ where: { partyType: "customer", date: { lte: asOf } } }).then(async (obs) => {
       const openingIds = obs.map((o) => o.id);
       const [allocs, parties] = await Promise.all([
         openingIds.length ? prisma.receiptAllocation.groupBy({
           by: ["openingBalanceId"],
-          where: { openingBalanceId: { in: openingIds }, receipt: { date: { lte: asOf }, reversal: { is: null } } },
+          where: { openingBalanceId: { in: openingIds }, receipt: { date: { lte: asOf }, ...liveOn(asOf) } },
           _sum: { amount: true },
         }) : Promise.resolve([]),
         partyNames(obs.map((o) => o.partyId)),
       ]);
       return [obs, allocs, parties] as const;
     }),
-    prisma.customerReceipt.findMany({ where: { date: { lte: asOf }, reversal: { is: null } }, select: { customerId: true, amount: true, allocations: { select: { amount: true } }, customer: { select: { code: true, name: true, nameAr: true } } } }),
+    prisma.customerReceipt.findMany({ where: { date: { lte: asOf }, ...liveOn(asOf) }, select: { customerId: true, amount: true, allocations: { select: { amount: true } }, customer: { select: { code: true, name: true, nameAr: true } } } }),
     prisma.customerRefund.groupBy({ by: ["customerId"], where: { date: { lte: asOf } }, _sum: { amount: true } }).then(async (fs) => [fs, await partyNames(fs.map((f) => f.customerId))] as const),
     // WS3 G1: other receivables (a fixed asset sold on credit).
     prisma.customerCharge.findMany({ where: { date: { lte: asOf } }, orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }], select: { id: true, reference: true, date: true, customerId: true, dueDate: true, total: true, customer: { select: { code: true, name: true, nameAr: true } } } }),

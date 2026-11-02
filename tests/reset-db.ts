@@ -40,6 +40,14 @@ async function main() {
   await prisma.systemSetting.create({
     data: { key: "auth.mfa_required_roles", value: [], updatedBy: "test-reset (tests/reset-db.ts)" },
   });
+  // ACC-04: supplier payments wait for a second person by default. The regression suites
+  // record payments as fixtures (funding, settlement scenarios) and assert on their postings,
+  // so the TEST database records them directly — an explicit, attributed override. The
+  // approval path itself is proven by tests/integration/accounting-gaps.test.ts and
+  // tests/payment-approval.test.ts, which switch it back on.
+  await prisma.systemSetting.create({
+    data: { key: "accounting.payment_approval", value: false, updatedBy: "test-reset (tests/reset-db.ts)" },
+  });
 
   const [users, orders, items] = await Promise.all([
     prisma.user.count(),

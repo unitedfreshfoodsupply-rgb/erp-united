@@ -1012,13 +1012,16 @@ export async function reverseDocumentInTx(tx: Tx, documentId: string, reason: st
       actor
     );
     // Undo in reverse order (transfer: take back from the destination first), each
-    // movement negated at the cost it was posted at, so value returns exactly.
+    // movement the exact opposite of its valuation layer, back through the counter account
+    // it was posted against (ACC-03: an issue's reversal is a return to stock against COGS,
+    // a supplier return's against GRNI — never a gain or loss in inventory adjustments).
     const opposite: Record<string, MoveInput["kind"]> = {
       transfer_in: "transfer_out",
       transfer_out: "transfer_in",
+      issue: "customer_return",
+      customer_return: "issue",
       adjustment: "adjustment",
       scrap: "adjustment",
-      customer_return: "adjustment",
       supplier_return: "adjustment",
     };
     const moves: MoveInput[] = [...doc.movements].reverse().map((m) => ({
@@ -1032,6 +1035,7 @@ export async function reverseDocumentInTx(tx: Tx, documentId: string, reason: st
       reason: `إلغاء ${doc.number}`,
       unitCost: m.unitCost == null ? null : D(m.unitCost),
       costSource: "lot",
+      reverses: m.id,
     }));
     await postMovements(tx, moves, ctxOf(actor, reversal.businessDate));
     await tx.inventoryDocument.update({ where: { id: doc.id, version: doc.version }, data: { status: "reversed", version: { increment: 1 } } });

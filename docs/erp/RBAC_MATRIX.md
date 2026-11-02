@@ -392,6 +392,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/inventory/products/[id]/packagings` | `stock.manage_products` | ✓ | ✓ | ✓ |  |  |  |  |  |  |
 | GET | `/api/inventory/products/[id]` | `stock.view` | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |
 | PATCH | `/api/inventory/products/[id]/settings` | any of `stock.manage_products`, `accounting.manage` | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  |
+| GET | `/api/inventory/products/[id]/standard-cost` | any of `accounting.manage`, `stock.valuation.view` | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | POST | `/api/inventory/release` | `stock.adjust` | ✓ | ✓ | ✓ |  |  |  |  |  |  |
 | GET | `/api/inventory/reports/expiring` | `stock.view` | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |
 | GET | `/api/inventory/reports/provisional` | `stock.valuation.view` | ✓ | ✓ |  |  |  |  | ✓ |  |  |

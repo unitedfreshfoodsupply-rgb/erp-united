@@ -162,6 +162,13 @@ export const APPROVAL_TYPES = {
     levels: 1,
     link: () => "/accounting?tab=journals",
   },
+  "accounting.supplier_payment": {
+    label: "اعتماد سداد مورد",
+    entityType: "supplier_payment_request",
+    approvePermission: "accounting.manage",
+    levels: 1,
+    link: () => "/accounting?tab=payments",
+  },
   "accounting.cash_transfer": {
     label: "اعتماد تحويل بين الخزائن والبنوك",
     entityType: "cash_transfer",

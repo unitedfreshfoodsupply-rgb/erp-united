@@ -54,6 +54,7 @@ export const SEQUENCE_DEFS = {
   "accounting.cash_transfer": { prefix: "CT", padding: 5, reset: "yearly", label: "تحويل نقدية" },
   "accounting.vat_return": { prefix: "VAT", padding: 4, reset: "yearly", label: "إقرار ضريبة القيمة المضافة" },
   "accounting.journal_request": { prefix: "JR", padding: 5, reset: "yearly", label: "طلب قيد يدوي" },
+  "accounting.payment_request": { prefix: "SPR", padding: 5, reset: "yearly", label: "طلب سداد مورد" },
   "accounting.fixed_asset": { prefix: "FA", padding: 5, reset: "never", label: "أصل ثابت" },
   "accounting.depreciation_run": { prefix: "DEP", padding: 4, reset: "yearly", label: "قيد إهلاك شهري" },
   "accounting.asset_disposal": { prefix: "DSP", padding: 5, reset: "yearly", label: "استبعاد أصل" },

@@ -1,4 +1,5 @@
 import { Prisma, type SupplierBill } from "@prisma/client";
+import { liveOn } from "@/lib/sales/invoicing";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
@@ -754,11 +755,12 @@ export async function createDebitNote(billId: string, input: unknown, actor: Ser
 // ---------------------------------------------------------------------------
 
 /** What has been taken off each posted bill: debit notes + payments allocated to it. */
-async function debitedByBill(db: Pick<Tx, "debitNote" | "paymentAllocation">, billIds: string[]) {
+/** Debited and paid against each bill — as of a date when given (ACC-08, see openAmounts). */
+async function debitedByBill(db: Pick<Tx, "debitNote" | "paymentAllocation">, billIds: string[], asOf?: string) {
   const [dn, paid] = billIds.length
     ? await Promise.all([
-        db.debitNote.groupBy({ by: ["billId"], where: { billId: { in: billIds } }, _sum: { total: true } }),
-        db.paymentAllocation.groupBy({ by: ["billId"], where: { billId: { in: billIds }, payment: { reversal: { is: null } } }, _sum: { amount: true } }),
+        db.debitNote.groupBy({ by: ["billId"], where: { billId: { in: billIds }, ...(asOf ? { issueDate: { lte: asOf } } : {}) }, _sum: { total: true } }),
+        db.paymentAllocation.groupBy({ by: ["billId"], where: { billId: { in: billIds }, payment: asOf ? { date: { lte: asOf }, ...liveOn(asOf) } : { reversal: { is: null } } }, _sum: { amount: true } }),
       ])
     : [[], []];
   const out = new Map<string, Prisma.Decimal>();
@@ -949,20 +951,20 @@ export async function apAgingReport(asOf = todayLocalISO()) {
     prisma.supplierBill.findMany({
       where: { status: "posted", billDate: { lte: asOf } },
       select: { id: true, supplierId: true, dueDate: true, total: true, supplier: { select: { code: true, name: true, nameAr: true } } },
-    }).then(async (bills) => [bills, await debitedByBill(prisma, bills.map((b) => b.id))] as const),
+    }).then(async (bills) => [bills, await debitedByBill(prisma, bills.map((b) => b.id), asOf)] as const),
     prisma.partyOpeningBalance.findMany({ where: { partyType: "supplier", date: { lte: asOf } } }).then(async (obs) => {
       const openingIds = obs.map((o) => o.id);
       const [allocs, parties] = await Promise.all([
         openingIds.length ? prisma.paymentAllocation.groupBy({
         by: ["openingBalanceId"],
-        where: { openingBalanceId: { in: openingIds }, payment: { date: { lte: asOf }, reversal: { is: null } } },
+        where: { openingBalanceId: { in: openingIds }, payment: { date: { lte: asOf }, ...liveOn(asOf) } },
         _sum: { amount: true },
       }) : Promise.resolve([]),
         partyNames(obs.map((o) => o.partyId)),
       ]);
       return [obs, allocs, parties] as const;
     }),
-    prisma.supplierPayment.findMany({ where: { date: { lte: asOf }, reversal: { is: null } }, select: { supplierId: true, amount: true, allocations: { select: { amount: true } }, supplier: { select: { code: true, name: true, nameAr: true } } } }),
+    prisma.supplierPayment.findMany({ where: { date: { lte: asOf }, ...liveOn(asOf) }, select: { supplierId: true, amount: true, allocations: { select: { amount: true } }, supplier: { select: { code: true, name: true, nameAr: true } } } }),
     prisma.supplierRefund.groupBy({ by: ["supplierId"], where: { date: { lte: asOf } }, _sum: { amount: true } }).then(async (fs) => [fs, await partyNames(fs.map((f) => f.supplierId))] as const),
   ]);
   type Bucket = "current" | "d1_30" | "d31_60" | "d61_90" | "d90_plus";

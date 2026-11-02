@@ -6,6 +6,20 @@
  * message has no entry here.
  */
 export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
+  // Maturity 2026-11: standard costing, posting locks, reversals, supplier payment approval.
+  ["رصيد {} {} مش كفاية للسداد {} — الخزينة/البنك مينفعش يبقى بالسالب", "{0} holds {1}, not enough to pay {2} — a cash box or bank account never goes below zero"],
+  ["نفس مفتاح الطلب اتبعت قبل كده بسداد مختلف", "This request key was already used for a different payment"],
+  ["طلب السداد ده اتقرر قبل كده", "This payment request was already decided"],
+  ["اللي طلب السداد مينفعش يعتمده بنفسه", "Whoever requested the payment cannot approve it"],
+  ["تاريخ القيد {} بعد آخر الشهر الحالي ({}) — مينفعش يترحّل قيد بتاريخ مستقبلي", "Entry date {0} is after the end of the current month ({1}) — entries cannot be dated in the future"],
+  ["السنة المالية {} مقفولة — مينفعش يترحّل فيها قيد بتاريخ {}", "Fiscal year {0} is closed — nothing can be posted dated {1}"],
+  ["الدفاتر مقفولة لحد {} — مينفعش يترحّل قيد بتاريخ {}", "The books are locked up to {0} — nothing can be posted dated {1}"],
+  ["تاريخ العكس ({}) مينفعش يكون قبل تاريخ القيد الأصلي ({})", "The reversal date ({0}) cannot be before the original entry's date ({1})"],
+  ["الحركة اللي بتتلغي مش مطابقة للإلغاء (صنف أو كمية مختلفة)", "The movement being reversed does not match the reversal (different product or quantity)"],
+  ["\"{}\" طريقة تكلفته معيارية ومالوش تكلفة معيارية — حددها الأول", "\"{0}\" uses standard costing but has no standard cost — set one first"],
+  ["التكلفة المعيارية محتاجة حسابات النظام ({}) في دليل الحسابات — حددها الأول", "Standard costing needs the system accounts ({0}) in the chart of accounts — set them up first"],
+  ["التكلفة المعيارية لازم تكون أكبر من صفر", "The standard cost must be greater than zero"],
+  ["اكتب سبب تغيير التكلفة المعيارية — الصنف عليه رصيد هيتعاد تقييمه", "Give a reason for the standard cost change — the stock on hand will be revalued"],
   ["الاستلام {} مفيهوش كمية مقبولة", "Receipt {0} has no accepted quantity"],
   ["رصيد كشف الحساب رقم بحد أقصى خانتين عشريتين", "The statement balance must be a number with at most two decimals"],
   ["تاريخ سطر الكشف لازم يكون YYYY-MM-DD", "A statement line's date must be YYYY-MM-DD"],

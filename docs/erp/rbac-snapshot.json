@@ -2862,6 +2862,17 @@
       }
     },
     {
+      "method": "GET",
+      "path": "/api/inventory/products/[id]/standard-cost",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "accounting.manage",
+          "stock.valuation.view"
+        ]
+      }
+    },
+    {
       "method": "POST",
       "path": "/api/inventory/release",
       "gate": {

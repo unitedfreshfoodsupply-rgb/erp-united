@@ -304,9 +304,10 @@ model Supplier {
   bills      SupplierBill[]
   debitNotes DebitNote[]
 
-  payments    SupplierPayment[]
-  refunds     SupplierRefund[]
-  fixedAssets FixedAsset[]
+  payments        SupplierPayment[]
+  refunds         SupplierRefund[]
+  fixedAssets     FixedAsset[]
+  paymentRequests SupplierPaymentRequest[]
 
   @@index([active])
 }
@@ -1056,19 +1057,19 @@ model StockReservation {
 /// is SUM(value) and its average cost SUM(value) / SUM(quantity). For FIFO, incoming
 /// layers carry the quantity not yet consumed.
 model StockValuationLayer {
-  id           String   @id @default(cuid())
-  movementId   String   @unique
-  productId    String
-  quantity     Decimal  @db.Decimal(18, 3)
-  unitCost     Decimal  @db.Decimal(18, 4)
-  value        Decimal  @db.Decimal(18, 4)
-  remainingQty Decimal  @default(0) @db.Decimal(18, 3)
+  id            String   @id @default(cuid())
+  movementId    String   @unique
+  productId     String
+  quantity      Decimal  @db.Decimal(18, 3)
+  unitCost      Decimal  @db.Decimal(18, 4)
+  value         Decimal  @db.Decimal(18, 4)
+  remainingQty  Decimal  @default(0) @db.Decimal(18, 3)
   /// purchase | average | standard | fifo | lot | unknown
-  costSource   String
+  costSource    String
   /// Standard-cost products only: (actual − standard) × quantity on a purchase-linked
   /// movement. GRNI moved by value + priceVariance; the variance went to PPV.
-  priceVariance Decimal @default(0) @db.Decimal(18, 4)
-  createdAt    DateTime @default(now())
+  priceVariance Decimal  @default(0) @db.Decimal(18, 4)
+  createdAt     DateTime @default(now())
 
   movement StockMovement @relation(fields: [movementId], references: [id])
   product  StockProduct  @relation(fields: [productId], references: [id])
@@ -2276,17 +2277,18 @@ model CashAccount {
   allowOverdraft Boolean  @default(false)
   version        Int      @default(1)
 
-  account         Account              @relation(fields: [accountId], references: [id], onDelete: Restrict)
-  transfersOut    CashTransfer[]       @relation("TransferFrom")
+  account         Account                  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  transfersOut    CashTransfer[]           @relation("TransferFrom")
   vatPayments     VatReturn[]
   assetEvents     AssetEvent[]
-  transfersIn     CashTransfer[]       @relation("TransferTo")
+  transfersIn     CashTransfer[]           @relation("TransferTo")
   receipts        CustomerReceipt[]
   payments        SupplierPayment[]
   customerRefunds CustomerRefund[]
   supplierRefunds SupplierRefund[]
   reconciliations BankReconciliation[]
   payrollPayments PayrollPayment[]
+  paymentRequests SupplierPaymentRequest[]
 }
 
 /// Money in from a customer, allocated to invoices; what is not allocated is a credit
@@ -2375,6 +2377,7 @@ model SupplierPayment {
   allocations PaymentAllocation[]
   deductions  PaymentDeduction[]
   reversal    SupplierPaymentReversal?
+  request     SupplierPaymentRequest?
 
   @@index([supplierId])
 }
@@ -3720,15 +3723,15 @@ model EtaDocument {
   // --- WS4 ETA remediation (20261102130000_eta_state_machine) -----------------------
   /// api (submitted by UNITED) | portal (filed on the ETA portal, recorded with its UUID;
   /// never sent through the API).
-  origin              String    @default("api")
+  origin        String    @default("api")
   /// Every ETA UUID this document had before a resend after `invalid` (append-only, DB trigger).
-  priorUuids          String[]  @default([])
+  priorUuids    String[]  @default([])
   /// ETA's document hash: SHA-256 of the canonical serialization that was signed.
-  documentHash        String?
+  documentHash  String?
   /// The exact signed JSON text of the last attempt, stored before it was sent.
-  signedPayload       String?
+  signedPayload String?
   /// When the last attempt was claimed (the start of the lookup wait window).
-  lastAttemptAt       DateTime?
+  lastAttemptAt DateTime?
   // ------------------------------------------------------------------------------------
 
   events EtaDocumentEvent[]
@@ -4265,4 +4268,40 @@ model StandardCostChange {
   movements StockMovement[]
 
   @@index([productId, createdAt])
+}
+
+/// ACC-04: a supplier payment waiting for a second person (accounting.payment_approval).
+/// It posts as a SupplierPayment only when someone other than the requester approves it.
+model SupplierPaymentRequest {
+  id             String    @id @default(cuid())
+  /// SPR-YYYY-#####
+  number         String    @unique
+  supplierId     String
+  cashAccountId  String
+  date           String
+  amount         Decimal   @db.Decimal(18, 2)
+  method         String
+  reference      String?
+  notes          String?
+  /// What was asked (allocations, deductions, auto), re-validated when approved.
+  request        Json
+  /// pending_approval | posted | rejected
+  status         String
+  paymentId      String?   @unique
+  idempotencyKey String?   @unique
+  requestHash    String?
+  requestedById  String?
+  requestedBy    String
+  createdAt      DateTime  @default(now())
+  decidedBy      String?
+  decidedAt      DateTime?
+  decisionNote   String?
+  version        Int       @default(1)
+
+  supplier    Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  cashAccount CashAccount      @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  payment     SupplierPayment? @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([status])
+  @@index([supplierId])
 }

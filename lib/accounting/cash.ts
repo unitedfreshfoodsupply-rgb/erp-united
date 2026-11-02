@@ -17,6 +17,8 @@ import type { SettingKey } from "@/lib/core/settings-registry";
 import { customerReceivable } from "@/lib/sales/invoicing";
 import { supplierPayable } from "@/lib/purchasing/bills";
 import { listLimit } from "@/lib/core/list-window";
+import { requestApproval, type Decider } from "@/lib/core/approvals";
+import { requestFingerprint } from "@/lib/core/idempotency";
 
 /**
  * Cash and bank: customer receipts and supplier payments (each allocated to invoices /
@@ -130,7 +132,7 @@ const deductedOf = (list: { amount: Prisma.Decimal }[]) => list.reduce((s, d) =>
 const deductionNote = (list: { kind: string; amount: Prisma.Decimal }[]) =>
   list.length ? ` · خصومات ${list.map((d) => `${DEDUCTION_LABEL[d.kind as DeductionKind]} ${d.amount.toFixed(2)}`).join(" + ")}` : "";
 
-const audit = (tx: Tx, actor: ServiceActor, entityType: "customer_receipt" | "supplier_payment" | "bank_reconciliation", id: string, action: string, detail: string) =>
+const audit = (tx: Tx, actor: ServiceActor, entityType: "customer_receipt" | "supplier_payment" | "supplier_payment_request" | "bank_reconciliation", id: string, action: string, detail: string) =>
   writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action, entityType, entityId: id, newValue: detail, source: "user", deviceId: actor.deviceId }, tx);
 
 // ---------------------------------------------------------------------------
@@ -278,11 +280,97 @@ export async function allocateReceipt(id: string, input: unknown, actor: Service
 // Supplier payments
 // ---------------------------------------------------------------------------
 
+type MoneyInput = z.infer<typeof moneyIn>;
+
+/**
+ * Records a supplier payment. With accounting.payment_approval on (the default) and the
+ * amount above its threshold, the payment is recorded as a request and nothing moves until
+ * someone other than the requester approves it (ACC-04) — the same rule as transfers and
+ * manual journals. Returns { payment } when it posted, { paymentRequest } when it waits.
+ */
 export async function createPayment(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.payments.manage");
   const v = parse(moneyIn, input);
   const date = v.date ?? todayLocalISO();
-  return inTx(async (tx) => {
+  const [approvalOn, threshold] = await Promise.all([getSetting("accounting.payment_approval"), getSetting("accounting.payment_approval_threshold")]);
+  if (approvalOn && v.amount.greaterThan(D(threshold))) return requestPayment(v, date, actor);
+  const payment = await inTx((tx) => postPaymentInTx(tx, v, date, actor));
+  return { payment, document: { status: "posted" as const } };
+}
+
+/** Validates what a payment would do (supplier, cash account, deductions, allocations, cash on hand) without posting. */
+async function checkPayment(tx: Tx, v: MoneyInput, actor: ServiceActor) {
+  const supplier = await tx.supplier.findUnique({ where: { id: v.party_id } });
+  if (!supplier) throw new ApiError(404, "المورد مش موجود");
+  const cash = await accountOf(tx, v.cash_account_id);
+  const deductions = await resolveDeductions(tx, "payment", v.deductions, v.amount, actor);
+  allocate(await openBills(tx, supplier.id), v.amount, v.allocations, v.auto);
+  // Cash and bank never go below zero (the database refuses it at posting): say so now,
+  // not after someone has approved a payment that cannot post.
+  if (!cash.allowOverdraft) {
+    const bal = await tx.journalLine.aggregate({ where: { accountId: cash.accountId }, _sum: { debit: true, credit: true } });
+    const available = D(bal._sum.debit ?? 0).minus(bal._sum.credit ?? 0);
+    const out = v.amount.minus(deductedOf(deductions));
+    if (available.lessThan(out)) throw new ApiError(409, `رصيد ${cash.nameAr ?? cash.name} ${available.toFixed(2)} مش كفاية للسداد ${out.toFixed(2)} — الخزينة/البنك مينفعش يبقى بالسالب`, "cash_account_negative");
+  }
+  return { supplier, cash };
+}
+
+async function requestPayment(v: MoneyInput, date: string, actor: ServiceActor) {
+  const requestHash = requestFingerprint({ party: v.party_id, cash: v.cash_account_id, date, amount: v.amount, method: v.method, allocations: v.allocations ?? null, auto: v.auto ?? null, deductions: v.deductions ?? null, reference: v.reference ?? null });
+  const result = await inTx(async (tx) => {
+    if (v.idempotency_key) {
+      await advisoryXactLock(tx, `accounting:money-key:${v.idempotency_key}`);
+      const prev = await tx.supplierPaymentRequest.findUnique({ where: { idempotencyKey: v.idempotency_key } });
+      if (prev) {
+        if (prev.requestHash !== requestHash) throw new ApiError(409, "نفس مفتاح الطلب اتبعت قبل كده بسداد مختلف");
+        return { paymentRequest: prev, replayed: true };
+      }
+    }
+    await advisoryXactLock(tx, `accounting:supplier:${v.party_id}`);
+    const { supplier, cash } = await checkPayment(tx, v, actor);
+    const req = await tx.supplierPaymentRequest.create({
+      data: {
+        number: await nextDocumentNumber(tx, "accounting.payment_request", date),
+        supplierId: supplier.id, cashAccountId: cash.id, date, amount: v.amount, method: v.method, reference: v.reference ?? null, notes: v.notes ?? null,
+        request: { allocations: (v.allocations ?? null) as Prisma.InputJsonValue, auto: v.auto ?? null, deductions: (v.deductions ?? null) as Prisma.InputJsonValue } as Prisma.InputJsonValue,
+        status: "pending_approval", idempotencyKey: v.idempotency_key ?? null, requestHash, requestedById: actor.id, requestedBy: actor.name,
+      },
+    });
+    await requestApproval(tx, { type: "accounting.supplier_payment", entityId: req.id, title: `سداد ${req.number} لـ ${supplier.nameAr ?? supplier.name} من ${cash.nameAr ?? cash.name}`, amount: v.amount, requester: actor });
+    await audit(tx, actor, "supplier_payment_request", req.id, "payment_requested", `${req.number} · ${supplier.code} · ${v.amount.toFixed(2)}`);
+    return { paymentRequest: req, replayed: false };
+  });
+  return { paymentRequest: result.paymentRequest, document: { status: "pending_approval" as const }, replayed: result.replayed };
+}
+
+/**
+ * Approval handler (ACC-04): approved → the payment posts now, re-validated against today's
+ * open bills and cash, recorded as the requester's with the approver on the request;
+ * rejected → nothing moves. The requester can never decide their own request.
+ */
+export async function applyPaymentRequestDecision(tx: Tx, requestId: string, approved: boolean, decider: Decider, comment?: string) {
+  const req = await tx.supplierPaymentRequest.findUniqueOrThrow({ where: { id: requestId } });
+  if (req.status !== "pending_approval") throw new ApiError(409, "طلب السداد ده اتقرر قبل كده");
+  if (req.requestedById && req.requestedById === decider.id) throw new ApiError(403, "اللي طلب السداد مينفعش يعتمده بنفسه");
+  if (!approved) {
+    await tx.supplierPaymentRequest.update({ where: { id: req.id, version: req.version }, data: { status: "rejected", decidedBy: decider.name, decidedAt: new Date(), decisionNote: comment ?? null, version: { increment: 1 } } });
+    await audit(tx, decider as ServiceActor, "supplier_payment_request", req.id, "payment_request_rejected", req.number);
+    return;
+  }
+  const asked = req.request as { allocations?: { document_id: string; amount: string }[] | null; auto?: boolean | null; deductions?: { kind: string; amount: string; reference?: string }[] | null };
+  const v = parse(moneyIn, {
+    party_id: req.supplierId, cash_account_id: req.cashAccountId, date: req.date, amount: req.amount.toFixed(2), method: req.method,
+    reference: req.reference ?? undefined, notes: req.notes ?? undefined, allocations: asked.allocations ?? undefined, auto: asked.auto ?? undefined, deductions: asked.deductions ?? undefined,
+  });
+  const requester = { id: req.requestedById, name: req.requestedBy, role: "ACCOUNTANT", permissions: [] as string[] } as unknown as ServiceActor;
+  const payment = await postPaymentInTx(tx, v, req.date, requester, decider as ServiceActor);
+  await tx.supplierPaymentRequest.update({ where: { id: req.id, version: req.version }, data: { status: "posted", paymentId: payment.id, decidedBy: decider.name, decidedAt: new Date(), decisionNote: comment ?? null, version: { increment: 1 } } });
+  await audit(tx, decider as ServiceActor, "supplier_payment_request", req.id, "payment_request_approved", `${req.number} → ${payment.number}`);
+}
+
+/** Posts a supplier payment in the caller's transaction. `poster` defaults to the requester. */
+async function postPaymentInTx(tx: Tx, v: MoneyInput, date: string, actor: ServiceActor, poster: ServiceActor = actor) {
     if (v.idempotency_key) await advisoryXactLock(tx, `accounting:money-key:${v.idempotency_key}`);
     await advisoryXactLock(tx, `accounting:supplier:${v.party_id}`);
     if (v.idempotency_key) {
@@ -313,11 +401,10 @@ export async function createPayment(input: unknown, actor: ServiceActor) {
         { accountId: cash.accountId, amount: v.amount.minus(deductedOf(deductions)).negated() },
         ...deductions.map((d) => ({ accountId: d.accountId, amount: d.amount.negated(), description: DEDUCTION_LABEL[d.kind] + (d.reference ? ` (${d.reference})` : "") })),
       ],
-    }, actor);
+    }, poster);
     const applied = allocations.reduce((s, a) => s.plus(a.amount), D(0));
-    await audit(tx, actor, "supplier_payment", payment.id, "payment_created", `${payment.number} · ${supplier.code} · ${v.amount.toFixed(2)} · مخصص ${applied.toFixed(2)}${deductionNote(deductions)}`);
+    await audit(tx, poster, "supplier_payment", payment.id, "payment_created", `${payment.number} · ${supplier.code} · ${v.amount.toFixed(2)} · مخصص ${applied.toFixed(2)}${deductionNote(deductions)}`);
     return payment;
-  });
 }
 
 export async function allocatePayment(id: string, input: unknown, actor: ServiceActor) {

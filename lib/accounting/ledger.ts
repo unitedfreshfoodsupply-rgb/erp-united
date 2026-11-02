@@ -88,6 +88,27 @@ export async function ensureOpenPeriod(tx: Tx, date: string) {
 }
 
 /**
+ * ACC-02: a closed month is not the only lock. Nothing posts into a closed fiscal year (a
+ * month with no posting yet has no period row, so the month check alone let it through),
+ * nor on or before the books lock date when one is set. The year-end close and its
+ * reversal are posted by their own workflows. The database trigger refuses the same.
+ */
+export async function assertPostingDateAllowed(tx: Tx, date: string, sourceType: SourceType) {
+  if (sourceType === "year_end_close" || sourceType === "year_end_reopen") return;
+  // ACC-10: no posting dated beyond the end of the current month. Month-end entries
+  // (depreciation, accruals) stay possible; a far-future date — a typo or an attempt to
+  // keep something out of this month's reports — is refused.
+  const today = todayLocalISO();
+  const [y, m] = today.split("-").map(Number);
+  const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+  if (date > monthEnd) throw new ApiError(400, `تاريخ القيد ${date} بعد آخر الشهر الحالي (${monthEnd}) — مينفعش يترحّل قيد بتاريخ مستقبلي`, "future_posting_date");
+  const year = await tx.fiscalYear.findFirst({ where: { status: "closed", startDate: { lte: date }, endDate: { gte: date } }, select: { code: true } });
+  if (year) throw new ApiError(409, `السنة المالية ${year.code} مقفولة — مينفعش يترحّل فيها قيد بتاريخ ${date}`, "fiscal_year_closed");
+  const lock = await getSetting("accounting.lock_date");
+  if (lock && date <= lock) throw new ApiError(409, `الدفاتر مقفولة لحد ${lock} — مينفعش يترحّل قيد بتاريخ ${date}`, "accounting_lock_date");
+}
+
+/**
  * Posts one balanced entry in the caller's transaction. Returns null when every line
  * is zero (nothing to account for). Throws if the lines do not balance — that is a
  * bug in a posting rule, never a user error.
@@ -103,6 +124,7 @@ export async function postJournal(
   const credit = lines.filter((l) => l.amount.lt(0)).reduce((a, l) => a.plus(l.amount.negated()), D(0));
   if (!debit.equals(credit)) throw new Error(`unbalanced posting ${e.sourceType}/${e.sourceId}: ${debit} ≠ ${credit}`);
   await ensureOpenPeriod(tx, e.date);
+  await assertPostingDateAllowed(tx, e.date, e.sourceType);
   const keys = [...new Set(lines.map((l) => l.key).filter((k): k is SystemKey => !!k))];
   // A filed VAT return freezes the VAT of its period (the database refuses it too); say why.
   if (e.sourceType !== "vat_settlement" && (keys.includes("vat_input") || keys.includes("vat_output"))) {
@@ -304,6 +326,9 @@ const KIND_LABEL: Record<string, string> = { grni: "استلامات ومرتج�
 async function postingDate(tx: Tx, date: string): Promise<{ date: string; redated: boolean }> {
   const p = await tx.accountingPeriod.findUnique({ where: { code: date.slice(0, 7) }, select: { status: true } });
   if (p?.status === "closed") return { date: todayLocalISO(), redated: true };
+  // ACC-02: a closed fiscal year or the books lock date close the date just as firmly.
+  const locked = await assertPostingDateAllowed(tx, date, "stock_valuation").then(() => false, (e) => e instanceof ApiError && e.status === 409);
+  if (locked) return { date: todayLocalISO(), redated: true };
   return { date, redated: false };
 }
 
@@ -316,7 +341,8 @@ async function valuationLines(tx: Tx, moves: ValuedMove[]) {
   // (standard-cost products: the counter moves at the purchase price = value + variance).
   const groups = new Map<SystemKey, { value: Prisma.Decimal; variance: Prisma.Decimal }>();
   for (const m of moves) {
-    const counter: SystemKey = m.documentId && opening.has(m.documentId) ? "opening_equity" : VALUATION_COUNTER[m.kind] ?? "inventory_adjustment";
+    // A reversal goes back through the counter account of what it undoes (ACC-03).
+    const counter: SystemKey = m.documentId && opening.has(m.documentId) ? "opening_equity" : VALUATION_COUNTER[m.counterKind ?? m.kind] ?? "inventory_adjustment";
     const g = groups.get(counter) ?? { value: D(0), variance: D(0) };
     g.value = g.value.plus(m.value);
     g.variance = g.variance.plus(m.priceVariance ?? 0);
@@ -336,7 +362,7 @@ async function valuationLines(tx: Tx, moves: ValuedMove[]) {
 }
 
 /** One stock movement as its value reaches the GL. */
-type ValuedMove = { movementId: string; kind: string; documentId: string | null; intakeId?: string | null; value: Prisma.Decimal.Value; priceVariance?: Prisma.Decimal.Value };
+type ValuedMove = { movementId: string; kind: string; documentId: string | null; intakeId?: string | null; value: Prisma.Decimal.Value; priceVariance?: Prisma.Decimal.Value; counterKind?: string };
 
 const MOVE_LABEL: Record<string, string> = { intake: "استلام", intake_correction: "تصحيح استلام", intake_void: "إلغاء استلام", adjustment: "تسوية", transfer_out: "تحويل", transfer_in: "تحويل", issue: "صرف لعميل", customer_return: "مرتجع عميل", supplier_return: "مرتجع مورد", sorting_out: "فرز — خارج", sorting_in: "فرز — داخل", release_out: "إفراج محجوز — خارج", release_in: "إفراج محجوز — داخل", revaluation_out: "إعادة تقييم — خارج", revaluation_in: "إعادة تقييم — داخل", standard_cost_out: "تغيير التكلفة المعيارية — خارج", standard_cost_in: "تغيير التكلفة المعيارية — داخل" };
 
@@ -608,8 +634,11 @@ export async function reverseJournal(id: string, input: unknown, actor: ServiceA
     if (e.reversedBy) throw new ApiError(409, `القيد اتعكس بالفعل (${e.reversedBy.number})`);
     if (e.sourceType === "reversal") throw new ApiError(409, "ده قيد عكسي — اعمل قيد جديد بدل ما تعكسه");
     if (e.sourceType !== "manual") throw new ApiError(409, "قيود المستندات بتتصحح بمستند (إشعار دائن/مدين)، مش بعكس القيد");
+    const date = v.date ?? todayLocalISO();
+    // ACC-15: a reversal undoes what was posted; it cannot take effect before the original.
+    if (date < e.date) throw new ApiError(400, `تاريخ العكس (${date}) مينفعش يكون قبل تاريخ القيد الأصلي (${e.date})`, "reversal_before_original");
     return (await postJournal(tx, {
-      date: v.date ?? todayLocalISO(), description: `عكس ${e.number}: ${v.reason}`, sourceType: "reversal", sourceId: e.id, reversalOfId: e.id,
+      date, description: `عكس ${e.number}: ${v.reason}`, sourceType: "reversal", sourceId: e.id, reversalOfId: e.id,
       lines: e.lines.map((l) => ({ accountId: l.accountId, amount: l.credit.minus(l.debit), party: l.partyType ? { type: l.partyType as "customer" | "supplier" | "employee", id: l.partyId! } : undefined, description: l.description ?? undefined, costCenterId: l.costCenterId })),
     }, actor))!;
   });
@@ -707,7 +736,11 @@ export async function balanceSheet(asOf: string, openingFrom?: string) {
     const a = accounts.get(r.accountId);
     if (!a) continue;
     const signed = D(r.closing);
-    const line: StatementLine = { code: a.code, name: a.nameAr, nameAr: a.nameAr, nameEn: a.name, type: a.type, amount: signed.abs().toFixed(2), ...(a.type === "asset" || a.type === "liability" ? { liquidity: a.liquidity } : {}) };
+    // ACC-16: each line in its side's natural sign — assets debit-positive, liabilities and
+    // equity credit-positive — so a contra balance (accumulated depreciation, an overdrawn
+    // bank) shows as the negative it is, and the lines add up to the section total.
+    const natural = a.type === "asset" || a.type === "expense" ? signed : signed.negated();
+    const line: StatementLine = { code: a.code, name: a.nameAr, nameAr: a.nameAr, nameEn: a.name, type: a.type, amount: natural.toFixed(2), ...(a.type === "asset" || a.type === "liability" ? { liquidity: a.liquidity } : {}) };
     // WS3 G5: current / non-current / unclassified subtotals (signed, then shown per side).
     if (a.type === "asset" || a.type === "liability") {
       const k = a.liquidity === "current" ? "current" : a.liquidity === "non_current" ? "nonCurrent" : "unclassified";
@@ -723,12 +756,12 @@ export async function balanceSheet(asOf: string, openingFrom?: string) {
     groups[key].sort((a, b) => a.code.localeCompare(b.code));
   }
 
-  // Balance sheet totals from signed sums (not from group amounts, which are abs).
+  // Balance sheet totals from signed sums (equal to the sum of the lines' natural amounts).
   //   Assets = what the company holds = signedAsset (positive = actual asset)
   //   Liabilities = what the company owes = -signedLiability
   //   Net income = -signedRevenue - signedExpense (P&L → retained earnings)
-  const totalAssets = signedSums.asset.abs();
-  const totalLiabilities = signedSums.liability.negated().abs();
+  const totalAssets = signedSums.asset;
+  const totalLiabilities = signedSums.liability.negated();
   const netIncome = signedSums.revenue.negated().minus(signedSums.expense);
   const openingEquity = signedSums.equity.negated();
   const totalEquity = openingEquity.plus(netIncome);
@@ -738,7 +771,8 @@ export async function balanceSheet(asOf: string, openingFrom?: string) {
   if (!netIncome.isZero()) {
     allEquity.push({
       code: "3200", name: "صافي الدخل (الأرباح المحتجزة)", nameAr: "صافي الدخل",
-      type: "equity", amount: netIncome.abs().toFixed(2),
+      // A loss is a negative line (it used to show as a positive "net income").
+      type: "equity", amount: netIncome.toFixed(2),
     });
   }
 

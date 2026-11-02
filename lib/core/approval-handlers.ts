@@ -21,6 +21,7 @@ import { applyLeaveDecision } from "@/lib/hr/leave";
 import { applyCompensationDecision } from "@/lib/hr/compensation";
 import { applyRunDecision } from "@/lib/hr/payroll";
 import { applyTransferDecision } from "@/lib/accounting/treasury";
+import { applyPaymentRequestDecision } from "@/lib/accounting/cash";
 import { applyJournalRequestDecision } from "@/lib/accounting/ledger";
 import { applyPeriodReopen, applyYearReopen } from "@/lib/accounting/fiscal-years";
 import { applyOpeningBatchDecision } from "@/lib/accounting/opening-batches";
@@ -135,6 +136,11 @@ const HANDLERS: Record<ApprovalType, Handler> = {
     // Approved: posted as a manual journal, by someone other than the requester. Rejected: nothing posts.
     onApproved: (tx, req, decider, comment) => applyJournalRequestDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyJournalRequestDecision(tx, req.entityId, false, decider, comment),
+  },
+  "accounting.supplier_payment": {
+    // ACC-04 — approved: the payment posts now, re-validated; rejected: nothing moves.
+    onApproved: (tx, req, decider, comment) => applyPaymentRequestDecision(tx, req.entityId, true, decider, comment),
+    onRejected: (tx, req, decider, comment) => applyPaymentRequestDecision(tx, req.entityId, false, decider, comment),
   },
   "accounting.cash_transfer": {
     // Approved: posted, by someone other than whoever recorded it. Rejected: nothing moves.
