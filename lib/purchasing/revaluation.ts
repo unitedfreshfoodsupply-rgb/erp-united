@@ -106,6 +106,20 @@ export function splitByUnits(amount: Dec, u: Pick<ReceiptUnits, "onHand" | "cogs
   return { inventory, cogs: rest.minus(adjustment).minus(ppv), adjustment, ppv };
 }
 
+/**
+ * DEFECT-SC-01: a standard-cost product's stock, its sales and its write-offs are all
+ * carried at the standard — a provisional receipt price turning into the billed price
+ * changes none of them. The whole difference is a purchase price variance.
+ */
+function planFor(amount: Dec, u: ReceiptUnits, standard: ReadonlySet<string>) {
+  return standard.has(u.productId) ? { inventory: ZERO, cogs: ZERO, adjustment: ZERO, ppv: amount } : splitByUnits(amount, u);
+}
+
+async function standardCostProducts(tx: Tx, units: ReceiptUnits[]): Promise<ReadonlySet<string>> {
+  const rows = await tx.stockProduct.findMany({ where: { id: { in: units.map((u) => u.productId) }, costingMethod: "standard" }, select: { id: true } });
+  return new Set(rows.map((r) => r.id));
+}
+
 /** Splits an amount across products by their units; the last takes the remainder (exact). */
 function shareByProduct(amount: Dec, units: ReceiptUnits[]) {
   const total = units.reduce((s, u) => s.plus(u.basis), ZERO);
@@ -175,12 +189,13 @@ export async function revalueOnBill(tx: Tx, billId: string, actor: Actorish): Pr
     const delta = D(l.net).minus(provisionalValue);
     const units = await receiptUnits(tx, r.id);
     if (!units.length) throw new ApiError(409, `الاستلام ${r.receiptNumber}: مش لاقي كمياته في دفتر المخزون — مينفعش يتعاد تقييمه`);
+    const standard = await standardCostProducts(tx, units);
     const shares = shareByProduct(delta, units);
     const reason = `إعادة تقييم الاستلام ${r.receiptNumber} (سعر مؤقت ${provisional.toFixed(4)}) بفاتورة ${bill.number}`;
     totals.grni = totals.grni.plus(provisionalValue);
     for (const [i, u] of units.entries()) {
       const amount = shares[i];
-      const plan = splitByUnits(amount, u);
+      const plan = planFor(amount, u, standard);
       const row = await tx.stockRevaluation.create({
         data: {
           sourceType: "supplier_bill", billId, billLineId: l.id, intakeId: r.id, productId: u.productId, date: bill.billDate,
@@ -224,13 +239,14 @@ export async function revalueOnDebitNote(tx: Tx, debitNoteId: string, actor: Act
     if (!originals.length) throw new ApiError(409, `سطر الفاتورة ${dn.bill.number} على الاستلام ${r.receiptNumber} مالوش إعادة تقييم — مينفعش إشعار مدين بتخفيض تكلفته`);
     const units = await receiptUnits(tx, r.id);
     if (!units.length) throw new ApiError(409, `الاستلام ${r.receiptNumber}: مش لاقي كمياته في دفتر المخزون`);
+    const standard = await standardCostProducts(tx, units);
     const credited = D(l.net).negated();
     const shares = shareByProduct(credited, units);
     const reason = `تخفيض تكلفة الاستلام ${r.receiptNumber} بإشعار مدين ${dn.number} على ${dn.bill.number}`;
     for (const [i, u] of units.entries()) {
       const amount = shares[i];
       const of = originals.find((o) => o.productId === u.productId) ?? originals[0];
-      const plan = splitByUnits(amount, u);
+      const plan = planFor(amount, u, standard);
       const row = await tx.stockRevaluation.create({
         data: {
           sourceType: "debit_note", billId: dn.billId, billLineId: l.billLineId, debitNoteId: dn.id, reversalOfId: of.id, intakeId: r.id, productId: u.productId, date: dn.issueDate,

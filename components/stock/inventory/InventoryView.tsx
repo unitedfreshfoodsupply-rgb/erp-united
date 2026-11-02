@@ -11,6 +11,7 @@ import { invalidateStockData } from "@/lib/stockInvalidation";
 import { Field, Tabs, fmtMoney, fmtQty, locationTypeLabel, useLocations, type StockRow } from "./shared";
 import { Segmented } from "@/components/ui/Segmented";
 import { MoveForms } from "./MoveForms";
+import { ProductCosting } from "./ProductCosting";
 import { Pagination } from "@/components/ui/Pagination";
 import { useLocale } from "@/lib/locale";
 import { intlLocale, unitLabel } from "@/lib/format";
@@ -225,6 +226,7 @@ function ProductPanel({ productId, onClose }: { productId: string; onClose: () =
       )}
 
       {can("stock.manage_products") && <ProductSettings d={d} />}
+      {can("accounting.manage") && <ProductCosting p={d.product} onHand={d.onHand} />}
 
       <section className="card p-4 flex flex-col gap-2">
         <h3 className="font-extrabold text-united-dark">{t("stock.heading-movements")}</h3>

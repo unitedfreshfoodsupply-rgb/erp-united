@@ -27,7 +27,7 @@ const templates = {
   customer_legal_entities: { headers: "code,name,name_ar,tax_registration_no,commercial_reg_no,phone,email,address,area,city,country,governate,region_city,street,building_number,postal_code,floor,room,landmark,additional_information,receiver_type,receiver_id,notes", required: ["code", "name"] },
   suppliers: { headers: "code,name,name_ar,phone,notes,type,tax_registration_no,commercial_reg_no,email,city,address,payment_terms_days,lead_time_days,currency_code", required: ["name"] },
   products: { headers: "name,name_ar,sku,category,unit,stock_tracked,sales_tax_code", required: ["name", "unit"] },
-  product_settings: { headers: "sku,shelf_life_days,removal_strategy,min_stock_qty,reorder_point_qty,max_stock_qty,cold_chain,costing_method,standard_cost", required: ["sku"] },
+  product_settings: { headers: "sku,shelf_life_days,removal_strategy,min_stock_qty,reorder_point_qty,max_stock_qty,cold_chain,costing_method,standard_cost,standard_cost_reason", required: ["sku"] },
   product_packaging: { headers: "sku,uom,qty_in_base_unit,barcode,active", required: ["sku", "uom", "qty_in_base_unit"] },
   opening_stock: { headers: "sku,quantity,unit,unit_cost,expiry_date,location_code", required: ["sku", "quantity", "unit", "unit_cost"] },
   opening_balances: { headers: "party_type,party_code,date,due_date,amount,reference", required: ["party_type", "party_code", "date", "amount"] },
@@ -392,7 +392,7 @@ export async function POST(req: NextRequest) {
     if (kind === "products" && rows.some((r) => r.values.sales_tax_code)) assertPermission(actor, "sales.tax.manage");
     if (kind === "customers" && rows.some((r) => [r.values.payment_terms_days, r.values.credit_limit, r.values.credit_hold, r.values.credit_hold_reason].some(Boolean))) assertPermission(actor, "sales.credit.manage");
     if (kind === "customers" && rows.some((r) => r.values.price_list_code)) assertPermission(actor, "sales.pricing.manage");
-    if (kind === "product_settings" && rows.some((r) => r.values.standard_cost || r.values.costing_method)) assertPermission(actor, "accounting.manage");
+    if (kind === "product_settings" && rows.some((r) => r.values.standard_cost || r.values.costing_method || r.values.standard_cost_reason)) assertPermission(actor, "accounting.manage");
     const validation = await previewRows(kind, rows, body);
     const errors = validation.filter((r) => r.errors.length);
     if (body.action !== "commit") return NextResponse.json({ rows: validation.map((row) => ({ ...row, errors: row.errors.map(localize) })), rowCount: rows.length, errorCount: errors.length });
@@ -434,6 +434,7 @@ export async function POST(req: NextRequest) {
               ...(v.cold_chain ? { cold_chain: ["true", "1", "نعم"].includes(v.cold_chain.toLowerCase()) } : {}),
               ...(v.costing_method ? { costing_method: v.costing_method } : {}),
               ...(v.standard_cost ? { standard_cost: v.standard_cost } : {}),
+              ...(v.standard_cost_reason ? { standard_cost_reason: v.standard_cost_reason } : {}),
             };
             await updateInventorySettings(productId, input, actor);
           } else {

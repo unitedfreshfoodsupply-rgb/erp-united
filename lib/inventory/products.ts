@@ -10,6 +10,8 @@ import { productAvailability } from "@/lib/inventory/balances";
 import { orderBuckets } from "@/lib/inventory/picking";
 import { todayLocalISO } from "@/lib/localDate";
 import { resolveWarehouse } from "@/lib/inventory/context";
+import { assertStandardCostAccounts, changeStandardCost } from "@/lib/inventory/standard-cost";
+import type { Dec } from "@/lib/inventory/decimal";
 
 /**
  * The inventory side of a product: how it is stored and costed, how it is packed,
@@ -21,7 +23,7 @@ const show = (v: unknown) => (v === null || v === undefined ? null : String(v));
 /** Shelf life, picking strategy, costing, stock levels, cold chain. */
 /** Costing is a finance decision (it sets what the books say stock is worth); the rest
  * is how the warehouse handles the product. Each needs its own permission. */
-const COSTING_FIELDS = ["standard_cost", "costing_method"];
+const COSTING_FIELDS = ["standard_cost", "costing_method", "standard_cost_reason"];
 
 export async function updateInventorySettings(productId: string, input: Record<string, unknown>, actor: ServiceActor) {
   const costing = COSTING_FIELDS.some((k) => input[k] !== undefined);
@@ -80,6 +82,16 @@ export async function updateInventorySettings(productId: string, input: Record<s
       const held = await tx.stockMovement.aggregate({ where: { productId }, _sum: { quantity: true } });
       if (!D(held._sum.quantity).isZero()) {
         throw new ApiError(409, "مينفعش تغيّر طريقة التكلفة والصنف عليه رصيد — لازم الرصيد يكون صفر");
+      }
+    }
+    // DEFECT-SC-01: standard costing needs its variance accounts, and a new standard on a
+    // standard-cost product revalues the stock it holds (recorded, audited, posted).
+    if (method === "standard") {
+      await assertStandardCostAccounts(tx);
+      const next = (data.standardCost ?? product.standardCost) as Dec;
+      const changed = product.standardCost == null || !D(product.standardCost).equals(D(next)) || product.costingMethod !== "standard";
+      if (changed) {
+        await changeStandardCost(tx, { ...product, standardCost: product.standardCost == null ? null : D(product.standardCost) }, D(next), typeof input.standard_cost_reason === "string" ? input.standard_cost_reason : null, actor);
       }
     }
     let updated;

@@ -42,7 +42,19 @@ export const MOVEMENT_KINDS = [
   // out/in pair on each bucket still holding the receipt's units (net quantity zero).
   "revaluation_out",
   "revaluation_in",
+  // Maturity 2026-11 (DEFECT-SC-01): a standard-cost change revaluing the stock on hand —
+  // an out/in pair on each bucket (net quantity zero), out at the old standard, in at the new.
+  "standard_cost_out",
+  "standard_cost_in",
 ] as const;
+
+/**
+ * Movements whose counter account is GRNI (what the supplier is owed for): the price a
+ * caller gives them is the purchase price. For a standard-cost product the stock still
+ * enters (or leaves) at the standard; GRNI moves at the purchase price, and the
+ * difference is a purchase price variance (DEFECT-SC-01).
+ */
+const PURCHASE_KINDS: ReadonlySet<string> = new Set(["intake", "intake_correction", "intake_void", "supplier_return", "revaluation_out", "revaluation_in"]);
 export type MovementKind = (typeof MOVEMENT_KINDS)[number];
 
 export type MoveInput = {
@@ -62,6 +74,8 @@ export type MoveInput = {
   costSource?: "purchase" | "lot" | "average" | "standard" | "fifo" | "unknown" | "provisional" | "revaluation";
   /** revaluation_out / revaluation_in only: the StockRevaluation the pair belongs to. */
   revaluationId?: string | null;
+  /** standard_cost_out / standard_cost_in only: the StandardCostChange the pair belongs to. */
+  standardCostChangeId?: string | null;
 };
 
 type Ctx = { actorId: string | null; actorName: string; effectiveDate: string };
@@ -148,7 +162,7 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
 
   // ---- 3. post, one move at a time (each sees the ones before it) ----------------
   const created: StockMovement[] = [];
-  const valued: { movementId: string; kind: string; documentId: string | null; intakeId: string | null; value: Dec }[] = [];
+  const valued: { movementId: string; kind: string; documentId: string | null; intakeId: string | null; value: Dec; priceVariance: Dec }[] = [];
   for (const m of moves) {
     const product = productById.get(m.productId)!;
     const qty = q3(m.quantity);
@@ -170,15 +184,26 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
     let unitCost: Dec;
     let costSource: NonNullable<MoveInput["costSource"]>;
     let value: Dec;
+    let priceVariance = ZERO;
     const fifoConsumptions: { id: string; take: Dec }[] = [];
 
-    if (qty.gt(0)) {
+    if (method === "standard") {
+      // DEFECT-SC-01: a standard-cost product is carried at its standard, whatever the
+      // movement. A purchase-linked movement priced by its caller moves GRNI at that price;
+      // the difference from the standard is the purchase price variance. Any other caller
+      // price (a transfer, a release, a sort) is the standard it left at, or a yield
+      // difference its own counter account absorbs.
+      if (product.standardCost == null || D(product.standardCost).lte(0)) {
+        throw new ApiError(409, `"${product.name}" طريقة تكلفته معيارية ومالوش تكلفة معيارية — حددها الأول`);
+      }
+      unitCost = q4(D(product.standardCost));
+      costSource = "standard";
+      value = q4(qty.times(unitCost));
+      if (m.unitCost != null && PURCHASE_KINDS.has(m.kind)) priceVariance = q4(qty.times(q4(m.unitCost))).minus(value);
+    } else if (qty.gt(0)) {
       if (m.unitCost != null) {
         unitCost = q4(m.unitCost);
         costSource = m.costSource ?? "purchase";
-      } else if (method === "standard" && product.standardCost != null) {
-        unitCost = q4(D(product.standardCost));
-        costSource = "standard";
       } else {
         const val = await productValuation(tx, m.productId);
         if (val.qty.gt(0) && val.value.gt(0)) {
@@ -199,10 +224,6 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
         costSource = m.costSource ?? "lot";
         value = q4(qty.times(unitCost));
         if (method === "fifo") await planFifo(tx, m, out, fifoConsumptions);
-      } else if (method === "standard" && product.standardCost != null) {
-        unitCost = q4(D(product.standardCost));
-        costSource = "standard";
-        value = q4(qty.times(unitCost));
       } else if (method === "fifo") {
         const consumedValue = await planFifo(tx, m, out, fifoConsumptions);
         unitCost = out.isZero() ? ZERO : q4(consumedValue.dividedBy(out));
@@ -235,6 +256,7 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
         intakeId: m.intakeId ?? null,
         documentId: m.documentId ?? null,
         revaluationId: m.revaluationId ?? null,
+        standardCostChangeId: m.standardCostChangeId ?? null,
         unitCost,
         reason: asText(m.reason, "reason")?.trim() || null,
         actorId: ctx.actorId,
@@ -250,6 +272,7 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
         value,
         remainingQty: qty.gt(0) ? qty : ZERO,
         costSource,
+        priceVariance,
       },
     });
     for (const c of fifoConsumptions) {
@@ -259,7 +282,7 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
       });
     }
     created.push(row);
-    valued.push({ movementId: row.id, kind: m.kind, documentId: m.documentId ?? null, intakeId: m.intakeId ?? null, value });
+    valued.push({ movementId: row.id, kind: m.kind, documentId: m.documentId ?? null, intakeId: m.intakeId ?? null, value, priceVariance });
   }
   // ---- 4. the value of these movements reaches the GL in this same transaction ---
   await postMovementValuation(tx, valued, { id: ctx.actorId, name: ctx.actorName, effectiveDate: ctx.effectiveDate });

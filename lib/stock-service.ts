@@ -444,7 +444,12 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
   const costProvisional = await resolveReceiptCost();
 
   // --- grading cost allocation (policy-gated; proportional by default) ---
-  const gradingPolicy: GradingCostPolicy = await getSetting("inventory.grading_cost_policy");
+  // DEFECT-SC-01: a standard-cost product carries every grade at its own standard, so a
+  // cost-allocation policy has nothing to allocate — and "waste expensed at grading" would
+  // count the waste loss twice (at grading and again at its write-off). Proportional: each
+  // output moves GRNI at the purchase price, the stock at its standard, the rest is PPV.
+  const standardCosted = product.costingMethod === "standard" || gradeBProduct?.costingMethod === "standard";
+  const gradingPolicy: GradingCostPolicy = standardCosted ? "proportional" : await getSetting("inventory.grading_cost_policy");
   const wasteLossPolicy: WasteLossPolicy = await getSetting("inventory.grading_waste_loss");
   const priceProds: { id: string; unit: string; name: string }[] = [];
   if (received.gt(0) && gradingPolicy === "nrv") {

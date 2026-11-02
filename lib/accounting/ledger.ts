@@ -259,8 +259,10 @@ export async function postDebitNote(tx: Tx, debitNoteId: string, actor: Actorish
   // supplier credits beyond that (or a pure allowance) is a purchase price variance.
   let grni = D(0);
   if (dn.returnDocumentId) {
-    const v = await tx.stockValuationLayer.aggregate({ where: { movement: { documentId: dn.returnDocumentId } }, _sum: { value: true } });
-    grni = D(v._sum.value ?? 0).negated();
+    // Standard-cost products left inventory at the standard; GRNI moved at the lot's price
+    // (value + priceVariance) — that is what the return took off GRNI.
+    const v = await tx.stockValuationLayer.aggregate({ where: { movement: { documentId: dn.returnDocumentId } }, _sum: { value: true, priceVariance: true } });
+    grni = D(v._sum.value ?? 0).plus(D(v._sum.priceVariance ?? 0)).negated();
   }
   // WS3 (ACC-E1): an allowance (no goods back) on a line whose receipt was at a provisional
   // cost changes that receipt's cost: revalued the way the bill's difference was, never a
@@ -293,6 +295,8 @@ const VALUATION_COUNTER: Record<string, SystemKey> = {
   adjustment: "inventory_adjustment", scrap: "inventory_adjustment", transfer_out: "inventory_adjustment", transfer_in: "inventory_adjustment",
   // WS3 (ACC-E1): a bill revaluing a provisional receipt: the receipt's own counter.
   revaluation_out: "grni", revaluation_in: "grni",
+  // DEFECT-SC-01: a standard-cost change revalues the stock on hand against adjustments.
+  standard_cost_out: "inventory_adjustment", standard_cost_in: "inventory_adjustment",
 };
 const KIND_LABEL: Record<string, string> = { grni: "استلامات ومرتجعات موردين", cogs: "صرف ومرتجعات عملاء", inventory_adjustment: "تسويات وهالك وتحويلات", opening_equity: "رصيد مخزون افتتاحي" };
 
@@ -304,25 +308,37 @@ async function postingDate(tx: Tx, date: string): Promise<{ date: string; redate
 }
 
 /** Lines Inventory ↔ counter account, one pair per counter, from movements' values. */
-async function valuationLines(tx: Tx, moves: { kind: string; documentId: string | null; value: Prisma.Decimal.Value }[]) {
+async function valuationLines(tx: Tx, moves: ValuedMove[]) {
   // Stock brought over at go-live is equity, not an adjustment expense.
   const docIds = [...new Set(moves.map((m) => m.documentId).filter((x): x is string => !!x))];
   const opening = new Set(docIds.length ? (await tx.inventoryDocument.findMany({ where: { id: { in: docIds }, sourceType: "opening_balance" }, select: { id: true } })).map((d) => d.id) : []);
-  const groups = new Map<SystemKey, Prisma.Decimal>();
+  // Per counter account: what inventory moved by, and the purchase price variance on top
+  // (standard-cost products: the counter moves at the purchase price = value + variance).
+  const groups = new Map<SystemKey, { value: Prisma.Decimal; variance: Prisma.Decimal }>();
   for (const m of moves) {
     const counter: SystemKey = m.documentId && opening.has(m.documentId) ? "opening_equity" : VALUATION_COUNTER[m.kind] ?? "inventory_adjustment";
-    groups.set(counter, (groups.get(counter) ?? D(0)).plus(m.value));
+    const g = groups.get(counter) ?? { value: D(0), variance: D(0) };
+    g.value = g.value.plus(m.value);
+    g.variance = g.variance.plus(m.priceVariance ?? 0);
+    groups.set(counter, g);
   }
   const lines: PostLine[] = [];
-  for (const [counter, value] of groups) {
-    const v = r2(value);
-    if (v.isZero()) continue;
-    lines.push({ key: "inventory", amount: v, description: KIND_LABEL[counter] }, { key: counter, amount: v.negated(), description: KIND_LABEL[counter] });
+  for (const [counter, g] of groups) {
+    const v = r2(g.value), pv = r2(g.variance);
+    if (v.isZero() && pv.isZero()) continue;
+    lines.push(
+      { key: "inventory", amount: v, description: KIND_LABEL[counter] },
+      { key: "ppv", amount: pv, description: pv.isZero() ? undefined : "فرق السعر عن التكلفة المعيارية" },
+      { key: counter, amount: v.plus(pv).negated(), description: KIND_LABEL[counter] }
+    );
   }
   return lines;
 }
 
-const MOVE_LABEL: Record<string, string> = { intake: "استلام", intake_correction: "تصحيح استلام", intake_void: "إلغاء استلام", adjustment: "تسوية", transfer_out: "تحويل", transfer_in: "تحويل", issue: "صرف لعميل", customer_return: "مرتجع عميل", supplier_return: "مرتجع مورد", sorting_out: "فرز — خارج", sorting_in: "فرز — داخل", release_out: "إفراج محجوز — خارج", release_in: "إفراج محجوز — داخل", revaluation_out: "إعادة تقييم — خارج", revaluation_in: "إعادة تقييم — داخل" };
+/** One stock movement as its value reaches the GL. */
+type ValuedMove = { movementId: string; kind: string; documentId: string | null; intakeId?: string | null; value: Prisma.Decimal.Value; priceVariance?: Prisma.Decimal.Value };
+
+const MOVE_LABEL: Record<string, string> = { intake: "استلام", intake_correction: "تصحيح استلام", intake_void: "إلغاء استلام", adjustment: "تسوية", transfer_out: "تحويل", transfer_in: "تحويل", issue: "صرف لعميل", customer_return: "مرتجع عميل", supplier_return: "مرتجع مورد", sorting_out: "فرز — خارج", sorting_in: "فرز — داخل", release_out: "إفراج محجوز — خارج", release_in: "إفراج محجوز — داخل", revaluation_out: "إعادة تقييم — خارج", revaluation_in: "إعادة تقييم — داخل", standard_cost_out: "تغيير التكلفة المعيارية — خارج", standard_cost_in: "تغيير التكلفة المعيارية — داخل" };
 
 /** "قيمة مخزون — استلام RC-…" — the kind in words and the document it came from. */
 async function valuationDescription(tx: Tx, moves: { kind: string; documentId: string | null; intakeId?: string | null }[]) {
@@ -342,7 +358,7 @@ async function valuationDescription(tx: Tx, moves: { kind: string; documentId: s
  * opening equity), and each movement is marked as carried — so receiving stock,
  * dispatching it, returning or writing it off moves the GL in the same step.
  */
-export async function postMovementValuation(tx: Tx, moves: { movementId: string; kind: string; documentId: string | null; intakeId?: string | null; value: Prisma.Decimal.Value }[], ctx: { id: string | null; name: string; effectiveDate: string }) {
+export async function postMovementValuation(tx: Tx, moves: ValuedMove[], ctx: { id: string | null; name: string; effectiveDate: string }) {
   if (moves.length === 0) return null;
   const lines = await valuationLines(tx, moves);
   const pd = await postingDate(tx, ctx.effectiveDate);
@@ -381,8 +397,8 @@ export async function postMovementValuation(tx: Tx, moves: { movementId: string;
 export async function postStockValuation(actor: Actorish) {
   return inTx(async (tx) => {
     await advisoryXactLock(tx, "accounting:stock-valuation");
-    const rows = await tx.$queryRaw<{ movementId: string; kind: string; documentId: string | null; intakeId: string | null; effectiveDate: string; value: Prisma.Decimal }[]>`
-      SELECT m."id" AS "movementId", m."kind", m."documentId", m."intakeId", m."effectiveDate", v."value"
+    const rows = await tx.$queryRaw<{ movementId: string; kind: string; documentId: string | null; intakeId: string | null; effectiveDate: string; value: Prisma.Decimal; priceVariance: Prisma.Decimal }[]>`
+      SELECT m."id" AS "movementId", m."kind", m."documentId", m."intakeId", m."effectiveDate", v."value", v."priceVariance"
       FROM "StockMovement" m JOIN "StockValuationLayer" v ON v."movementId" = m."id"
       LEFT JOIN "StockValuationPosting" p ON p."movementId" = m."id"
       WHERE p."movementId" IS NULL

@@ -78,7 +78,8 @@ test("standard cost values everything at the standard", async () => {
   const p = await product("Std", { costingMethod: "standard", standardCost: 7 });
   // Received at 9 while the standard is 7: only standard costing carries the 6 kg left at
   // 6 × 7 = 42. Average or actual receipt costing would give 6 × 9 = 54; mixing actual in
-  // with standard out gives 90 − 28 = 62. (DEFECT-SC-01: today the result is 62.)
+  // with standard out gives 90 − 28 = 62. (DEFECT-SC-01 gave 62 until the 2026-11 maturity fix;
+  // the journal-level proof is tests/integration/standard-costing.test.ts.)
   await receive(p.id, 10, { unit_cost: "9" });
   await createAdjustment({ reason: "صرف", lines: [{ product_id: p.id, quantity: -4 }] }, boss);
   assert.deepEqual(await value(p.id), { qty: "6", value: "42" }, "standard costing: stock carried at the standard 7, not the receipt price 9 (54) nor a mix (62)");

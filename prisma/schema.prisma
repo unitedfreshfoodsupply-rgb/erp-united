@@ -432,6 +432,9 @@ model StockProduct {
   // ---- WS3 remediation 2026-11 ----
   revaluations StockRevaluation[]
 
+  // ---- Maturity 2026-11 (DEFECT-SC-01) ----
+  standardCostChanges StandardCostChange[]
+
   @@index([active])
   @@index([category])
 }
@@ -584,6 +587,11 @@ model StockMovement {
   revaluationId String?
   revaluation   StockRevaluation? @relation(fields: [revaluationId], references: [id], onDelete: Restrict)
 
+  // ---- Maturity 2026-11 (DEFECT-SC-01): standard_cost_out/in pairs point at their change ----
+  standardCostChangeId String?
+  standardCostChange   StandardCostChange? @relation(fields: [standardCostChangeId], references: [id], onDelete: Restrict)
+
+  @@index([standardCostChangeId])
   @@index([revaluationId])
   @@index([productId, occurredAt])
   @@index([productId, locationId, lotId])
@@ -1057,6 +1065,9 @@ model StockValuationLayer {
   remainingQty Decimal  @default(0) @db.Decimal(18, 3)
   /// purchase | average | standard | fifo | lot | unknown
   costSource   String
+  /// Standard-cost products only: (actual − standard) × quantity on a purchase-linked
+  /// movement. GRNI moved by value + priceVariance; the variance went to PPV.
+  priceVariance Decimal @default(0) @db.Decimal(18, 4)
   createdAt    DateTime @default(now())
 
   movement StockMovement @relation(fields: [movementId], references: [id])
@@ -4233,4 +4244,25 @@ model CustomerCharge {
   @@unique([sourceType, sourceId])
   @@index([customerId, dueDate])
   @@index([entryId])
+}
+
+/// The history of a product's standard cost. A change while stock is on hand revalues it
+/// (standard_cost_out/in movements, Inventory ↔ inventory adjustments). Append-only.
+model StandardCostChange {
+  id              String   @id @default(cuid())
+  productId       String
+  oldStandardCost Decimal? @db.Decimal(18, 4)
+  newStandardCost Decimal  @db.Decimal(18, 4)
+  effectiveDate   String
+  onHandQty       Decimal  @db.Decimal(18, 3)
+  revaluation     Decimal  @db.Decimal(18, 2)
+  reason          String
+  createdById     String?
+  createdBy       String
+  createdAt       DateTime @default(now())
+
+  product   StockProduct    @relation(fields: [productId], references: [id], onDelete: Restrict)
+  movements StockMovement[]
+
+  @@index([productId, createdAt])
 }

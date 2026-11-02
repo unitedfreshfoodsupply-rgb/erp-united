@@ -81,7 +81,7 @@ export function validateImportRow(kind: string, row: ImportRow, required: readon
   }
   if (kind === "products" && v.stock_tracked && !["true", "false", "1", "0", "نعم", "لا"].includes(v.stock_tracked.toLowerCase())) errors.push("stock_tracked لازم يكون true أو false");
   if (kind === "product_settings") {
-    const fields = ["shelf_life_days", "removal_strategy", "min_stock_qty", "reorder_point_qty", "max_stock_qty", "cold_chain", "costing_method", "standard_cost"];
+    const fields = ["shelf_life_days", "removal_strategy", "min_stock_qty", "reorder_point_qty", "max_stock_qty", "cold_chain", "costing_method", "standard_cost", "standard_cost_reason"];
     if (!fields.some((key) => v[key])) errors.push("أدخل إعدادًا واحدًا على الأقل للصنف");
     if (v.shelf_life_days && (!/^\d+$/.test(v.shelf_life_days) || Number(v.shelf_life_days) < 1 || Number(v.shelf_life_days) > 3650)) errors.push("shelf_life_days لازم يكون من 1 إلى 3650 يومًا");
     if (v.removal_strategy && !["fefo", "fifo"].includes(v.removal_strategy)) errors.push("removal_strategy لازم fefo أو fifo");
