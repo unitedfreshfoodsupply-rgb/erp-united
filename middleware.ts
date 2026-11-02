@@ -19,7 +19,9 @@ export function middleware(req: NextRequest) {
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", csp);
   const res = NextResponse.next({ request: { headers: requestHeaders } });
-  res.headers.set("Content-Security-Policy", csp);
+  // An attachment download carries its own, stricter policy (sandbox; default-src 'none'):
+  // user-uploaded bytes must never run with the app's script policy. Leave it in charge.
+  if (!/^\/api\/attachments\/[^/]+\/download\/?$/.test(req.nextUrl.pathname)) res.headers.set("Content-Security-Policy", csp);
   return res;
 }
 
