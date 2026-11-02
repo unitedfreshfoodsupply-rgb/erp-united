@@ -120,6 +120,7 @@ async function partyMismatches(kind: "customer" | "supplier") {
           UNION ALL SELECT r."customerId", sum(r."amount") FROM "CustomerReceiptReversal" x JOIN "CustomerReceipt" r ON r."id" = x."receiptId" GROUP BY 1
           UNION ALL SELECT "customerId", sum("amount") FROM "CustomerRefund" GROUP BY 1
           UNION ALL SELECT "partyId", sum("amount") FROM "PartyOpeningBalance" WHERE "partyType" = 'customer' GROUP BY 1
+          UNION ALL SELECT "customerId", sum("total") FROM "CustomerCharge" GROUP BY 1
         ), s AS (SELECT id, sum(amt) AS sub FROM sub GROUP BY id),
         g AS (SELECT l."partyId" AS id, sum(l."debit" - l."credit") AS gl FROM "JournalLine" l JOIN "Account" a ON a."id" = l."accountId" WHERE a."systemKey" = 'ar' AND l."partyType" = 'customer' GROUP BY 1)
         SELECT coalesce(s.id, g.id) AS id, coalesce(s.sub, 0) AS sub, coalesce(g.gl, 0) AS gl FROM s FULL JOIN g ON g.id = s.id WHERE coalesce(s.sub, 0) <> coalesce(g.gl, 0)`
@@ -205,7 +206,8 @@ export async function integrityReport() {
       SELECT (SELECT coalesce(sum("total"), 0) FROM "SalesInvoice" WHERE "status" = 'issued') - (SELECT coalesce(sum("total"), 0) FROM "CreditNote")
            - (SELECT coalesce(sum("amount"), 0) FROM "CustomerReceipt") + (SELECT coalesce(sum("amount"), 0) FROM "PartyOpeningBalance" WHERE "partyType" = 'customer')
            + (SELECT coalesce(sum(r."amount"), 0) FROM "CustomerReceiptReversal" x JOIN "CustomerReceipt" r ON r."id" = x."receiptId")
-           + (SELECT coalesce(sum("amount"), 0) FROM "CustomerRefund") AS v`;
+           + (SELECT coalesce(sum("amount"), 0) FROM "CustomerRefund")
+           + (SELECT coalesce(sum("total"), 0) FROM "CustomerCharge") AS v`;
     const [arGl, arParties] = await Promise.all([glBalance("ar"), partyMismatches("customer")]);
     return { key: "ar", label: "أرصدة العملاء = حساب العملاء في الأستاذ", ok: D(arSub[0]?.v).equals(arGl) && arParties.length === 0, subledger: D(arSub[0]?.v).toFixed(2), ledger: arGl.toFixed(2), difference: D(arSub[0]?.v).minus(arGl).toFixed(2), detail: arParties.slice(0, 20) };
   })(),
@@ -285,6 +287,17 @@ export async function integrityReport() {
     return {
       key: "waste_pending", label: "هالك لسه في المخزون مستني الإعدام (من شهر فات = لازم يتعدم)", ok: stale.length === 0, ledger: wasteValue.toFixed(2), count: waste.length,
       detail: waste.slice(0, 20).map((w) => ({ productId: w.productId, name: w.name, nameAr: w.nameAr, unit: w.unit, quantity: D(w.qty).toString(), value: D(w.value).toFixed(2) })),
+    };
+  })(),
+  // WS3 (ACC-E1, informational): stock still at a provisional cost — its supplier bill has
+  // not posted, so its value (and the margin of what was sold from it) is an estimate.
+  (async (): Promise<Check> => {
+    const { provisionalReceipts } = await import("@/lib/inventory/reports");
+    const rows = await provisionalReceipts();
+    const value = rows.reduce((s, r) => s.plus(D(r.onHand).times(r.unitCost)), D(0));
+    return {
+      key: "provisional_cost_pending", label: "استلامات بسعر مؤقت لسه فاتورتها مترحّلتش (معلومة)", ok: true, ledger: value.toFixed(2), count: rows.length,
+      detail: rows.slice(0, 20).map((r) => ({ receiptNumber: r.receiptNumber, receivedDate: r.receivedDate, productId: r.productId, provisionalUnitCost: D(r.unitCost).toFixed(4), onHand: D(r.onHand).toString(), bill: r.billNumber, billStatus: r.billStatus })),
     };
   })(),
   ]);

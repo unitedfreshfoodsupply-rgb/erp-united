@@ -50,6 +50,8 @@ export const MOVEMENT_LABEL: Record<MovementKind, string> = {
   sorting_in: "فرز (دخول)",
   release_out: "إفراج محجوز (خروج)",
   release_in: "إفراج محجوز (دخول)",
+  revaluation_out: "إعادة تقييم (خروج)",
+  revaluation_in: "إعادة تقييم (دخول)",
 };
 
 export const MOVEMENT_LABEL_EN: Record<MovementKind, string> = {
@@ -67,6 +69,8 @@ export const MOVEMENT_LABEL_EN: Record<MovementKind, string> = {
   sorting_in: DICTIONARY["stock.movement.sorting_in"].en,
   release_out: DICTIONARY["stock.movement.release_out"].en,
   release_in: DICTIONARY["stock.movement.release_in"].en,
+  revaluation_out: DICTIONARY["stock.movement.revaluation_out"].en,
+  revaluation_in: DICTIONARY["stock.movement.revaluation_in"].en,
 };
 
 export const MOVEMENT_ICON: Record<MovementKind, string> = {
@@ -84,6 +88,8 @@ export const MOVEMENT_ICON: Record<MovementKind, string> = {
   sorting_in: "🔀",
   release_out: "🔓",
   release_in: "🔓",
+  revaluation_out: "💱",
+  revaluation_in: "💱",
 };
 
 // ── Stock audit labels (bilingual via DICTIONARY stock.audit.* keys) ──────────────

@@ -69,6 +69,8 @@ export function QuickIntakeForm({ date }: { date: string }) {
   const [locationId, setLocationId] = useState("");
   const [expiry, setExpiry] = useState("");
   const [unitCost, setUnitCost] = useState("");
+  // WS3 (ACC-E1): no agreed price → the cost entered is PROVISIONAL (the bill revalues it).
+  const [provisional, setProvisional] = useState(false);
   const [countUom, setCountUom] = useState("");
   const packagingsQ = useQuery({
     queryKey: ["stock", "inventory", "product", productId],
@@ -169,7 +171,11 @@ export function QuickIntakeForm({ date }: { date: string }) {
         notes: notes.trim() || undefined,
         location_id: locationId || undefined,
         expiry_date: expiry || undefined,
-        unit_cost: poLineId ? undefined : unitCost.trim() || undefined,
+        ...(poLineId || !unitCost.trim()
+          ? {}
+          : provisional || !can("stock.valuation.view")
+            ? { provisional_unit_cost: unitCost.trim() }
+            : { unit_cost: unitCost.trim() }),
         purchase_order_line_id: poLineId || undefined,
         rejection_reason: x > 0 ? rejectionReason.trim() || undefined : undefined,
         idempotency_key: submitKey,
@@ -188,6 +194,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
       setNotes("");
       setRejectionReason("");
       setUnitCost("");
+      setProvisional(false);
       setExpiry("");
       receivedRef.current?.focus();
     } catch (err) {
@@ -350,6 +357,22 @@ export function QuickIntakeForm({ date }: { date: string }) {
         </span>
       </div>
 
+      {!poLineId && (
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-extrabold text-united-muted">{provisional || !can("stock.valuation.view") ? t("stock.provisional-cost") : t("stock.agreed-unit-cost")}</span>
+            <input inputMode="decimal" dir="ltr" className="field" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} aria-label={t("stock.provisional-cost")} />
+          </label>
+          {can("stock.valuation.view") && (
+            <label className="flex items-center gap-2 text-xs font-extrabold text-united-muted">
+              <input type="checkbox" checked={provisional} onChange={(e) => setProvisional(e.target.checked)} />
+              {t("stock.provisional-cost-toggle")}
+            </label>
+          )}
+          <p className="col-span-2 text-[11px] font-bold text-united-muted">{t("stock.provisional-cost-hint")}</p>
+        </div>
+      )}
+
       <button type="button" className="min-h-10 text-sm font-extrabold text-united-green self-start underline" onClick={() => setShowMore(!showMore)}>
         {showMore ? t("stock.hide-details") : t("stock.more-details-btn")}
       </button>
@@ -363,12 +386,6 @@ export function QuickIntakeForm({ date }: { date: string }) {
             <span className="text-xs font-extrabold text-united-muted">{t("stock.expiry-default")}</span>
             <input type="date" className="field" value={expiry} onChange={(e) => setExpiry(e.target.value)} />
           </label>
-          {can("stock.valuation.view") && !poLineId && (
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-extrabold text-united-muted">{t("stock.unit-cost")}</span>
-              <input inputMode="decimal" dir="ltr" className="field" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} />
-            </label>
-          )}
         </div>
       )}
 

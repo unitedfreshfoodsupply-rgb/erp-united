@@ -35,7 +35,7 @@ async function main() {
   check("STOCK_CONTROLLER cannot read production", (await call("hossam","GET","/api/production/daily")).status === 403);
   check("stock role denied on /prep", isDenied(await page("hossam","/prep")));
   check("PREPARER cannot read stock dashboard", (await call("ahmed","GET","/api/stock/dashboard")).status === 403);
-  check("LOADER cannot record an intake", (await call("mostafa","POST","/api/stock/intakes",{supplier_id:"x",product_id:"y",received_kg:1})).status === 403);
+  check("LOADER cannot record an intake", (await call("mostafa","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:"x",product_id:"y",received_kg:1})).status === 403);
   check("PREPARER cannot add a supplier", (await call("ahmed","POST","/api/stock/suppliers",{name:"x"})).status === 403);
   check("SUPERVISOR keeps stock oversight", (await call("sara","GET","/api/stock/dashboard")).status === 200);
   check("PREPARER denied on /stock page", isDenied(await page("ahmed","/stock")));
@@ -59,6 +59,9 @@ async function main() {
 
   section("4. INTAKE VALIDATION");
   const bad = (body: any) => call("hossam","POST","/api/stock/intakes",{supplier_id:supA.id,product_id:prodA.id,received_date:today,...body});
+  // WS3 (ACC-E1): a receipt with no PO, no unit cost, no dated supplier price and no
+  // provisional cost is refused (it used to enter stock at an unknown cost).
+  check("no cost of any kind -> 400", (await bad({received_kg:10})).status === 400);
   check("received_kg = 0 -> 400", (await bad({received_kg:0})).status === 400);
   check("negative received -> 400", (await bad({received_kg:-5})).status === 400);
   check("negative rejected -> 400", (await bad({received_kg:10,rejected_kg:-1})).status === 400);
@@ -66,26 +69,26 @@ async function main() {
   check("negative crates -> 400", (await bad({received_kg:10,crate_count:-2})).status === 400);
   check("fractional crates -> 400", (await bad({received_kg:10,crate_count:2.5})).status === 400);
   check("bad date format -> 400", (await bad({received_kg:10,received_date:"14/09/2026"})).status === 400);
-  check("unknown supplier -> 404", (await call("hossam","POST","/api/stock/intakes",{supplier_id:"nope",product_id:prodA.id,received_kg:10})).status === 404);
-  check("unknown product -> 404", (await call("hossam","POST","/api/stock/intakes",{supplier_id:supA.id,product_id:"nope",received_kg:10})).status === 404);
+  check("unknown supplier -> 404", (await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:"nope",product_id:prodA.id,received_kg:10})).status === 404);
+  check("unknown product -> 404", (await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supA.id,product_id:"nope",received_kg:10})).status === 404);
   const tmp = (await call("hossam","POST","/api/stock/products",{name:`${TAG} Paused`,unit:"KG"})).body.product;
   await call("hossam","PATCH",`/api/stock/products/${tmp.id}`,{active:false,expected_version:tmp.version});
-  check("inactive product rejected on intake", (await call("hossam","POST","/api/stock/intakes",{supplier_id:supA.id,product_id:tmp.id,received_kg:5})).status === 400);
+  check("inactive product rejected on intake", (await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supA.id,product_id:tmp.id,received_kg:5})).status === 400);
 
   section("5. DERIVED CALCULATIONS");
-  r = await call("hossam","POST","/api/stock/intakes",{supplier_id:supA.id,product_id:prodA.id,received_date:today,received_kg:100,rejected_kg:12.5,crate_count:20,notes:"وصلت الصبح"});
+  r = await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supA.id,product_id:prodA.id,received_date:today,received_kg:100,rejected_kg:12.5,crate_count:20,notes:"وصلت الصبح"});
   check("create intake -> 201", r.status===201, r.body);
   const in1 = r.body.intake;
   check("receipt number format", /^RC-\d{8}-\d{4}$/.test(in1.receiptNumber), in1.receiptNumber);
   check("goodKg derived server-side", near(in1.goodKg, 87.5), in1.goodKg);
   check("recordedBy captured", in1.recordedBy === "حسام");
-  r = await call("hossam","POST","/api/stock/intakes",{supplier_id:supA.id,product_id:prodA.id,received_date:today,received_kg:50,rejected_kg:10,goodKg:999,good_kg:999});
+  r = await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supA.id,product_id:prodA.id,received_date:today,received_kg:50,rejected_kg:10,goodKg:999,good_kg:999});
   check("client-supplied goodKg ignored", near(r.body.intake.goodKg, 40), r.body.intake.goodKg);
-  const in3 = (await call("hossam","POST","/api/stock/intakes",{supplier_id:supB.id,product_id:prodB.id,received_date:today,received_kg:30,rejected_kg:0})).body.intake;
+  const in3 = (await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supB.id,product_id:prodB.id,received_date:today,received_kg:30,rejected_kg:0})).body.intake;
   check("zero rejected is valid", near(in3.goodKg,30));
-  const in4 = (await call("hossam","POST","/api/stock/intakes",{supplier_id:supB.id,product_id:prodB.id,received_date:today,received_kg:20,rejected_kg:20})).body.intake;
+  const in4 = (await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supB.id,product_id:prodB.id,received_date:today,received_kg:20,rejected_kg:20})).body.intake;
   check("100% rejected adds no stock", in4.goodKg === 0);
-  check("float arithmetic stays exact", near((await call("hossam","POST","/api/stock/intakes",{supplier_id:supA.id,product_id:prodA.id,received_date:today,received_kg:0.3,rejected_kg:0.1})).body.intake.goodKg, 0.2));
+  check("float arithmetic stays exact", near((await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supA.id,product_id:prodA.id,received_date:today,received_kg:0.3,rejected_kg:0.1})).body.intake.goodKg, 0.2));
 
   section("5b. PRODUCE GRADING (good / Grade B / waste / rejected)");
   const prodG = (await call("hossam","POST","/api/stock/products",{name:`${TAG} GradingTest`,unit:"KG"})).body.product;
@@ -102,9 +105,9 @@ async function main() {
   check("gradeB movement sits in the grade-B location", gm.some((m:any)=>m.locationId==="loc_grade_b"&&near(m.quantityKg,30)), gm.map((m:any)=>[m.locationId,m.quantityKg]));
   check("waste movement sits in the waste location at cost", gm.some((m:any)=>m.locationId==="loc_waste"&&near(m.quantityKg,20)), gm.map((m:any)=>[m.locationId,m.quantityKg]));
   check("good movement in a receiving location", gm.some((m:any)=>m.locationId!=="loc_grade_b"&&m.locationId!=="loc_waste"&&near(m.quantityKg,40)), gm.map((m:any)=>[m.locationId,m.quantityKg]));
-  const waste0 = (await call("hossam","POST","/api/stock/intakes",{supplier_id:supA.id,product_id:prodG.id,received_date:today,received_kg:100,grade_b_qty:10,rejected_kg:5})).body.intake;
+  const waste0 = (await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supA.id,product_id:prodG.id,received_date:today,received_kg:100,grade_b_qty:10,rejected_kg:5})).body.intake;
   check("waste defaults to zero when omitted", near(waste0.wasteQty,0) && near(waste0.goodKg,85), [waste0.wasteQty, waste0.goodKg]);
-  check("gradeB defaults to zero when omitted", near((await call("hossam","POST","/api/stock/intakes",{supplier_id:supB.id,product_id:prodG.id,received_date:today,received_kg:50,rejected_kg:0})).body.intake.gradeBQty,0));
+  check("gradeB defaults to zero when omitted", near((await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supB.id,product_id:prodG.id,received_date:today,received_kg:50,rejected_kg:0})).body.intake.gradeBQty,0));
 
   section("6. LEDGER INTEGRITY");
   let led = await call("hossam","GET",`/api/stock/ledger?product_id=${prodA.id}&limit=500`);
@@ -160,7 +163,7 @@ async function main() {
   // correcting a receipt downward could still drive a balance negative once that
   // receipt's stock had been taken out by an adjustment.
   const prodC = (await call("hossam","POST","/api/stock/products",{name:`${TAG} Guava`,unit:"KG"})).body.product;
-  const recC = (await call("hossam","POST","/api/stock/intakes",{supplier_id:supA.id,product_id:prodC.id,received_date:today,received_kg:10,rejected_kg:0})).body.intake;
+  const recC = (await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supA.id,product_id:prodC.id,received_date:today,received_kg:10,rejected_kg:0})).body.intake;
   check("receipt puts 10 kg in", near(await ledgerSum(prodC.id), 10));
   check("adjustment takes 8 kg out", (await call("hossam","POST","/api/stock/adjustments",{product_id:prodC.id,quantity_kg:-8,reason:"صرف للتجهيز"})).status === 201);
   r = await call("hossam","PATCH",`/api/stock/intakes/${recC.id}`,{received_kg:5,reason:"وزن غلط",expected_version:recC.version});
@@ -174,7 +177,7 @@ async function main() {
   check("accepted correction audited atomically (receivedKg + goodKg rows)", auditC.length >= 2, auditC.map((l: any)=>l.fieldChanged));
 
   section("8. CONCURRENCY");
-  const burst = await Promise.all([1,2,3,4,5].map(()=>call("hossam","POST","/api/stock/intakes",{supplier_id:supA.id,product_id:prodA.id,received_date:today,received_kg:10,rejected_kg:1})));
+  const burst = await Promise.all([1,2,3,4,5].map(()=>call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supA.id,product_id:prodA.id,received_date:today,received_kg:10,rejected_kg:1})));
   check("5 simultaneous intakes all succeed", burst.every((b)=>b.status===201), burst.map((b)=>b.status));
   check("5 distinct receipt numbers", new Set(burst.map((b)=>b.body?.intake?.receiptNumber)).size === 5);
   const burstIds = burst.map((b)=>b.body.intake.id);
@@ -220,7 +223,7 @@ async function main() {
   check("yield % = good / received", near(dash.body.today.yieldPct, Math.round((expGood/expReceived)*1000)/10, 0.11));
   check("week window is 7 days ending today", dash.body.week.from === shift(today,-6) && dash.body.week.to === today);
   check("month window starts on the 1st", dash.body.month.from === `${today.slice(0,7)}-01`);
-  const oldIntake = (await call("hossam","POST","/api/stock/intakes",{supplier_id:supA.id,product_id:prodA.id,received_date:shift(today,-40),received_kg:777,rejected_kg:7})).body.intake;
+  const oldIntake = (await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supA.id,product_id:prodA.id,received_date:shift(today,-40),received_kg:777,rejected_kg:7})).body.intake;
   const dash2 = await call("hossam","GET",`/api/stock/dashboard?date=${today}`);
   check("a 40-day-old receipt stays out of today's total", near(dash2.body.today.receivedKg, expReceived, 0.002));
   check("...and out of the rolling week", near(dash2.body.week.receivedKg, dash.body.week.receivedKg, 0.002));

@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { todayLocalISO } from "@/lib/localDate";
 import { getSetting } from "@/lib/core/settings-service";
@@ -54,12 +55,15 @@ export async function expiringStock(opts: { days?: number; warehouseId?: string 
 /** Stock value per product from the valuation layers, and how much stock has no cost
  * behind it yet (received before prices were recorded). */
 export async function valuationReport() {
-  const [layers, unknown, products] = await Promise.all([
+  const [layers, unknown, products, provisional] = await Promise.all([
     prisma.stockValuationLayer.groupBy({ by: ["productId"], _sum: { quantity: true, value: true } }),
     prisma.stockValuationLayer.groupBy({ by: ["productId"], where: { costSource: "unknown", quantity: { gt: 0 } }, _sum: { remainingQty: true, quantity: true } }),
     prisma.stockProduct.findMany({ where: { stockTracked: true }, select: { id: true, name: true, nameAr: true, unit: true, costingMethod: true } }),
+    provisionalOnHand(),
   ]);
   const unknownBy = new Map(unknown.map((u) => [u.productId, u._sum]));
+  const provisionalBy = new Map(provisional.map((p) => [p.productId, p]));
+  let provisionalValue = ZERO;
   const byId = new Map(products.map((p) => [p.id, p]));
   let totalValue = ZERO;
   const rows = layers
@@ -79,9 +83,44 @@ export async function valuationReport() {
         averageCost: qty.gt(0) ? value.dividedBy(qty).toDecimalPlaces(4) : null,
         // Quantity received at an unknown cost (history, or a receipt with no price).
         receivedWithoutCost: D(unknownBy.get(l.productId)?.quantity),
+        // WS3 (ACC-E1): on hand at a PROVISIONAL cost — its supplier bill is not posted yet,
+        // so this value is an estimate until the bill revalues it.
+        provisionalQty: D(provisionalBy.get(l.productId)?.qty),
+        provisionalValue: D(provisionalBy.get(l.productId)?.value).toDecimalPlaces(2),
       };
     })
     .filter((r) => !r.quantity.isZero() || !r.value.isZero())
     .sort((a, b) => Number(b.value.minus(a.value)));
-  return { totalValue: totalValue.toDecimalPlaces(2), currency: "EGP", rows };
+  for (const r of rows) provisionalValue = provisionalValue.plus(r.provisionalValue);
+  return { totalValue: totalValue.toDecimalPlaces(2), currency: "EGP", rows, provisionalValue: provisionalValue.toDecimalPlaces(2) };
+}
+
+/**
+ * WS3 (ACC-E1): stock still carried at a provisional cost — receipts entered with a
+ * provisional price whose supplier bill has not posted. Per product: the quantity still in
+ * the receipts' lots and its value at the provisional price; per receipt for the list.
+ */
+export async function provisionalReceipts() {
+  return prisma.$queryRaw<{ intakeId: string; receiptNumber: string; receivedDate: string; supplierId: string; productId: string; unitCost: Prisma.Decimal; accepted: Prisma.Decimal; onHand: Prisma.Decimal; billNumber: string | null; billStatus: string | null }[]>`
+    SELECT i."id" AS "intakeId", i."receiptNumber", i."receivedDate", i."supplierId", i."productId", i."unitCost",
+           i."receivedQty" - i."rejectedQty" AS accepted,
+           coalesce((SELECT sum(m."quantity") FROM "StockMovement" m WHERE m."lotId" IN (SELECT DISTINCT x."lotId" FROM "StockMovement" x WHERE x."intakeId" = i."id" AND x."lotId" IS NOT NULL)), 0) AS "onHand",
+           (SELECT b."number" FROM "SupplierBillLine" bl JOIN "SupplierBill" b ON b."id" = bl."billId" WHERE bl."intakeId" = i."id" AND NOT bl."released" LIMIT 1) AS "billNumber",
+           (SELECT b."status" FROM "SupplierBillLine" bl JOIN "SupplierBill" b ON b."id" = bl."billId" WHERE bl."intakeId" = i."id" AND NOT bl."released" LIMIT 1) AS "billStatus"
+    FROM "StockIntake" i
+    WHERE i."costProvisional" AND i."status" = 'posted'
+      AND NOT EXISTS (SELECT 1 FROM "SupplierBillLine" bl JOIN "SupplierBill" b ON b."id" = bl."billId" WHERE bl."intakeId" = i."id" AND b."status" = 'posted')
+    ORDER BY i."receivedDate", i."receiptNumber"`;
+}
+
+async function provisionalOnHand() {
+  const rows = await prisma.$queryRaw<{ productId: string; qty: Prisma.Decimal; value: Prisma.Decimal }[]>`
+    WITH pl AS (
+      SELECT DISTINCT x."lotId", x."productId", i."unitCost"
+      FROM "StockMovement" x JOIN "StockIntake" i ON i."id" = x."intakeId"
+      WHERE i."costProvisional" AND i."status" = 'posted' AND x."lotId" IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM "SupplierBillLine" bl JOIN "SupplierBill" b ON b."id" = bl."billId" WHERE bl."intakeId" = i."id" AND b."status" = 'posted')
+    ), bal AS (SELECT m."lotId", sum(m."quantity") AS qty FROM "StockMovement" m WHERE m."lotId" IN (SELECT "lotId" FROM pl) GROUP BY 1)
+    SELECT pl."productId", sum(bal.qty) AS qty, sum(bal.qty * pl."unitCost") AS value FROM pl JOIN bal ON bal."lotId" = pl."lotId" GROUP BY 1`;
+  return rows.map((r) => ({ productId: r.productId, qty: D(r.qty), value: D(r.value) }));
 }

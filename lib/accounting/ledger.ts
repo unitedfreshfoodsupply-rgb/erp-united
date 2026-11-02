@@ -206,11 +206,22 @@ export async function postSupplierBill(tx: Tx, billId: string, actor: Actorish) 
   // GRNI carries what the receipts were valued at in stock (the agreed price); anything
   // else the supplier charged is a purchase price variance.
   const agreed = bill.lines.reduce((a, l) => a.plus(l.expectedNet ?? 0), D(0));
+  // WS3 (ACC-E1): a receipt at a PROVISIONAL cost has no agreed price to vary from. Its GRNI
+  // clears at the provisional value plus the revaluation the stock ledger just posted
+  // (Inventory <-> GRNI for the units still on hand); the rest of the difference is the cost
+  // of units already gone: COGS (sold), adjustments (written off), PPV only for units
+  // already returned to the supplier (their debit note takes it back).
+  const { revalueOnBill } = await import("@/lib/purchasing/revaluation");
+  const rv = await revalueOnBill(tx, bill.id, actor);
+  const grni = agreed.plus(rv.grni);
+  const cogs = rv.cogs, adjustment = rv.adjustment;
   return postJournal(tx, {
     date: bill.billDate, description: `فاتورة مورد ${bill.number} (${bill.supplierInvoiceNo})`, sourceType: "supplier_bill", sourceId: bill.id,
     lines: [
-      { key: "grni", amount: agreed },
-      { key: "ppv", amount: bill.net.minus(agreed) },
+      { key: "grni", amount: grni },
+      { key: "cogs", amount: cogs, description: cogs.isZero() ? undefined : "فرق تكلفة مؤقتة — كمية اتباعت" },
+      { key: "inventory_adjustment", amount: adjustment, description: adjustment.isZero() ? undefined : "فرق تكلفة مؤقتة — كمية اتسوّت/اتعدمت" },
+      { key: "ppv", amount: bill.net.minus(grni).minus(cogs).minus(adjustment) },
       { key: "vat_input", amount: bill.taxTotal },
       { key: "ap", amount: bill.total.negated(), party: { type: "supplier", id: bill.supplierId } },
     ],
@@ -251,12 +262,22 @@ export async function postDebitNote(tx: Tx, debitNoteId: string, actor: Actorish
     const v = await tx.stockValuationLayer.aggregate({ where: { movement: { documentId: dn.returnDocumentId } }, _sum: { value: true } });
     grni = D(v._sum.value ?? 0).negated();
   }
+  // WS3 (ACC-E1): an allowance (no goods back) on a line whose receipt was at a provisional
+  // cost changes that receipt's cost: revalued the way the bill's difference was, never a
+  // price variance. Goods sent back leave stock at their lot's (billed) cost: unchanged rule.
+  const { revalueOnDebitNote } = await import("@/lib/purchasing/revaluation");
+  const rv = dn.returnDocumentId ? null : await revalueOnDebitNote(tx, dn.id, actor);
+  // The revaluation movements moved GRNI by the inventory part: net it here.
+  const grniLine = grni.negated().plus(rv?.grni ?? 0);
+  const cogs = rv?.cogs ?? D(0), adjustment = rv?.adjustment ?? D(0);
   return postJournal(tx, {
     date: dn.issueDate, description: `إشعار مدين ${dn.number} على ${dn.bill.number}`, sourceType: "debit_note", sourceId: dn.id,
     lines: [
       { key: "ap", amount: dn.total, party: { type: "supplier", id: dn.supplierId } },
-      { key: "grni", amount: grni.negated() },
-      { key: "ppv", amount: grni.minus(dn.net) },
+      { key: "grni", amount: grniLine },
+      { key: "cogs", amount: cogs, description: cogs.isZero() ? undefined : "تخفيض تكلفة مؤقتة — كمية اتباعت" },
+      { key: "inventory_adjustment", amount: adjustment, description: adjustment.isZero() ? undefined : "تخفيض تكلفة مؤقتة — كمية اتسوّت/اتعدمت" },
+      { key: "ppv", amount: dn.total.minus(dn.taxTotal).plus(grniLine).plus(cogs).plus(adjustment).negated() },
       { key: "vat_input", amount: dn.taxTotal.negated() },
     ],
   }, actor);
@@ -270,6 +291,8 @@ const VALUATION_COUNTER: Record<string, SystemKey> = {
   intake: "grni", intake_correction: "grni", intake_void: "grni", supplier_return: "grni",
   issue: "cogs", customer_return: "cogs",
   adjustment: "inventory_adjustment", scrap: "inventory_adjustment", transfer_out: "inventory_adjustment", transfer_in: "inventory_adjustment",
+  // WS3 (ACC-E1): a bill revaluing a provisional receipt: the receipt's own counter.
+  revaluation_out: "grni", revaluation_in: "grni",
 };
 const KIND_LABEL: Record<string, string> = { grni: "استلامات ومرتجعات موردين", cogs: "صرف ومرتجعات عملاء", inventory_adjustment: "تسويات وهالك وتحويلات", opening_equity: "رصيد مخزون افتتاحي" };
 
@@ -299,7 +322,7 @@ async function valuationLines(tx: Tx, moves: { kind: string; documentId: string 
   return lines;
 }
 
-const MOVE_LABEL: Record<string, string> = { intake: "استلام", intake_correction: "تصحيح استلام", intake_void: "إلغاء استلام", adjustment: "تسوية", transfer_out: "تحويل", transfer_in: "تحويل", issue: "صرف لعميل", customer_return: "مرتجع عميل", supplier_return: "مرتجع مورد", sorting_out: "فرز — خارج", sorting_in: "فرز — داخل", release_out: "إفراج محجوز — خارج", release_in: "إفراج محجوز — داخل" };
+const MOVE_LABEL: Record<string, string> = { intake: "استلام", intake_correction: "تصحيح استلام", intake_void: "إلغاء استلام", adjustment: "تسوية", transfer_out: "تحويل", transfer_in: "تحويل", issue: "صرف لعميل", customer_return: "مرتجع عميل", supplier_return: "مرتجع مورد", sorting_out: "فرز — خارج", sorting_in: "فرز — داخل", release_out: "إفراج محجوز — خارج", release_in: "إفراج محجوز — داخل", revaluation_out: "إعادة تقييم — خارج", revaluation_in: "إعادة تقييم — داخل" };
 
 /** "قيمة مخزون — استلام RC-…" — the kind in words and the document it came from. */
 async function valuationDescription(tx: Tx, moves: { kind: string; documentId: string | null; intakeId?: string | null }[]) {
@@ -658,15 +681,23 @@ export async function balanceSheet(asOf: string, openingFrom?: string) {
     WHERE e."date" <= ${asOf}
     GROUP BY l."accountId"`;
   const accounts = new Map((await prisma.account.findMany()).map((a) => [a.id, a]));
-  type StatementLine = { code: string; name: string; nameAr: string; nameEn?: string; type: string; amount: string };
+  type StatementLine = { code: string; name: string; nameAr: string; nameEn?: string; type: string; amount: string; liquidity?: string | null };
   const groups: Record<string, StatementLine[]> = { asset: [], liability: [], equity: [], revenue: [], expense: [] };
   const signedSums = { asset: D(0), liability: D(0), equity: D(0), revenue: D(0), expense: D(0) };
+  const liquidityTotals = { asset: { current: D(0), nonCurrent: D(0), unclassified: D(0) }, liability: { current: D(0), nonCurrent: D(0), unclassified: D(0) } };
+  const unclassified: { code: string; name: string; nameEn: string; type: string; amount: string }[] = [];
 
   for (const r of rows) {
     const a = accounts.get(r.accountId);
     if (!a) continue;
     const signed = D(r.closing);
-    const line: StatementLine = { code: a.code, name: a.nameAr, nameAr: a.nameAr, nameEn: a.name, type: a.type, amount: signed.abs().toFixed(2) };
+    const line: StatementLine = { code: a.code, name: a.nameAr, nameAr: a.nameAr, nameEn: a.name, type: a.type, amount: signed.abs().toFixed(2), ...(a.type === "asset" || a.type === "liability" ? { liquidity: a.liquidity } : {}) };
+    // WS3 G5: current / non-current / unclassified subtotals (signed, then shown per side).
+    if (a.type === "asset" || a.type === "liability") {
+      const k = a.liquidity === "current" ? "current" : a.liquidity === "non_current" ? "nonCurrent" : "unclassified";
+      liquidityTotals[a.type][k] = liquidityTotals[a.type][k].plus(a.type === "asset" ? signed : signed.negated());
+      if (k === "unclassified" && !signed.isZero()) unclassified.push({ code: a.code, name: a.nameAr, nameEn: a.name, type: a.type, amount: (a.type === "asset" ? signed : signed.negated()).toFixed(2) });
+    }
     if (groups[a.type]) {
       groups[a.type].push(line);
       signedSums[a.type as "asset" | "liability" | "equity" | "revenue" | "expense"] = signedSums[a.type as "asset" | "liability" | "equity" | "revenue" | "expense"].plus(signed);
@@ -699,12 +730,15 @@ export async function balanceSheet(asOf: string, openingFrom?: string) {
     asOf,
     openingFrom: from,
     sections: {
-      assets: { lines: groups.asset, total: totalAssets.toFixed(2) },
-      liabilities: { lines: groups.liability, total: totalLiabilities.toFixed(2) },
+      assets: { lines: groups.asset, total: totalAssets.toFixed(2), current: liquidityTotals.asset.current.toFixed(2), nonCurrent: liquidityTotals.asset.nonCurrent.toFixed(2), unclassified: liquidityTotals.asset.unclassified.toFixed(2) },
+      liabilities: { lines: groups.liability, total: totalLiabilities.toFixed(2), current: liquidityTotals.liability.current.toFixed(2), nonCurrent: liquidityTotals.liability.nonCurrent.toFixed(2), unclassified: liquidityTotals.liability.unclassified.toFixed(2) },
       equity: { lines: allEquity, total: totalEquity.toFixed(2) },
     },
     totalAssets: totalAssets.toFixed(2),
     totalLiabilitiesAndEquity: totalLiabilities.plus(totalEquity).toFixed(2),
+    // WS3 G5: balance-sheet accounts with a balance and no current / non-current class.
+    unclassifiedAccounts: unclassified.sort((x, y) => x.code.localeCompare(y.code)),
+    classificationComplete: unclassified.length === 0,
     _balanced: totalAssets.equals(totalLiabilities.plus(totalEquity)),
   };
 }
@@ -807,19 +841,35 @@ export function defaultCashFlowCategory(type: string, chosen?: CashFlowCategory 
   return type === "equity" ? "financing" : "operating";
 }
 
+// ---- WS3 remediation 2026-11 (G5): current / non-current ----
+export const LIQUIDITY = ["current", "non_current"] as const;
+export type Liquidity = (typeof LIQUIDITY)[number];
+const liquidityField = z.enum(LIQUIDITY, { errorMap: () => ({ message: "التصنيف: متداول أو غير متداول" }) });
+/**
+ * The current / non-current class of a new account: what the accountant chose, else what
+ * its header carries (a header under "Fixed assets" is non-current). Never guessed from the
+ * type: unset stays unclassified and the balance sheet reports it as such.
+ */
+export function defaultLiquidity(type: string, chosen?: Liquidity | null, parentLiquidity?: string | null): Liquidity | null {
+  if (type !== "asset" && type !== "liability") return null;
+  if (chosen) return chosen;
+  return parentLiquidity && (LIQUIDITY as readonly string[]).includes(parentLiquidity) ? (parentLiquidity as Liquidity) : null;
+}
+
 /** A new postable sub-account under a header (e.g. a second bank, an expense line). */
 export async function createAccount(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.manage");
-  const v = parse(z.object({ code: z.string().regex(/^[0-9]{3,8}$/, "الكود أرقام بس (3–8)"), name: text("الاسم", 100), name_ar: text("الاسم بالعربي", 100), parent_id: text("الحساب الرئيسي"), cash_flow_category: cashFlowField.optional() }), input);
+  const v = parse(z.object({ code: z.string().regex(/^[0-9]{3,8}$/, "الكود أرقام بس (3–8)"), name: text("الاسم", 100), name_ar: text("الاسم بالعربي", 100), parent_id: text("الحساب الرئيسي"), cash_flow_category: cashFlowField.optional(), liquidity: liquidityField.optional() }), input);
   return inTx(async (tx) => {
     const parent = await tx.account.findUnique({ where: { id: v.parent_id } });
     if (!parent) throw new ApiError(404, "الحساب الرئيسي مش موجود");
     if (parent.postable) throw new ApiError(400, "الحساب الرئيسي لازم يكون حساب تجميعي");
     if (parent.id === "acc_1700") throw new ApiError(400, "حسابات الأصول الثابتة بتتعمل من فئات الأصول (شاشة الأصول الثابتة)، مش يدوي");
     if ((parent.type === "revenue" || parent.type === "expense") && v.cash_flow_category) throw new ApiError(400, "حسابات الإيرادات والمصروفات مالهاش تصنيف تدفق نقدي — بتدخل في صافي الدخل");
+    if (v.liquidity && parent.type !== "asset" && parent.type !== "liability") throw new ApiError(400, "التصنيف متداول / غير متداول للأصول والخصوم بس");
     let a;
     try {
-      a = await tx.account.create({ data: { code: v.code, name: v.name, nameAr: v.name_ar, type: parent.type, parentId: parent.id, cashFlowCategory: defaultCashFlowCategory(parent.type, v.cash_flow_category, parent.cashFlowCategory) } });
+      a = await tx.account.create({ data: { code: v.code, name: v.name, nameAr: v.name_ar, type: parent.type, parentId: parent.id, cashFlowCategory: defaultCashFlowCategory(parent.type, v.cash_flow_category, parent.cashFlowCategory), liquidity: defaultLiquidity(parent.type, v.liquidity, parent.liquidity) } });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") throw new ApiError(409, "الكود مستخدم");
       throw err;
@@ -836,7 +886,7 @@ export async function createAccount(input: unknown, actor: ServiceActor) {
  */
 export async function updateAccount(id: string, input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.manage");
-  const v = parse(z.object({ name: text("الاسم", 100).optional(), name_ar: text("الاسم بالعربي", 100).optional(), cash_flow_category: cashFlowField.nullable().optional(), active: z.boolean().optional(), version: z.number().int().optional() }), input);
+  const v = parse(z.object({ name: text("الاسم", 100).optional(), name_ar: text("الاسم بالعربي", 100).optional(), cash_flow_category: cashFlowField.nullable().optional(), liquidity: liquidityField.nullable().optional(), active: z.boolean().optional(), version: z.number().int().optional() }), input);
   return inTx(async (tx) => {
     const a = await tx.account.findUnique({ where: { id } });
     if (!a) throw new ApiError(404, "الحساب مش موجود");
@@ -845,6 +895,10 @@ export async function updateAccount(id: string, input: unknown, actor: ServiceAc
       if (a.type === "revenue" || a.type === "expense") throw new ApiError(400, "حسابات الإيرادات والمصروفات مالهاش تصنيف تدفق نقدي — بتدخل في صافي الدخل");
       if (await tx.cashAccount.findFirst({ where: { accountId: a.id } })) throw new ApiError(400, "حساب خزينة أو بنك — هو نفسه النقدية اللي القائمة بتقيس تغيّرها");
       if (a.systemKey && v.cash_flow_category === null) throw new ApiError(400, "حسابات النظام لازم يكون لها تصنيف");
+    }
+    if (v.liquidity !== undefined) {
+      if (a.type !== "asset" && a.type !== "liability") throw new ApiError(400, "التصنيف متداول / غير متداول للأصول والخصوم بس");
+      if (v.liquidity === null && (a.systemKey || a.controlledBy)) throw new ApiError(400, "حسابات النظام لازم يكون لها تصنيف متداول / غير متداول");
     }
     if (v.active === false && a.active) {
       if (a.systemKey || a.controlledBy) throw new ApiError(400, "حساب نظام أو حساب سجل فرعي — مينفعش يتوقف");
@@ -857,12 +911,14 @@ export async function updateAccount(id: string, input: unknown, actor: ServiceAc
     if (v.name !== undefined) data.name = v.name;
     if (v.name_ar !== undefined) data.nameAr = v.name_ar;
     if (v.cash_flow_category !== undefined) data.cashFlowCategory = v.cash_flow_category;
+    if (v.liquidity !== undefined) data.liquidity = v.liquidity;
     if (v.active !== undefined) data.active = v.active;
     const updated = await tx.account.update({ where: { id, version: a.version }, data });
     const changes = [
       v.name !== undefined && v.name !== a.name ? `name: ${a.name} → ${v.name}` : null,
       v.name_ar !== undefined && v.name_ar !== a.nameAr ? `nameAr: ${a.nameAr} → ${v.name_ar}` : null,
       v.cash_flow_category !== undefined && v.cash_flow_category !== a.cashFlowCategory ? `cashFlow: ${a.cashFlowCategory ?? "—"} → ${v.cash_flow_category ?? "—"}` : null,
+      v.liquidity !== undefined && v.liquidity !== a.liquidity ? `liquidity: ${a.liquidity ?? "—"} → ${v.liquidity ?? "—"}` : null,
       v.active !== undefined && v.active !== a.active ? `active: ${a.active} → ${v.active}` : null,
     ].filter(Boolean).join(" · ");
     if (changes) await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "account_updated", entityType: "account", entityId: a.id, fieldChanged: a.code, newValue: changes, source: "user", deviceId: actor.deviceId }, tx);

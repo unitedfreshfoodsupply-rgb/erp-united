@@ -306,7 +306,7 @@ async function main() {
   await setting("sales.credit_check_mode", null);
 
   section("16. AUTOMATIC RESERVATION");
-  await call("hossam", "POST", "/api/stock/intakes", { supplier_id: (await call("hossam", "POST", "/api/stock/suppliers", { name: `${TAG} مورد` })).body.supplier.id, product_id: mango.id, received_kg: 100 });
+  await call("hossam", "POST", "/api/stock/intakes", { provisional_unit_cost: "1", supplier_id: (await call("hossam", "POST", "/api/stock/suppliers", { name: `${TAG} مورد` })).body.supplier.id, product_id: mango.id, received_kg: 100 });
   const avail = async () => (await call("sara", "GET", `/api/inventory/products/${mango.id}`)).body;
   const base = await avail();
   await setting("sales.auto_reserve", true);

@@ -14,6 +14,7 @@ import { optText, parse, text } from "@/lib/core/validation";
 import { idempotencyKeyField, lockKey } from "@/lib/core/idempotency";
 import type { ServiceActor } from "@/lib/core/actor";
 import { ensureOpenPeriod, postJournal, type PostLine } from "@/lib/accounting/ledger";
+import { assertEgpCurrency } from "@/lib/core/currency";
 
 /**
  * Fixed assets.
@@ -64,6 +65,7 @@ const addMonths = (period: string, k: number) => {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 };
 const monthEnd = (period: string) => { const [y, m] = period.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); };
+const addDays = (date: string, days: number) => { const d = new Date(`${date}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); };
 const monthsBetween = (a: string, b: string) => { const [y1, m1] = a.split("-").map(Number); const [y2, m2] = b.split("-").map(Number); return (y2 - y1) * 12 + (m2 - m1); };
 
 // ---------------------------------------------------------------------------
@@ -99,10 +101,10 @@ export async function createCategory(input: unknown, actor: ServiceActor) {
     const free: string[] = [];
     for (let n = 1701; n <= 1799 && free.length < 2; n++) if (!used.has(String(n))) free.push(String(n));
     if (free.length < (v.depreciable ? 2 : 1)) throw new ApiError(409, "الأكواد المتاحة تحت الأصول الثابتة (1701–1799) خلصت");
-    const cost = await tx.account.create({ data: { code: free[0], name: `${v.name} — cost`, nameAr: `${v.name_ar} — التكلفة`, type: "asset", parentId: "acc_1700", postable: true, controlledBy: "fixed_assets", cashFlowCategory: "investing" } });
+    const cost = await tx.account.create({ data: { code: free[0], name: `${v.name} — cost`, nameAr: `${v.name_ar} — التكلفة`, type: "asset", parentId: "acc_1700", postable: true, controlledBy: "fixed_assets", cashFlowCategory: "investing", liquidity: "non_current" } });
     // Accumulated depreciation is a contra-asset; its change is the non-cash depreciation
     // added back under operating (disposals are moved to investing by the cash-flow report).
-    const accum = v.depreciable ? await tx.account.create({ data: { code: free[1], name: `${v.name} — accumulated depreciation`, nameAr: `${v.name_ar} — مجمع الإهلاك`, type: "asset", parentId: "acc_1700", postable: true, controlledBy: "fixed_assets", cashFlowCategory: "operating" } }) : null;
+    const accum = v.depreciable ? await tx.account.create({ data: { code: free[1], name: `${v.name} — accumulated depreciation`, nameAr: `${v.name_ar} — مجمع الإهلاك`, type: "asset", parentId: "acc_1700", postable: true, controlledBy: "fixed_assets", cashFlowCategory: "operating", liquidity: "non_current" } }) : null;
     const expense = v.depreciable ? await tx.account.findUnique({ where: { systemKey: "fa_depreciation" } }) : null;
     const c = await tx.assetCategory.create({
       data: {
@@ -528,13 +530,22 @@ export async function listRuns() {
 /**
  * Sale or scrap. Depreciation is charged up to the month before the disposal (the
  * disposal month itself is not depreciated), then the asset leaves the books.
+ *
+ * A sale is either for cash (cash_account_id: Dr the cash box / bank) or — WS3 G1 — on
+ * credit to a customer (customer_id: Dr AR with the customer as party, recorded as a
+ * CustomerCharge so it shows on the customer's statement and aging and is collected
+ * like any receivable). VAT output and the gain / loss are the same either way.
  */
 export async function disposeAsset(id: string, input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.assets.manage");
-  const v = parse(z.object({ kind: z.enum(["sale", "scrap"], { errorMap: () => ({ message: "نوع الاستبعاد: بيع أو تخريد" }) }), date: dateField("تاريخ الاستبعاد"), proceeds: money("قيمة البيع", true).optional(), cash_account_id: z.string().optional(), tax_code: z.string().optional(), reason: text("السبب", 500), version: z.number().int().optional() }), input);
+  const v = parse(z.object({ kind: z.enum(["sale", "scrap"], { errorMap: () => ({ message: "نوع الاستبعاد: بيع أو تخريد" }) }), date: dateField("تاريخ الاستبعاد"), proceeds: money("قيمة البيع", true).optional(), cash_account_id: z.string().optional(), customer_id: z.string().optional(), due_date: dateField("تاريخ الاستحقاق").optional(), tax_code: z.string().optional(), reason: text("السبب", 500), version: z.number().int().optional() }), input);
   const proceeds = v.kind === "sale" ? v.proceeds ?? D(0) : D(0);
   if (v.kind === "sale" && !proceeds.gt(0)) throw new ApiError(400, "حدد قيمة البيع (أو اختار تخريد)");
-  if (v.kind === "sale" && !v.cash_account_id) throw new ApiError(400, "حدد الخزينة أو البنك اللي استلم الثمن");
+  if (v.kind === "sale" && v.cash_account_id && v.customer_id) throw new ApiError(400, "البيع يا نقدي (خزينة أو بنك) يا آجل لعميل — مش الاتنين");
+  if (v.kind === "sale" && !v.cash_account_id && !v.customer_id) throw new ApiError(400, "حدد الخزينة أو البنك اللي استلم الثمن، أو العميل لو البيع آجل");
+  if (v.kind !== "sale" && (v.customer_id || v.due_date)) throw new ApiError(400, "العميل وتاريخ الاستحقاق للبيع الآجل بس");
+  if (v.due_date && !v.customer_id) throw new ApiError(400, "تاريخ الاستحقاق للبيع الآجل بس");
+  if (v.due_date && v.due_date < v.date) throw new ApiError(400, "تاريخ الاستحقاق قبل تاريخ البيع");
   if (v.date > todayLocalISO()) throw new ApiError(400, "مينفعش الاستبعاد يكون بتاريخ في المستقبل");
   return inTx(async (tx) => {
     await ensureOpenPeriod(tx, v.date); // month first, then depreciation (see runDepreciationTx)
@@ -553,8 +564,16 @@ export async function disposeAsset(id: string, input: unknown, actor: ServiceAct
       taxRate = D(t.rate); taxCode = t.code;
     }
     const tax = r2(proceeds.times(taxRate).dividedBy(100));
-    const cash = v.kind === "sale" ? await tx.cashAccount.findUnique({ where: { id: v.cash_account_id! } }) : null;
-    if (v.kind === "sale" && !cash?.active) throw new ApiError(400, "الخزينة / الحساب البنكي مش موجود أو موقوف");
+    const cash = v.kind === "sale" && v.cash_account_id ? await tx.cashAccount.findUnique({ where: { id: v.cash_account_id } }) : null;
+    if (v.kind === "sale" && v.cash_account_id && !cash?.active) throw new ApiError(400, "الخزينة / الحساب البنكي مش موجود أو موقوف");
+    // WS3 G1: on credit — the customer must exist, be active and not on credit hold.
+    const customer = v.kind === "sale" && v.customer_id ? await tx.customer.findUnique({ where: { id: v.customer_id } }) : null;
+    if (v.customer_id && v.kind === "sale") {
+      if (!customer) throw new ApiError(404, "العميل مش موجود");
+      if (!customer.active) throw new ApiError(400, `العميل ${customer.code} موقوف`);
+      if (customer.creditHold) throw new ApiError(409, `العميل ${customer.code} موقوف ائتمانياً — مينفعش يتباع له آجل`);
+      assertEgpCurrency(customer.currencyCode, `العميل ${customer.code}`);
+    }
     // Catch-up depreciation to the month before the disposal.
     const catchUp = a.status === "in_service" ? await dueLines(tx, a, addMonths(monthOf(v.date), -1)) : [];
     const catchUpTotal = catchUp.reduce((s, l) => s.plus(l.amount), D(0));
@@ -565,6 +584,7 @@ export async function disposeAsset(id: string, input: unknown, actor: ServiceAct
     const lines: PostLine[] = [];
     if (catchUpTotal.gt(0)) lines.push({ accountId: a.category.expenseAccountId!, amount: catchUpTotal, costCenterId: a.costCenterId, description: "إهلاك حتى الاستبعاد" }, { accountId: a.category.accumulatedAccountId!, amount: catchUpTotal.negated(), description: "إهلاك حتى الاستبعاد" });
     if (cash) lines.push({ accountId: cash.accountId, amount: proceeds.plus(tax) });
+    if (customer) lines.push({ key: "ar", amount: proceeds.plus(tax), party: { type: "customer", id: customer.id }, description: `بيع أصل ${a.number} آجل` });
     if (accumulated.gt(0)) lines.push({ accountId: a.category.accumulatedAccountId!, amount: accumulated });
     lines.push({ accountId: a.category.assetAccountId, amount: a.cost.negated() });
     if (tax.gt(0)) lines.push({ key: "vat_output", amount: tax.negated() });
@@ -572,11 +592,19 @@ export async function disposeAsset(id: string, input: unknown, actor: ServiceAct
     if (gain.lt(0)) lines.push({ key: "fa_disposal_loss", amount: gain.negated(), costCenterId: a.costCenterId });
     const entry = await postJournal(tx, { date: v.date, description: `${v.kind === "sale" ? "بيع" : "تخريد"} أصل ${a.number}: ${a.name}`, sourceType: "asset_disposal", sourceId: eventId, lines }, actor);
     await tx.assetEvent.create({
-      data: { id: eventId, assetId: a.id, type: "disposal", date: v.date, costDelta: a.cost.negated(), accumulatedDelta: accumulated.negated(), proceeds, taxCode, taxRate: taxCode ? taxRate : null, tax: taxCode ? tax : null, gainLoss: gain, cashAccountId: cash?.id ?? null, entryId: entry?.id ?? null, details: { kind: v.kind, bookValue: bookValue.toFixed(2), catchUp: catchUpTotal.toFixed(2) }, reason: v.reason, createdById: actor.id, createdBy: actor.name },
+      data: { id: eventId, assetId: a.id, type: "disposal", date: v.date, costDelta: a.cost.negated(), accumulatedDelta: accumulated.negated(), proceeds, taxCode, taxRate: taxCode ? taxRate : null, tax: taxCode ? tax : null, gainLoss: gain, cashAccountId: cash?.id ?? null, entryId: entry?.id ?? null, details: { kind: v.kind, bookValue: bookValue.toFixed(2), catchUp: catchUpTotal.toFixed(2), ...(customer ? { onCredit: true, customerId: customer.id } : {}) }, reason: v.reason, createdById: actor.id, createdBy: actor.name },
     });
+    // WS3 G1: the receivable, as a customer document (statement, aging, credit exposure).
+    if (customer) {
+      const dueDate = v.due_date ?? addDays(v.date, customer.paymentTermsDays);
+      const charge = await tx.customerCharge.create({
+        data: { customerId: customer.id, sourceType: "asset_disposal", sourceId: eventId, reference: a.number, description: `بيع أصل ${a.number}: ${a.name}`, date: v.date, dueDate, net: proceeds, tax, total: proceeds.plus(tax), entryId: entry?.id ?? null, createdById: actor.id, createdBy: actor.name },
+      });
+      await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "customer_charge_created", entityType: "customer_charge", entityId: charge.id, fieldChanged: a.number, newValue: `${customer.code} · ${charge.total.toFixed(2)} · استحقاق ${dueDate}`, reason: v.reason, source: "user", deviceId: actor.deviceId }, tx);
+    }
     if (catchUp.length) await tx.assetDepreciationLine.createMany({ data: catchUp.map((l) => ({ assetId: a.id, period: l.period, disposalEventId: eventId, amount: l.amount, accumulatedAfter: l.accumulatedAfter, entryId: entry!.id })) });
     const updated = await tx.fixedAsset.update({ where: { id, version: a.version }, data: { status: "disposed", disposedDate: v.date, accumulated, version: { increment: 1 } } });
-    await audit(tx, actor, "fixed_asset", a.id, "fixed_asset_disposed", `${a.number} · ${v.kind} · ${proceeds.toFixed(2)} · ${gain.gte(0) ? "ربح" : "خسارة"} ${gain.abs().toFixed(2)}`, v.reason);
+    await audit(tx, actor, "fixed_asset", a.id, "fixed_asset_disposed", `${a.number} · ${v.kind}${customer ? ` · آجل ${customer.code}` : ""} · ${proceeds.toFixed(2)} · ${gain.gte(0) ? "ربح" : "خسارة"} ${gain.abs().toFixed(2)}`, v.reason);
     return { asset: updated, gainLoss: gain.toFixed(2), bookValue: bookValue.toFixed(2), catchUp: catchUpTotal.toFixed(2) };
   });
 }

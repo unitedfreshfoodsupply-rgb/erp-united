@@ -51,11 +51,47 @@ async function main() {
              coalesce(sum(CASE WHEN a."type" = 'asset' AND (a."controlledBy" = 'fixed_assets' OR a."parentId" = 'acc_1700' OR a."id" = 'acc_1700') THEN l."debit" - l."credit" END), 0) AS fixed
       FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId" JOIN "Account" a ON a."id" = l."accountId" WHERE e."date" <= ${today}`;
     check(`${compare}: balance sheet at the end — assets and liabilities = raw, and it balances`, near(n(rep.balanceSheet.current.assets), n(bs.a)) && near(n(rep.balanceSheet.current.liabilities), n(bs.li)) && rep.balanceSheet.current.balanced === true && rep.balanceSheet.comparison.balanced === true, [rep.balanceSheet.current, bs]);
-    const cr = n(bs.li) === 0 ? null : ((n(bs.a) - n(bs.fixed)) / n(bs.li)).toFixed(2);
-    check(`${compare}: current ratio on its stated basis ((assets − fixed) ÷ liabilities = ${cr})`, rep.ratios.current.currentRatio === cr, [rep.ratios.current.currentRatio, cr]);
+    // WS3 G5 superseded the old basis ((assets − fixed) ÷ all liabilities): the ratio now reads
+    // each account's current / non-current class; unclassified balances are left out and reported.
+    const [lq] = await db.$queryRaw<{ ca: Prisma.Decimal; cl: Prisma.Decimal; ua: Prisma.Decimal; ul: Prisma.Decimal; nca: Prisma.Decimal }[]>`
+      SELECT coalesce(sum(CASE WHEN a."type" = 'asset' AND a."liquidity" = 'current' THEN l."debit" - l."credit" END), 0) AS ca,
+             coalesce(sum(CASE WHEN a."type" = 'liability' AND a."liquidity" = 'current' THEN l."credit" - l."debit" END), 0) AS cl,
+             coalesce(sum(CASE WHEN a."type" = 'asset' AND a."liquidity" IS NULL THEN l."debit" - l."credit" END), 0) AS ua,
+             coalesce(sum(CASE WHEN a."type" = 'liability' AND a."liquidity" IS NULL THEN l."credit" - l."debit" END), 0) AS ul,
+             coalesce(sum(CASE WHEN a."type" = 'asset' AND a."liquidity" = 'non_current' THEN l."debit" - l."credit" END), 0) AS nca
+      FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId" JOIN "Account" a ON a."id" = l."accountId" WHERE e."date" <= ${today}`;
+    const cr = n(lq.cl) === 0 ? null : (n(lq.ca) / n(lq.cl)).toFixed(2);
+    check(`${compare}: current ratio on the classification (current assets ÷ current liabilities = ${cr})`, rep.ratios.current.currentRatio === cr, [rep.ratios.current.currentRatio, cr]);
+    const bc = rep.balanceSheet.current;
+    check(`${compare}: current + non-current + unclassified = total, on both sides`, near(n(bc.currentAssets) + n(bc.nonCurrentAssets) + n(bc.unclassifiedAssets), n(bc.assets)) && near(n(bc.currentLiabilities) + n(bc.nonCurrentLiabilities) + n(bc.unclassifiedLiabilities), n(bc.liabilities)), bc);
+    check(`${compare}: unclassified balances are reported, not guessed (assets ${n(lq.ua).toFixed(2)}, liabilities ${n(lq.ul).toFixed(2)})`, near(n(bc.unclassifiedAssets), n(lq.ua)) && near(n(bc.unclassifiedLiabilities), n(lq.ul)) && bc.classificationComplete === (bc.unclassifiedAccounts.length === 0) && near(n(bc.nonCurrentAssets), n(lq.nca)), [bc.unclassifiedAssets, bc.unclassifiedLiabilities, bc.unclassifiedAccounts?.length]);
+    const fxUnclassified = await db.account.count({ where: { OR: [{ controlledBy: "fixed_assets" }, { id: "acc_1700" }], NOT: { liquidity: "non_current" } } });
+    check(`${compare}: fixed-asset accounts (register-controlled) are all non-current`, fxUnclassified === 0, fxUnclassified);
   }
   check("an inverted range -> 400", (await call("karim", "GET", `/api/accounting/comparatives?from=${today}&to=${from}`)).status === 400 || from === today);
   check("sales cannot read the comparatives -> 403", (await call("mona", "GET", `/api/accounting/comparatives?from=${from}&to=${today}`)).status === 403);
+
+  section("2b. CURRENT / NON-CURRENT (WS3 G5) — classified, never guessed");
+  const sys = await db.account.findMany({ where: { systemKey: { in: ["cash", "bank", "ar", "inventory", "vat_input", "employee_advances", "ap", "grni", "vat_output", "employee_payable", "vat_payable"] } }, select: { code: true, liquidity: true } });
+  check("the standard chart's system accounts are current", sys.length === 11 && sys.every((a) => a.liquidity === "current"), sys);
+  const loanCode = `2${String(Date.now()).slice(-6)}`;
+  let ra = await call("karim", "POST", "/api/accounting/accounts", { code: loanCode, name: `${TAG} Bank loan`, name_ar: `${TAG} قرض بنكي`, parent_id: "acc_2000" });
+  const loan = ra.body.account;
+  check("a new liability under the 2000 header is left unclassified (the header carries none)", ra.status === 201 && loan?.liquidity === null, ra.body);
+  check("a class on a revenue account -> 400", (await call("karim", "POST", "/api/accounting/accounts", { code: `4${String(Date.now()).slice(-6)}`, name: "x", name_ar: "x", parent_id: "acc_4000", liquidity: "current" })).status === 400);
+  check("a system account cannot lose its class -> 400", (await call("karim", "PATCH", "/api/accounting/accounts/acc_1300", { liquidity: null })).status === 400);
+  ra = await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${TAG} قرض`, lines: [{ account_id: "acc_1200", debit: 7000 }, { account_id: loan.id, credit: 7000 }] });
+  check("a 7000 loan received into the bank", ra.status === 201, ra.body);
+  let bsr = (await call("karim", "GET", `/api/accounting/balance-sheet?as_of=${today}`)).body;
+  const sumL = (k: string) => n(bsr.sections.liabilities[k]);
+  check("balance sheet: the loan is reported as unclassified (listed, not guessed), and the sides add up", bsr.unclassifiedAccounts.some((x: any) => x.code === loanCode && n(x.amount) === 7000) && bsr.classificationComplete === false && Math.abs(sumL("current") + sumL("nonCurrent") + sumL("unclassified") - sumL("total")) < 0.005, [bsr.sections.liabilities.total, bsr.sections.liabilities.current, bsr.sections.liabilities.nonCurrent, bsr.sections.liabilities.unclassified]);
+  const unclBefore = sumL("unclassified"), ncBefore = sumL("nonCurrent");
+  ra = await call("karim", "PATCH", `/api/accounting/accounts/${loan.id}`, { liquidity: "non_current" });
+  check("the accountant classifies it non-current (audited)", ra.status === 200 && ra.body.account.liquidity === "non_current", ra.body);
+  bsr = (await call("karim", "GET", `/api/accounting/balance-sheet?as_of=${today}`)).body;
+  check("…the 7000 moves from unclassified to non-current liabilities", Math.abs(sumL("unclassified") - (unclBefore - 7000)) < 0.005 && Math.abs(sumL("nonCurrent") - (ncBefore + 7000)) < 0.005 && !bsr.unclassifiedAccounts.some((x: any) => x.code === loanCode), [sumL("unclassified"), sumL("nonCurrent")]);
+  const cmp2 = (await call("karim", "GET", `/api/accounting/comparatives?from=${from}&to=${today}&compare=prior_period`)).body.report;
+  check("ratios: the non-current loan is out of the current ratio (current liabilities exclude it)", n(cmp2.balanceSheet.current.nonCurrentLiabilities) >= 7000 && cmp2.ratioBasis.startsWith("account_liquidity"), cmp2.balanceSheet.current);
 
   section("3. BANK STATEMENT MATCHING");
   const bank = (await call("karim", "POST", "/api/accounting/cash-accounts", { type: "bank", name: `${TAG} Bank`, name_ar: `${TAG} بنك`, bank_name: "T" })).body.cashAccount;

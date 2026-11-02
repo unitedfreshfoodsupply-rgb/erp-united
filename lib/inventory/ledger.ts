@@ -38,6 +38,10 @@ export const MOVEMENT_KINDS = [
   "sorting_in",
   "release_out",
   "release_in",
+  // WS3 (ACC-E1): a supplier bill revaluing a receipt carried at a provisional cost — an
+  // out/in pair on each bucket still holding the receipt's units (net quantity zero).
+  "revaluation_out",
+  "revaluation_in",
 ] as const;
 export type MovementKind = (typeof MOVEMENT_KINDS)[number];
 
@@ -55,7 +59,9 @@ export type MoveInput = {
   /** Known cost per base unit for an INCOMING move (a purchase price, or the cost a
    * transfer carried out of its source bucket). */
   unitCost?: Dec | null;
-  costSource?: "purchase" | "lot" | "average" | "standard" | "fifo" | "unknown";
+  costSource?: "purchase" | "lot" | "average" | "standard" | "fifo" | "unknown" | "provisional" | "revaluation";
+  /** revaluation_out / revaluation_in only: the StockRevaluation the pair belongs to. */
+  revaluationId?: string | null;
 };
 
 type Ctx = { actorId: string | null; actorName: string; effectiveDate: string };
@@ -228,6 +234,7 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
         quantity: qty,
         intakeId: m.intakeId ?? null,
         documentId: m.documentId ?? null,
+        revaluationId: m.revaluationId ?? null,
         unitCost,
         reason: asText(m.reason, "reason")?.trim() || null,
         actorId: ctx.actorId,

@@ -22,7 +22,7 @@ const addMonths = (p: string, k: number) => { const [y, m] = p.split("-").map(Nu
 async function main() {
   assertTestDatabase();
   const db = new PrismaClient();
-  for (const u of ["admin", "karim", "mona", "omar"]) await login(u);
+  for (const u of ["admin", "karim", "mona", "omar", "hossam"]) await login(u);
   const gl = async (accountId: string) => { const [r] = await db.$queryRaw<{ b: Prisma.Decimal | null }[]>`SELECT sum("debit" - "credit") AS b FROM "JournalLine" WHERE "accountId" = ${accountId}`; return n(r?.b); };
   const asset = async (id: string) => (await call("karim", "GET", `/api/assets/${id}`)).body.asset;
   const approveBill = async (id: string) => {
@@ -131,6 +131,50 @@ async function main() {
   const [day] = await db.$queryRaw<{ s: Prisma.Decimal | null }[]>`SELECT sum(-"accumulatedDelta" - "gainLoss") AS s FROM "AssetEvent" WHERE "type" = 'disposal' AND "date" = ${thisMonth + "-01"}`;
   const adj = cf.sections.investing.lines.find((l: any) => l.adjustment === "disposal_proceeds");
   check("…the adjustment covers every disposal of the day (Σ gain − accumulated), mirrored under operating, and the report balances", r2(n(adj?.amount)) === r2(-n(day?.s)) && r2(n(cf.sections.operating.lines.find((l: any) => l.adjustment === "disposal_noncash")?.amount)) === r2(n(day?.s)) && cf._balanced === true, [adj, day?.s]);
+
+  section("6b. SALE ON CREDIT TO A CUSTOMER (WS3 G1) — statement, aging, collection list");
+  const buyer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} مشتري الأرض` })).body.customer;
+  const held = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل موقوف` })).body.customer;
+  await call("karim", "PATCH", `/api/sales/customers/${held.id}/credit`, { credit_hold: true, credit_hold_reason: "فواتير متأخرة", reason: "متابعة التحصيل" });
+  const saleDay = `${M2}-05`, dueDay = `${M2}-20`;
+  check("cash box AND customer -> 400", (await call("karim", "POST", `/api/assets/${plot.id}/dispose`, { kind: "sale", date: saleDay, proceeds: "60000", cash_account_id: "bank_main", customer_id: buyer.id, reason: "x" })).status === 400);
+  check("neither a cash box nor a customer -> 400", (await call("karim", "POST", `/api/assets/${plot.id}/dispose`, { kind: "sale", date: saleDay, proceeds: "60000", reason: "x" })).status === 400);
+  check("a customer on credit hold -> 409", (await call("karim", "POST", `/api/assets/${plot.id}/dispose`, { kind: "sale", date: saleDay, proceeds: "60000", customer_id: held.id, reason: "x" })).status === 409);
+  check("a due date before the sale -> 400", (await call("karim", "POST", `/api/assets/${plot.id}/dispose`, { kind: "sale", date: saleDay, proceeds: "60000", customer_id: buyer.id, due_date: `${M1}-01`, reason: "x" })).status === 400);
+  check("scrap with a customer -> 400", (await call("karim", "POST", `/api/assets/${plot.id}/dispose`, { kind: "scrap", date: saleDay, customer_id: buyer.id, reason: "x" })).status === 400);
+  const landCostBefore = await gl(land.assetAccountId);
+  r = await call("karim", "POST", `/api/assets/${plot.id}/dispose`, { kind: "sale", date: saleDay, proceeds: "60000", customer_id: buyer.id, due_date: dueDay, reason: "بيع الأرض بالتقسيط" });
+  check("land (cost 50000) sold on credit for 60000 -> 200, gain 10000", r.status === 200 && r.body.result.gainLoss === "10000.00", r.body);
+  const creditJe = (await db.journalEntry.findFirst({ where: { sourceType: "asset_disposal", description: { contains: plot.number } }, include: { lines: { include: { account: true } } } }))!;
+  const cside = (k: string) => creditJe.lines.filter((l) => l.account.systemKey === k).reduce((x, l) => x + n(l.debit) - n(l.credit), 0);
+  const arLine = creditJe.lines.find((l) => l.account.systemKey === "ar");
+  check("…Dr AR 60000 with the customer as party, Cr land cost 50000, Cr gain 10000, no cash", cside("ar") === 60000 && arLine?.partyType === "customer" && arLine?.partyId === buyer.id && cside("fa_disposal_gain") === -10000 && r2(landCostBefore - (await gl(land.assetAccountId))) === 50000 && !creditJe.lines.some((l) => l.account.systemKey === "bank" || l.account.systemKey === "cash"), creditJe.lines.map((l) => [l.account.code, l.debit, l.credit, l.partyId]));
+  const charge = await db.customerCharge.findFirst({ where: { customerId: buyer.id } });
+  check("…a customer charge records it (60000, due on the agreed date, linked to the disposal and its entry)", n(charge?.total) === 60000 && charge?.dueDate === dueDay && charge?.entryId === creditJe.id && charge?.sourceType === "asset_disposal", charge);
+  let st = (await call("karim", "GET", `/api/sales/customers/${buyer.id}/statement?from=2000-01-01&to=2099-12-31`)).body;
+  check("customer statement: the sale is a debit of 60000, closing 60000", n(st.closing) === 60000 && st.rows.some((x: any) => x.kind === "charge" && n(x.debit) === 60000 && x.number === plot.number), st);
+  const daysOver = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${dueDay}T00:00:00Z`)) / 86_400_000);
+  let ag = (await call("karim", "GET", "/api/sales/reports/aging")).body.rows.find((x: any) => x.customer.id === buyer.id);
+  const overdueOf = (x: any) => n(x?.d1_30) + n(x?.d31_60) + n(x?.d61_90) + n(x?.d90_plus);
+  check(`aging: 60000 overdue (${daysOver} days), nothing current`, n(ag?.total) === 60000 && overdueOf(ag) === 60000 && n(ag?.current) === 0, ag);
+  let fu = (await call("karim", "GET", "/api/sales/reports/collections")).body.rows.find((x: any) => x.customer.id === buyer.id);
+  check("collection list (G2): the customer, 60000 overdue, the sale as the overdue item, no receipt yet", n(fu?.overdue) === 60000 && fu?.items?.[0]?.kind === "charge" && fu.items[0].daysOverdue === daysOver && fu.maxDaysOverdue === daysOver && fu.lastReceipt === null && fu.credit.hold === false, fu);
+  r = await call("karim", "POST", "/api/accounting/receipts", { party_id: buyer.id, cash_account_id: "cash_main", amount: "25000", method: "cash", idempotency_key: `${TAG}-land-1` });
+  check("the customer pays 25000 on account", r.status === 201 || r.status === 200, r.body);
+  st = (await call("karim", "GET", `/api/sales/customers/${buyer.id}/statement?from=2000-01-01&to=2099-12-31`)).body;
+  ag = (await call("karim", "GET", "/api/sales/reports/aging")).body.rows.find((x: any) => x.customer.id === buyer.id);
+  fu = (await call("karim", "GET", "/api/sales/reports/collections")).body.rows.find((x: any) => x.customer.id === buyer.id);
+  check("…statement 35000, aging 35000 overdue (money on account settles the charge first), nothing left unapplied", n(st.closing) === 35000 && n(ag?.total) === 35000 && overdueOf(ag) === 35000 && n(ag?.unapplied) === 0, [st.closing, ag]);
+  check("…collection list: 35000 overdue, last receipt 25000 today", n(fu?.overdue) === 35000 && n(fu?.items?.[0]?.open) === 35000 && n(fu?.lastReceipt?.amount) === 25000 && fu?.lastReceipt?.daysAgo === 0, fu);
+  check("the collection list is read-only for sales roles, refused to the warehouse (403)", (await call("mona", "GET", "/api/sales/reports/collections")).status === 200 && (await call("hossam", "GET", "/api/sales/reports/collections")).status === 403);
+  const arCheck = (await call("karim", "GET", "/api/accounting/integrity")).body.integrity.checks.find((c: any) => c.key === "ar");
+  check("integrity: customer documents (charges included) = AR in the ledger, per customer", arCheck?.ok === true, arCheck);
+  const cfCredit = (await call("karim", "GET", `/api/management/cash-flow?from=${saleDay}&to=${saleDay}`)).body.report;
+  const onCreditLine = cfCredit.sections.investing.lines.find((l: any) => l.adjustment === "disposal_on_credit");
+  // The suite reruns on the same database: the day may hold earlier runs' credit sales too.
+  const [creditDay] = await db.$queryRaw<{ p: Prisma.Decimal | null }[]>`SELECT sum("proceeds") AS p FROM "AssetEvent" WHERE "type" = 'disposal' AND "date" = ${saleDay} AND ("details"->>'onCredit') = 'true'`;
+  check("cash flow: no cash came in — the price (this sale's 60000 included) leaves investing for the customer's balance under operating, and it balances", n(creditDay?.p) >= 60000 && n(onCreditLine?.amount) === -n(creditDay?.p) && n(cfCredit.sections.operating.lines.find((l: any) => l.adjustment === "disposal_on_credit")?.amount) === n(creditDay?.p) && cfCredit._balanced === true, [onCreditLine, creditDay?.p, cfCredit._balanced]);
+  check("a cash sale still needs nothing more than before (the scale above) — and a sold asset cannot be sold again", (await call("karim", "POST", `/api/assets/${plot.id}/dispose`, { kind: "sale", date: today, proceeds: "1", customer_id: buyer.id, reason: "x" })).status === 409);
 
   section("7. IMPROVEMENT, TRANSFER, ALLOWANCE, SCRAP");
   const journalsBefore = await db.journalEntry.count();

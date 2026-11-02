@@ -223,9 +223,11 @@ async function bills() {
   r = await call("karim", "POST", `/api/purchasing/bills/${billF.id}/post`, {});
   check("…posts without approval", r.body.bill?.status === "posted", r.body);
 
-  // A receipt nobody priced: approval is required, and approving posts it.
+  // A receipt nobody priced: it needs a provisional cost (WS3 ACC-E1 — refused without
+  // one); the bill has nothing agreed to match, approval is required, and approving posts it.
   const stranger = (await call("hossam", "POST", "/api/stock/suppliers", { name: `${TAG} مورد بدون أسعار` })).body.supplier;
-  const sr = (await call("hossam", "POST", "/api/stock/intakes", { supplier_id: stranger.id, product_id: onion.id, received_kg: 50 })).body.intake;
+  check("a receipt with no price of any kind -> 400 (a provisional cost is required)", (await call("hossam", "POST", "/api/stock/intakes", { supplier_id: stranger.id, product_id: onion.id, received_kg: 50 })).status === 400);
+  const sr = (await call("hossam", "POST", "/api/stock/intakes", { supplier_id: stranger.id, product_id: onion.id, received_kg: 50, provisional_unit_cost: "6" })).body.intake;
   r = await call("karim", "POST", "/api/purchasing/bills", { supplier_id: stranger.id, supplier_invoice_no: "1", bill_date: today, lines: [{ intake_id: sr.id, unit_price: "6" }] });
   check("nothing agreed to match against: unpriced", r.body.bill?.matchStatus === "unpriced" && r.body.bill.lines[0].expectedUnitPrice === null, r.body);
   const billS = r.body.bill;

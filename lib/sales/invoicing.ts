@@ -509,7 +509,7 @@ export async function createCreditNote(invoiceId: string, input: unknown, actor:
 // ---------------------------------------------------------------------------
 
 /** What has been taken off each issued invoice: credit notes + receipts allocated to it. */
-async function openAmounts(db: Pick<Tx, "creditNote" | "receiptAllocation">, invoiceIds: string[]) {
+export async function openAmounts(db: Pick<Tx, "creditNote" | "receiptAllocation">, invoiceIds: string[]) {
   const [credits, paid] = invoiceIds.length
     ? await Promise.all([
         db.creditNote.groupBy({ by: ["invoiceId"], where: { invoiceId: { in: invoiceIds } }, _sum: { total: true } }),
@@ -579,18 +579,20 @@ export async function ordersToInvoice() {
 }
 
 /** Issued invoices − credit notes − receipts for a customer (what they owe us now). */
-export async function customerReceivable(db: Pick<Tx, "salesInvoice" | "creditNote" | "customerReceipt" | "partyOpeningBalance" | "customerRefund">, customerId: string) {
-  const [inv, cn, rc, ob, back, paidBack] = await Promise.all([
+export async function customerReceivable(db: Pick<Tx, "salesInvoice" | "creditNote" | "customerReceipt" | "partyOpeningBalance" | "customerRefund" | "customerCharge">, customerId: string) {
+  const [inv, cn, rc, ob, back, paidBack, charges] = await Promise.all([
     db.salesInvoice.aggregate({ where: { customerId, status: "issued" }, _sum: { total: true } }),
     db.creditNote.aggregate({ where: { customerId }, _sum: { total: true } }),
     db.customerReceipt.aggregate({ where: { customerId }, _sum: { amount: true } }),
     db.partyOpeningBalance.aggregate({ where: { partyType: "customer", partyId: customerId }, _sum: { amount: true } }),
     db.customerReceipt.aggregate({ where: { customerId, reversal: { isNot: null } }, _sum: { amount: true } }),
     db.customerRefund.aggregate({ where: { customerId }, _sum: { amount: true } }),
+    // WS3 G1: other receivables (a fixed asset sold on credit).
+    db.customerCharge.aggregate({ where: { customerId }, _sum: { total: true } }),
   ]);
   // A reversed receipt still counts as received on its date; its reversal adds it back.
   // Money refunded to the customer uses up credit they held: it adds back too.
-  return D(inv._sum.total ?? 0).minus(cn._sum.total ?? 0).minus(rc._sum.amount ?? 0).plus(ob._sum.amount ?? 0).plus(back._sum.amount ?? 0).plus(paidBack._sum.amount ?? 0);
+  return D(inv._sum.total ?? 0).minus(cn._sum.total ?? 0).minus(rc._sum.amount ?? 0).plus(ob._sum.amount ?? 0).plus(back._sum.amount ?? 0).plus(paidBack._sum.amount ?? 0).plus(charges._sum.total ?? 0);
 }
 
 /** Every invoice and credit note of a customer in a period, with a running balance. */
@@ -598,7 +600,7 @@ export async function customerStatement(customerId: string, from: string, to: st
   if (!isValidISODate(from) || !isValidISODate(to) || from > to) throw new ApiError(400, "الفترة غير صالحة");
   const c = await prisma.customer.findUnique({ where: { id: customerId } });
   if (!c) throw new ApiError(404, "العميل مش موجود");
-  const [refBefore, refs, revBefore, revs, obBefore, obs, invBefore, cnBefore, rcBefore, rcs, invs, cns] = await Promise.all([
+  const [refBefore, refs, revBefore, revs, obBefore, obs, invBefore, cnBefore, rcBefore, rcs, invs, cns, chBefore, chs] = await Promise.all([
     prisma.customerRefund.aggregate({ where: { customerId, date: { lt: from } }, _sum: { amount: true } }),
     prisma.customerRefund.findMany({ where: { customerId, date: { gte: from, lte: to } }, select: { id: true, number: true, date: true, amount: true, reason: true, createdAt: true } }),
     prisma.customerReceipt.aggregate({ where: { customerId, reversal: { is: { date: { lt: from } } } }, _sum: { amount: true } }),
@@ -611,9 +613,13 @@ export async function customerStatement(customerId: string, from: string, to: st
     prisma.customerReceipt.findMany({ where: { customerId, date: { gte: from, lte: to } }, select: { id: true, number: true, date: true, amount: true, method: true, reference: true, createdAt: true } }),
     prisma.salesInvoice.findMany({ where: { customerId, status: "issued", issueDate: { gte: from, lte: to } }, select: { id: true, number: true, issueDate: true, dueDate: true, total: true, issuedAt: true } }),
     prisma.creditNote.findMany({ where: { customerId, issueDate: { gte: from, lte: to } }, select: { id: true, number: true, issueDate: true, total: true, reason: true, createdAt: true, invoice: { select: { number: true } } } }),
+    // WS3 G1: other receivables (a fixed asset sold on credit).
+    prisma.customerCharge.aggregate({ where: { customerId, date: { lt: from } }, _sum: { total: true } }),
+    prisma.customerCharge.findMany({ where: { customerId, date: { gte: from, lte: to } }, select: { id: true, reference: true, description: true, date: true, dueDate: true, total: true, createdAt: true } }),
   ]);
-  const opening = D(invBefore._sum.total ?? 0).minus(cnBefore._sum.total ?? 0).minus(rcBefore._sum.amount ?? 0).plus(obBefore._sum.amount ?? 0).plus(revBefore._sum.amount ?? 0).plus(refBefore._sum.amount ?? 0);
+  const opening = D(invBefore._sum.total ?? 0).minus(cnBefore._sum.total ?? 0).minus(rcBefore._sum.amount ?? 0).plus(obBefore._sum.amount ?? 0).plus(revBefore._sum.amount ?? 0).plus(refBefore._sum.amount ?? 0).plus(chBefore._sum.total ?? 0);
   const entries = [
+    ...chs.map((ch) => ({ date: ch.date, at: ch.createdAt.getTime(), kind: "charge" as const, id: ch.id, number: ch.reference, ref: `${ch.description} · استحقاق ${ch.dueDate}`, debit: ch.total, credit: D(0) })),
     ...refs.map((f) => ({ date: f.date, at: f.createdAt.getTime(), kind: "refund" as const, id: f.id, number: f.number, ref: `رد مبلغ · ${f.reason}`, debit: f.amount, credit: D(0) })),
     ...revs.map((r) => ({ date: r.date, at: r.createdAt.getTime(), kind: "receipt_reversal" as const, id: r.id, number: r.receipt.number, ref: `عكس تحصيل · ${r.reason}`, debit: r.receipt.amount, credit: D(0) })),
     ...invs.map((i) => ({ date: i.issueDate!, at: i.issuedAt!.getTime(), kind: "invoice" as const, id: i.id, number: i.number!, ref: `استحقاق ${i.dueDate}`, debit: i.total, credit: D(0) })),
@@ -637,7 +643,7 @@ export async function agingReport(asOf = todayLocalISO()) {
   // query per chain instead of one per party. The arithmetic below is unchanged.
   const partyNames = (ids: string[]) =>
     ids.length ? prisma.customer.findMany({ where: { id: { in: [...new Set(ids)] } }, select: { id: true, code: true, name: true, nameAr: true } }).then((cs) => new Map(cs.map((c) => [c.id, c]))) : Promise.resolve(new Map<string, { code: string; name: string; nameAr: string | null }>());
-  const [[invs, credits], [openingBalances, openingAllocations, openingParties], receipts, [refunds, refundParties]] = await Promise.all([
+  const [[invs, credits], [openingBalances, openingAllocations, openingParties], receipts, [refunds, refundParties], charges] = await Promise.all([
     prisma.salesInvoice.findMany({
       where: { status: "issued", issueDate: { lte: asOf } },
       select: { id: true, number: true, customerId: true, dueDate: true, total: true, customer: { select: { code: true, name: true, nameAr: true } } },
@@ -656,6 +662,8 @@ export async function agingReport(asOf = todayLocalISO()) {
     }),
     prisma.customerReceipt.findMany({ where: { date: { lte: asOf }, reversal: { is: null } }, select: { customerId: true, amount: true, allocations: { select: { amount: true } }, customer: { select: { code: true, name: true, nameAr: true } } } }),
     prisma.customerRefund.groupBy({ by: ["customerId"], where: { date: { lte: asOf } }, _sum: { amount: true } }).then(async (fs) => [fs, await partyNames(fs.map((f) => f.customerId))] as const),
+    // WS3 G1: other receivables (a fixed asset sold on credit).
+    prisma.customerCharge.findMany({ where: { date: { lte: asOf } }, orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }], select: { id: true, reference: true, date: true, customerId: true, dueDate: true, total: true, customer: { select: { code: true, name: true, nameAr: true } } } }),
   ]);
   type Bucket = "current" | "d1_30" | "d31_60" | "d61_90" | "d90_plus";
   const byCustomer = new Map<string, { customer: { id: string; code: string; name: string; nameAr?: string | null; nameEn?: string | null }; total: Prisma.Decimal } & Record<Bucket, Prisma.Decimal>>();
@@ -720,6 +728,23 @@ export async function agingReport(asOf = todayLocalISO()) {
       byCustomer.set(f.customerId, row);
     }
   }
+  // WS3 G1: a customer charge has no allocation of its own — money held on account settles
+  // it first, oldest due first; what is left of it ages from its due date.
+  const openCharges: { id: string; customerId: string; reference: string; date: string; dueDate: string; open: string }[] = [];
+  for (const ch of charges) {
+    const held = unapplied.get(ch.customerId) ?? D(0);
+    const used = Prisma.Decimal.min(held, ch.total);
+    unapplied.set(ch.customerId, held.minus(used));
+    const open = ch.total.minus(used);
+    if (open.gt(0)) openCharges.push({ id: ch.id, customerId: ch.customerId, reference: ch.reference, date: ch.date, dueDate: ch.dueDate, open: open.toFixed(2) });
+    const row = byCustomer.get(ch.customerId) ?? { customer: { id: ch.customerId, code: ch.customer.code, name: ch.customer.nameAr ?? ch.customer.name, nameAr: ch.customer.nameAr, nameEn: ch.customer.name }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
+    byCustomer.set(ch.customerId, row);
+    if (!open.gt(0)) continue;
+    const overdue = day(asOf) - day(ch.dueDate);
+    const b = overdue <= 0 ? "current" : overdue <= 30 ? "d1_30" : overdue <= 60 ? "d31_60" : overdue <= 90 ? "d61_90" : "d90_plus";
+    row[b] = row[b].plus(open);
+    row.total = row.total.plus(open);
+  }
   for (const [id, u] of unapplied) byCustomer.get(id)!.total = byCustomer.get(id)!.total.minus(u);
   const rows = [...byCustomer.values()].sort((a, b) => Number(b.total.minus(a.total)));
   const sum = (k: Bucket | "total") => rows.reduce((s, r) => s.plus(r[k]), D(0)).toFixed(2);
@@ -727,6 +752,8 @@ export async function agingReport(asOf = todayLocalISO()) {
     asOf,
     rows: rows.map((r) => ({ customer: r.customer, unapplied: (unapplied.get(r.customer.id) ?? D(0)).toFixed(2), total: r.total.toFixed(2), current: r.current.toFixed(2), d1_30: r.d1_30.toFixed(2), d31_60: r.d31_60.toFixed(2), d61_90: r.d61_90.toFixed(2), d90_plus: r.d90_plus.toFixed(2) })),
     totals: { total: sum("total"), current: sum("current"), d1_30: sum("d1_30"), d31_60: sum("d31_60"), d61_90: sum("d61_90"), d90_plus: sum("d90_plus") },
+    // WS3 G1/G2: customer charges still open after money on account was applied to them.
+    openCharges,
   };
 }
 

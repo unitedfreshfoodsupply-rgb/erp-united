@@ -51,11 +51,28 @@ export async function financeReport(opts: { from?: string; to?: string }) {
     WHERE c."issueDate" BETWEEN ${from} AND ${to}
     GROUP BY il."productId"`;
   // Cost of what left (issues) less what came back (customer returns), by product.
+  // WS3 (ACC-E1): plus the cost a supplier bill (or an allowance debit note) added to — or
+  // took off — units already sold at a provisional cost, on the date it posted.
   const cogsQ = prisma.$queryRaw<{ productId: string; cost: Prisma.Decimal }[]>`
-    SELECT v."productId", -sum(v."value") AS cost
-    FROM "StockValuationLayer" v JOIN "StockMovement" m ON m."id" = v."movementId"
+    SELECT x."productId", sum(x.cost) AS cost FROM (
+      SELECT v."productId", -sum(v."value") AS cost
+      FROM "StockValuationLayer" v JOIN "StockMovement" m ON m."id" = v."movementId"
+      WHERE m."kind" IN ('issue', 'customer_return') AND m."effectiveDate" BETWEEN ${from} AND ${to}
+      GROUP BY v."productId"
+      UNION ALL
+      SELECT r."productId", sum(r."cogsDelta") FROM "StockRevaluation" r WHERE r."date" BETWEEN ${from} AND ${to} GROUP BY r."productId"
+    ) x GROUP BY x."productId"`;
+  // WS3 (ACC-E1): quantity sold in the range out of receipts still at a provisional cost
+  // (their bill has not posted): its margin is provisional until the bill revalues it.
+  const provisionalCostQ = prisma.$queryRaw<{ productId: string; qty: Prisma.Decimal }[]>`
+    SELECT m."productId", sum(-m."quantity") AS qty
+    FROM "StockMovement" m
     WHERE m."kind" IN ('issue', 'customer_return') AND m."effectiveDate" BETWEEN ${from} AND ${to}
-    GROUP BY v."productId"`;
+      AND m."lotId" IN (
+        SELECT DISTINCT x."lotId" FROM "StockMovement" x JOIN "StockIntake" i ON i."id" = x."intakeId"
+        WHERE i."costProvisional" AND x."lotId" IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM "SupplierBillLine" bl JOIN "SupplierBill" b ON b."id" = bl."billId" WHERE bl."intakeId" = i."id" AND b."status" = 'posted'))
+    GROUP BY m."productId"`;
   const cardsQ = prisma.stockProduct.findMany({ select: { id: true, name: true, nameAr: true } });
   // Quantity issued at an UNKNOWN cost (received without a price, sold before the
   // supplier cost was recorded). Its COGS is zero, so the margin above is provisional
@@ -79,7 +96,7 @@ export async function financeReport(opts: { from?: string; to?: string }) {
     WHERE a."type" IN ('revenue', 'expense') AND e."date" BETWEEN ${from} AND ${to} AND e."sourceType" NOT IN ('year_end_close', 'year_end_reopen')
     GROUP BY a."type", a."systemKey", a."code", a."nameAr", a."name" ORDER BY a."code"`;
 
-  const [revenue, credits, cogs, cardRows, unknownCost, byCustomer, pl, valuation, ar, ap, cash, movement] = await Promise.all([
+  const [revenue, credits, cogs, cardRows, unknownCost, byCustomer, pl, valuation, ar, ap, cash, movement, provisionalCost] = await Promise.all([
     revenueQ, creditsQ, cogsQ, cardsQ, unknownCostQ, byCustomerQ, plQ,
     valuationReport(),
     agingReport(to),
@@ -90,6 +107,7 @@ export async function financeReport(opts: { from?: string; to?: string }) {
       FROM "StockMovement" m LEFT JOIN "StockValuationLayer" v ON v."movementId" = m."id"
       WHERE m."effectiveDate" BETWEEN ${from} AND ${to}
       GROUP BY m."kind" ORDER BY m."kind"`,
+    provisionalCostQ,
   ]);
 
   const cards = new Map(cardRows.map((p) => [p.id, p]));
@@ -108,7 +126,8 @@ export async function financeReport(opts: { from?: string; to?: string }) {
   for (const c of credits) { const x = row(c.productId, "—"); x.revenue = x.revenue.minus(c.net); }
   for (const c of cogs) { const x = row(c.productId, products.get(c.productId) ?? "—"); x.cost = x.cost.plus(c.cost); }
   const unknownQty = new Map(unknownCost.map((u) => [u.productId, D(u.qty)]));
-  const lines = [...byProduct.entries()].map(([k, r]) => ({ product: r.name, productNameAr: r.nameAr, productNameEn: r.nameEn, quantity: r.qty.toString(), revenue: f2(r.revenue), cost: f2(r.cost), margin: f2(r.revenue.minus(r.cost)), marginPct: r.revenue.gt(0) ? r.revenue.minus(r.cost).dividedBy(r.revenue).times(100).toFixed(1) : null, costUnknownQty: f2(k.startsWith("—") ? D(0) : unknownQty.get(k) ?? D(0)) })).sort((a, b) => Number(b.revenue) - Number(a.revenue));
+  const provisionalQty = new Map(provisionalCost.map((u) => [u.productId, D(u.qty)]));
+  const lines = [...byProduct.entries()].map(([k, r]) => ({ product: r.name, productNameAr: r.nameAr, productNameEn: r.nameEn, quantity: r.qty.toString(), revenue: f2(r.revenue), cost: f2(r.cost), margin: f2(r.revenue.minus(r.cost)), marginPct: r.revenue.gt(0) ? r.revenue.minus(r.cost).dividedBy(r.revenue).times(100).toFixed(1) : null, costUnknownQty: f2(k.startsWith("—") ? D(0) : unknownQty.get(k) ?? D(0)), costProvisionalQty: f2(k.startsWith("—") ? D(0) : provisionalQty.get(k) ?? D(0)) })).sort((a, b) => Number(b.revenue) - Number(a.revenue));
   const totalRevenue = [...byProduct.values()].reduce((s, r) => s.plus(r.revenue), D(0));
   const totalCost = [...byProduct.values()].reduce((s, r) => s.plus(r.cost), D(0));
 
@@ -121,7 +140,7 @@ export async function financeReport(opts: { from?: string; to?: string }) {
     profitAndLoss: { lines: pl.map((x) => ({ code: x.code, name: x.name, nameAr: x.nameAr, nameEn: x.nameEn, type: x.type, amount: f2(D(x.amount)) })), revenue: f2(plRevenue), expenses: f2(plExpense), net: f2(plRevenue.minus(plExpense)) },
     receivables: { totals: ar.totals, top: ar.rows.slice(0, 10) },
     payables: { totals: ap.totals, top: ap.rows.slice(0, 10) },
-    inventory: { value: valuation.totalValue.toFixed(2), top: valuation.rows.slice(0, 15).map((r) => ({ product: r.productNameAr ?? r.productName, productNameAr: r.productNameAr, productNameEn: r.productName, unit: r.unit, quantity: r.quantity.toString(), value: r.value.toFixed(2) })) },
+    inventory: { value: valuation.totalValue.toFixed(2), provisionalValue: valuation.provisionalValue.toFixed(2), top: valuation.rows.slice(0, 15).map((r) => ({ product: r.productNameAr ?? r.productName, productNameAr: r.productNameAr, productNameEn: r.productName, unit: r.unit, quantity: r.quantity.toString(), value: r.value.toFixed(2) })) },
     stockMovement: movement.map((m) => ({ kind: m.kind, quantity: D(m.qty).toString(), value: f2(D(m.value)) })),
     cash,
   };
@@ -261,7 +280,7 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
   //   Financing CF = decrease in financing assets + increase in financing liabilities
 
   const operating = await operatingAccountIds();
-  type CfLine = { kind: "net_income" | "change" | "adjustment"; label: string; amount: string; accountCode?: string; accountName?: string; accountNameAr?: string | null; unclassified?: boolean; adjustment?: "disposal_noncash" | "disposal_proceeds" | "opening_result" };
+  type CfLine = { kind: "net_income" | "change" | "adjustment"; label: string; amount: string; accountCode?: string; accountName?: string; accountNameAr?: string | null; unclassified?: boolean; adjustment?: "disposal_noncash" | "disposal_proceeds" | "opening_result" | "disposal_on_credit" };
   const unclassified: { code: string; name: string; nameAr: string }[] = [];
   const sections: Record<string, { lines: CfLine[]; total: string }> = {
     operating: { lines: [], total: "0.00" },
@@ -340,6 +359,15 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
   if (!shift.isZero()) {
     sections.operating.lines.push({ kind: "adjustment", adjustment: "disposal_noncash", label: "استبعاد أصول: مجمع الإهلاك والربح/الخسارة (غير نقدي)", amount: shift.toFixed(2) });
     sections.investing.lines.push({ kind: "adjustment", adjustment: "disposal_proceeds", label: "استبعاد أصول: الفرق بين التكلفة وثمن البيع", amount: shift.negated().toFixed(2) });
+  }
+  // WS3 G1: a sale on credit brought no cash in. Its price sits in the customer's balance
+  // (an increase of AR under operating); take it out of investing, back into operating.
+  const [credit] = await prisma.$queryRaw<{ p: Prisma.Decimal | null }[]>`
+    SELECT coalesce(sum("proceeds"), 0) AS p FROM "AssetEvent" WHERE "type" = 'disposal' AND "date" BETWEEN ${from} AND ${to} AND ("details"->>'onCredit') = 'true'`;
+  const onCredit = D(credit?.p ?? 0);
+  if (!onCredit.isZero()) {
+    sections.operating.lines.push({ kind: "adjustment", adjustment: "disposal_on_credit", label: "بيع أصول آجل: الثمن في رصيد العميل (غير نقدي)", amount: onCredit.toFixed(2) });
+    sections.investing.lines.push({ kind: "adjustment", adjustment: "disposal_on_credit", label: "بيع أصول آجل: الثمن لسه ماتحصّلش", amount: onCredit.negated().toFixed(2) });
   }
 
   if (!D(openingPl ?? 0).isZero()) {

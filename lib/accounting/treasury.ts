@@ -97,7 +97,7 @@ export async function createCashAccount(input: unknown, actor: ServiceActor) {
     const count = await tx.cashAccount.count({ where: { type: v.type } });
     const code = v.code ?? `${v.type === "cash" ? "CASH" : "BANK"}-${count + 1}`;
     if (await tx.cashAccount.findUnique({ where: { code } })) throw new ApiError(409, `الكود ${code} مستخدم`);
-    const gl = await tx.account.create({ data: { code: String(n), name: v.name, nameAr: v.name_ar, type: "asset", parentId: "acc_1000", postable: true, cashFlowCategory: null } });
+    const gl = await tx.account.create({ data: { code: String(n), name: v.name, nameAr: v.name_ar, type: "asset", parentId: "acc_1000", postable: true, cashFlowCategory: null, liquidity: "current" } });
     const c = await tx.cashAccount.create({ data: { code, name: v.name, nameAr: v.name_ar, type: v.type, accountId: gl.id, bankName: v.bank_name ?? null, accountNumber: v.account_number ?? null, notes: v.notes ?? null } });
     await audit(tx, actor, "cash_account", c.id, "cash_account_created", `${code} · ${v.name_ar} · ${v.type} · GL ${gl.code}`);
     return c;
