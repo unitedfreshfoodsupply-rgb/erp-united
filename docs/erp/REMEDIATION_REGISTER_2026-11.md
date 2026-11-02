@@ -78,5 +78,27 @@ operational action only the owner can take) · **N/A** (not applicable to UNITED
 | D9 | DST ambiguity in attendance (pre-existing baseline failure) | baseline run | WS5 |
 
 ## Evidence
-See §Evidence appended after the final regression run, and
-`/Users/ok/UNITED_AUDIT_20261102/evidence/` (private): baseline run, rehearsal, final run logs.
+
+| Run | Commit | Result |
+|---|---|---|
+| Baseline (before any change), shared DB | 410c87e (= 7991d66 code) | e2e 11,132 passed / 1 failed (DST, pre-existing); unit 138/0 |
+| Final run 1, fresh DB | 30bb95c | e2e 11,864 / 6 failed; integration 43 / 36; lint 2 errors — every failure root-caused (§Failures) |
+| **Final run 2, fresh DB** | **317b57f** | **91 migrations from zero, migrate diff empty, typecheck 0, lint 0, build 0, unit 177/0, integration 79/0, e2e 12,198 passed / 0 failed across 74 suite runs** |
+| Production rehearsal (restored 2 Nov dump) | 290a3c7+ (same migration set) | 77 → 91 clean; 139/139 existing tables byte-identical; accounts health all ok; cutover blockers = real production gaps |
+| Rollback rehearsal (old build on new schema) | 7991d66 build | 10 suites green; 3 refuse at the new DB rules (expected, data-safe) |
+| Browser check (built app, test DB) | 317b57f | Arabic RTL order entry: availability, unavailable state, keep-available, PR action, typed price, line/order totals 2,250.00; order saved with 50 kg reserved and manual price 45 |
+
+### Failures in final run 1 and their root causes
+| Failure | Classification | Fix |
+|---|---|---|
+| documents "sandbox CSP" | **Production defect** (WS6 middleware overwrote the download sandbox CSP) | 13b0377 |
+| lint (2) | Production code hygiene | 317b57f |
+| integration 36 | Test fixtures predating the merged rules (cost, tax id, direct opening, approvals) | 317b57f |
+| operations crash, hr-payroll advances, analysis loan, provisional-cost revenue | Test scenarios from separately developed branches meeting each other's rules (cost required, cash never negative, journal approval, buyer tax id) | 317b57f |
+
+Logs: `/Users/ok/UNITED_AUDIT_20261102/evidence/` (private) — `baseline-e2e-20261102/`,
+`final-regression-20261102/`, `final-regression-run2-20261102/`, `production-migration-rehearsal-20261102.md`.
+
+### Decisions recorded during verification
+- A standard-cost product must be received with a cost like any other (previously a
+  price-less receipt at standard left GRNI uncleared on billing). Production uses AVCO only.
