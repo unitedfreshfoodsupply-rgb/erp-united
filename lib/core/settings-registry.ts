@@ -426,6 +426,23 @@ export const SETTING_DEFS = {
     schema: z.number().min(0).max(10_000_000),
     default: 500,
   }),
+  // ── WS5 HR & payroll remediation (November 2026) ──
+  "hr.advance_recovery_max_pct": def({
+    group: "hr",
+    label: "أقصى نسبة لاسترداد السلف من صافي المرتب",
+    description: "أقصى نسبة من صافي استحقاق الشهر تتخصم لسداد سلفة (القسط التلقائي بيتقلل لحدها، والإدخال اليدوي اللي يعديها بيوقف المسير إلا بخطة سداد معتمدة تسمح بكده). القيمة المبدئية 10% من مصدر ثانوي واحد عن قانون العمل 14/2025 — محتاجة تأكيد قانوني. الصرف تحت الحساب مش داخل فيها.",
+    unit: "%",
+    schema: z.number().min(0, "أقل قيمة 0").max(100, "أكبر قيمة 100"),
+    default: 10,
+  }),
+  "hr.payroll_absent_policy": def({
+    group: "hr",
+    label: "خصم أيام الغياب العادي",
+    description: "deduct = يوم الغياب (مش المتسجل بدون أجر) بيتخصم زي اليوم بدون أجر وبيظهر تنبيه على القسيمة؛ warn = مبيتخصمش وبيظهر تنبيه بس.",
+    unit: "",
+    schema: z.enum(["deduct", "warn"], { errorMap: () => ({ message: "القيمة لازم تكون deduct أو warn" }) }),
+    default: "deduct",
+  }),
 } as const;
 
 export type SettingKey = keyof typeof SETTING_DEFS;
@@ -530,6 +547,9 @@ export const SETTING_EN: Record<SettingKey, { label: string; description: string
   "accounting.eta_api_submission_from": { label: "E-invoice API submission start date", description: "Date (YYYY-MM-DD) from which invoices and credit notes are sent to the Tax Authority by the system. Empty = API submission is off. Any document dated earlier is recorded by hand with its portal UUID and is never sent by the API." },
   "accounting.cost_center_required": { label: "Cost center required on expenses", description: "When on, every line on an expense account (expense, service bill, manual journal) must name a cost center. Off by default until the cost-center structure is approved." },
   "hr.expense_approval_threshold": { label: "Expense approval threshold", description: "An expense above this amount waits for approval before it posts to the accounts. Zero = every expense needs approval." },
+  // WS5 HR & payroll remediation (November 2026)
+  "hr.advance_recovery_max_pct": { label: "Largest advance recovery, % of net pay", description: "The most of a month's net entitlement deducted to repay an advance (an automatic instalment is reduced to it; a manual entry above it blocks the run unless an approved repayment plan allows it). The default 10% comes from a single secondary source on Labour Law 14/2025 — needs legal confirmation. Salary paid on account is not counted." },
+  "hr.payroll_absent_policy": { label: "Deduct plain absences", description: "deduct = an absence day (not marked unpaid) is deducted like an unpaid day and flagged on the payslip; warn = not deducted, only flagged." },
 };
 
 /** English for the units shown next to values. */

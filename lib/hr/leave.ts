@@ -14,7 +14,7 @@ import { cancelPendingApproval, requestApproval, type Decider } from "@/lib/core
 import type { ServiceActor } from "@/lib/core/actor";
 import type { Permission } from "@/lib/permissions";
 import { datesBetween } from "@/lib/hr/attendance-calc";
-import { loadContext, scheduleDayOf, writeDay } from "@/lib/hr/attendance";
+import { loadContext, onPayroll, scheduleDayOf, writeDay } from "@/lib/hr/attendance";
 
 /**
  * Leave (docs/erp/HR_PAYROLL_GAP_AUDIT.md §3.5, §4.4).
@@ -51,6 +51,8 @@ const typeInput = z.object({
   counts_days: z.enum(["working", "calendar"], { errorMap: () => ({ message: "طريقة عد الأيام غير معروفة" }) }),
   requires_attachment: z.boolean().optional(),
   allow_negative_balance: z.boolean().optional(),
+  /** HR-11: the unused balance is paid out in a final settlement. */
+  encashable: z.boolean().optional(),
   active: z.boolean().optional(),
   expected_version: z.number().int().positive().optional(),
 });
@@ -68,7 +70,7 @@ export async function saveLeaveType(id: string | null, input: unknown, actor: Se
   const data = {
     code: v.code, nameAr: v.name_ar, nameEn: v.name_en ?? null, payMode: v.pay_mode,
     paidPercent: v.pay_mode === "partially_paid" ? dec(v.paid_percent!) : null, countsDays: v.counts_days,
-    requiresAttachment: v.requires_attachment ?? false, allowNegativeBalance: v.allow_negative_balance ?? false, active: v.active ?? true,
+    requiresAttachment: v.requires_attachment ?? false, allowNegativeBalance: v.allow_negative_balance ?? false, encashable: v.encashable ?? false, active: v.active ?? true,
   };
   try {
     return await inTx(async (tx) => {
@@ -84,7 +86,7 @@ export async function saveLeaveType(id: string | null, input: unknown, actor: Se
         if (used && ruleChanged) throw new ApiError(409, "النوع ده عليه طلبات أو أرصدة — طريقة الدفع والعد مينفعش تتغير؛ اعمل نوع جديد");
         row = await tx.leaveType.update({ where: { id }, data: { ...data, version: { increment: 1 } } });
       }
-      await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: id ? "leave_type_updated" : "leave_type_created", entityType: "leave_type", entityId: row.id, fieldChanged: row.code, newValue: `${row.payMode}${row.paidPercent ? ` ${row.paidPercent}%` : ""} · ${row.countsDays}${row.active ? "" : " · inactive"}`, source: "user", deviceId: actor.deviceId }, tx);
+      await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: id ? "leave_type_updated" : "leave_type_created", entityType: "leave_type", entityId: row.id, fieldChanged: row.code, newValue: `${row.payMode}${row.paidPercent ? ` ${row.paidPercent}%` : ""} · ${row.countsDays}${row.encashable ? " · encashable" : ""}${row.active ? "" : " · inactive"}`, source: "user", deviceId: actor.deviceId }, tx);
       return row;
     });
   } catch (err) {
@@ -294,6 +296,89 @@ export async function adjustLeaveBalance(input: unknown, actor: ServiceActor) {
 }
 
 // ---------------------------------------------------------------------------
+// Year end: carry-over and expiry (WS5, audit HR-10)
+// ---------------------------------------------------------------------------
+
+function addMonths(date: string, months: number) {
+  const [y, m, d] = date.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1 + months, 1));
+  const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), Math.min(d, last))).toISOString().slice(0, 10);
+}
+
+/**
+ * POST /api/hr/leave/rollover — closes a finished year for one leave type, by the policy in
+ * force on 31 December (verified, or retired after covering that date):
+ *  1. carried-over days whose expiry (carry date + carryOverExpiryMonths) falls in or before the
+ *     year end lose what was not used by then — an `expiry` entry (days taken from the carry
+ *     date to the expiry date count against the carried days first);
+ *  2. each employee's positive balance at 31 December is closed by an `expiry` entry, and at
+ *     most carryOverMaxDays of it comes back on 1 January as `carry_over` (0 = nothing carried).
+ * Nothing is deleted: every change is a ledger entry with its source, and running the same
+ * year again writes nothing new. A policy with no carry-over cap is refused (undecided rule —
+ * enter 0 to forfeit, or the number of days).
+ */
+export async function rolloverLeave(input: unknown, actor: ServiceActor) {
+  assertPermission(actor, "hr.leave.configure");
+  const v = parse(z.object({ leave_type_id: z.string().min(1), year: z.string().regex(/^\d{4}$/, "السنة لازم تكون YYYY") }), input);
+  const yearEnd = `${v.year}-12-31`;
+  const nextStart = `${Number(v.year) + 1}-01-01`;
+  if (yearEnd >= todayLocalISO()) throw new ApiError(400, "السنة لسه مخلصتش");
+  return inTx(async (tx) => {
+    await advisoryXactLock(tx, `hr-leave-rollover:${v.leave_type_id}`);
+    const type = await tx.leaveType.findUnique({ where: { id: v.leave_type_id } });
+    if (!type) throw new ApiError(400, "نوع الإجازة مش موجود");
+    const covering = { leaveTypeId: type.id, effectiveFrom: { lte: yearEnd }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: yearEnd } }] };
+    let policy = await tx.leavePolicy.findFirst({ where: { ...covering, status: "verified" } });
+    if (!policy) {
+      const retired = await tx.leavePolicy.findMany({ where: { ...covering, status: "retired", verifiedAt: { not: null } }, take: 2 });
+      policy = retired.length === 1 ? retired[0] : null;
+    }
+    if (!policy) throw new ApiError(409, `مفيش سياسة معتمدة للنوع ده في ${yearEnd}`);
+    if (policy.carryOverMaxDays === null) throw new ApiError(409, "السياسة مفيهاش حد أقصى للترحيل — اكتبه في سياسة جديدة (صفر = مفيش ترحيل)");
+    const cap = policy.carryOverMaxDays;
+    const months = policy.carryOverExpiryMonths;
+    const note = `${type.code} ${v.year}`;
+    const by = { createdById: actor.id, createdBy: actor.name };
+
+    // 1. Carried days that expired by the year end.
+    let expired = 0;
+    if (months !== null) {
+      const carries = await tx.leaveLedgerEntry.findMany({ where: { leaveTypeId: type.id, kind: "carry_over", date: { lte: yearEnd } }, orderBy: { date: "asc" } });
+      const done = new Set((await tx.leaveLedgerEntry.findMany({ where: { sourceType: "leave_carry_expiry", sourceId: { in: carries.map((c) => c.id) }, kind: "expiry" }, select: { sourceId: true } })).map((e) => e.sourceId));
+      for (const c of carries) {
+        const expiresOn = addMonths(c.date, months);
+        if (expiresOn > yearEnd || done.has(c.id)) continue;
+        const used = (await tx.leaveLedgerEntry.aggregate({ where: { employeeId: c.employeeId, leaveTypeId: type.id, kind: { in: ["taken", "taken_reversal", "encashment"] }, date: { gte: c.date, lt: expiresOn } }, _sum: { days: true } }))._sum.days ?? dec(0);
+        const balance = (await tx.leaveLedgerEntry.aggregate({ where: { employeeId: c.employeeId, leaveTypeId: type.id, date: { lt: expiresOn } }, _sum: { days: true } }))._sum.days ?? dec(0);
+        const unused = Prisma.Decimal.min(Prisma.Decimal.max(dec(0), c.days.plus(used)), Prisma.Decimal.max(dec(0), balance));
+        if (unused.lte(0)) continue;
+        await tx.leaveLedgerEntry.create({ data: { employeeId: c.employeeId, leaveTypeId: type.id, date: expiresOn, kind: "expiry", days: unused.negated(), sourceType: "leave_carry_expiry", sourceId: c.id, note: `${note}: ترحيل ${c.date} انتهى ${expiresOn}`, ...by } });
+        expired++;
+      }
+    }
+
+    // 2. Close the year: the balance at 31 December out, at most the cap back in on 1 January.
+    const balances = await tx.leaveLedgerEntry.groupBy({ by: ["employeeId"], where: { leaveTypeId: type.id, date: { lte: yearEnd } }, _sum: { days: true } });
+    const data: Prisma.LeaveLedgerEntryCreateManyInput[] = [];
+    let negative = 0;
+    for (const b of balances) {
+      const bal = b._sum.days ?? dec(0);
+      if (bal.lt(0)) negative++;
+      if (bal.lte(0)) continue;
+      const carry = Prisma.Decimal.min(bal, cap);
+      const sourceId = `${type.id}:${b.employeeId}:${v.year}`;
+      data.push({ employeeId: b.employeeId, leaveTypeId: type.id, date: yearEnd, kind: "expiry", days: bal.negated(), sourceType: "leave_rollover", sourceId, note: `${note}: إقفال رصيد السنة`, ...by });
+      if (carry.gt(0)) data.push({ employeeId: b.employeeId, leaveTypeId: type.id, date: nextStart, kind: "carry_over", days: carry, sourceType: "leave_rollover", sourceId, note: `${note}: ترحيل (حد ${cap.toString()})`, ...by });
+    }
+    const res = data.length ? await tx.leaveLedgerEntry.createMany({ data, skipDuplicates: true }) : { count: 0 };
+    const closed = data.filter((d) => d.kind === "expiry").length;
+    await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "leave_rollover", entityType: "leave_type", entityId: type.id, fieldChanged: v.year, newValue: `${res.count} entries · ${closed} balances closed · ${expired} carry-overs expired · cap ${cap.toString()} · expiry ${months ?? "none"}`, reason: policy.sourceReference, source: "user", deviceId: actor.deviceId }, tx);
+    return { year: v.year, policyId: policy.id, created: res.count, already: data.length - res.count, balancesClosed: closed, carryOversExpired: expired, negativeBalances: negative };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Balances
 // ---------------------------------------------------------------------------
 
@@ -358,7 +443,7 @@ async function countLeaveDays(db: Tx | typeof prisma, employeeId: string, type: 
   const counted: string[] = [];
   for (const d of datesBetween(start, end)) {
     const emp = ctx.employmentOn(employeeId, d);
-    if (!emp || emp.status === "terminated") throw new ApiError(400, `الموظف مش على رأس العمل يوم ${d}`);
+    if (!onPayroll(emp, d)) throw new ApiError(400, `الموظف مش على رأس العمل يوم ${d}`);
     if (type.countsDays === "calendar") { counted.push(d); continue; }
     const schedule = ctx.scheduleFor(emp);
     if (!schedule) throw new ApiError(400, "الموظف مالوش جدول دوام — حدد جدول، أو استخدم نوع إجازة بالأيام التقويمية");

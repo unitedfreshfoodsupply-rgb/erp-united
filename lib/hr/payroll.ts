@@ -8,6 +8,7 @@ import { advisoryXactLock } from "@/lib/dbLock";
 import { inTx, type Tx } from "@/lib/tx";
 import { todayLocalISO } from "@/lib/localDate";
 import { optText, parse, text } from "@/lib/core/validation";
+import { idempotencyKeyField, lockKey, replayRequest, requestFingerprint } from "@/lib/core/idempotency";
 import { nextDocumentNumber } from "@/lib/core/sequences";
 import { cancelPendingApproval, requestApproval, type Decider } from "@/lib/core/approvals";
 import type { ServiceActor } from "@/lib/core/actor";
@@ -40,10 +41,14 @@ function bounds(p: string) {
   return { from: `${p}-01`, to: new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10) };
 }
 
-/** Employees with an employment row (not terminated) on any day of the period. */
+/** Employees on the payroll on any day of the period: an employment row that is not a
+ * termination, or a termination whose date (the last working day, HR-20) is in the period. */
 async function employedIn(db: Pick<Tx, "employeeEmployment">, from: string, to: string) {
   const rows = await db.employeeEmployment.findMany({
-    where: { effectiveFrom: { lte: to }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: from } }], status: { not: "terminated" } },
+    where: {
+      effectiveFrom: { lte: to }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: from } }],
+      AND: [{ OR: [{ status: { not: "terminated" } }, { effectiveFrom: { gte: from } }] }],
+    },
     select: { employeeId: true, effectiveFrom: true, effectiveTo: true },
   });
   return [...new Set(rows.filter((r) => !(r.effectiveTo && r.effectiveTo < r.effectiveFrom)).map((r) => r.employeeId))];
@@ -99,13 +104,16 @@ export async function getRun(id: string, actor: ServiceActor) {
         include: { employee: { select: { id: true, code: true, name: true, nameAr: true, jobTitle: true, department: { select: { name: true, nameAr: true } } } }, lines: { orderBy: [{ sortOrder: "asc" }, { code: "asc" }] } },
       },
       snapshots: { orderBy: { sequence: "desc" }, select: { sequence: true, calculationHash: true, totals: true, calculatedBy: true, calculatedAt: true } },
+      correctionOf: { select: { id: true, number: true, period: true } },
+      corrections: { select: { id: true, number: true, status: true }, orderBy: { createdAt: "asc" } },
+      settlement: { include: { items: { include: { payComponent: { select: { code: true, nameAr: true, nameEn: true, kind: true } } } } } },
     },
   });
   if (!run) throw new ApiError(404, "مسير المرتبات مش موجود");
   const prepare = actorCan(actor, "hr.payroll.prepare");
   const approver = actorCan(actor, "hr.payroll.approve");
   const blocking = run.employees.some((e) => e.inclusion === "included" && Array.isArray(e.exceptions) && (e.exceptions as { severity: string }[]).some((x) => x.severity === "error"));
-  const mine = actor.id && (actor.id === run.preparedById || actor.id === run.submittedById);
+  const mine = !actor.id || actor.id === run.preparedById || actor.id === run.submittedById;
   const livePayments = run.status === "posted" ? await prisma.payrollPayment.count({ where: { runId: id, reversedAt: null } }) : 0;
   return {
     ...run,
@@ -117,10 +125,11 @@ export async function getRun(id: string, actor: ServiceActor) {
       decide: approver && run.status === "pending_approval" && !mine,
       reopen: approver && run.status === "approved",
       cancel: prepare && ["draft", "calculated"].includes(run.status),
-      post: actorCan(actor, "hr.payroll.post") && run.status === "approved",
+      post: actorCan(actor, "hr.payroll.post") && run.status === "approved" && !mine,
       // Reversal waits until every payment of the run is reversed (server-checked too).
       reverse: actorCan(actor, "hr.payroll.post") && run.status === "posted" && livePayments === 0,
-      pay: actorCan(actor, "hr.payroll.pay") && run.status === "posted",
+      pay: actorCan(actor, "hr.payroll.pay") && run.status === "posted" && !mine,
+      correct: prepare && run.status === "posted" && run.runType === "regular" && !run.corrections.some((c) => ["draft", "calculated", "pending_approval", "approved"].includes(c.status)),
       bankFile: actorCan(actor, "hr.payroll.pay") && actorCan(actor, "hr.private.view") && run.status === "posted",
     },
   };
@@ -248,11 +257,14 @@ export async function calculateRun(id: string, actor: ServiceActor) {
   return inTx(async (tx) => {
     const run = await lockRun(tx, id);
     if (!["draft", "calculated"].includes(run.status)) throw new ApiError(409, "المسير اتبعت للاعتماد — رجّعه الأول");
-    // Anyone employed in the period since the run was created joins it.
-    const { from, to } = bounds(run.period);
-    const have = new Set((await tx.payrollRunEmployee.findMany({ where: { runId: id }, select: { employeeId: true } })).map((e) => e.employeeId));
-    const missing = (await employedIn(tx, from, to)).filter((e) => !have.has(e));
-    if (missing.length) await tx.payrollRunEmployee.createMany({ data: missing.map((employeeId) => ({ runId: id, employeeId })) });
+    // Anyone employed in the period since the run was created joins a regular run (a correction
+    // or a settlement keeps the employees it was created for).
+    if (run.runType === "regular") {
+      const { from, to } = bounds(run.period);
+      const have = new Set((await tx.payrollRunEmployee.findMany({ where: { runId: id }, select: { employeeId: true } })).map((e) => e.employeeId));
+      const missing = (await employedIn(tx, from, to)).filter((e) => !have.has(e));
+      if (missing.length) await tx.payrollRunEmployee.createMany({ data: missing.map((employeeId) => ({ runId: id, employeeId })) });
+    }
     const calc = await calculatePayroll(tx, run);
     const seq = await store(tx, id, calc, actor);
     const row = await tx.payrollRun.update({
@@ -275,7 +287,10 @@ export async function calculateRun(id: string, actor: ServiceActor) {
 // ---------------------------------------------------------------------------
 
 async function lockAttendance(tx: Tx, run: { id: string; attendanceFrom: string; attendanceTo: string }, actor: { id: string | null; name: string; role: string }) {
-  const included = (await tx.payrollRunEmployee.findMany({ where: { runId: run.id, inclusion: "included" }, select: { employeeId: true } })).map((e) => e.employeeId);
+  // A leaver paid by their final settlement keeps the days that run locked.
+  const included = (await tx.payrollRunEmployee.findMany({ where: { runId: run.id, inclusion: "included" }, select: { employeeId: true, exceptions: true } }))
+    .filter((e) => !(Array.isArray(e.exceptions) && (e.exceptions as { code?: string }[]).some((x) => x.code === "paid_by_settlement")))
+    .map((e) => e.employeeId);
   const days = await tx.attendanceDay.findMany({ where: { employeeId: { in: included }, date: { gte: run.attendanceFrom, lte: run.attendanceTo } } });
   const draft = days.find((d) => d.state === "draft");
   if (draft) throw new ApiError(409, `فيه أيام حضور لسه مسودة (${draft.date}) — أكدها الأول`);
@@ -307,7 +322,9 @@ export async function submitRun(id: string, actor: ServiceActor) {
     const blocking = calc.exceptions.filter((e) => e.severity === "error");
     if (blocking.length) throw new ApiError(409, `فيه ${blocking.length} مشكلة لازم تتحل قبل الإرسال`);
     if (calc.totals.headcount === 0) throw new ApiError(409, "مفيش موظفين في المسير");
-    await lockAttendance(tx, run, actor);
+    if (run.runType === "correction" && calc.payslips.every((p) => p.inclusion !== "included" || !p.lines.length)) throw new ApiError(409, "مفيش فروق تتصحح في المسير ده");
+    // A correction recalculates a month whose days the posted run already locked.
+    if (run.runType !== "correction") await lockAttendance(tx, run, actor);
     const { request } = await requestApproval(tx, {
       type: "hr.payroll_run",
       entityId: id,
@@ -331,7 +348,10 @@ export async function submitRun(id: string, actor: ServiceActor) {
 export async function applyRunDecision(tx: Tx, id: string, approved: boolean, decider: Decider, comment?: string) {
   const run = await lockRun(tx, id);
   if (run.status !== "pending_approval") throw new ApiError(409, "المسير مش مستني اعتماد");
-  if (decider.id && (decider.id === run.preparedById || decider.id === run.submittedById)) throw new ApiError(403, "مينفعش تعتمد مسير انت اللي حسبته أو بعته");
+  // HR-22: an approver with no id, or a run whose preparer or submitter is unknown, cannot
+  // show that two different people were involved.
+  if (!decider.id || !run.preparedById || !run.submittedById) throw new ApiError(403, "الاعتماد محتاج مستخدم معروف، والمسير لازم يكون معروف مين حسبه وبعته");
+  if (decider.id === run.preparedById || decider.id === run.submittedById) throw new ApiError(403, "مينفعش تعتمد مسير انت اللي حسبته أو بعته");
   if (!approved) {
     await unlockAttendance(tx, id, decider);
     await tx.payrollRun.update({ where: { id }, data: { status: "calculated", submittedById: null, submittedBy: null, submittedAt: null, approvalRequestId: null, version: { increment: 1 } } });
@@ -371,6 +391,58 @@ export async function reopenRun(id: string, body: unknown, actor: ServiceActor) 
     await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "payroll_run_reopened", entityType: "payroll_run", entityId: id, fieldChanged: run.period, oldValue: "approved", newValue: "calculated", reason: v.reason, source: "user", deviceId: actor.deviceId }, tx);
     return row;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Correction runs (HR-07)
+// ---------------------------------------------------------------------------
+
+const correctionInput = z.object({
+  reason: text("السبب", 500),
+  employee_ids: z.array(z.string().min(1)).min(1).max(1000).optional(),
+  idempotency_key: idempotencyKeyField,
+});
+
+/**
+ * POST /api/hr/payroll/runs/:id/corrections — a correction of a posted regular run: the month
+ * recalculated for the chosen employees (default: everyone paid by the run), posting only the
+ * differences against what is posted for the month. Calculated, submitted and approved (by
+ * someone else) like any run; one open correction per run at a time; idempotent by key.
+ */
+export async function createCorrectionRun(originalId: string, body: unknown, actor: ServiceActor) {
+  assertPermission(actor, "hr.payroll.prepare");
+  const v = parse(correctionInput, body);
+  const requestHash = requestFingerprint({ originalId, reason: v.reason, employees: v.employee_ids ? [...v.employee_ids].sort() : null });
+  try {
+    return await inTx(async (tx) => {
+      await lockKey(tx, v.idempotency_key);
+      if (v.idempotency_key) {
+        const prev = await tx.payrollRun.findUnique({ where: { idempotencyKey: v.idempotency_key } });
+        if (prev) return replayRequest(prev, requestHash, false);
+      }
+      const original = await lockRun(tx, originalId);
+      if (original.runType !== "regular") throw new ApiError(409, "التصحيح بيتعمل على مسير الشهر العادي");
+      if (original.status !== "posted") throw new ApiError(409, "التصحيح بيتعمل على مسير مترحّل بس");
+      if (await tx.payrollRun.findFirst({ where: { correctionOfRunId: originalId, status: { in: ["draft", "calculated", "pending_approval", "approved"] } } })) throw new ApiError(409, "فيه تصحيح مفتوح على المسير ده — كمّله أو الغيه الأول");
+      const paid = (await tx.payrollRunEmployee.findMany({ where: { runId: originalId, inclusion: "included" }, select: { employeeId: true } })).map((e) => e.employeeId);
+      const ids = v.employee_ids ? [...new Set(v.employee_ids)] : paid;
+      const outside = ids.filter((e) => !paid.includes(e));
+      if (outside.length) throw new ApiError(400, "فيه موظف مش على المسير الأصلي — التصحيح لموظفي المسير بس");
+      const number = await nextDocumentNumber(tx, "hr.payroll_run", todayLocalISO());
+      const run = await tx.payrollRun.create({
+        data: {
+          number, period: original.period, runType: "correction", correctionOfRunId: originalId, reason: v.reason, attendanceFrom: original.attendanceFrom, attendanceTo: original.attendanceTo,
+          preparedById: actor.id, preparedBy: actor.name, idempotencyKey: v.idempotency_key ?? null, requestHash,
+        },
+      });
+      await tx.payrollRunEmployee.createMany({ data: ids.map((employeeId) => ({ runId: run.id, employeeId })) });
+      await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "payroll_correction_created", entityType: "payroll_run", entityId: run.id, fieldChanged: original.number, newValue: `${number} · ${original.period} · ${ids.length} employees`, reason: v.reason, source: "user", deviceId: actor.deviceId }, tx);
+      return run;
+    });
+  } catch (err) {
+    if ((err as { code?: string }).code === "P2002") throw new ApiError(409, "فيه تصحيح مفتوح على المسير ده — كمّله أو الغيه الأول");
+    throw err;
+  }
 }
 
 /** Before submission only. Releases the run's adjustments; the period can then get a new run. */

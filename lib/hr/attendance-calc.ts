@@ -122,25 +122,90 @@ export function cairoLocal(d: Date) {
   return localParts(d);
 }
 
-/** The instant of a Cairo local date and "HH:MM" (DST-correct: Egypt's offset changes twice a year). */
-export function cairoInstant(date: string, time: string, addDays = 0): Date {
+/** Cairo's UTC offset (ms) at an instant. */
+function offsetAt(t: number) {
+  const lp = localParts(new Date(t));
+  const [ly, lm, ld] = lp.date.split("-").map(Number);
+  return Date.UTC(ly, lm - 1, ld, Math.floor(lp.minutes / 60), lp.minutes % 60) - t;
+}
+
+/**
+ * Every instant at which Cairo clocks show a local date and "HH:MM", earliest first.
+ *
+ * Egypt moves its clocks twice a year, so a wall-clock time can have:
+ *  - one instant (every ordinary minute);
+ *  - two instants, when clocks go back (autumn: Thursday 24:00 → 23:00, so 23:00–23:59 of
+ *    that Thursday happen twice — first at UTC+3, then at UTC+2);
+ *  - none, when clocks go forward (spring: Thursday 24:00 → Friday 01:00, so Friday
+ *    00:00–00:59 never happen).
+ * `gap` is set in the last case: the instant the clock jumps to (the minutes past the
+ * missing wall time are added after the jump, i.e. the time read with the offset in force
+ * before the change), so callers decide whether to use it or to refuse the time.
+ */
+export function cairoCandidates(date: string, time: string, addDays = 0): { instants: Date[]; gap: Date | null } {
   const [y, mo, d] = date.split("-").map(Number);
   const [h, mi] = time.split(":").map(Number);
   const wall = Date.UTC(y, mo - 1, d + addDays, h, mi);
-  // Guess with the offset at the wall time read as UTC, then correct once.
-  let guess = wall;
-  for (let i = 0; i < 2; i++) {
-    const lp = localParts(new Date(guess));
-    const [ly, lm, ld] = lp.date.split("-").map(Number);
-    const seenAsUtc = Date.UTC(ly, lm - 1, ld, Math.floor(lp.minutes / 60), lp.minutes % 60);
-    guess += wall - seenAsUtc;
+  // Cairo's offsets around the wall time: the one a day before, at, and a day after it.
+  const offsets = [...new Set([offsetAt(wall - 86_400_000), offsetAt(wall), offsetAt(wall + 86_400_000)])];
+  const instants = [...new Set(offsets.map((o) => wall - o).filter((t) => offsetAt(t) === wall - t))].sort((a, b) => a - b).map((t) => new Date(t));
+  return { instants, gap: instants.length ? null : new Date(wall - offsetAt(wall - 86_400_000)) };
+}
+
+/**
+ * The instant of a Cairo local date and "HH:MM" (DST-correct: Egypt's offset changes twice a
+ * year). A time clocks show twice is the first occurrence; a time that never exists (spring
+ * forward) is moved past the jump — so "00:00" of the spring-forward Friday is that day's
+ * real start (01:00 local). Times typed by people go through `cairoClockTime`, which refuses
+ * a time that never existed instead of moving it.
+ */
+export function cairoInstant(date: string, time: string, addDays = 0): Date {
+  const c = cairoCandidates(date, time, addDays);
+  return c.instants[0] ?? c.gap!;
+}
+
+/** Raised by `cairoClockTime` for a wall time that does not exist (the spring-forward hour). */
+export class NonexistentLocalTime extends Error {
+  constructor(public date: string, public time: string) {
+    super(`${date} ${time} does not exist in Africa/Cairo (clocks move forward)`);
   }
-  return new Date(guess);
+}
+
+/**
+ * A time a person read off a clock, as an instant.
+ *  - Never existed (spring forward): refused (NonexistentLocalTime) — nobody can have
+ *    clocked in or out at that time; the entry must be corrected.
+ *  - Shown twice (autumn): the first occurrence strictly after `after` when given (a
+ *    last-out: the occurrence that keeps the shift shortest and consistent with the
+ *    first-in's offset), otherwise the first occurrence (a first-in).
+ */
+export function cairoClockTime(date: string, time: string, addDays = 0, after?: Date): Date {
+  const c = cairoCandidates(date, time, addDays);
+  if (!c.instants.length) {
+    const [y, m, d] = date.split("-").map(Number);
+    throw new NonexistentLocalTime(new Date(Date.UTC(y, m - 1, d + addDays)).toISOString().slice(0, 10), time);
+  }
+  if (after) return c.instants.find((t) => t.getTime() > after.getTime()) ?? c.instants[c.instants.length - 1];
+  return c.instants[0];
 }
 
 /** Minutes after local midnight of `date` for an instant (can be negative or exceed 1440). */
 export function minutesFromLocalMidnight(date: string, at: Date) {
   return Math.round((at.getTime() - cairoInstant(date, "00:00").getTime()) / 60000);
+}
+
+/**
+ * A shift's position for measureDay: the first-in as the minute the Cairo clock showed
+ * (relative to `date`'s midnight), the last-out as that plus the real time elapsed. On a day
+ * the clocks change, the schedule is compared with what the clock showed at arrival, and the
+ * worked time is the time actually spent — never an hour more or less.
+ */
+export function shiftMinutes(date: string, firstIn: Date, lastOut: Date) {
+  const l = cairoLocal(firstIn);
+  const [y, m, d] = date.split("-").map(Number);
+  const [ly, lm, ld] = l.date.split("-").map(Number);
+  const inMin = Math.round((Date.UTC(ly, lm - 1, ld) - Date.UTC(y, m - 1, d)) / 86_400_000) * 1440 + l.minutes;
+  return { inMin, outMin: inMin + Math.round((lastOut.getTime() - firstIn.getTime()) / 60000) };
 }
 
 /** Weekday (0 = Sunday) of a YYYY-MM-DD calendar date. */

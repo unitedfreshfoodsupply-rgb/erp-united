@@ -14,7 +14,7 @@ import { cancelPendingApproval, requestApproval, type Decider } from "@/lib/core
 import type { ServiceActor } from "@/lib/core/actor";
 import type { Permission } from "@/lib/permissions";
 import {
-  ZERO_MINUTES, cairoInstant, cairoLocal, datesBetween, measureDay, minutesFromLocalMidnight, scheduledMinutes, weekdayOf,
+  NonexistentLocalTime, ZERO_MINUTES, cairoClockTime, cairoInstant, cairoLocal, datesBetween, measureDay, scheduledMinutes, shiftMinutes, weekdayOf,
   type DayMinutes, type ScheduleDay,
 } from "@/lib/hr/attendance-calc";
 
@@ -90,6 +90,15 @@ export async function loadContext(db: Pick<Tx, "employeeEmployment" | "workSched
   };
 }
 export type Ctx = Awaited<ReturnType<typeof loadContext>>;
+
+/**
+ * On the payroll that day (HR-20). A termination row's effective date is the employee's LAST
+ * WORKING DAY: it is worked, recorded and paid; from the next day the employee is off the
+ * payroll. Every "is this person employed on this date" check in HR goes through here.
+ */
+export function onPayroll(row: { status: string; effectiveFrom: string } | null | undefined, date: string): boolean {
+  return !!row && (row.status !== "terminated" || row.effectiveFrom === date);
+}
 
 export function scheduleDayOf(schedule: ScheduleWithDays | null, date: string): ScheduleDay | null {
   if (!schedule) return null;
@@ -196,7 +205,7 @@ function pickMinutes(d: Partial<DayMinutes>): DayMinutes {
  */
 function valuesFor(ctx: Ctx, employeeId: string, date: string, entry: { status: ManualStatus; first_in?: string | null; last_out?: string | null; notes?: string | null }, source: string): DayValues {
   const emp = ctx.employmentOn(employeeId, date);
-  if (!emp || emp.status === "terminated") throw new ApiError(400, `الموظف مش على رأس العمل يوم ${date}`);
+  if (!onPayroll(emp, date)) throw new ApiError(400, `الموظف مش على رأس العمل يوم ${date}`);
   const holiday = ctx.holiday(date);
   if (entry.status === "holiday" && !holiday) throw new ApiError(400, `يوم ${date} مش مسجل إجازة رسمية — سجّله في الإجازات الرسمية الأول`);
   if (entry.status !== "present" && (entry.first_in || entry.last_out)) throw new ApiError(400, "مواعيد الحضور والانصراف لليوم اللي فيه حضور بس");
@@ -211,10 +220,19 @@ function valuesFor(ctx: Ctx, employeeId: string, date: string, entry: { status: 
     if (holiday || !sd?.isWorkingDay) throw new ApiError(400, `يوم ${date} مش يوم شغل في جدول الموظف — اكتب ميعاد الحضور والانصراف`);
     return { status: "present", firstIn: null, lastOut: null, notes, source, ...ZERO_MINUTES, workedMinutes: scheduledMinutes(sd) };
   }
-  const firstIn = cairoInstant(date, entry.first_in);
-  // A last-out earlier than the first-in is the next morning (a night shift).
-  const lastOut = cairoInstant(date, entry.last_out, entry.last_out <= entry.first_in ? 1 : 0);
-  const minutes = measureDay({ inMin: minutesFromLocalMidnight(date, firstIn), outMin: minutesFromLocalMidnight(date, lastOut), schedule: sd, holiday: !!holiday });
+  // Clock times that never happened (the spring-forward hour) are refused; a time clocks show
+  // twice (the autumn hour) is the first-in's first occurrence and the last-out's first
+  // occurrence after it (attendance-calc.ts, cairoClockTime).
+  let firstIn: Date, lastOut: Date;
+  try {
+    firstIn = cairoClockTime(date, entry.first_in);
+    // A last-out earlier than the first-in is the next morning (a night shift).
+    lastOut = cairoClockTime(date, entry.last_out, entry.last_out <= entry.first_in ? 1 : 0, firstIn);
+  } catch (err) {
+    if (err instanceof NonexistentLocalTime) throw new ApiError(400, `الساعة ${err.time} يوم ${err.date} مش موجودة (الساعة اتقدمت للتوقيت الصيفي) — صحّح الميعاد`);
+    throw err;
+  }
+  const minutes = measureDay({ ...shiftMinutes(date, firstIn, lastOut), schedule: sd, holiday: !!holiday });
   return { status: "present", firstIn, lastOut, notes, source, ...minutes };
 }
 
@@ -228,8 +246,7 @@ export async function attendanceRegister(date: string, actor: ServiceActor) {
   if (!isValidISODate(date)) throw new ApiError(400, "التاريخ لازم يكون YYYY-MM-DD");
   const ctx = await loadContext(prisma, date, date);
   const ids = ctx.employeeIds().filter((id) => {
-    const e = ctx.employmentOn(id, date);
-    return e && e.status !== "terminated";
+    return onPayroll(ctx.employmentOn(id, date), date);
   });
   const [employees, days, pending] = await Promise.all([
     prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true, nameAr: true, jobTitle: true, department: { select: { name: true, nameAr: true } } }, orderBy: { code: "asc" } }),
@@ -286,7 +303,7 @@ export async function attendanceMonth(month: string, actor: ServiceActor) {
   const to = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
   const dates = datesBetween(from, to);
   const ctx = await loadContext(prisma, from, to);
-  const ids = ctx.employeeIds().filter((id) => dates.some((d) => { const e = ctx.employmentOn(id, d); return e && e.status !== "terminated"; }));
+  const ids = ctx.employeeIds().filter((id) => dates.some((d) => onPayroll(ctx.employmentOn(id, d), d)));
   const [employees, days] = await Promise.all([
     prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true, nameAr: true }, orderBy: { code: "asc" } }),
     prisma.attendanceDay.findMany({ where: { date: { gte: from, lte: to }, employeeId: { in: ids } } }),
@@ -299,7 +316,7 @@ export async function attendanceMonth(month: string, actor: ServiceActor) {
     rows: employees.map((e) => {
       const cells = dates.map((date) => {
         const emp = ctx.employmentOn(e.id, date);
-        if (!emp || emp.status === "terminated") return { date, employed: false as const };
+        if (!onPayroll(emp, date)) return { date, employed: false as const };
         const d = byKey.get(key(e.id, date));
         return d
           ? { date, employed: true as const, status: d.status, state: d.state, overtime: d.overtimeDayMinutes + d.overtimeNightMinutes + d.overtimeRestDayMinutes + d.overtimeHolidayMinutes, late: d.lateMinutes }
@@ -567,13 +584,13 @@ export async function compileDeviceAttendance(input: unknown, actor: ServiceActo
       const [employeeId, date] = k.split("|");
       if (punches.length < 2) { incomplete++; continue; }
       const emp = ctx.employmentOn(employeeId, date);
-      if (!emp || emp.status === "terminated") { notEmployed++; continue; }
+      if (!onPayroll(emp, date)) { notEmployed++; continue; }
       const cur = existing.get(k) ?? null;
       if (cur && !(cur.source === "device" && cur.state === "draft")) { kept++; continue; }
       const firstIn = punches[0];
       const lastOut = punches[punches.length - 1];
       const sd = scheduleDayOf(ctx.scheduleFor(emp), date);
-      const minutes = measureDay({ inMin: minutesFromLocalMidnight(date, firstIn), outMin: minutesFromLocalMidnight(date, lastOut), schedule: sd, holiday: !!ctx.holiday(date) });
+      const minutes = measureDay({ ...shiftMinutes(date, firstIn, lastOut), schedule: sd, holiday: !!ctx.holiday(date) });
       const values: DayValues = { status: "present", firstIn, lastOut, notes: cur?.notes ?? null, source: "device", ...minutes };
       if (cur && sameValues(cur, values)) { kept++; continue; }
       await writeDay(tx, cur, { employeeId, date }, values, { action: "compiled" }, actor);
