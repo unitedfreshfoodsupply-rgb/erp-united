@@ -14,7 +14,7 @@ import { cancelPendingApproval, requestApproval, type Decider } from "@/lib/core
 import type { ServiceActor } from "@/lib/core/actor";
 import type { Permission } from "@/lib/permissions";
 import {
-  ZERO_MINUTES, cairoInstant, cairoLocal, datesBetween, measureDay, minutesFromLocalMidnight, scheduledMinutes, weekdayOf,
+  NonexistentLocalTime, ZERO_MINUTES, cairoClockTime, cairoInstant, cairoLocal, datesBetween, measureDay, scheduledMinutes, shiftMinutes, weekdayOf,
   type DayMinutes, type ScheduleDay,
 } from "@/lib/hr/attendance-calc";
 
@@ -211,10 +211,19 @@ function valuesFor(ctx: Ctx, employeeId: string, date: string, entry: { status: 
     if (holiday || !sd?.isWorkingDay) throw new ApiError(400, `يوم ${date} مش يوم شغل في جدول الموظف — اكتب ميعاد الحضور والانصراف`);
     return { status: "present", firstIn: null, lastOut: null, notes, source, ...ZERO_MINUTES, workedMinutes: scheduledMinutes(sd) };
   }
-  const firstIn = cairoInstant(date, entry.first_in);
-  // A last-out earlier than the first-in is the next morning (a night shift).
-  const lastOut = cairoInstant(date, entry.last_out, entry.last_out <= entry.first_in ? 1 : 0);
-  const minutes = measureDay({ inMin: minutesFromLocalMidnight(date, firstIn), outMin: minutesFromLocalMidnight(date, lastOut), schedule: sd, holiday: !!holiday });
+  // Clock times that never happened (the spring-forward hour) are refused; a time clocks show
+  // twice (the autumn hour) is the first-in's first occurrence and the last-out's first
+  // occurrence after it (attendance-calc.ts, cairoClockTime).
+  let firstIn: Date, lastOut: Date;
+  try {
+    firstIn = cairoClockTime(date, entry.first_in);
+    // A last-out earlier than the first-in is the next morning (a night shift).
+    lastOut = cairoClockTime(date, entry.last_out, entry.last_out <= entry.first_in ? 1 : 0, firstIn);
+  } catch (err) {
+    if (err instanceof NonexistentLocalTime) throw new ApiError(400, `الساعة ${err.time} يوم ${err.date} مش موجودة (الساعة اتقدمت للتوقيت الصيفي) — صحّح الميعاد`);
+    throw err;
+  }
+  const minutes = measureDay({ ...shiftMinutes(date, firstIn, lastOut), schedule: sd, holiday: !!holiday });
   return { status: "present", firstIn, lastOut, notes, source, ...minutes };
 }
 
@@ -573,7 +582,7 @@ export async function compileDeviceAttendance(input: unknown, actor: ServiceActo
       const firstIn = punches[0];
       const lastOut = punches[punches.length - 1];
       const sd = scheduleDayOf(ctx.scheduleFor(emp), date);
-      const minutes = measureDay({ inMin: minutesFromLocalMidnight(date, firstIn), outMin: minutesFromLocalMidnight(date, lastOut), schedule: sd, holiday: !!ctx.holiday(date) });
+      const minutes = measureDay({ ...shiftMinutes(date, firstIn, lastOut), schedule: sd, holiday: !!ctx.holiday(date) });
       const values: DayValues = { status: "present", firstIn, lastOut, notes: cur?.notes ?? null, source: "device", ...minutes };
       if (cur && sameValues(cur, values)) { kept++; continue; }
       await writeDay(tx, cur, { employeeId, date }, values, { action: "compiled" }, actor);

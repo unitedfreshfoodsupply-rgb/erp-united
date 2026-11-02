@@ -1190,6 +1190,8 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["أقصى فترة 62 يوم في المرة", "At most 62 days at a time"],
   ["اختار مفتاح التكامل", "Choose the integration key"],
   ["اكتب ميعاد الحضور والانصراف الاتنين، أو سيبهم فاضيين", "Enter both the in and out times, or leave both empty"],
+  // WS5 (HR & payroll remediation, November 2026)
+  ["الساعة {} يوم {} مش موجودة (الساعة اتقدمت للتوقيت الصيفي) — صحّح الميعاد", "{0} on {1} does not exist (clocks moved forward for summer time) — correct the time"],
   ["الإجازة الرسمية مش موجودة", "The public holiday does not exist"],
   ["الاسم بالإنجليزي", "The English name"],
   ["الجدول اتعدّل من واحد تاني، حدّث الشاشة", "The schedule was changed by someone else — refresh the screen"],
