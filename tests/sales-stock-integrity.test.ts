@@ -194,6 +194,24 @@ async function main() {
     check("legal entity created for the tax test", false, le.body);
   }
 
+  section("13a. One price everywhere: order line → invoice → receipt → credit note → ledger");
+  const full = (await call("karim", "GET", `/api/sales/invoices/${inv?.id}`)).body.invoice;
+  const line = full?.lines?.[0];
+  check("invoice line carries the agreed order price and quantity (60 × 2 pieces)", line && Number(line.unitPrice) === 60 && Number(line.quantity) === 2 && line.uomCode === "PIECE", line);
+  check("invoice net = Σ qty × price × (1 − discount)", full && Number(full.net) === 120, full && { net: full.net, total: full.total, tax: full.taxTotal });
+  check("invoice total = net + VAT", full && Number(full.total) === Number(full.net) + Number(full.taxTotal), full && { net: full.net, tax: full.taxTotal, total: full.total });
+  const stmt = (await call("karim", "GET", `/api/sales/customers/${cust.id}/statement`)).body;
+  check("customer statement shows the invoice at its total", JSON.stringify(stmt).includes(String(full?.number)) && JSON.stringify(stmt).includes(Number(full?.total).toFixed(2)), stmt?.lines?.slice?.(-3) ?? stmt);
+  const cnr = await call("karim", "POST", `/api/sales/invoices/${inv?.id}/credit-notes`, { reason: TAG, lines: [{ invoice_line_id: line?.id, quantity: 1 }] });
+  check("partial credit note (1 of 2 pieces) -> created", cnr.status === 201 || cnr.status === 200, cnr.body);
+  const cn = cnr.body.creditNote;
+  check("…credits exactly 60 net at the invoice's price, with the invoice's VAT rate", cn && Number(cn.net) === 60 && Number(cn.total) === 60 + Number(cn.taxTotal ?? 0), cn);
+  const after = (await call("karim", "GET", `/api/sales/invoices/${inv?.id}`)).body;
+  check("…the invoice's open amount drops by the credit", after && Number(after.open ?? after.invoice?.open) === Number(full.total) - Number(cn.total), after && { open: after.open ?? after.invoice?.open });
+  const health = (await call("karim", "GET", "/api/accounting/integrity")).body.integrity;
+  check("ledger: trial balance balanced and AR sub-ledger = GL after sale and credit", health.checks?.find((c: { key: string }) => c.key === "trial_balance")?.ok === true && health.checks?.find((c: { key: string }) => c.key === "ar")?.ok === true, health.checks?.filter((c: { ok: boolean }) => !c.ok));
+  check("ledger: inventory valuation = GL after the issue", health.checks?.find((c: { key: string }) => c.key === "inventory")?.ok === true, health.checks?.find((c: { key: string }) => c.key === "inventory"));
+
   section("13b. Product mapping never rewrites history or bypasses stock");
   const other = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} صنف بديل`, unit: "PIECE" })).body.product;
   const qLine = (await call("sara", "GET", `/api/orders/${q.id}`)).body.order.items[0];
