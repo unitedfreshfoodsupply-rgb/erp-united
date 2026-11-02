@@ -2341,9 +2341,9 @@ model Employee {
   expenses     Expense[]
   transactions EmployeeTransaction[]
 
-  employments        EmployeeEmployment[]   @relation("EmploymentEmployee")
-  reportsInHistory   EmployeeEmployment[]   @relation("EmploymentManager")
-  managedDepartments Department[]           @relation("DepartmentManager")
+  employments        EmployeeEmployment[]      @relation("EmploymentEmployee")
+  reportsInHistory   EmployeeEmployment[]      @relation("EmploymentManager")
+  managedDepartments Department[]              @relation("DepartmentManager")
   privateInfo        EmployeePrivateInfo?
   bankAccounts       EmployeeBankAccount[]
   documents          EmployeeDocument[]
@@ -2356,6 +2356,9 @@ model Employee {
   payslips           PayrollRunEmployee[]
   payrollAdjustments PayrollAdjustment[]
   fixedAssets        FixedAsset[]
+  // WS5 (HR-12, HR-17)
+  finalSettlements   EmployeeFinalSettlement[]
+  advancePlans       EmployeeAdvancePlan[]
 
   @@index([departmentId])
 }
@@ -2393,6 +2396,9 @@ model EmployeeEmployment {
   department Department?   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   manager    Employee?     @relation("EmploymentManager", fields: [managerEmployeeId], references: [id], onDelete: Restrict)
   schedule   WorkSchedule? @relation(fields: [workScheduleId], references: [id], onDelete: Restrict)
+
+  // WS5 (HR-12): the settlement of the termination this row records.
+  finalSettlements EmployeeFinalSettlement[]
 
   @@index([employeeId, effectiveFrom])
   @@index([departmentId])
@@ -2696,6 +2702,8 @@ model LeaveType {
   requiresAttachment   Boolean  @default(false)
   /// No balance limit (e.g. unpaid leave): requests are not checked against a balance.
   allowNegativeBalance Boolean  @default(false)
+  /// WS5 (HR-11): the unused balance is paid out (encashed) in a final settlement.
+  encashable           Boolean  @default(false)
   active               Boolean  @default(true)
   version              Int      @default(1)
   createdBy            String
@@ -2820,7 +2828,7 @@ model PayComponent {
   method             String
   /// For method = system: overtime_day | overtime_night | overtime_rest_day | overtime_holiday |
   /// unpaid_absence | partial_leave | social_insurance_employee | social_insurance_employer |
-  /// income_tax | other_levy_employee | other_levy_employer | advance_recovery | rounding
+  /// income_tax | other_levy_employee | other_levy_employer | advance_recovery | rounding | leave_encashment (WS5)
   systemRole         String?  @unique
   taxable            Boolean?
   insurable          Boolean?
@@ -2832,36 +2840,41 @@ model PayComponent {
   createdBy          String
   createdAt          DateTime @default(now())
 
-  expenseAccount   Account?                   @relation("PayComponentExpense", fields: [expenseAccountId], references: [id], onDelete: Restrict)
-  liabilityAccount Account?                   @relation("PayComponentLiability", fields: [liabilityAccountId], references: [id], onDelete: Restrict)
+  expenseAccount   Account?                      @relation("PayComponentExpense", fields: [expenseAccountId], references: [id], onDelete: Restrict)
+  liabilityAccount Account?                      @relation("PayComponentLiability", fields: [liabilityAccountId], references: [id], onDelete: Restrict)
   packageLines     EmployeeCompensationLine[]
   adjustments      PayrollAdjustment[]
+  settlementItems  EmployeeFinalSettlementItem[]
 }
 
 /// An employee's pay package, effective-dated. Proposed by hr.compensation.manage, approved by
 /// someone else (hr.payroll.approve). Approved packages never overlap and are never edited:
 /// a new package closes the previous one the day before it starts.
 model EmployeeCompensation {
-  id                String    @id @default(cuid())
+  id                    String    @id @default(cuid())
   /// CMP-YYYY-#####
-  number            String    @unique
-  employeeId        String
-  effectiveFrom     String
-  effectiveTo       String?
+  number                String    @unique
+  employeeId            String
+  effectiveFrom         String
+  effectiveTo           String?
   /// Entered, not derived (what counts as insurable wage is open — §7 S8).
-  insurableWage     Decimal?  @db.Decimal(18, 2)
-  reason            String
+  insurableWage         Decimal?  @db.Decimal(18, 2)
+  /// WS5 (HR-04): explicitly not insured (reason required; insurable wage 0 or empty).
+  /// Without it an insurable wage of 0 blocks payroll.
+  insuranceExempt       Boolean   @default(false)
+  insuranceExemptReason String?
+  reason                String
   /// pending | approved | rejected | cancelled | superseded
-  status            String    @default("pending")
-  approvalRequestId String?
-  createdById       String?
-  createdBy         String
-  decidedById       String?
-  decidedBy         String?
-  decidedAt         DateTime?
-  decisionComment   String?
-  version           Int       @default(1)
-  createdAt         DateTime  @default(now())
+  status                String    @default("pending")
+  approvalRequestId     String?
+  createdById           String?
+  createdBy             String
+  decidedById           String?
+  decidedBy             String?
+  decidedAt             DateTime?
+  decisionComment       String?
+  version               Int       @default(1)
+  createdAt             DateTime  @default(now())
 
   employee Employee                   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   lines    EmployeeCompensationLine[]
@@ -2917,9 +2930,11 @@ model PayrollRun {
   number                String    @unique
   /// YYYY-MM
   period                String
-  /// regular | off_cycle | correction
+  /// regular | off_cycle | correction | final_settlement
   runType               String    @default("regular")
   correctionOfRunId     String?
+  /// WS5: why a correction or final settlement run exists (required for those types).
+  reason                String?
   /// draft | calculated | pending_approval | approved | posted | reversed | cancelled
   status                String    @default("draft")
   attendanceFrom        String
@@ -2973,6 +2988,7 @@ model PayrollRun {
   reversalEntry JournalEntry?                @relation("PayrollRunReversal", fields: [reversalEntryId], references: [id], onDelete: Restrict)
   netPayAccount Account?                     @relation("PayrollNetPay", fields: [netPayAccountId], references: [id], onDelete: Restrict)
   payments      PayrollPayment[]
+  settlement    EmployeeFinalSettlement?
 
   @@index([period])
 }
@@ -2999,6 +3015,9 @@ model PayrollRunEmployee {
   /// [{ severity: error | warning, code, params }]
   exceptions               Json?
   inputsHash               String?
+  /// WS5: a payslip of a correction or final-settlement run (differences; figures may be negative).
+  /// Set by the database from the run's type.
+  signed                   Boolean  @default(false)
   version                  Int      @default(1)
 
   run          PayrollRun           @relation(fields: [runId], references: [id], onDelete: Restrict)
@@ -3189,9 +3208,86 @@ model EmployeeTransaction {
   createdBy      String
   createdAt      DateTime @default(now())
 
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  employee    Employee             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  advancePlan EmployeeAdvancePlan?
 
   @@index([employeeId])
+}
+
+// ---------------------------------------------------------------------------
+// WS5 HR & payroll remediation (November 2026)
+// ---------------------------------------------------------------------------
+
+/// HR-12: the final settlement of a leaver. The inputs live here; the figures are a payroll run
+/// of type final_settlement (calculated, approved by someone else, posted and paid like any run).
+model EmployeeFinalSettlement {
+  id                      String   @id @default(cuid())
+  employeeId              String
+  runId                   String   @unique
+  terminationEmploymentId String
+  /// YYYY-MM-DD: the termination row's effective date — the last working (and paid) day.
+  lastWorkingDay          String
+  /// Pay out the unused balance of every encashable leave type.
+  encashLeave             Boolean  @default(true)
+  reason                  String
+  createdById             String?
+  createdBy               String
+  createdAt               DateTime @default(now())
+  version                 Int      @default(1)
+
+  employee    Employee                      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  run         PayrollRun                    @relation(fields: [runId], references: [id], onDelete: Restrict)
+  termination EmployeeEmployment            @relation(fields: [terminationEmploymentId], references: [id], onDelete: Restrict)
+  items       EmployeeFinalSettlementItem[]
+
+  @@index([employeeId])
+  @@index([terminationEmploymentId])
+}
+
+/// A manual settlement item (notice pay, contractual compensation, a deduction…) with its reason.
+model EmployeeFinalSettlementItem {
+  id             String  @id @default(cuid())
+  settlementId   String
+  payComponentId String
+  amount         Decimal @db.Decimal(18, 2)
+  reason         String
+
+  settlement   EmployeeFinalSettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  payComponent PayComponent            @relation(fields: [payComponentId], references: [id], onDelete: Restrict)
+
+  @@index([settlementId])
+  @@index([payComponentId])
+}
+
+/// HR-17: instalments recovering one advance, deducted automatically from each payslip from
+/// startPeriod until the plan total is recovered. Approved by someone other than its author;
+/// allowAboveCap (approved with the plan) lets a payslip exceed the recovery cap setting.
+model EmployeeAdvancePlan {
+  id                   String    @id @default(cuid())
+  employeeId           String
+  advanceTransactionId String    @unique
+  totalAmount          Decimal   @db.Decimal(18, 2)
+  instalmentAmount     Decimal   @db.Decimal(18, 2)
+  /// YYYY-MM
+  startPeriod          String
+  allowAboveCap        Boolean   @default(false)
+  reason               String
+  /// pending | active | cancelled
+  status               String    @default("pending")
+  createdById          String?
+  createdBy            String
+  createdAt            DateTime  @default(now())
+  approvedById         String?
+  approvedBy           String?
+  approvedAt           DateTime?
+  cancelledBy          String?
+  cancelReason         String?
+  version              Int       @default(1)
+
+  employee Employee            @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  advance  EmployeeTransaction @relation(fields: [advanceTransactionId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, status])
 }
 
 // ---------------------------------------------------------------------------
