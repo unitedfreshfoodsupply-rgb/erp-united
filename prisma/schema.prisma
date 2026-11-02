@@ -2049,6 +2049,10 @@ model Account {
   cashFlowCategory String?
   /// fixed_assets — the subledger that alone moves this account (no manual journals).
   controlledBy     String?
+  // ---- WS3 remediation 2026-11 (G5) ----
+  /// Balance-sheet accounts: current | non_current. NULL = not classified — the balance
+  /// sheet and the ratios report it as unclassified, never guess it.
+  liquidity        String?
 
   parent       Account?      @relation("AccountTree", fields: [parentId], references: [id], onDelete: Restrict)
   children     Account[]     @relation("AccountTree")

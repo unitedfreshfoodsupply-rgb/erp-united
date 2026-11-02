@@ -12,12 +12,12 @@ import { isValidISODate } from "@/lib/dates";
  *    still shows its result), exactly as the P&L report does.
  *  - Balance sheet by account at the end of each range (cumulative, closing entries
  *    included — they only move the result into retained earnings).
- *  - Ratios at each range's end. The chart of accounts does not split current from
- *    non-current, so the basis is stated, not guessed: current assets are every asset except
- *    fixed assets (the 1700 group and accounts the asset register controls); liabilities are
- *    taken as a whole (all treated as current — the liquidity ratios are therefore the
- *    conservative reading). Turnover days use the range's own revenue and cost of sales.
- *    A ratio whose denominator is zero is null, never infinity.
+ *  - Ratios at each range's end, on the accounts' current / non-current classification
+ *    (Account.liquidity, WS3 G5): current assets ÷ current liabilities, and so on. An asset
+ *    or liability account with no classification is never guessed into either side: it is
+ *    left out of the liquidity ratios and reported (unclassified totals and accounts), and
+ *    `classificationComplete` says whether anything was left out. Turnover days use the
+ *    range's own revenue and cost of sales. A ratio whose denominator is zero is null.
  */
 
 const D = (v: Prisma.Decimal.Value | null | undefined) => new Prisma.Decimal(v ?? 0);
@@ -38,7 +38,7 @@ export function comparisonRange(from: string, to: string, basis: "prior_period" 
   return { from: iso(Date.parse(`${cto}T00:00:00Z`) - (len - 1) * day), to: cto };
 }
 
-type Acc = { id: string; code: string; name: string; nameAr: string; type: string; systemKey: string | null; parentId: string | null; controlledBy: string | null };
+type Acc = { id: string; code: string; name: string; nameAr: string; type: string; systemKey: string | null; parentId: string | null; controlledBy: string | null; liquidity: string | null };
 
 async function plByAccount(from: string, to: string) {
   return prisma.$queryRaw<{ accountId: string; amount: Prisma.Decimal }[]>`
@@ -64,7 +64,7 @@ export async function comparativeStatements(opts: { from: string; to: string; ba
   const basis = opts.basis === "prior_period" ? "prior_period" : "prior_year";
   const cmp = comparisonRange(from, to, basis);
   const [accounts, cashAccounts, plCur, plCmp, bsCur, bsCmp] = await Promise.all([
-    prisma.account.findMany({ select: { id: true, code: true, name: true, nameAr: true, type: true, systemKey: true, parentId: true, controlledBy: true } }),
+    prisma.account.findMany({ select: { id: true, code: true, name: true, nameAr: true, type: true, systemKey: true, parentId: true, controlledBy: true, liquidity: true } }),
     prisma.cashAccount.findMany({ select: { accountId: true } }),
     plByAccount(from, to), plByAccount(cmp.from, cmp.to), balancesAt(to), balancesAt(cmp.to),
   ]);
@@ -95,7 +95,18 @@ export async function comparativeStatements(opts: { from: string; to: string; ba
     const assets = s("asset"), liabilities = s("liability").negated(), equity = s("equity").negated(), result = s("revenue").plus(s("expense")).negated();
     const fixedAssets = [...m].filter(([id]) => fixed.has(id)).reduce((x, [, v]) => x.plus(v), D(0));
     const cashIds = new Set(cashAccounts.map((c) => c.accountId));
-    return { assets, liabilities, equity: equity.plus(result), result, currentAssets: assets.minus(fixedAssets), fixedAssets, inventory: key("inventory"), receivables: key("ar"), payables: key("ap").negated(), cash: [...m].filter(([id]) => cashIds.has(id)).reduce((x, [, v]) => x.plus(v), D(0)) };
+    // WS3 G5: by classification; unclassified balances are kept apart, never guessed.
+    const cls = (t: "asset" | "liability", l: string | null) => [...m].filter(([id]) => byId.get(id)?.type === t && (byId.get(id)?.liquidity ?? null) === l).reduce((x, [, v]) => x.plus(v), D(0));
+    const unclassifiedAccounts = [...m].filter(([id, v]) => { const a = byId.get(id); return !!a && (a.type === "asset" || a.type === "liability") && !a.liquidity && !v.isZero(); })
+      .map(([id, v]) => { const a = byId.get(id)!; return { accountId: id, code: a.code, name: a.name, nameAr: a.nameAr, type: a.type, amount: (a.type === "asset" ? v : v.negated()).toFixed(2) }; })
+      .sort((x, y) => x.code.localeCompare(y.code));
+    return {
+      assets, liabilities, equity: equity.plus(result), result, fixedAssets, inventory: key("inventory"), receivables: key("ar"), payables: key("ap").negated(),
+      cash: [...m].filter(([id]) => cashIds.has(id)).reduce((x, [, v]) => x.plus(v), D(0)),
+      currentAssets: cls("asset", "current"), nonCurrentAssets: cls("asset", "non_current"), unclassifiedAssets: cls("asset", null),
+      currentLiabilities: cls("liability", "current").negated(), nonCurrentLiabilities: cls("liability", "non_current").negated(), unclassifiedLiabilities: cls("liability", null).negated(),
+      unclassifiedAccounts,
+    };
   };
   const bsIds = [...new Set([...bc.keys(), ...bp.keys()])].filter((id) => { const t = byId.get(id)?.type; return (t === "asset" || t === "liability" || t === "equity") && (!(bc.get(id) ?? D(0)).isZero() || !(bp.get(id) ?? D(0)).isZero()); });
   const sign = (a: Acc, v: Prisma.Decimal) => (a.type === "asset" ? v : v.negated());
@@ -104,19 +115,25 @@ export async function comparativeStatements(opts: { from: string; to: string; ba
 
   const ratios = (p: ReturnType<typeof pl>, b: ReturnType<typeof bsSide>, days: number) => ({
     grossMarginPct: pct(p.gross, p.revenue), netMarginPct: pct(p.net, p.revenue),
-    currentRatio: ratio(b.currentAssets, b.liabilities), quickRatio: ratio(b.currentAssets.minus(b.inventory), b.liabilities), cashRatio: ratio(b.cash, b.liabilities),
-    debtToEquity: ratio(b.liabilities, b.equity), workingCapital: b.currentAssets.minus(b.liabilities).toFixed(2),
+    currentRatio: ratio(b.currentAssets, b.currentLiabilities), quickRatio: ratio(b.currentAssets.minus(b.inventory), b.currentLiabilities), cashRatio: ratio(b.cash, b.currentLiabilities),
+    debtToEquity: ratio(b.liabilities, b.equity), workingCapital: b.currentAssets.minus(b.currentLiabilities).toFixed(2),
+    classificationComplete: b.unclassifiedAccounts.length === 0,
     receivableDays: p.revenue.isZero() ? null : b.receivables.dividedBy(p.revenue).times(days).toDecimalPlaces(0).toFixed(0),
     inventoryDays: p.cogs.isZero() ? null : b.inventory.dividedBy(p.cogs).times(days).toDecimalPlaces(0).toFixed(0),
     payableDays: p.cogs.isZero() ? null : b.payables.dividedBy(p.cogs).times(days).toDecimalPlaces(0).toFixed(0),
   });
   const tot = (p: ReturnType<typeof pl>) => ({ revenue: p.revenue.toFixed(2), costOfSales: p.cogs.toFixed(2), grossProfit: p.gross.toFixed(2), expenses: p.expenses.toFixed(2), netIncome: p.net.toFixed(2) });
-  const btot = (b: ReturnType<typeof bsSide>) => ({ assets: b.assets.toFixed(2), currentAssets: b.currentAssets.toFixed(2), fixedAssets: b.fixedAssets.toFixed(2), liabilities: b.liabilities.toFixed(2), equity: b.equity.toFixed(2), balanced: b.assets.minus(b.liabilities).minus(b.equity).abs().lt(0.005) });
+  const btot = (b: ReturnType<typeof bsSide>) => ({
+    assets: b.assets.toFixed(2), currentAssets: b.currentAssets.toFixed(2), nonCurrentAssets: b.nonCurrentAssets.toFixed(2), unclassifiedAssets: b.unclassifiedAssets.toFixed(2), fixedAssets: b.fixedAssets.toFixed(2),
+    liabilities: b.liabilities.toFixed(2), currentLiabilities: b.currentLiabilities.toFixed(2), nonCurrentLiabilities: b.nonCurrentLiabilities.toFixed(2), unclassifiedLiabilities: b.unclassifiedLiabilities.toFixed(2),
+    equity: b.equity.toFixed(2), balanced: b.assets.minus(b.liabilities).minus(b.equity).abs().lt(0.005),
+    unclassifiedAccounts: b.unclassifiedAccounts, classificationComplete: b.unclassifiedAccounts.length === 0,
+  });
   return {
     basis, current: { from, to }, comparison: cmp,
     profitAndLoss: { lines: plLines, current: tot(plC), comparison: tot(plP) },
     balanceSheet: { lines: bsLines, current: btot(bC), comparison: btot(bP) },
     ratios: { current: ratios(plC, bC, daysIn(from, to)), comparison: ratios(plP, bP, daysIn(cmp.from, cmp.to)) },
-    ratioBasis: "current_assets_exclude_fixed; liabilities_all_current",
+    ratioBasis: "account_liquidity_classification; unclassified_excluded_and_reported",
   };
 }

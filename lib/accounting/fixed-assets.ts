@@ -101,10 +101,10 @@ export async function createCategory(input: unknown, actor: ServiceActor) {
     const free: string[] = [];
     for (let n = 1701; n <= 1799 && free.length < 2; n++) if (!used.has(String(n))) free.push(String(n));
     if (free.length < (v.depreciable ? 2 : 1)) throw new ApiError(409, "الأكواد المتاحة تحت الأصول الثابتة (1701–1799) خلصت");
-    const cost = await tx.account.create({ data: { code: free[0], name: `${v.name} — cost`, nameAr: `${v.name_ar} — التكلفة`, type: "asset", parentId: "acc_1700", postable: true, controlledBy: "fixed_assets", cashFlowCategory: "investing" } });
+    const cost = await tx.account.create({ data: { code: free[0], name: `${v.name} — cost`, nameAr: `${v.name_ar} — التكلفة`, type: "asset", parentId: "acc_1700", postable: true, controlledBy: "fixed_assets", cashFlowCategory: "investing", liquidity: "non_current" } });
     // Accumulated depreciation is a contra-asset; its change is the non-cash depreciation
     // added back under operating (disposals are moved to investing by the cash-flow report).
-    const accum = v.depreciable ? await tx.account.create({ data: { code: free[1], name: `${v.name} — accumulated depreciation`, nameAr: `${v.name_ar} — مجمع الإهلاك`, type: "asset", parentId: "acc_1700", postable: true, controlledBy: "fixed_assets", cashFlowCategory: "operating" } }) : null;
+    const accum = v.depreciable ? await tx.account.create({ data: { code: free[1], name: `${v.name} — accumulated depreciation`, nameAr: `${v.name_ar} — مجمع الإهلاك`, type: "asset", parentId: "acc_1700", postable: true, controlledBy: "fixed_assets", cashFlowCategory: "operating", liquidity: "non_current" } }) : null;
     const expense = v.depreciable ? await tx.account.findUnique({ where: { systemKey: "fa_depreciation" } }) : null;
     const c = await tx.assetCategory.create({
       data: {
