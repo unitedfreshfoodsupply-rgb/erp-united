@@ -194,6 +194,15 @@ async function main() {
     check("legal entity created for the tax test", false, le.body);
   }
 
+  section("13b. Product mapping never rewrites history or bypasses stock");
+  const other = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} صنف بديل`, unit: "PIECE" })).body.product;
+  const qLine = (await call("sara", "GET", `/api/orders/${q.id}`)).body.order.items[0];
+  r = await call("hossam", "POST", "/api/stock/products/mapping", { product_name: qLine.productName, product_id: other.id, reason: TAG });
+  const qAfter = (await call("sara", "GET", `/api/orders/${q.id}`)).body.order.items[0];
+  check("mapping a name to another product leaves the dispatched order's line unchanged", qAfter.stockProductId === qLine.stockProductId, [r.status, r.body, qAfter.stockProductId]);
+  r = await call("hossam", "DELETE", "/api/stock/products/mapping", { product_name: (await call("sara", "GET", `/api/orders/${pOk.id}`)).body.order.items[0].productName, reason: TAG });
+  check("unmapping a name used by a live order that holds stock -> 409", r.status === 409, r.body);
+
   section("14. Cash never goes negative, whatever the path");
   const cash = ((await call("karim", "GET", "/api/accounting/cash-accounts")).body.cashAccounts ?? []).find((c: { type: string }) => c.type === "cash");
   r = await call("karim", "POST", "/api/accounting/payments", { party_id: sup.id, cash_account_id: cash?.id, amount: "999999999", date: today, method: "cash" });

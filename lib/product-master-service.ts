@@ -1,3 +1,4 @@
+import { commitOrderStock } from "@/lib/sales/stock-commitment";
 import { Prisma } from "@prisma/client";
 import { asText } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
@@ -596,8 +597,10 @@ export async function mapOrderProductName(
 
     // Only lines whose name normalizes to the same thing - an exact match on the
     // normalized form, never a LIKE or a similarity test.
+    // History is never rewritten (remediation 2026-11): lines of dispatched or cancelled
+    // orders keep the product they left with. Live orders are re-checked for stock below.
     const candidates = await tx.orderItem.findMany({
-      where: input.unit ? { unit: input.unit } : undefined,
+      where: { ...(input.unit ? { unit: input.unit } : {}), order: { status: { notIn: ["dispatched", "cancelled"] } } },
       select: { id: true, orderId: true, productName: true, stockProductId: true },
     });
     const targets = candidates.filter((c) => normalizeProductName(c.productName) === normalized && c.stockProductId !== product.id);
@@ -606,8 +609,12 @@ export async function mapOrderProductName(
     const updated = targetIds.length
       ? await tx.orderItem.updateMany({ where: { id: { in: targetIds } }, data: { stockProductId: product.id } })
       : { count: 0 };
-    // The lines now name a product with a price and a tax class: price them.
-    for (const orderId of new Set(targets.map((t) => t.orderId))) await applyListPrices(tx, orderId, actor, { refresh: true });
+    // The lines now name a product with a price and a tax class: price them, and hold
+    // the new product's stock in full — or the whole mapping is refused (WF-01).
+    for (const orderId of new Set(targets.map((t) => t.orderId))) {
+      await applyListPrices(tx, orderId, actor, { refresh: true });
+      await commitOrderStock(tx, orderId, actor);
+    }
 
     await writeAudit({
       userId: actor.id, userName: actor.name, role: actor.role,
@@ -637,12 +644,19 @@ export async function unmapOrderProductName(
 
   const result = await prisma.$transaction(async (tx) => {
     await advisoryXactLock(tx, ALIAS_LOCK);
+    // History is never rewritten: only lines of live orders can be unmapped, and only
+    // while they hold no stock — an unmapped line can neither be reserved nor dispatched.
     const candidates = await tx.orderItem.findMany({
-      select: { id: true, productName: true, stockProductId: true },
+      where: { order: { status: { notIn: ["dispatched", "cancelled"] } } },
+      select: { id: true, orderId: true, productName: true, stockProductId: true },
     });
     const targetIds = candidates
       .filter((c) => normalizeProductName(c.productName) === normalized && c.stockProductId !== null)
       .map((c) => c.id);
+    if (targetIds.length) {
+      const holding = await tx.stockReservation.count({ where: { sourceType: "order", sourceLineId: { in: targetIds }, status: "active" } });
+      if (holding) throw new ApiError(409, `الاسم ده مربوط بسطور في أوردرات شغالة حاجزة مخزون (${holding}) — عدّل أو الغي الأوردرات دي الأول`);
+    }
     const cleared = targetIds.length
       ? await tx.orderItem.updateMany({ where: { id: { in: targetIds } }, data: { stockProductId: null } })
       : { count: 0 };

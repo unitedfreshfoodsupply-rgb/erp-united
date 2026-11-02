@@ -1507,4 +1507,5 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["كلمة السر لازم تكون {} خانة بالكتير", "The password must be at most {0} characters"],
   ["كلمة السر مينفعش تكون نفس اسم المستخدم", "The password cannot be the same as the username"],
   ["كلمة السر دي مشهورة وسهل تتخمن — اختار كلمة سر تانية", "This password is well known and easy to guess — choose another"],
+  ["الاسم ده مربوط بسطور في أوردرات شغالة حاجزة مخزون ({}) — عدّل أو الغي الأوردرات دي الأول", "That name is linked to lines of live orders that hold stock ({0}) — change or cancel those orders first"],
 ];
