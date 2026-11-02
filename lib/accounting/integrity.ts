@@ -1,3 +1,4 @@
+import { getSetting } from "@/lib/core/settings-service";
 import { Prisma } from "@prisma/client";
 import { idempotencyKeyField, lockKey, replayRequest, requestFingerprint } from "@/lib/core/idempotency";
 import { z } from "zod";
@@ -50,6 +51,9 @@ const openingInput = z.object({
 export async function createOpeningBalance(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.manage");
   const v = parse(openingInput, input);
+  if (!(await getSetting("accounting.direct_opening_entries"))) {
+    throw new ApiError(409, "الأرصدة الافتتاحية للعملاء والموردين بتتسجل بدفعة افتتاحية يعتمدها شخص تاني (المحاسبة ← الأرصدة الافتتاحية)", "direct_opening_disabled");
+  }
   const requestHash = requestFingerprint({ party_type: v.party_type, party_id: v.party_id, date: v.date, due_date: v.due_date ?? v.date, amount: v.amount, reference: v.reference ?? null });
   return inTx(async (tx) => {
     await lockKey(tx, v.idempotency_key);

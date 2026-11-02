@@ -5,7 +5,7 @@ import { ApiError } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { nextDocumentNumber } from "@/lib/core/sequences";
-import { notify } from "@/lib/core/notifications";
+import { notify, usersWithPermission } from "@/lib/core/notifications";
 import { todayLocalISO } from "@/lib/localDate";
 import type { Permission } from "@/lib/permissions";
 import type { Tx } from "@/lib/tx";
@@ -42,6 +42,20 @@ export const APPROVAL_TYPES = {
     approvePermission: "orders.approve",
     levels: 1,
     link: (id) => `/orders/${id}`,
+  },
+  "inventory.grading_loss": {
+    label: "اعتماد خسارة فرز عند الاستلام",
+    entityType: "stock_intake",
+    approvePermission: "stock.approve_adjustments",
+    levels: 1,
+    link: (id) => `/stock?intake=${id}`,
+  },
+  "stock.issue_exception_close": {
+    label: "قفل استثناء صرف بدون حركة مخزون",
+    entityType: "stock_issue_exception",
+    approvePermission: "stock.approve_adjustments",
+    levels: 1,
+    link: () => `/stock/inventory?tab=exceptions`,
   },
   "inventory.adjustment": {
     label: "اعتماد تسوية مخزون",
@@ -319,8 +333,18 @@ export async function recordDecision(
     throw new ApiError(403, "مالكش صلاحية تقرر في الطلب ده");
   }
   if (request.status !== "pending") throw new ApiError(409, "الطلب ده اتقفل بالفعل");
+  // Segregation of duties (CTL-01): the requester never decides their own request —
+  // except a SUPER_ADMIN when NO other active user can decide it (a one-person setup),
+  // and only with a written reason; that emergency path is audited and broadcast.
+  let emergencySelfApproval = false;
   if (opts.requireDifferentApprover && decider.id && decider.id === request.requestedById) {
-    throw new ApiError(403, "مينفعش توافق على طلب انت اللي طالبه");
+    const others = (await usersWithPermission(tx, def.approvePermission)).filter((id) => id !== decider.id);
+    const reason = asText(opts.comment, "comment")?.trim() ?? "";
+    if (decision !== "approve" || decider.role !== "SUPER_ADMIN" || others.length > 0) {
+      throw new ApiError(403, others.length > 0 ? "مينفعش توافق على طلب انت اللي طالبه — فيه زميل عنده الصلاحية يقرر" : "مينفعش توافق على طلب انت اللي طالبه");
+    }
+    if (reason.length < 10) throw new ApiError(400, "مفيش موافق تاني على النظام: الموافقة الذاتية الطارئة لازم يتكتب لها سبب واضح (10 حروف على الأقل)");
+    emergencySelfApproval = true;
   }
   if (decider.id) {
     const already = await tx.approvalDecision.findFirst({ where: { requestId: request.id, deciderId: decider.id } });
@@ -356,6 +380,35 @@ export async function recordDecision(
       comment: asText(opts.comment, "comment")?.trim() || null,
     },
   });
+  if (emergencySelfApproval) {
+    await writeAudit(
+      {
+        userId: decider.id,
+        userName: decider.name,
+        role: decider.role,
+        action: "emergency_self_approval",
+        entityType: "approval_request",
+        entityId: request.id,
+        orderId: request.entityType === "order" ? request.entityId : null,
+        fieldChanged: request.type,
+        newValue: `${request.number} · ${request.title}`,
+        reason: asText(opts.comment, "comment")?.trim(),
+        source: "user",
+        deviceId: decider.deviceId,
+      },
+      tx
+    );
+    await notify(tx, { permission: "audit.view" }, {
+      type: "approval.emergency_self",
+      severity: "warning",
+      title: `موافقة ذاتية طارئة: ${request.title}`,
+      body: `${decider.name} وافق على طلب هو اللي طالبه (${request.number}) لعدم وجود موافق تاني`,
+      entityType: "approval_request",
+      entityId: request.id,
+      link: "/approvals",
+      dedupeKey: `emergency-self:${request.id}`,
+    });
+  }
 
   await writeAudit(
     {

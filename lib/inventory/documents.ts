@@ -325,6 +325,50 @@ export async function releaseFromQuarantine(input: Record<string, unknown>, acto
   return { ...result, document: await withMovements(result.document.id) };
 }
 
+/**
+ * Grading-loss approval (CTL-01): an intake whose grading loss needed approval was
+ * received into quarantine. Approved: every bucket it put there moves to the location
+ * the receiver intended (or receiving), as one release document. Rejected: it stays
+ * held — the intake is corrected or voided by the receiving team.
+ */
+export async function releaseGradingHoldInTx(
+  tx: Tx,
+  intakeId: string,
+  payload: { intakeId?: string; quarantineLocationId: string; destinationLocationId: string; lines: { productId: string; lotId: string | null; quantity: string; destinationLocationId?: string }[] },
+  actor: { id: string | null; name: string; role: string; deviceId?: string }
+) {
+  // The entity is the intake (intake-time grading) or the sorting document (later sort).
+  if (payload.intakeId) intakeId = payload.intakeId;
+  const intake = await tx.stockIntake.findUnique({ where: { id: intakeId } });
+  if (!intake || intake.status === "voided") return null;
+  const wh = await resolveWarehouse(tx, undefined);
+  const from = await resolveLocation(tx, wh.id, payload.quarantineLocationId);
+  const to = await resolveLocation(tx, wh.id, payload.destinationLocationId);
+  if (from.type !== "quarantine" || to.type === "quarantine" || to.type === "waste") throw new ApiError(409, "أماكن الإفراج عن الفرز مش صالحة");
+  const dest = new Map<string, Awaited<ReturnType<typeof resolveLocation>>>();
+  for (const l of payload.lines) {
+    if (l.destinationLocationId && !dest.has(l.destinationLocationId)) {
+      const d = await resolveLocation(tx, wh.id, l.destinationLocationId);
+      if (d.type === "quarantine" || d.type === "waste") throw new ApiError(409, "أماكن الإفراج عن الفرز مش صالحة");
+      dest.set(d.id, d);
+    }
+  }
+  await lockForMoves(tx, payload.lines.map((l) => ({ productId: l.productId, locationId: from.id, lotId: l.lotId })));
+  const date = todayLocalISO();
+  const reason = `اعتماد خسارة الفرز · استلام ${intake.receiptNumber ?? intake.id}`;
+  const doc = await createDoc(tx, "release", { warehouseId: wh.id, businessDate: date, status: "posted", reason, idempotencyKey: null, sourceType: "stock_intake", sourceId: intakeId, payload: { intakeId, fromLocationId: from.id, toLocationId: to.id, lines: payload.lines } }, actor as ServiceActor);
+  const moves: MoveInput[] = [];
+  for (const l of payload.lines) {
+    const qty = D(l.quantity);
+    if (!qty.gt(0)) continue;
+    moves.push({ productId: l.productId, warehouseId: wh.id, locationId: from.id, lotId: l.lotId, quantity: qty.negated(), kind: "release_out", reason, documentId: doc.id });
+    moves.push({ productId: l.productId, warehouseId: wh.id, locationId: (l.destinationLocationId ? dest.get(l.destinationLocationId)! : to).id, lotId: l.lotId, quantity: qty, kind: "release_in", reason, documentId: doc.id });
+  }
+  await postMovements(tx, moves, { actorId: actor.id, actorName: actor.name, effectiveDate: date });
+  await auditDoc(tx, doc, actor as ServiceActor, "grading_loss_released", `${from.code} → ${to.code}`);
+  return doc;
+}
+
 // ---------------------------------------------------------------------------
 // Adjustment / stock count — with approval above a threshold
 // ---------------------------------------------------------------------------
@@ -406,7 +450,7 @@ export async function createAdjustment(input: Record<string, unknown>, actor: Se
   const key = idempotencyKey(input.idempotency_key);
   const date = businessDate(input.business_date);
   const raw = lines(input);
-  const threshold = D(await getSetting("inventory.adjustment_approval_threshold"));
+  const [threshold, approvalRequired] = await Promise.all([getSetting("inventory.adjustment_approval_threshold").then(D), getSetting("inventory.adjustment_approval_required")]);
 
   const requestHash = requestFingerprint(input);
   const result = await idempotent(key, requestHash, () =>
@@ -436,7 +480,7 @@ export async function createAdjustment(input: Record<string, unknown>, actor: Se
           if (loc?.type === "quarantine") throw new ApiError(400, "مينفعش تعمل تسوية على المخزون المحجوز — استخدم التقرير للإفراج");
         }
       }
-      const needsApproval = requiresAdjustmentApproval(plan, threshold);
+      const needsApproval = requiresAdjustmentApproval(plan, threshold, approvalRequired);
       const doc = await createDoc(
         tx,
         "adjustment",
@@ -617,6 +661,18 @@ export async function createSorting(input: Record<string, unknown>, actor: Servi
       if (gcSort.costBasis === "nrv_fallback_proportional") {
         // Recorded AFTER createDoc so the audit row carries the real document id.
       }
+      // Grading-loss control (CTL-01), as at intake: waste × the raw average cost.
+      const [lossRequired, lossThreshold] = await Promise.all([getSetting("inventory.grading_loss_approval_required"), getSetting("inventory.grading_loss_approval_threshold")]);
+      const sortLoss = wasteKg.times(avgRaw).toDecimalPlaces(2);
+      const holdSort = lossRequired && wasteKg.gt(0) && sortLoss.gt(D(lossThreshold));
+      const quarantine = holdSort ? await tx.storageLocation.findFirst({ where: { warehouseId: wh.id, type: "quarantine", active: true }, orderBy: { code: "asc" } }) : null;
+      if (holdSort && !quarantine) throw new ApiError(409, "الفرز ده عليه خسارة محتاجة موافقة، ومفيش مكان حجر (quarantine) في المخزن — عرّف مكان حجر الأول");
+      const held: { productId: string; lotId: string | null; quantity: string; destinationLocationId: string }[] = [];
+      const holdOr = (productId: string, lotId: string | null, qty: Dec, intended: string) => {
+        if (!quarantine || intended === quarantine.id) return intended;
+        held.push({ productId, lotId, quantity: qty.toFixed(), destinationLocationId: intended });
+        return quarantine.id;
+      };
       const moves: MoveInput[] = [];
 
       // 1. Take the raw stock being sorted out of the intake's own bucket.
@@ -639,7 +695,7 @@ export async function createSorting(input: Record<string, unknown>, actor: Servi
         moves.push({
           productId: intake.productId,
           warehouseId: wh.id,
-          locationId: intake.locationId,
+          locationId: holdOr(intake.productId, intake.lotId, goodKg, intake.locationId),
           lotId: intake.lotId,
           quantity: goodKg,
           kind: "sorting_in",
@@ -672,7 +728,7 @@ export async function createSorting(input: Record<string, unknown>, actor: Servi
         moves.push({
           productId: gradeBProduct ? gradeBProduct.id : intake.productId,
           warehouseId: wh.id,
-          locationId: gradeBProduct ? (await receivingLocation(tx, wh.id)).id : "loc_grade_b",
+          locationId: gradeBProduct ? holdOr(gradeBProduct.id, gradeBLot, gradeBKg, (await receivingLocation(tx, wh.id)).id) : "loc_grade_b",
           lotId: gradeBLot,
           quantity: gradeBKg,
           kind: "sorting_in",
@@ -725,6 +781,17 @@ export async function createSorting(input: Record<string, unknown>, actor: Servi
           entityType: "inventory_document", entityId: doc.id, fieldChanged: "costBasis", oldValue: "nrv",
           newValue: `proportional · ${gcSort.fallbackReason ?? "missing_price"}`, source: "user", deviceId: actor.deviceId, reason: "سعر المخرجات غير متاح — اتروزعت التكلفة بالتناسب",
         }, tx);
+      }
+      if (held.length && quarantine) {
+        await requestApproval(tx, {
+          type: "inventory.grading_loss",
+          entityId: doc.id,
+          title: `اعتماد خسارة فرز · ${intake.receiptNumber} · ${intake.product.name}`,
+          summary: `هالك ${wasteKg.toFixed()} ${intake.product.unit} بقيمة ${sortLoss.toFixed(2)} ج.م — المخرجات محجوزة في ${quarantine.code} لحد الموافقة`,
+          amount: sortLoss,
+          payload: { intakeId: intake.id, quarantineLocationId: quarantine.id, destinationLocationId: held[0].destinationLocationId, lines: held },
+          requester: { id: actor.id, name: actor.name, role: actor.role, deviceId: actor.deviceId },
+        });
       }
       await auditDoc(tx, doc, actor, "inventory_sorting_posted", `فرز ${inputKg.toFixed(3)} كجم → ممتاز ${goodKg.toFixed(3)} · فرزة ${gradeBKg.toFixed(3)} · هالك ${wasteKg.toFixed(3)}`);
       return doc;
@@ -989,6 +1056,11 @@ export async function postOpeningStock(input: Record<string, unknown>, actor: Se
   const key = idempotencyKey(input.idempotency_key);
   // A retried submit returns the stock the first one brought in — never twice the opening stock.
   const requestHash = requestFingerprint(input);
+  // Opening stock goes through an approved opening batch unless direct entry was
+  // explicitly allowed (CTL-01): one person must not bring the books' stock in alone.
+  if (!(await getSetting("accounting.direct_opening_entries"))) {
+    throw new ApiError(409, "المخزون الافتتاحي بيتسجل بدفعة افتتاحية يعتمدها شخص تاني (المحاسبة ← الأرصدة الافتتاحية)", "direct_opening_disabled");
+  }
   const result = await idempotent(key, requestHash, () => inTx(async (tx) => {
     const { assertNoOpeningBatchPosted } = await import("@/lib/accounting/opening-batches");
     await assertNoOpeningBatchPosted(tx);

@@ -11,7 +11,8 @@ import { isValidISODate } from "@/lib/dates";
 import { nextDocumentNumber } from "@/lib/core/sequences";
 import { D, num, parseMoney, parseQty, type Dec } from "@/lib/inventory/decimal";
 import { postMovements, type MoveInput } from "@/lib/inventory/ledger";
-import { resolveLocation, resolveWarehouse } from "@/lib/inventory/context";
+import { receivingLocation, resolveLocation, resolveWarehouse } from "@/lib/inventory/context";
+import { requestApproval } from "@/lib/core/approvals";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { createAdjustment as createAdjustmentDocument } from "@/lib/inventory/documents";
 import { computeGradingCosts, type GradingCostPolicy, type WasteLossPolicy } from "@/lib/inventory/grading";
@@ -448,6 +449,13 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
   if (expiryDate && expiryDate < receivedDate) throw new ApiError(400, "تاريخ الصلاحية قبل تاريخ الاستلام");
 
   const prefix = receiptPrefix(receivedDate);
+  // Grading-loss control (CTL-01): waste is an economic loss of waste × purchase cost.
+  // Above the threshold (0 = any loss; unknown cost counts as above), what survived
+  // sorting is received into quarantine and stays unsellable until someone else
+  // approves the loss.
+  const [lossRequired, lossThreshold] = await Promise.all([getSetting("inventory.grading_loss_approval_required"), getSetting("inventory.grading_loss_approval_threshold")]);
+  const gradingLossValue = unitCost == null ? null : waste.times(unitCost).toDecimalPlaces(2);
+  const holdForLossApproval = lossRequired && waste.gt(0) && (gradingLossValue == null || gradingLossValue.gt(D(lossThreshold)));
 
   // Receipt, lot, ledger entry, valuation and audit are written together or not at
   // all: a receipt without its movement would understate stock, and a movement
@@ -464,6 +472,12 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
     if (poLine) await guardPoReceipt(tx, { lineId: poLine.id, good, tolerancePct });
     const warehouse = await resolveWarehouse(tx, input.warehouse_id ?? poLine?.po.warehouseId);
     const location = await resolveLocation(tx, warehouse.id, input.location_id);
+    let receiveAt = location;
+    if (holdForLossApproval && location.type !== "quarantine") {
+      const q = await tx.storageLocation.findFirst({ where: { warehouseId: warehouse.id, type: "quarantine", active: true }, orderBy: { code: "asc" } });
+      if (!q) throw new ApiError(409, "الاستلام ده عليه خسارة فرز محتاجة موافقة، ومفيش مكان حجر (quarantine) في المخزن — عرّف مكان حجر الأول");
+      receiveAt = q;
+    }
     await advisoryXactLock(tx, `stock-receipt:${prefix}`);
     const receiptNumber = await nextReceiptNumber(tx, prefix);
 
@@ -503,7 +517,7 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
         unitCost,
         crateCount,
         warehouseId: warehouse.id,
-        locationId: location.id,
+        locationId: receiveAt.id,
         lotId: lot?.id ?? null,
         notes: asText(input.notes, "notes")?.trim() || null,
         purchaseOrderLineId: poLine?.id ?? null,
@@ -519,7 +533,7 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
       movements.push({
         productId: product.id,
         warehouseId: warehouse.id,
-        locationId: location.id,
+        locationId: receiveAt.id,
         lotId: lot!.id,
         quantity: good,
         kind: "intake",
@@ -549,7 +563,7 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
       movements.push({
         productId: gradeBProduct?.id ?? product.id,
         warehouseId: warehouse.id,
-        locationId: gradeBProduct ? location.id : "loc_grade_b",
+        locationId: gradeBProduct ? receiveAt.id : "loc_grade_b",
         lotId: gradeBProduct ? gradeBLot!.id : lot!.id,
         quantity: gradeB,
         kind: "intake",
@@ -617,6 +631,22 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
         entityType: "stock_intake", entityId: created.id, fieldChanged: "costBasis", oldValue: "nrv",
         newValue: `proportional · ${fallbackReason}`, source: "user", deviceId: actor.deviceId, reason: "سعر المخرجات غير متاح — اتروزعت التكلفة بالتناسب",
       }, tx);
+    }
+    if (receiveAt.id !== location.id || (holdForLossApproval && location.type === "quarantine")) {
+      const destination = location.type === "quarantine" ? await receivingLocation(tx, warehouse.id) : location;
+      const held: { productId: string; lotId: string | null; quantity: string }[] = [];
+      if (good.gt(0)) held.push({ productId: product.id, lotId: lot!.id, quantity: good.toFixed() });
+      const gradeBMove = movements.find((m) => gradeBProduct && m.productId === gradeBProduct.id);
+      if (gradeBMove) held.push({ productId: gradeBMove.productId, lotId: gradeBMove.lotId ?? null, quantity: D(gradeBMove.quantity).toFixed() });
+      await requestApproval(tx, {
+        type: "inventory.grading_loss",
+        entityId: created.id,
+        title: `اعتماد خسارة فرز · ${created.receiptNumber} · ${product.name}`,
+        summary: `هالك ${waste.toFixed()} ${product.unit}${gradingLossValue ? ` بقيمة ${gradingLossValue.toFixed(2)} ج.م` : " (التكلفة مش معروفة)"} — البضاعة محجوزة في ${receiveAt.code} لحد الموافقة`,
+        amount: gradingLossValue,
+        payload: { quarantineLocationId: receiveAt.id, destinationLocationId: destination.id, lines: held },
+        requester: { id: actor.id, name: actor.name, role: actor.role, deviceId: actor.deviceId },
+      });
     }
     if (poLine) await afterPoReceipt(tx, poLine.poId, actor);
     return { intake: created, replayed: false };

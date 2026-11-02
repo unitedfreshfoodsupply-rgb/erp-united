@@ -33,7 +33,7 @@ import { releaseAllForSource } from "@/lib/inventory/reservations";
 import { resolveCustomer } from "@/lib/sales/customers";
 import { applyListPrices } from "@/lib/sales/pricing";
 import { evaluateOrderCredit } from "@/lib/sales/credit";
-import { syncOrderReservations } from "@/lib/sales/fulfilment";
+import { assertQuantityFitsUnit, commitOrderStock } from "@/lib/sales/stock-commitment";
 import { releaseOrderInvoiceForReopen } from "@/lib/sales/invoicing";
 
 function assertValidQuantity(quantity: unknown, label: string): asserts quantity is number {
@@ -203,8 +203,9 @@ export async function createOrder(
   }
 
   const validatedItems = await validateProducts(input.items);
+  for (const [idx, i] of validatedItems.entries()) await assertQuantityFitsUnit(prisma, i.unit, i.quantity, `الصنف رقم ${idx + 1} (${i.productName})`);
   // Sales policies, read before the transaction opens.
-  const [creditMode, autoReserve] = await Promise.all([getSetting("sales.credit_check_mode"), getSetting("sales.auto_reserve")]);
+  const creditMode = await getSetting("sales.credit_check_mode");
   // Exact customer resolution (explicit account → integration id → name/alias);
   // an unknown customer never blocks the order — it is mapped later by a person.
   const customer = await resolveCustomer(prisma, {
@@ -288,10 +289,11 @@ export async function createOrder(
         // Priced in the same transaction: an order is never visible half-priced.
         await applyListPrices(tx, created.id, actor);
         if (opts.afterCreate) await opts.afterCreate(tx, created);
-        // Credit is judged on the priced order (quotation prices included); the
-        // reservation holds stock for it from the moment it exists.
+        // Every line is reserved in full or the order is not created (WF-01): a confirmed
+        // order never promises stock that is not sellable now.
+        await commitOrderStock(tx, created.id, stockActor(actor));
+        // Credit is judged on the priced order (quotation prices included).
         await evaluateOrderCredit(tx, created.id, creditMode, actor);
-        if (autoReserve) await syncOrderReservations(tx, created.id, stockActor(actor));
         // Re-read: the steps above set fields (credit status) on the row created above.
         return tx.order.findUniqueOrThrow({ where: { id: created.id }, include: ORDER_INCLUDE });
       }, {
@@ -413,6 +415,8 @@ export async function moveOrderStatus(
   } = {}
 ) {
   if (!ORDER_STATUSES.includes(to)) throw new ApiError(400, "حالة غير معروفة");
+  // Cancelling releases the order's reservations and is reasoned: it has its own path.
+  if (to === "cancelled") throw new ApiError(400, "الإلغاء من زرار إلغاء الأوردر (بسبب) — مش من تغيير الحالة");
 
   const order = await getOrder(orderId);
   // An order on a trip leaves with its trip — vehicle, driver and crates come from it.
@@ -492,7 +496,7 @@ export async function moveOrderStatus(
   // Credit control gates the first step of work (leaving "new"). The evaluation is
   // committed on its own — a refused move must still leave its approval request
   // behind for finance — and only then may the move proceed.
-  if (order.status === "new" && to !== "cancelled") {
+  if (order.status === "new") {
     const creditMode = await getSetting("sales.credit_check_mode");
     if (creditMode !== "off") {
       const credit = await inTx((tx) => evaluateOrderCredit(tx, orderId, creditMode, actor));
@@ -501,9 +505,6 @@ export async function moveOrderStatus(
     }
   }
 
-  // Read before the transaction opens (see shortageTolerance below).
-  const touchesStock = to === "dispatched" || order.status === "dispatched";
-  const dispatchPolicy = touchesStock ? await getSetting("inventory.dispatch_issue_policy") : "lenient";
 
   return inTx(async (tx) => {
     const updated = await casOrderUpdate(orderId, order.version, (where) =>
@@ -560,14 +561,15 @@ export async function moveOrderStatus(
     );
 
     // The truck leaving is the stock leaving: same transaction, so an order can never
-    // be dispatched without its issue (or an exception explaining what was not), and a
-    // strict-policy refusal rolls the status change back. Taking an order back out of
-    // "dispatched" reverses that issue.
+    // be dispatched without its full issue — any shortfall refuses the dispatch and
+    // rolls the status change back (WF-01). Taking an order back out of "dispatched"
+    // reverses that issue and holds the stock for the order again.
     if (to === "dispatched") {
-      await issueForDispatch(tx, orderId, dispatchPolicy, stockActor(actor));
+      await issueForDispatch(tx, orderId, stockActor(actor));
     } else if (order.status === "dispatched") {
       await releaseOrderInvoiceForReopen(tx, orderId, asText(opts.reason, "reason")?.trim() || "تعديل حالة", stockActor(actor));
       await reverseDispatchIssue(tx, orderId, asText(opts.reason, "reason")?.trim() || "تعديل حالة", stockActor(actor));
+      await commitOrderStock(tx, orderId, stockActor(actor));
     }
 
     return updated;
@@ -950,8 +952,9 @@ export async function editRequiredQuantity(
   if (!item || item.orderId !== orderId) throw new ApiError(404, "الصنف مش موجود");
   assertVersion(item.version, expectedVersion, "الصنف");
 
+  await assertQuantityFitsUnit(prisma, item.unit, quantity, `"${item.productName}"`);
+
   const thresholdPct = await shortageTolerance();
-  const autoReserve = await getSetting("sales.auto_reserve");
   return inTx(async (tx) => {
     const updated = await casItemUpdate(itemId, item.version, (where) =>
       tx.orderItem.update({
@@ -959,7 +962,8 @@ export async function editRequiredQuantity(
         data: { requiredQuantity: quantity, version: { increment: 1 } },
       })
     );
-    if (autoReserve) await syncOrderReservations(tx, orderId, stockActor(actor));
+    // A larger quantity must be reservable now, or the edit is refused (WF-01).
+    await commitOrderStock(tx, orderId, stockActor(actor));
 
     await writeAudit({
       userId: actor.id,
@@ -1146,7 +1150,6 @@ export async function reopenOrder(
   // Status, line resets, flags and the audit row are one change: a reopened order
   // whose lines were not reset would be stuck with nothing left to tap.
   const thresholdPct = await shortageTolerance();
-  const autoReserve = await getSetting("sales.auto_reserve");
   await inTx(async (tx) => {
     await casOrderUpdate(orderId, order.version, (where) =>
       tx.order.update({
@@ -1193,9 +1196,10 @@ export async function reopenOrder(
       // issued invoice needs a credit note first.
       await releaseOrderInvoiceForReopen(tx, orderId, reason, stockActor(actor));
       await reverseDispatchIssue(tx, orderId, reason, stockActor(actor));
-      // The stock is back on the shelf and the order is live again: hold it again.
-      if (autoReserve) await syncOrderReservations(tx, orderId, stockActor(actor));
     }
+    // The order is live again (from cancelled or dispatched): it must hold its stock
+    // in full, or it cannot be reopened (WF-01).
+    await commitOrderStock(tx, orderId, stockActor(actor));
 
     await recomputeOrderFlags(tx, orderId, thresholdPct, actor);
   });

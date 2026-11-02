@@ -224,6 +224,12 @@ export async function validateBatch(id: string, db: Tx | typeof prisma = prisma)
   const period = await db.accountingPeriod.findUnique({ where: { code: b.cutoverDate.slice(0, 7) }, select: { status: true } });
   if (period?.status === "closed") problems.push({ code: "period_closed", params: { period: b.cutoverDate.slice(0, 7) } });
   if (b.kind === "initial" && (await initialPosted(db))) problems.push({ code: "initial_posted" });
+  // Opening stock already posted directly (before batches existed) must not be posted
+  // again through the batch: the same stock and equity would count twice.
+  if (b.lines.some((l) => l.kind === "stock")) {
+    const directStock = await db.inventoryDocument.count({ where: { type: "adjustment", sourceType: "opening_balance", status: "posted", reversalOfId: null } });
+    if (directStock) problems.push({ code: "direct_opening_stock_exists", params: { n: String(directStock) } });
+  }
   const warnings: { code: string; params?: Record<string, string> }[] = [];
   const direct = await db.partyOpeningBalance.count();
   if (b.kind === "initial" && direct) warnings.push({ code: "direct_openings_exist", params: { n: String(direct) } });

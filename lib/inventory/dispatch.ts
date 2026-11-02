@@ -5,6 +5,8 @@ import { ApiError } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
 import { assertPermission } from "@/lib/authz-core";
 import { inTx, type Tx } from "@/lib/tx";
+import { advisoryXactLock } from "@/lib/dbLock";
+import { requestApproval } from "@/lib/core/approvals";
 import { notify } from "@/lib/core/notifications";
 import type { ServiceActor } from "@/lib/core/actor";
 import { D, ZERO, type Dec } from "@/lib/inventory/decimal";
@@ -23,20 +25,21 @@ import { reverseDocumentInTx } from "@/lib/inventory/documents";
  * The quantity issued per line is what was physically confirmed last — loaded, else
  * prepared, else required.
  *
- * A line the ledger cannot issue in full does not silently vanish:
- *   - the line names no known product (unmapped),
- *   - its unit has no conversion to the product's base unit (unit_mismatch),
- *   - the books hold less than what left (insufficient),
- * each becomes a StockIssueException for a stock controller to explain. Under the
- * "lenient" policy (default) dispatch proceeds — the goods are on the truck and the
- * books must not refuse reality — and what WAS on the books is issued. Under "strict",
- * a tracked product without enough stock blocks the dispatch instead. Products that
- * are not stock-tracked (services, packaging) are not issued and not exceptions.
+ * Every line must be issued in full, or the order does not leave (remediation
+ * 2026-11, WF-01). A line that names no catalog product (unmapped), whose unit does
+ * not convert to the product's base unit (unit_mismatch), or for which the books hold
+ * less than what is on the truck (insufficient) refuses the dispatch with every
+ * shortfall listed. Confirmed orders already hold their stock (see
+ * lib/sales/stock-commitment.ts), so this is the last line of defence, not a normal
+ * path. Products that are not stock-tracked (services, packaging) are not issued.
  *
- * Stock never goes negative either way: the ledger's bucket constraint holds.
+ * StockIssueException rows exist only for dispatches made under the retired lenient
+ * policy; resolveIssueException() reconciles them (late issue with COGS, or an
+ * approved no-movement closure). No new exception is ever raised here.
+ *
+ * Stock never goes negative: the ledger's bucket constraint holds.
  */
 
-export type DispatchPolicy = "lenient" | "strict";
 
 type PlannedLine = { itemId: string; productId: string; productName: string; unit: string; requested: Dec; issue: Dec };
 type Shortfall = { itemId: string; productId: string | null; productName: string; unit: string; requested: Dec; issued: Dec; reason: "unmapped" | "unit_mismatch" | "insufficient" };
@@ -52,7 +55,7 @@ function lineQuantity(i: { loadedQuantity: number | null; preparedQuantity: numb
   return D(raw).toDecimalPlaces(3);
 }
 
-export async function issueForDispatch(tx: Tx, orderId: string, policy: DispatchPolicy, actor: ServiceActor) {
+export async function issueForDispatch(tx: Tx, orderId: string, actor: ServiceActor) {
   // One live issue per dispatch. A reopened order had its issue reversed, so a
   // re-dispatch issues afresh; a second call for the same dispatch is a no-op.
   // (A reversal is itself a posted "issue" document for the same order; it is not
@@ -115,14 +118,18 @@ export async function issueForDispatch(tx: Tx, orderId: string, policy: Dispatch
     issuable.set(line.productId, left.minus(line.issue));
   }
 
-  if (policy === "strict") {
-    const blocking = shortfalls.filter((s) => s.reason === "insufficient");
-    if (blocking.length) {
-      throw new ApiError(
-        409,
-        `الرصيد مش كفاية لخروج الأوردر: ${blocking.map((s) => `${s.productName} (موجود ${s.issued.toFixed()} من ${s.requested.toFixed()} ${s.unit})`).join("، ")}`
-      );
-    }
+  // Strict, always (remediation 2026-11, WF-01): goods the books cannot issue do not
+  // leave. An unmapped line, a unit that does not convert, or a balance below what is
+  // on the truck refuses the dispatch — the status change rolls back with it.
+  if (shortfalls.length) {
+    throw new ApiError(
+      409,
+      `مينفعش خروج الأوردر — ${shortfalls
+        .map((s) => (s.reason === "insufficient" ? `${s.productName} (موجود ${s.issued.toFixed()} من ${s.requested.toFixed()} ${s.unit})` : `${s.productName}: ${REASON_LABEL[s.reason]}`))
+        .join("، ")}`,
+      "dispatch_stock_shortfall",
+      { shortfalls: shortfalls.map((s) => ({ itemId: s.itemId, productId: s.productId, productName: s.productName, unit: s.unit, requested: s.requested.toFixed(), available: s.issued.toFixed(), reason: s.reason })) }
+    );
   }
 
   const toIssue = planned.filter((l) => l.issue.gt(0));
@@ -144,70 +151,6 @@ export async function issueForDispatch(tx: Tx, orderId: string, policy: Dispatch
   await releaseAllForSource(tx, "order", orderId, "الأوردر خرج", actor);
 
   const exceptions: StockIssueException[] = [];
-  for (const s of shortfalls) {
-    // F-17: if the same shortfall for this order item was already resolved (e.g.
-    // during preparation), skip creating a duplicate exception at loading stage.
-    const alreadyResolved = await tx.stockIssueException.findFirst({
-      where: { orderItemId: s.itemId, status: "resolved", requestedQty: s.requested, issuedQty: s.issued },
-    });
-    if (alreadyResolved) {
-      await writeAudit({
-        userId: actor.id, userName: actor.name, role: actor.role,
-        action: "stock_issue_exception_skipped", entityType: "stock_issue_exception", entityId: alreadyResolved.id,
-        orderId, fieldChanged: s.reason,
-        oldValue: alreadyResolved.id,
-        newValue: `تم تجاوز استثناء مكرر — ${s.productName}: نقص ${s.requested.toFixed()} ${s.unit} (تم تسجيله قبل كده)`,
-        source: "system", deviceId: actor.deviceId,
-      }, tx);
-      continue;
-    }
-    const ex = await tx.stockIssueException.create({
-      data: {
-        orderId,
-        orderItemId: s.itemId,
-        documentId: issued?.document.id ?? null,
-        productId: s.productId,
-        productName: s.productName,
-        unit: s.unit,
-        requestedQty: s.requested,
-        issuedQty: s.issued,
-        reason: s.reason,
-      },
-    });
-    exceptions.push(ex);
-    await writeAudit(
-      {
-        userId: actor.id,
-        userName: actor.name,
-        role: actor.role,
-        action: "stock_issue_exception_raised",
-        entityType: "stock_issue_exception",
-        entityId: ex.id,
-        orderId,
-        fieldChanged: s.reason,
-        newValue: `${s.productName}: خرج ${s.requested.toFixed()} ${s.unit}، اتصرف من الدفاتر ${s.issued.toFixed()}`,
-        source: "system",
-        deviceId: actor.deviceId,
-      },
-      tx
-    );
-  }
-  if (exceptions.length) {
-    await notify(
-      tx,
-      { permission: "stock.adjust" },
-      {
-        type: "stock.issue_exception",
-        severity: "warning",
-        title: `أوردر ${order.orderNumber ?? ""} خرج و${exceptions.length === 1 ? "سطر" : `${exceptions.length} سطور`} مااتصرفوش بالكامل من المخزون`,
-        body: shortfalls.map((s) => `${s.productName}: ${REASON_LABEL[s.reason]}`).join(" · "),
-        entityType: "order",
-        entityId: orderId,
-        link: "/stock/inventory?tab=exceptions",
-        dedupeKey: `issue-exception:${orderId}:${issued?.document.id ?? "none"}`,
-      }
-    );
-  }
   return { document: issued?.document ?? null, exceptions };
 }
 
@@ -253,41 +196,112 @@ export async function listIssueExceptions(filters: { status?: string; orderId?: 
   });
 }
 
-/** A stock controller explains a shortfall (late intake recorded, count corrected, …). */
+/**
+ * Reconciles a stock-issue exception left by the retired lenient dispatch policy.
+ * A note alone never closes one (remediation 2026-11, WF-01):
+ *   - "issue_now": the goods did leave; the missing quantity is issued now against the
+ *     order (FEFO, at cost — the issue posts its COGS). Needs the stock on the books.
+ *   - "close_no_movement": nothing physically left, or the sale was fully reversed. Only
+ *     allowed when no revenue stands on the order without cost (every invoice void or
+ *     fully credited), and only through an approval decided by someone else.
+ */
 export async function resolveIssueException(id: string, input: Record<string, unknown>, actor: ServiceActor) {
   assertPermission(actor, "stock.adjust");
   const resolution = typeof input.resolution === "string" ? input.resolution.trim() : "";
-  if (!resolution) throw new ApiError(400, "اكتب إزاي اتحل الاستثناء ده");
+  if (resolution.length < 3) throw new ApiError(400, "اكتب إزاي اتحل الاستثناء ده");
+  const action = input.action;
+  if (action !== "issue_now" && action !== "close_no_movement") {
+    throw new ApiError(400, "اختار طريقة التسوية: صرف الكمية دلوقتي، أو قفل بدون حركة مخزون (بموافقة)");
+  }
   return inTx(async (tx) => {
+    await advisoryXactLock(tx, `stock-issue-exception:${id}`);
     const ex = await tx.stockIssueException.findUnique({ where: { id } });
     if (!ex) throw new ApiError(404, "الاستثناء مش موجود");
     if (ex.status !== "open") throw new ApiError(409, "الاستثناء ده مقفول بالفعل");
     if (input.expected_version !== undefined && input.expected_version !== ex.version) throw new ApiError(409, "الاستثناء اتغيّر، حدّث الشاشة");
-    let updated: StockIssueException;
-    try {
-      updated = await tx.stockIssueException.update({
-        where: { id, version: ex.version, status: "open" },
-        data: { status: "resolved", resolution, resolvedById: actor.id, resolvedBy: actor.name, resolvedAt: new Date(), version: { increment: 1 } },
-      });
-    } catch (err) {
-      if ((err as { code?: string })?.code === "P2025") throw new ApiError(409, "الاستثناء اتغيّر، حدّث الشاشة");
-      throw err;
+    const order = await tx.order.findUniqueOrThrow({ where: { id: ex.orderId } });
+
+    if (action === "issue_now") {
+      // Unmapped / unit-mismatch lines name the catalog product and base quantity now.
+      const productId = ex.reason === "insufficient" ? ex.productId : typeof input.product_id === "string" ? input.product_id : null;
+      if (!productId) throw new ApiError(400, "حدد الصنف من دليل الأصناف");
+      const qty = ex.reason === "insufficient" ? D(ex.requestedQty).minus(D(ex.issuedQty)) : D(typeof input.quantity === "number" || typeof input.quantity === "string" ? input.quantity : NaN);
+      if (!qty.isFinite() || !qty.gt(0)) throw new ApiError(400, "الكمية اللي هتتصرف لازم تكون أكبر من صفر (بوحدة المخزون)");
+      const product = await tx.stockProduct.findUnique({ where: { id: productId } });
+      if (!product || !product.stockTracked) throw new ApiError(400, "الصنف مش موجود أو مش متتبع مخزونه");
+      const warehouse = await resolveWarehouse(tx, undefined);
+      await lockAvailability(tx, product.id, warehouse.id);
+      const { available } = await productAvailability(tx, product.id, warehouse.id);
+      if (available.lessThan(qty)) throw new ApiError(409, `المتاح من "${product.nameAr ?? product.name}" ${available.gt(0) ? available.toFixed() : "0"} ${product.unit} — سجّل الاستلام الأول`);
+      const issued = await issueStock(
+        tx,
+        { warehouseId: warehouse.id, sourceType: "order", sourceId: ex.orderId, reference: `تسوية استثناء صرف · أوردر ${order.orderNumber ?? order.id}`, lines: [{ productId: product.id, quantity: qty, sourceLineId: ex.orderItemId }] },
+        actor
+      );
+      const updated = await closeException(tx, ex, { resolution, kind: "late_issue", documentId: issued.document.id }, actor);
+      return { exception: updated, document: issued.document };
     }
-    await writeAudit(
-      {
-        userId: actor.id,
-        userName: actor.name,
-        role: actor.role,
-        action: "stock_issue_exception_resolved",
-        entityType: "stock_issue_exception",
-        entityId: id,
-        orderId: ex.orderId,
-        newValue: resolution,
-        source: "user",
-        deviceId: actor.deviceId,
-      },
-      tx
-    );
-    return updated;
+
+    // close_no_movement: no revenue may stand on the order without its cost.
+    const invoices = await tx.salesInvoice.findMany({ where: { orderId: ex.orderId, status: "issued" }, include: { creditNotes: true } });
+    const standing = invoices.filter((inv) => inv.creditNotes.reduce((a: Dec, c: { total: Prisma.Decimal }) => a.plus(c.total), D(0)).lessThan(inv.total));
+    if (standing.length) {
+      throw new ApiError(409, `الأوردر عليه فاتورة قائمة (${standing.map((i) => i.number).join("، ")}) — يا إما تصرف الكمية، يا إما تعمل إشعار دائن الأول`);
+    }
+    const draft = await tx.salesInvoice.findFirst({ where: { orderId: ex.orderId, status: "draft" } });
+    if (draft) throw new ApiError(409, "الأوردر عليه فاتورة مسودة — ألغيها الأول");
+    const { request, created } = await requestApproval(tx, {
+      type: "stock.issue_exception_close",
+      entityId: ex.id,
+      title: `قفل استثناء صرف بدون حركة مخزون · ${ex.productName}`,
+      summary: `أوردر ${order.orderNumber ?? order.id}: خرج ${D(ex.requestedQty).toFixed()} ${ex.unit} واتصرف ${D(ex.issuedQty).toFixed()}`,
+      reason: resolution,
+      payload: { resolution },
+      requester: { id: actor.id, name: actor.name, role: actor.role, deviceId: actor.deviceId },
+    });
+    return { exception: ex, approval: request, pending: true, created };
   });
+}
+
+async function closeException(
+  tx: Tx,
+  ex: StockIssueException,
+  r: { resolution: string; kind: "late_issue" | "no_movement"; documentId?: string },
+  actor: { id: string | null; name: string; role: string; deviceId?: string }
+) {
+  let updated: StockIssueException;
+  try {
+    updated = await tx.stockIssueException.update({
+      where: { id: ex.id, version: ex.version, status: "open" },
+      data: { status: "resolved", resolution: r.resolution, resolutionKind: r.kind, resolutionDocumentId: r.documentId ?? null, resolvedById: actor.id, resolvedBy: actor.name, resolvedAt: new Date(), version: { increment: 1 } },
+    });
+  } catch (err) {
+    if ((err as { code?: string })?.code === "P2025") throw new ApiError(409, "الاستثناء اتغيّر، حدّث الشاشة");
+    throw err;
+  }
+  await writeAudit(
+    {
+      userId: actor.id,
+      userName: actor.name,
+      role: actor.role,
+      action: "stock_issue_exception_resolved",
+      entityType: "stock_issue_exception",
+      entityId: ex.id,
+      orderId: ex.orderId,
+      fieldChanged: r.kind,
+      newValue: r.resolution,
+      source: "user",
+      deviceId: actor.deviceId,
+    },
+    tx
+  );
+  return updated;
+}
+
+/** Approval handler: the no-movement closure was approved by someone else. */
+export async function applyIssueExceptionClose(tx: Tx, exceptionId: string, decider: { id: string | null; name: string; role: string; deviceId?: string }, payload: unknown) {
+  const ex = await tx.stockIssueException.findUnique({ where: { id: exceptionId } });
+  if (!ex || ex.status !== "open") return null;
+  const resolution = (payload as { resolution?: string } | null)?.resolution ?? "قفل بدون حركة مخزون";
+  return closeException(tx, ex, { resolution, kind: "no_movement" }, decider);
 }

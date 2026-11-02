@@ -4,6 +4,8 @@ import { ApiError } from "@/lib/rbac";
 import { inTx, type Tx } from "@/lib/tx";
 import { getSetting } from "@/lib/core/settings-service";
 import { recordDecision, type ApprovalType, type Decider } from "@/lib/core/approvals";
+import { applyIssueExceptionClose } from "@/lib/inventory/dispatch";
+import { releaseGradingHoldInTx } from "@/lib/inventory/documents";
 import type { ServiceActor } from "@/lib/core/actor";
 import type { Role } from "@/lib/types";
 import { applyShortageApproval } from "@/lib/orders-service";
@@ -44,6 +46,16 @@ const HANDLERS: Record<ApprovalType, Handler> = {
       applyShortageApproval(tx, req.entityId, { ...decider, source: "user" }, comment ?? "اعتماد من صندوق الموافقات"),
     // A rejected shortage stays blocked: the preparer corrects the quantities, and a
     // fresh request is raised automatically if the variance is still over tolerance.
+  },
+  "inventory.grading_loss": {
+    // Approved by someone else: the held stock leaves quarantine for its intended place.
+    // Rejected: it stays held; the receiving team corrects or voids the intake.
+    onApproved: (tx, req, decider) => releaseGradingHoldInTx(tx, req.entityId, req.payload as Parameters<typeof releaseGradingHoldInTx>[2], decider),
+  },
+  "stock.issue_exception_close": {
+    // Approved by someone other than the requester (engine rule): the exception closes
+    // with no stock movement. Rejected: it stays open for an issue or a credit note.
+    onApproved: (tx, req, decider) => applyIssueExceptionClose(tx, req.entityId, decider, req.payload).then(() => undefined),
   },
   "inventory.adjustment": {
     // The adjustment posts at the moment of approval, against the balances of that

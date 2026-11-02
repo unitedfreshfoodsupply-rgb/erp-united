@@ -65,6 +65,10 @@ export async function createInvoiceFromOrder(orderId: string, actor: ServiceActo
     if (!order.customerAccountId) throw new ApiError(409, "اربط الأوردر بحساب عميل الأول — الفاتورة لازم تكون لعميل معروف");
     const existing = await tx.salesInvoice.findFirst({ where: { orderId, status: { not: "void" } } });
     if (existing) return { invoice: existing, created: false };
+    // Revenue never stands without its cost (WF-01): an order whose dispatch left a
+    // stock-issue shortfall is invoiced only after that shortfall is reconciled.
+    const openIssue = await tx.stockIssueException.count({ where: { orderId, status: "open" } });
+    if (openIssue) throw new ApiError(409, "الأوردر عليه استثناء صرف مخزون مفتوح — سوّيه الأول (صرف الكمية أو قفل معتمد) قبل الفاتورة");
     // On a trip, the customer pays for what was delivered — so the delivery result
     // must be in first. (Orders dispatched without a trip keep the loaded quantity.)
     const stop = await tx.tripStop.findFirst({ where: { orderId, active: true }, include: { lines: true } });
@@ -204,7 +208,7 @@ export async function issueInvoice(id: string, input: unknown, actor: ServiceAct
   if (issueDate > today) throw new ApiError(400, "مينفعش تاريخ الفاتورة يكون في المستقبل");
   return inTx(async (tx) => {
     await advisoryXactLock(tx, `sales:invoice:${id}`);
-    const inv = await tx.salesInvoice.findUnique({ where: { id }, include: { customer: true } });
+    const inv = await tx.salesInvoice.findUnique({ where: { id }, include: { customer: { include: { legalEntity: true } } } });
     if (!inv) throw new ApiError(404, "الفاتورة مش موجودة");
     if (inv.status !== "draft") throw new ApiError(409, inv.status === "issued" ? "الفاتورة صدرت بالفعل" : "الفاتورة ملغية");
     if (v.expected_version !== undefined && v.expected_version !== inv.version) throw new ApiError(409, "الفاتورة اتغيرت، حدّث الشاشة");
@@ -235,20 +239,23 @@ export async function issueInvoice(id: string, input: unknown, actor: ServiceAct
       throw new ApiError(409, `أسعار سطور \"${stale.join('، ')}\" اتغيرت — حدث الأسعار (إعادة تسعير) قبل الإصدار`);
     }
 
-    const c = inv.customer;
-    // The invoice buyer identity is the hotel's OWN legal name and tax registration
-    // number stored on its card. (Legal-name and tax may repeat across cards; the
-    // snapshot freezes exactly what is on this card at issue time.)
-    const buyerName = c.legalNameAr ?? c.legalName ?? c.nameAr ?? c.name;
-    const buyerTaxId = c.taxRegistrationNo;
-    const address = [c.address, c.area, c.city].filter(Boolean).join("، ") || null;
+    if (inv.orderId && (await tx.stockIssueException.count({ where: { orderId: inv.orderId, status: "open" } }))) {
+      throw new ApiError(409, "الأوردر عليه استثناء صرف مخزون مفتوح — سوّيه الأول قبل إصدار الفاتورة");
+    }
+    // Buyer identity (MIG-01): the card's own legal identity first, else its billing
+    // legal entity; a buyer with no 9-digit tax number can be invoiced only when the
+    // legal entity says it is a person (P) or foreign (F) with an id. The snapshot
+    // freezes the identity used at issue time.
+    const buyer = resolveBuyerIdentity(inv.customer);
+    if (!buyer.ok) throw new ApiError(409, buyer.error, "buyer_tax_id_missing");
+    const { buyerName, buyerTaxId, address } = buyer;
     const updated = await tx.salesInvoice.update({
       where: { id, version: inv.version, status: "draft" },
       data: {
         status: "issued",
         number: await nextDocumentNumber(tx, "sales.invoice", issueDate),
         issueDate,
-        dueDate: addDays(issueDate, c.paymentTermsDays),
+        dueDate: addDays(issueDate, inv.customer.paymentTermsDays),
         buyerName,
         buyerTaxId,
         buyerAddress: address,
@@ -718,5 +725,37 @@ export async function agingReport(asOf = todayLocalISO()) {
     asOf,
     rows: rows.map((r) => ({ customer: r.customer, unapplied: (unapplied.get(r.customer.id) ?? D(0)).toFixed(2), total: r.total.toFixed(2), current: r.current.toFixed(2), d1_30: r.d1_30.toFixed(2), d31_60: r.d31_60.toFixed(2), d61_90: r.d61_90.toFixed(2), d90_plus: r.d90_plus.toFixed(2) })),
     totals: { total: sum("total"), current: sum("current"), d1_30: sum("d1_30"), d31_60: sum("d31_60"), d61_90: sum("d61_90"), d90_plus: sum("d90_plus") },
+  };
+}
+
+type BuyerCard = {
+  name: string; nameAr: string | null; legalName: string | null; legalNameAr: string | null; taxRegistrationNo: string | null;
+  address: string | null; area: string | null; city: string | null;
+  legalEntity: { name: string; nameAr: string | null; taxRegistrationNo: string | null; address: string | null; area: string | null; city: string | null; receiverType: string | null; receiverId: string | null; active: boolean } | null;
+};
+
+/**
+ * Who the invoice is legally addressed to. Card values win where present (a hotel
+ * may carry its own registration); the linked legal entity supplies what the card
+ * lacks. Returns an error, never a guess, when a business buyer has no tax number.
+ */
+export function resolveBuyerIdentity(c: BuyerCard):
+  | { ok: true; buyerName: string; buyerTaxId: string | null; address: string | null; source: "card" | "legal_entity" | "person" }
+  | { ok: false; error: string } {
+  const le = c.legalEntity && c.legalEntity.active ? c.legalEntity : null;
+  const valid = (t: string | null | undefined) => (t && /^\d{9}$/.test(t) ? t : null);
+  const cardTax = valid(c.taxRegistrationNo);
+  const leTax = valid(le?.taxRegistrationNo);
+  const taxId = cardTax ?? leTax;
+  const name = (cardTax ? c.legalNameAr ?? c.legalName : null) ?? (leTax ? le?.nameAr ?? le?.name : null) ?? c.legalNameAr ?? c.legalName ?? le?.nameAr ?? le?.name ?? c.nameAr ?? c.name;
+  const fromCard = [c.address, c.area, c.city].filter(Boolean).join("، ");
+  const fromLe = le ? [le.address, le.area, le.city].filter(Boolean).join("، ") : "";
+  const address = (cardTax ? fromCard || fromLe : leTax ? fromLe || fromCard : fromCard || fromLe) || null;
+  if (taxId) return { ok: true, buyerName: name, buyerTaxId: taxId, address, source: cardTax ? "card" : "legal_entity" };
+  const t = le?.receiverType?.toUpperCase();
+  if ((t === "P" || t === "F") && le?.receiverId?.trim()) return { ok: true, buyerName: name, buyerTaxId: null, address, source: "person" };
+  return {
+    ok: false,
+    error: `مينفعش إصدار الفاتورة: العميل "${c.nameAr ?? c.name}" مالوش رقم تسجيل ضريبي (9 أرقام) لا على كارته ولا على الكيان القانوني المربوط بيه — ضيف الرقم، أو عرّف الكيان كشخص طبيعي/أجنبي برقم هويته`,
   };
 }

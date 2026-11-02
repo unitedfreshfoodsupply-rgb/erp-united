@@ -960,12 +960,13 @@ model InventoryDocument {
   createdAt      DateTime  @default(now())
   postedAt       DateTime?
 
-  warehouse       Warehouse             @relation(fields: [warehouseId], references: [id])
-  supplier        Supplier?             @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  reversalOf      InventoryDocument?    @relation("Reversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
-  reversedBy      InventoryDocument?    @relation("Reversal")
-  movements       StockMovement[]
-  issueExceptions StockIssueException[]
+  warehouse               Warehouse             @relation(fields: [warehouseId], references: [id])
+  supplier                Supplier?             @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  reversalOf              InventoryDocument?    @relation("Reversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy              InventoryDocument?    @relation("Reversal")
+  movements               StockMovement[]
+  issueExceptions         StockIssueException[] @relation("ExceptionDocument")
+  resolvedIssueExceptions StockIssueException[] @relation("ExceptionResolutionDocument")
 
   @@index([type, status])
   @@index([sourceType, sourceId])
@@ -1026,29 +1027,33 @@ model StockValuationLayer {
 /// books. Dispatch is never blocked by these (unless the policy says strict) — the
 /// truck has left — but each one is a discrepancy a stock controller must explain.
 model StockIssueException {
-  id           String    @id @default(cuid())
-  orderId      String
-  orderItemId  String
+  id                   String    @id @default(cuid())
+  orderId              String
+  orderItemId          String
   /// The issue document the shortfall belongs to (null when nothing at all was issued).
-  documentId   String?
-  productId    String?
-  productName  String
-  unit         String
-  requestedQty Decimal   @db.Decimal(18, 3)
-  issuedQty    Decimal   @db.Decimal(18, 3)
+  documentId           String?
+  productId            String?
+  productName          String
+  unit                 String
+  requestedQty         Decimal   @db.Decimal(18, 3)
+  issuedQty            Decimal   @db.Decimal(18, 3)
   /// unmapped | unit_mismatch | insufficient
-  reason       String
+  reason               String
   /// open | resolved | voided (the dispatch was reopened and its issue reversed)
-  status       String    @default("open")
-  resolution   String?
-  resolvedById String?
-  resolvedBy   String?
-  resolvedAt   DateTime?
-  version      Int       @default(1)
-  createdAt    DateTime  @default(now())
+  status               String    @default("open")
+  resolution           String?
+  resolvedById         String?
+  resolvedBy           String?
+  resolvedAt           DateTime?
+  /// late_issue (goods issued afterwards, COGS posted) | no_movement (approved: nothing left) | legacy_note
+  resolutionKind       String?
+  resolutionDocumentId String?
+  version              Int       @default(1)
+  createdAt            DateTime  @default(now())
 
-  order    Order              @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  document InventoryDocument? @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  order              Order              @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  document           InventoryDocument? @relation("ExceptionDocument", fields: [documentId], references: [id], onDelete: Restrict)
+  resolutionDocument InventoryDocument? @relation("ExceptionResolutionDocument", fields: [resolutionDocumentId], references: [id], onDelete: Restrict)
 
   @@index([status, createdAt])
   @@index([orderId])

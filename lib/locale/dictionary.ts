@@ -3435,6 +3435,7 @@ const finance = {
   "opening.problem.unbalanced": { ar: "ميزان الافتتاح مش متوازن — الفرق {difference} (حدد رأس المال والأرباح المحتجزة)", en: "The opening trial balance does not balance — difference {difference} (state capital and retained earnings)" },
   "opening.problem.period_closed": { ar: "الفترة {period} مقفولة", en: "Period {period} is closed" },
   "opening.problem.initial_posted": { ar: "الأرصدة الافتتاحية اترحّلت بالفعل", en: "Opening balances are already posted" },
+  "opening.problem.direct_opening_stock_exists": { ar: "رصيد المخزون الافتتاحي اترحّل مباشرة قبل كده ({n} مستند) — شيل سطور المخزون من الدفعة علشان مايتحسبش مرتين", en: "Opening stock was already posted directly ({n} document(s)) — remove the stock lines from this batch so it is not counted twice" },
   "opening.warning.direct_openings_exist": { ar: "تنبيه: فيه {n} رصيد افتتاحي اتسجل مباشرة قبل كده — راجع إنه مش متكرر في الدفعة", en: "Note: {n} opening balances were recorded directly before — make sure the batch does not repeat them" },
   "opening.line-n": { ar: "سطر {n}", en: "Line {n}" },
   "opening.submit": { ar: "ابعت للاعتماد", en: "Send for approval" },

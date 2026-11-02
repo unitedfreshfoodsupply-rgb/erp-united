@@ -7,10 +7,13 @@ export class ApiError extends Error {
   status: number;
   /** Optional error code for known message patterns that need bilingual support. */
   code?: string;
-  constructor(status: number, message: string, code?: string) {
+  /** Optional structured detail for the client (e.g. per-line stock shortfalls). */
+  details?: unknown;
+  constructor(status: number, message: string, code?: string, details?: unknown) {
     super(message);
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -63,10 +66,10 @@ export function handleApiError(err: unknown, req?: NextRequest) {
     if (err.code && loc === "en") {
       const translated = ERRORS_EN[err.code];
       if (translated) {
-        return NextResponse.json({ error: translated }, { status: err.status });
+        return NextResponse.json({ error: translated, ...(err.details !== undefined ? { code: err.code, details: err.details } : {}) }, { status: err.status });
       }
     }
-    return NextResponse.json({ error: localizeServerMessage(err.message, loc) }, { status: err.status });
+    return NextResponse.json({ error: localizeServerMessage(err.message, loc), ...(err.details !== undefined ? { code: err.code, details: err.details } : {}) }, { status: err.status });
   }
   // A short reference ties what the user reports to the server log line.
   const ref = randomUUID().slice(0, 8);
