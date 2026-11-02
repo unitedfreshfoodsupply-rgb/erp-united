@@ -45,7 +45,15 @@ export const RULE_SCHEMAS = {
    */
   eg_salary_income_tax: z.object({
     taxable_base: z.enum(["taxable_gross_minus_employee_insurance", "taxable_gross"]),
-    period_method: z.enum(["annualised_monthly"]),
+    /**
+     * annualised_monthly (the original method): this month's base × 12, tax ÷ 12.
+     * cumulative_ytd (HR-05, opt-in per rule set): the year-to-date base (posted payslips of
+     * earlier months of the calendar year + this month) projected to a year by month number;
+     * tax due to date = annual tax × month ÷ 12; this month = due to date − tax already
+     * withheld this year (never below zero). Which method the ETA requires is a legal
+     * decision recorded in the remediation plan (WS5 notes).
+     */
+    period_method: z.enum(["annualised_monthly", "cumulative_ytd"]),
     annual_exemption: money,
     brackets,
     high_income_tables: z.array(z.object({ above: money, brackets })).max(20).optional(),
@@ -184,11 +192,20 @@ export async function retireRuleSet(id: string, body: unknown, actor: ServiceAct
 /**
  * The verified rule set of a code covering a whole period, or null. Payroll refuses to
  * calculate when a rule it needs returns null (§3.10 hard rule).
+ *
+ * HR-06: retiring a set ends it (effectiveTo); it still governs the periods it covered, so a
+ * late, reopened or corrected run of an earlier month keeps calculating with it. A set in
+ * force (verified) is preferred; a retired one is used only when exactly one covers the whole
+ * period — two retired sets over the same period are ambiguous and give null (fail closed).
+ * Periods after the retired set's end are not covered: they need a new verified set.
  */
 export async function verifiedRuleFor<C extends RuleCode>(db: Pick<Tx, "statutoryRuleSet">, code: C, from: string, to: string) {
-  const r = await db.statutoryRuleSet.findFirst({
-    where: { code, status: "verified", effectiveFrom: { lte: from }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: to } }] },
-  });
+  const covering = { code, effectiveFrom: { lte: from }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: to } }] };
+  let r = await db.statutoryRuleSet.findFirst({ where: { ...covering, status: "verified" } });
+  if (!r) {
+    const retired = await db.statutoryRuleSet.findMany({ where: { ...covering, status: "retired", verifiedAt: { not: null } }, take: 2 });
+    r = retired.length === 1 ? retired[0] : null;
+  }
   if (!r) return null;
   return { id: r.id, version: r.version, code, sourceReference: r.sourceReference, params: RULE_SCHEMAS[code].parse(r.parameters) as RuleParams<C> };
 }

@@ -91,6 +91,15 @@ export async function loadContext(db: Pick<Tx, "employeeEmployment" | "workSched
 }
 export type Ctx = Awaited<ReturnType<typeof loadContext>>;
 
+/**
+ * On the payroll that day (HR-20). A termination row's effective date is the employee's LAST
+ * WORKING DAY: it is worked, recorded and paid; from the next day the employee is off the
+ * payroll. Every "is this person employed on this date" check in HR goes through here.
+ */
+export function onPayroll(row: { status: string; effectiveFrom: string } | null | undefined, date: string): boolean {
+  return !!row && (row.status !== "terminated" || row.effectiveFrom === date);
+}
+
 export function scheduleDayOf(schedule: ScheduleWithDays | null, date: string): ScheduleDay | null {
   if (!schedule) return null;
   const d = schedule.days.find((x) => x.weekday === weekdayOf(date));
@@ -196,7 +205,7 @@ function pickMinutes(d: Partial<DayMinutes>): DayMinutes {
  */
 function valuesFor(ctx: Ctx, employeeId: string, date: string, entry: { status: ManualStatus; first_in?: string | null; last_out?: string | null; notes?: string | null }, source: string): DayValues {
   const emp = ctx.employmentOn(employeeId, date);
-  if (!emp || emp.status === "terminated") throw new ApiError(400, `الموظف مش على رأس العمل يوم ${date}`);
+  if (!onPayroll(emp, date)) throw new ApiError(400, `الموظف مش على رأس العمل يوم ${date}`);
   const holiday = ctx.holiday(date);
   if (entry.status === "holiday" && !holiday) throw new ApiError(400, `يوم ${date} مش مسجل إجازة رسمية — سجّله في الإجازات الرسمية الأول`);
   if (entry.status !== "present" && (entry.first_in || entry.last_out)) throw new ApiError(400, "مواعيد الحضور والانصراف لليوم اللي فيه حضور بس");
@@ -237,8 +246,7 @@ export async function attendanceRegister(date: string, actor: ServiceActor) {
   if (!isValidISODate(date)) throw new ApiError(400, "التاريخ لازم يكون YYYY-MM-DD");
   const ctx = await loadContext(prisma, date, date);
   const ids = ctx.employeeIds().filter((id) => {
-    const e = ctx.employmentOn(id, date);
-    return e && e.status !== "terminated";
+    return onPayroll(ctx.employmentOn(id, date), date);
   });
   const [employees, days, pending] = await Promise.all([
     prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true, nameAr: true, jobTitle: true, department: { select: { name: true, nameAr: true } } }, orderBy: { code: "asc" } }),
@@ -295,7 +303,7 @@ export async function attendanceMonth(month: string, actor: ServiceActor) {
   const to = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
   const dates = datesBetween(from, to);
   const ctx = await loadContext(prisma, from, to);
-  const ids = ctx.employeeIds().filter((id) => dates.some((d) => { const e = ctx.employmentOn(id, d); return e && e.status !== "terminated"; }));
+  const ids = ctx.employeeIds().filter((id) => dates.some((d) => onPayroll(ctx.employmentOn(id, d), d)));
   const [employees, days] = await Promise.all([
     prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true, nameAr: true }, orderBy: { code: "asc" } }),
     prisma.attendanceDay.findMany({ where: { date: { gte: from, lte: to }, employeeId: { in: ids } } }),
@@ -308,7 +316,7 @@ export async function attendanceMonth(month: string, actor: ServiceActor) {
     rows: employees.map((e) => {
       const cells = dates.map((date) => {
         const emp = ctx.employmentOn(e.id, date);
-        if (!emp || emp.status === "terminated") return { date, employed: false as const };
+        if (!onPayroll(emp, date)) return { date, employed: false as const };
         const d = byKey.get(key(e.id, date));
         return d
           ? { date, employed: true as const, status: d.status, state: d.state, overtime: d.overtimeDayMinutes + d.overtimeNightMinutes + d.overtimeRestDayMinutes + d.overtimeHolidayMinutes, late: d.lateMinutes }
@@ -576,7 +584,7 @@ export async function compileDeviceAttendance(input: unknown, actor: ServiceActo
       const [employeeId, date] = k.split("|");
       if (punches.length < 2) { incomplete++; continue; }
       const emp = ctx.employmentOn(employeeId, date);
-      if (!emp || emp.status === "terminated") { notEmployed++; continue; }
+      if (!onPayroll(emp, date)) { notEmployed++; continue; }
       const cur = existing.get(k) ?? null;
       if (cur && !(cur.source === "device" && cur.state === "draft")) { kept++; continue; }
       const firstIn = punches[0];

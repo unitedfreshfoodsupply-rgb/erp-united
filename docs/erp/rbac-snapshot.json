@@ -1598,6 +1598,50 @@
     },
     {
       "method": "POST",
+      "path": "/api/hr/advance-plans/[id]/approve",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.approve"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/advance-plans/[id]/cancel",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.advances.manage",
+          "hr.payroll.approve"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/advance-plans",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.advances.manage",
+          "hr.payroll.prepare",
+          "hr.payroll.view",
+          "hr.payroll.approve"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/advance-plans",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.advances.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
       "path": "/api/hr/attendance/compile",
       "gate": {
         "kind": "all",
@@ -2122,6 +2166,16 @@
       }
     },
     {
+      "method": "POST",
+      "path": "/api/hr/leave/rollover",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.leave.configure"
+        ]
+      }
+    },
+    {
       "method": "PATCH",
       "path": "/api/hr/leave/types/[id]",
       "gate": {
@@ -2231,6 +2285,20 @@
     },
     {
       "method": "GET",
+      "path": "/api/hr/payroll/remittance",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.payroll.prepare",
+          "hr.payroll.view",
+          "hr.payroll.approve",
+          "hr.payroll.post",
+          "hr.payroll.pay"
+        ]
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/hr/payroll/runs/[id]/bank-file",
       "gate": {
         "kind": "all",
@@ -2252,6 +2320,16 @@
     {
       "method": "POST",
       "path": "/api/hr/payroll/runs/[id]/cancel",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.prepare"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/payroll/runs/[id]/corrections",
       "gate": {
         "kind": "all",
         "permissions": [
@@ -2402,6 +2480,54 @@
     {
       "method": "POST",
       "path": "/api/hr/payroll/runs",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.prepare"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/payroll/settlements/[id]",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.payroll.prepare",
+          "hr.payroll.view",
+          "hr.payroll.approve",
+          "hr.payroll.post",
+          "hr.payroll.pay"
+        ]
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/hr/payroll/settlements/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "hr.payroll.prepare"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/payroll/settlements",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.payroll.prepare",
+          "hr.payroll.view",
+          "hr.payroll.approve",
+          "hr.payroll.post",
+          "hr.payroll.pay"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hr/payroll/settlements",
       "gate": {
         "kind": "all",
         "permissions": [

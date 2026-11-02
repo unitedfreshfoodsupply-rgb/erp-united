@@ -267,6 +267,10 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | PUT | `/api/eta/units/[code]` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/health` | public | · | · | · | · | · | · | · | · | · |
 | GET | `/api/home` | any of `users.view`, `reports.view`, `reports.finance`, `sales.customers.view`, `purchasing.orders.view`, `accounting.view`, `accounting.receipts.manage`, `accounting.payments.manage`, `stock.view`, `hr.employees.view` | ✓ | ✓ | ✓ |  |  | ✓ | ✓ | ✓ | ✓ |
+| POST | `/api/hr/advance-plans/[id]/approve` | `hr.payroll.approve` | ✓ |  |  |  |  |  |  |  |  |
+| POST | `/api/hr/advance-plans/[id]/cancel` | any of `hr.advances.manage`, `hr.payroll.approve` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/hr/advance-plans` | any of `hr.advances.manage`, `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/hr/advance-plans` | `hr.advances.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/hr/attendance/compile` | `hr.attendance.record` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/hr/attendance/confirm` | `hr.attendance.record` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/hr/attendance/corrections/[id]/cancel` | any of `hr.attendance.record`, `hr.attendance.approve` | ✓ | ✓ |  |  |  |  |  |  |  |
@@ -317,6 +321,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/hr/leave/requests/[id]/cancel` | any of `hr.leave.request`, `hr.leave.approve` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/leave/requests` | any of `hr.leave.request`, `hr.leave.approve`, `hr.leave.configure` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/hr/leave/requests` | `hr.leave.request` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/hr/leave/rollover` | `hr.leave.configure` | ✓ |  |  |  |  |  |  |  |  |
 | PATCH | `/api/hr/leave/types/[id]` | `hr.leave.configure` | ✓ |  |  |  |  |  |  |  |  |
 | GET | `/api/hr/leave/types` | any of `hr.leave.request`, `hr.leave.approve`, `hr.leave.configure` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/hr/leave/types` | `hr.leave.configure` | ✓ |  |  |  |  |  |  |  |  |
@@ -327,9 +332,11 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/hr/payroll/components` | any of `hr.compensation.view`, `hr.compensation.manage`, `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/hr/payroll/components` | `hr.compensation.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/hr/payroll/payments/[id]/reverse` | `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/hr/payroll/remittance` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve`, `hr.payroll.post`, `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/payroll/runs/[id]/bank-file` | `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/hr/payroll/runs/[id]/calculate` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/hr/payroll/runs/[id]/cancel` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/hr/payroll/runs/[id]/corrections` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |  |
 | PATCH | `/api/hr/payroll/runs/[id]/employees/[employeeId]` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/payroll/runs/[id]/journal` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve`, `hr.payroll.post`, `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/payroll/runs/[id]/payments` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve`, `hr.payroll.post`, `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |  |
@@ -343,6 +350,10 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/hr/payroll/runs/[id]/withdraw` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/payroll/runs` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve`, `hr.payroll.post`, `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/hr/payroll/runs` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/hr/payroll/settlements/[id]` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve`, `hr.payroll.post`, `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |  |
+| PATCH | `/api/hr/payroll/settlements/[id]` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/hr/payroll/settlements` | any of `hr.payroll.prepare`, `hr.payroll.view`, `hr.payroll.approve`, `hr.payroll.post`, `hr.payroll.pay` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/hr/payroll/settlements` | `hr.payroll.prepare` | ✓ |  |  |  |  |  | ✓ |  |  |
 | PATCH | `/api/hr/schedules/[id]` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/schedules` | any of `hr.attendance.record`, `hr.attendance.approve`, `hr.employees.manage` | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | POST | `/api/hr/schedules` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |  |

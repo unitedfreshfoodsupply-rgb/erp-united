@@ -196,7 +196,7 @@ function PackageDialog({ onClose }: { onClose: () => void }) {
 
 // ── Components ─────────────────────────────────────────────────────────────
 
-const SYSTEM_ROLES = ["overtime_day", "overtime_night", "overtime_rest_day", "overtime_holiday", "unpaid_absence", "partial_leave", "social_insurance_employee", "social_insurance_employer", "income_tax", "other_levy_employee", "other_levy_employer", "advance_recovery", "rounding"];
+const SYSTEM_ROLES = ["overtime_day", "overtime_night", "overtime_rest_day", "overtime_holiday", "unpaid_absence", "partial_leave", "social_insurance_employee", "social_insurance_employer", "income_tax", "other_levy_employee", "other_levy_employer", "advance_recovery", "rounding", "leave_encashment"];
 
 function ComponentsTab({ canManage }: { canManage: boolean }) {
   const { t, isEN } = useLocale();

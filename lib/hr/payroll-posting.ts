@@ -16,6 +16,8 @@ import { controlAccountMovedBy, postJournal, type PostLine } from "@/lib/account
 import type { ServiceActor } from "@/lib/core/actor";
 import type { Permission } from "@/lib/permissions";
 import { unlockAttendance } from "@/lib/hr/payroll";
+import { onPayroll } from "@/lib/hr/attendance";
+import { datesBetween } from "@/lib/hr/attendance-calc";
 
 /**
  * Payroll after approval (docs/erp/COMPLETION_PROGRAM.md D-1..D-4).
@@ -54,6 +56,68 @@ function periodEnd(p: string) {
   return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
 }
 
+/** A regular or settlement run is booked on its month's last day; a correction (HR-07) on the
+ * day it is posted — the month it corrects may already be closed. */
+function postingDateOf(run: { period: string; runType: string }) {
+  return run.runType === "correction" ? todayLocalISO() : periodEnd(run.period);
+}
+
+/**
+ * HR-22: whoever prepared or submitted a run neither posts nor pays it, and an actor with no
+ * id (a system or integration actor) cannot prove it is someone else — refused too.
+ */
+function assertNotPreparer(run: { preparedById: string | null; submittedById: string | null }, actor: ServiceActor, what: "post" | "pay") {
+  if (!actor.id || !run.preparedById || !run.submittedById) throw new ApiError(403, "العملية دي محتاجة مستخدم معروف، والمسير لازم يكون معروف مين حسبه وبعته");
+  if (actor.id === run.preparedById || actor.id === run.submittedById) {
+    throw new ApiError(403, what === "post" ? "مينفعش ترحّل مسير انت اللي حسبته أو بعته" : "مينفعش تصرف مسير انت اللي حسبته أو بعته");
+  }
+}
+
+/**
+ * HR-14: each employee's share of the month per cost center, by the days spent in each
+ * department (employment history), in the order the departments occur. A department with no
+ * linked cost center is the "" bucket (no center).
+ */
+async function costCenterShares(db: Db, period: string, empIds: string[]) {
+  const from = `${period}-01`, to = periodEnd(period);
+  const [rows, current] = await Promise.all([
+    empIds.length ? db.employeeEmployment.findMany({ where: { employeeId: { in: empIds }, effectiveFrom: { lte: to }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: from } }] }, select: { employeeId: true, effectiveFrom: true, effectiveTo: true, status: true, departmentId: true } }) : [],
+    empIds.length ? db.employee.findMany({ where: { id: { in: empIds } }, select: { id: true, departmentId: true } }) : [],
+  ]);
+  const deptIds = [...new Set([...rows.map((r) => r.departmentId), ...current.map((e) => e.departmentId)].filter((x): x is string => !!x))];
+  const centers = deptIds.length ? await db.costCenter.findMany({ where: { departmentId: { in: deptIds }, active: true }, orderBy: { code: "asc" }, select: { id: true, departmentId: true } }) : [];
+  const ccOfDept = new Map<string, string>();
+  for (const c of centers) if (c.departmentId && !ccOfDept.has(c.departmentId)) ccOfDept.set(c.departmentId, c.id);
+  const cc = (dept: string | null) => (dept ? ccOfDept.get(dept) ?? "" : "");
+  const dates = datesBetween(from, to);
+  const shares = new Map<string, [string, number][]>();
+  for (const e of current) {
+    const mine = rows.filter((r) => r.employeeId === e.id && !(r.effectiveTo && r.effectiveTo < r.effectiveFrom));
+    const days = new Map<string, number>();
+    for (const d of dates) {
+      const row = mine.find((r) => r.effectiveFrom <= d && (!r.effectiveTo || r.effectiveTo >= d));
+      if (!row || !onPayroll(row, d)) continue;
+      const k = cc(row.departmentId);
+      days.set(k, (days.get(k) ?? 0) + 1);
+    }
+    shares.set(e.id, days.size ? [...days] : [[cc(e.departmentId), 1]]);
+  }
+  return shares;
+}
+
+/** Splits an amount by day shares; the last share takes the rounding remainder. */
+function split(amount: Prisma.Decimal, shares: [string, number][]) {
+  const total = shares.reduce((a, [, n]) => a + n, 0);
+  const out: [string, Prisma.Decimal][] = [];
+  let left = amount;
+  shares.forEach(([k, n], i) => {
+    const part = i === shares.length - 1 ? left : amount.mul(n).div(total).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    left = left.minus(part);
+    out.push([k, part]);
+  });
+  return out;
+}
+
 async function lockRun(tx: Tx, id: string) {
   await advisoryXactLock(tx, `payroll-run:${id}`);
   const run = await tx.payrollRun.findUnique({ where: { id } });
@@ -76,7 +140,7 @@ async function usable(db: Db, a: AccountRow | null | undefined, types: string[])
   return !(await db.cashAccount.findFirst({ where: { accountId: a.id }, select: { id: true } }));
 }
 
-async function buildPosting(db: Db, run: { id: string; period: string; number: string; netPayable: Prisma.Decimal }) {
+async function buildPosting(db: Db, run: { id: string; period: string; number: string; netPayable: Prisma.Decimal; runType: string }) {
   const problems: PostingProblem[] = [];
   const preview: PreviewLine[] = [];
   const post: PostLine[] = [];
@@ -87,22 +151,18 @@ async function buildPosting(db: Db, run: { id: string; period: string; number: s
   else if (!(await usable(db, netAccount, ["liability"]))) problems.push({ code: "net_pay_account_invalid", params: { account: code } });
 
   const lines = await db.payrollRunLine.findMany({
-    where: { runEmployee: { runId: run.id, inclusion: "included" }, amount: { gt: 0 } },
+    where: { runEmployee: { runId: run.id, inclusion: "included" }, amount: { not: 0 } },
     select: { kind: true, code: true, nameAr: true, amount: true, payComponentId: true, runEmployee: { select: { employeeId: true } } },
   });
   const componentIds = [...new Set(lines.map((l) => l.payComponentId).filter((x): x is string => !!x))];
   const components = new Map((await db.payComponent.findMany({ where: { id: { in: componentIds } }, include: { expenseAccount: true, liabilityAccount: true } })).map((c) => [c.id, c]));
   const advances = await db.account.findFirst({ where: { systemKey: "employee_advances" } });
-  // Cost centers: an employee's salary cost goes to the active cost center linked to their
-  // department (CostCenter.departmentId), when one is linked; otherwise it carries none.
-  // Nothing is allocated unless an accountant linked a center to the department.
+  // Cost centers: an employee's salary cost goes to the active cost center linked to the
+  // department they were in, split by the days of the month spent in each department (HR-14);
+  // a department with no linked center carries none. Nothing is allocated unless an
+  // accountant linked a center to the department.
   const empIds = [...new Set(lines.map((l) => l.runEmployee.employeeId))];
-  const emps = empIds.length ? await db.employee.findMany({ where: { id: { in: empIds } }, select: { id: true, departmentId: true } }) : [];
-  const deptIds = [...new Set(emps.map((e) => e.departmentId).filter((x): x is string => !!x))];
-  const centers = deptIds.length ? await db.costCenter.findMany({ where: { departmentId: { in: deptIds }, active: true }, orderBy: { code: "asc" }, select: { id: true, departmentId: true } }) : [];
-  const ccOfDept = new Map<string, string>();
-  for (const c of centers) if (c.departmentId && !ccOfDept.has(c.departmentId)) ccOfDept.set(c.departmentId, c.id);
-  const ccOfEmp = new Map(emps.map((e) => [e.id, e.departmentId ? ccOfDept.get(e.departmentId) ?? null : null]));
+  const ccShares = await costCenterShares(db, run.period, empIds);
 
   const push = (side: "debit" | "credit", account: AccountRow | null | undefined, amount: Prisma.Decimal, label: string, component: string | null, party?: { type: "employee"; id: string }) => {
     preview.push({ side, role: component ? "component" : "net", accountId: account?.id ?? null, accountCode: account?.code ?? null, accountName: account?.name ?? null, accountNameAr: account?.nameAr ?? null, amount: amount.toFixed(2), label, component });
@@ -120,8 +180,7 @@ async function buildPosting(db: Db, run: { id: string; period: string; number: s
     const key = `${l.kind}:${l.payComponentId ?? l.code}`;
     const g = groups.get(key) ?? { kind: l.kind, code: l.code, nameAr: l.nameAr, componentId: l.payComponentId, amount: ZERO, byCenter: new Map() };
     g.amount = g.amount.plus(l.amount);
-    const cc = ccOfEmp.get(l.runEmployee.employeeId) ?? "";
-    g.byCenter.set(cc, (g.byCenter.get(cc) ?? ZERO).plus(l.amount));
+    for (const [cc, part] of split(l.amount, ccShares.get(l.runEmployee.employeeId) ?? [["", 1]])) g.byCenter.set(cc, (g.byCenter.get(cc) ?? ZERO).plus(part));
     groups.set(key, g);
   }
   // An expense debit: one preview line, one posted line per cost center.
@@ -163,13 +222,17 @@ async function buildPosting(db: Db, run: { id: string; period: string; number: s
   if (recoveryTotal.gt(0)) {
     // One preview line; one posted line per employee so each advance balance moves.
     preview.push({ side: "credit", role: "recovery", accountId: advances?.id ?? null, accountCode: advances?.code ?? null, accountName: advances?.name ?? null, accountNameAr: advances?.nameAr ?? null, amount: recoveryTotal.toFixed(2), label: "استرداد سلف وصرف تحت الحساب", component: null });
-    if (advances) for (const [employeeId, amount] of recoveries) post.push({ accountId: advances.id, amount: amount.negated(), description: `استرداد سلف ${run.number}`, party: { type: "employee", id: employeeId } });
+    if (advances) for (const [employeeId, amount] of recoveries) if (!amount.isZero()) post.push({ accountId: advances.id, amount: amount.negated(), description: `استرداد سلف ${run.number}`, party: { type: "employee", id: employeeId } });
+  } else if ([...recoveries.values()].some((v) => !v.isZero())) {
+    // A correction or settlement carries what was overpaid to employee advances (a debit per employee).
+    preview.push({ side: "credit", role: "recovery", accountId: advances?.id ?? null, accountCode: advances?.code ?? null, accountName: advances?.name ?? null, accountNameAr: advances?.nameAr ?? null, amount: recoveryTotal.toFixed(2), label: "فروق مدفوعة زيادة على حساب سلف الموظفين", component: null });
+    if (advances) for (const [employeeId, amount] of recoveries) if (!amount.isZero()) post.push({ accountId: advances.id, amount: amount.negated(), description: `فرق مسير ${run.number}`, party: { type: "employee", id: employeeId } });
   }
   push("credit", netAccount && problems.every((p) => !p.code.startsWith("net_pay")) ? netAccount : null, run.netPayable, `صافي مرتبات ${run.period}`, null);
 
   const debit = preview.filter((l) => l.side === "debit").reduce((s, l) => s.plus(l.amount), ZERO);
   const credit = preview.filter((l) => l.side === "credit").reduce((s, l) => s.plus(l.amount), ZERO);
-  return { date: periodEnd(run.period), lines: preview, post, problems, totals: { debit: debit.toFixed(2), credit: credit.toFixed(2) }, balanced: debit.equals(credit), netAccount };
+  return { date: postingDateOf(run), lines: preview, post, problems, totals: { debit: debit.toFixed(2), credit: credit.toFixed(2) }, balanced: debit.equals(credit), netAccount };
 }
 
 const PROBLEM_TEXT: Record<PostingProblem["code"], (p: Record<string, string>) => string> = {
@@ -205,6 +268,7 @@ export async function postRun(id: string, actor: ServiceActor) {
   return inTx(async (tx) => {
     const run = await lockRun(tx, id);
     if (run.status !== "approved") throw new ApiError(409, "المسير لازم يكون معتمد عشان يترحّل");
+    assertNotPreparer(run, actor, "post");
     const b = await buildPosting(tx, run);
     // Each problem is listed (localized) by the preview; the refusal carries their count.
     if (b.problems.length) throw new ApiError(409, `مينفعش الترحيل: فيه ${b.problems.length} حساب ناقص أو مش مناسب — راجع قيد المرتبات`);
@@ -212,6 +276,12 @@ export async function postRun(id: string, actor: ServiceActor) {
     const entry = await postJournal(tx, { date: b.date, description: `مسير مرتبات ${run.number} · ${run.period} · ${run.headcount} موظف`, sourceType: "payroll_run", sourceId: run.id, lines: b.post }, actor);
     if (!entry) throw new ApiError(409, "المسير مفيهوش مبالغ تترحّل");
     await tx.payrollAdjustment.updateMany({ where: { status: "reserved", reservedOn: { runId: id, inclusion: "included" } }, data: { status: "applied", version: { increment: 1 } } });
+    if (run.runType === "final_settlement") await writeEncashment(tx, run, actor);
+    if (run.runType === "correction") {
+      // HR-08: approved corrections of locked days of the month are now paid by this run.
+      const emps = (await tx.payrollRunEmployee.findMany({ where: { runId: id, inclusion: "included" }, select: { employeeId: true } })).map((e) => e.employeeId);
+      await tx.attendanceCorrection.updateMany({ where: { employeeId: { in: emps }, date: { gte: run.attendanceFrom, lte: run.attendanceTo }, status: "approved", retroStatus: "pending" }, data: { retroStatus: "applied" } });
+    }
     const row = await tx.payrollRun.update({
       where: { id },
       data: { status: "posted", postedAt: new Date(), postedById: actor.id, postedBy: actor.name, postingDate: b.date, journalEntryId: entry.id, netPayAccountId: b.netAccount!.id, version: { increment: 1 } },
@@ -234,6 +304,14 @@ export async function reverseRun(id: string, body: unknown, actor: ServiceActor)
     if (run.status !== "posted") throw new ApiError(409, "المسير مش مترحّل");
     if (date < run.postingDate!) throw new ApiError(400, "تاريخ العكس قبل تاريخ الترحيل");
     if (await tx.payrollPayment.count({ where: { runId: id, reversedAt: null } })) throw new ApiError(409, "فيه صرف متسجل على المسير — اعكس الصرف الأول");
+    // HR-07: the posted differences of a correction depend on the run they correct.
+    if (await tx.payrollRun.count({ where: { correctionOfRunId: id, status: { notIn: ["cancelled", "reversed"] } } })) throw new ApiError(409, "فيه مسير تصحيح على المسير ده — اعكس أو الغي التصحيح الأول");
+    if (run.runType === "final_settlement") {
+      // The month's regular run relies on a posted settlement for the leaver.
+      const s = await tx.employeeFinalSettlement.findUniqueOrThrow({ where: { runId: id } });
+      const regular = await tx.payrollRunEmployee.count({ where: { employeeId: s.employeeId, inclusion: "included", run: { runType: "regular", period: run.period, status: { in: ["pending_approval", "approved", "posted"] } } } });
+      if (regular) throw new ApiError(409, "مسير الشهر العادي معتمد على التسوية دي — رجّعه أو اعكسه الأول");
+    }
     const entry = await tx.journalEntry.findUniqueOrThrow({ where: { id: run.journalEntryId! }, include: { lines: true } });
     const rev = await postJournal(tx, {
       date, description: `عكس مسير مرتبات ${run.number}: ${v.reason}`, sourceType: "reversal", sourceId: entry.id, reversalOfId: entry.id,
@@ -243,9 +321,38 @@ export async function reverseRun(id: string, body: unknown, actor: ServiceActor)
     // The month can be paid again by a new run: its adjustments and attendance go back.
     await tx.payrollAdjustment.updateMany({ where: { status: { in: ["applied", "reserved"] }, reservedOn: { runId: id } }, data: { status: "open", reservedRunEmployeeId: null, version: { increment: 1 } } });
     await unlockAttendance(tx, id, actor);
+    if (run.runType === "final_settlement") await restoreEncashment(tx, run, v.reason, actor);
     await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "payroll_run_reversed", entityType: "payroll_run", entityId: id, fieldChanged: run.period, oldValue: entry.number, newValue: rev!.number, reason: v.reason, source: "user", deviceId: actor.deviceId }, tx);
     return row;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Final settlement: the leave it pays out leaves the balance (HR-11)
+// ---------------------------------------------------------------------------
+
+/** On posting: an `encashment` ledger entry per encashed leave type; refused if the balance
+ * no longer covers the days the approver saw. */
+async function writeEncashment(tx: Tx, run: { id: string; number: string }, actor: ServiceActor) {
+  const s = await tx.employeeFinalSettlement.findUniqueOrThrow({ where: { runId: run.id } });
+  const lines = await tx.payrollRunLine.findMany({ where: { runEmployee: { runId: run.id, employeeId: s.employeeId, inclusion: "included" }, sourceType: "settlement", sourceId: { startsWith: "leave:" } } });
+  if (lines.length) await advisoryXactLock(tx, `hr-leave-employee:${s.employeeId}`);
+  for (const l of lines) {
+    const leaveTypeId = l.sourceId!.slice("leave:".length);
+    const days = l.quantity ?? ZERO;
+    if (days.lte(0)) continue;
+    const bal = (await tx.leaveLedgerEntry.aggregate({ where: { employeeId: s.employeeId, leaveTypeId }, _sum: { days: true } }))._sum.days ?? ZERO;
+    if (bal.lt(days)) throw new ApiError(409, `رصيد الإجازة اتغير من وقت الحساب (${bal.toString()} يوم بدل ${days.toString()}) — رجّع التسوية واحسبها تاني`);
+    await tx.leaveLedgerEntry.create({ data: { employeeId: s.employeeId, leaveTypeId, date: s.lastWorkingDay, kind: "encashment", days: days.negated(), sourceType: "final_settlement", sourceId: `${run.id}:${leaveTypeId}`, note: run.number, createdById: actor.id, createdBy: actor.name } });
+  }
+}
+
+/** On reversing a settlement: the encashed days come back, as an adjustment with the reason. */
+async function restoreEncashment(tx: Tx, run: { id: string; number: string }, reason: string, actor: ServiceActor) {
+  const taken = await tx.leaveLedgerEntry.findMany({ where: { sourceType: "final_settlement", sourceId: { startsWith: `${run.id}:` }, kind: "encashment" } });
+  for (const e of taken) {
+    await tx.leaveLedgerEntry.create({ data: { employeeId: e.employeeId, leaveTypeId: e.leaveTypeId, date: todayLocalISO(), kind: "adjustment", days: e.days.negated(), sourceType: "final_settlement_reversal", sourceId: e.sourceId, note: `عكس ${run.number}: ${reason}`.slice(0, 300), createdById: actor.id, createdBy: actor.name } });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +403,7 @@ export async function createPayment(runId: string, body: unknown, actor: Service
     }
     const run = await lockRun(tx, runId);
     if (run.status !== "posted") throw new ApiError(409, "الصرف بيكون على مسير مترحّل بس");
+    assertNotPreparer(run, actor, "pay");
     if (v.date < run.attendanceFrom) throw new ApiError(400, "تاريخ الصرف قبل شهر المسير");
     const cash = await tx.cashAccount.findUnique({ where: { id: v.cash_account_id } });
     if (!cash?.active) throw new ApiError(400, "الخزينة / الحساب البنكي مش موجود أو موقوف");

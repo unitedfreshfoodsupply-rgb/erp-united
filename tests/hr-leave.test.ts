@@ -182,6 +182,47 @@ async function main() {
   const audited = new Set((await s.auditLog.findMany({ where: { action: { startsWith: "leave_" }, timestamp: { gte: new Date(Date.now() - 3600_000) } }, select: { action: true } })).map((a) => a.action));
   check("every step is audited", ["leave_type_created", "leave_policy_created", "leave_policy_verified", "leave_allocated", "leave_balance_adjusted", "leave_requested", "leave_approved", "leave_rejected", "leave_withdrawn", "leave_cancelled"].every((a) => audited.has(a)), [...audited]);
 
+  section("9. YEAR END — carry-over cap and expiry as ledger entries (WS5, HR-10)");
+  await grant("hr.leave.configure", "grant");
+  const Y0 = String(Number(year) - 2), Y1 = String(Number(year) - 1);
+  const carry = (await call("admin", "POST", "/api/hr/leave/types", { code: `${TAG}C`, name_ar: `${TAG} مرحّل`, pay_mode: "paid", counts_days: "calendar" })).body.type;
+  const noCap = (await call("admin", "POST", "/api/hr/leave/types", { code: `${TAG}N`, name_ar: `${TAG} من غير حد`, pay_mode: "paid", counts_days: "calendar" })).body.type;
+  const policyFor = async (leave_type_id: string, extra: Record<string, unknown>) => {
+    const p = (await call("admin", "POST", "/api/hr/leave/policies", { leave_type_id, effective_from: `${Y0}-01-01`, accrual_method: "none", source_reference: `${TAG} test values — not statutory`, tiers: [{ min_service_months: 0, days_per_year: 0 }], ...extra })).body.policy;
+    await call("karim", "POST", `/api/hr/leave/policies/${p.id}/verify`, {});
+    return p;
+  };
+  const cp = await policyFor(carry.id, { carry_over_max_days: 5, carry_over_expiry_months: 3 });
+  await policyFor(noCap.id, {});
+  check("two verified policies: one with a 5-day cap and 3-month expiry, one with no cap", (await s.leavePolicy.count({ where: { leaveTypeId: { in: [carry.id, noCap.id] }, status: "verified" } })) === 2 && Number(cp.carryOverMaxDays) === 5);
+  const adjust = (days: number, date: string, leave_type_id = carry.id) => call("admin", "POST", "/api/hr/leave/adjustments", { employee_id: e1.id, leave_type_id, days, date, reason: `${TAG} رصيد (اختبار)` });
+  await adjust(12, `${Y0}-02-01`);
+  await adjust(3, `${Y0}-02-01`, noCap.id);
+  const roll = (leave_type_id: string, y: string, who = "karim") => call(who, "POST", "/api/hr/leave/rollover", { leave_type_id, year: y });
+  check("the supervisor cannot roll the year over (403)", (await roll(carry.id, Y0, "sara")).status === 403);
+  check("a year that has not ended -> 400", (await roll(carry.id, year)).status === 400);
+  check("a policy with no carry-over cap is refused (409 — an undecided rule is not guessed)", (await roll(noCap.id, Y0)).status === 409);
+  const before = await s.leaveLedgerEntry.count({ where: { employeeId: e1.id } });
+  r = await roll(carry.id, Y0);
+  const carried = async () => Number((await s.leaveLedgerEntry.aggregate({ where: { employeeId: e1.id, leaveTypeId: carry.id }, _sum: { days: true } }))._sum.days);
+  const closeY0 = await s.leaveLedgerEntry.findFirst({ where: { employeeId: e1.id, leaveTypeId: carry.id, kind: "expiry", date: `${Y0}-12-31` } });
+  const carryY1 = await s.leaveLedgerEntry.findFirst({ where: { employeeId: e1.id, leaveTypeId: carry.id, kind: "carry_over", date: `${Y1}-01-01` } });
+  check(`closing ${Y0}: 12 days out (expiry) on 31 Dec, 5 back (carry-over, the cap) on 1 Jan`, r.status === 200 && Number(closeY0?.days) === -12 && Number(carryY1?.days) === 5 && (await carried()) === 5, [r.body, closeY0, carryY1]);
+  check("nothing deleted: the ledger only grew", (await s.leaveLedgerEntry.count({ where: { employeeId: e1.id } })) === before + 2);
+  r = await roll(carry.id, Y0);
+  check("rolling the same year again writes nothing (idempotent)", r.status === 200 && r.body.created === 0 && (await carried()) === 5, r.body);
+  // One carried day is used before it expires (3 months after 1 January); 7 new days in Y1.
+  r = await call("karim", "POST", "/api/hr/leave/requests", { employee_id: e1.id, leave_type_id: carry.id, start_date: `${Y1}-02-10`, end_date: `${Y1}-02-10`, reason: "يوم من المرحّل (اختبار)" });
+  await call("admin", "POST", `/api/approvals/${r.body.request?.approvalRequestId}/decide`, { decision: "approve" });
+  check("one carried day taken in February", (await carried()) === 4, await carried());
+  await adjust(7, `${Y1}-06-01`);
+  r = await roll(carry.id, Y1);
+  const expired = await s.leaveLedgerEntry.findFirst({ where: { employeeId: e1.id, leaveTypeId: carry.id, kind: "expiry", sourceType: "leave_carry_expiry" } });
+  check(`the 4 unused carried days expire on ${Y1}-04-01 (3 months)`, Number(expired?.days) === -4 && expired?.date === `${Y1}-04-01` && r.body.carryOversExpired === 1, [expired, r.body]);
+  const carryY2 = await s.leaveLedgerEntry.findFirst({ where: { employeeId: e1.id, leaveTypeId: carry.id, kind: "carry_over", date: `${year}-01-01` } });
+  check(`closing ${Y1}: the 7 days left are closed and 5 carried into ${year}`, Number(carryY2?.days) === 5 && (await carried()) === 5, carryY2);
+  check("DB: rollover entries are append-only like every ledger entry", await rejects(() => s.leaveLedgerEntry.update({ where: { id: carryY2!.id }, data: { days: 9 } })));
+
   await grant("hr.leave.configure", null);
   await db?.$disconnect();
   finish("HR LEAVE");

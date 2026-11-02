@@ -28,7 +28,7 @@ import { dayBefore } from "@/lib/hr/employment";
 const dec = (v: Prisma.Decimal | number | string) => new Prisma.Decimal(v);
 export const SYSTEM_ROLES = [
   "overtime_day", "overtime_night", "overtime_rest_day", "overtime_holiday", "unpaid_absence", "partial_leave",
-  "social_insurance_employee", "social_insurance_employer", "income_tax", "other_levy_employee", "other_levy_employer", "advance_recovery", "rounding",
+  "social_insurance_employee", "social_insurance_employer", "income_tax", "other_levy_employee", "other_levy_employer", "advance_recovery", "rounding", "leave_encashment",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -107,6 +107,9 @@ const packageInput = z.object({
   employee_id: z.string().min(1),
   effective_from: z.string().refine(isValidCalendarDate, "التاريخ لازم يكون YYYY-MM-DD"),
   insurable_wage: z.number().min(0).max(1e10).nullable().optional(),
+  /** HR-04: not insured, on purpose (approved with the package); the insurable wage must be 0 or empty. */
+  insurance_exempt: z.boolean().optional(),
+  insurance_exempt_reason: optText("سبب عدم التأمين", 300).optional(),
   reason: text("السبب", 500),
   lines: z.array(z.object({ pay_component_id: z.string().min(1), amount: z.number().positive("المبلغ لازم يكون أكبر من صفر").max(1e10) })).min(1, "اكتب بند واحد على الأقل").max(30),
 });
@@ -145,6 +148,8 @@ export async function proposePackage(body: unknown, actor: ServiceActor) {
   const v = parse(packageInput, body);
   const ids = v.lines.map((l) => l.pay_component_id);
   if (new Set(ids).size !== ids.length) throw new ApiError(400, "البند متكرر في نفس المرتب");
+  if (v.insurance_exempt && !v.insurance_exempt_reason) throw new ApiError(400, "اكتب سبب عدم التأمين على الموظف");
+  if (v.insurance_exempt && v.insurable_wage) throw new ApiError(400, "موظف مش مؤمن عليه — أجر الاشتراك لازم يكون صفر أو فاضي");
   return inTx(async (tx) => {
     await advisoryXactLock(tx, `hr-compensation:${v.employee_id}`);
     const employee = await tx.employee.findUnique({ where: { id: v.employee_id }, select: { id: true, code: true, name: true, nameAr: true } });
@@ -160,6 +165,7 @@ export async function proposePackage(body: unknown, actor: ServiceActor) {
     const row = await tx.employeeCompensation.create({
       data: {
         number, employeeId: v.employee_id, effectiveFrom: v.effective_from, insurableWage: v.insurable_wage == null ? null : dec(v.insurable_wage), reason: v.reason,
+        insuranceExempt: !!v.insurance_exempt, insuranceExemptReason: v.insurance_exempt ? v.insurance_exempt_reason ?? null : null,
         createdById: actor.id, createdBy: actor.name, lines: { create: v.lines.map((l) => ({ payComponentId: l.pay_component_id, amount: dec(l.amount) })) },
       },
       include: lineInclude,
