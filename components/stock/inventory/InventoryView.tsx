@@ -509,6 +509,10 @@ function ExceptionCard({ x, canResolve }: { x: ExceptionDTO; canResolve: boolean
   const toast = useToast();
   const { t } = useLocale();
   const [text, setText] = useState("");
+  const [action, setAction] = useState<"issue_now" | "close_no_movement">("issue_now");
+  const [productId, setProductId] = useState("");
+  const [qty, setQty] = useState("");
+  const needsMapping = x.reason !== "insufficient";
   return (
     <li className="card p-4 flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
@@ -523,18 +527,33 @@ function ExceptionCard({ x, canResolve }: { x: ExceptionDTO; canResolve: boolean
       {x.resolution && <p className="text-sm text-united-muted font-bold">{t("stock.resolution-solution")}: {x.resolution} {x.resolvedBy ? `— ${x.resolvedBy}` : ""}</p>}
       {canResolve && (
         <form
-          className="flex gap-2"
+          className="flex gap-2 flex-wrap"
           onSubmit={async (e) => {
             e.preventDefault();
             try {
-              await apiPost(`/api/inventory/exceptions/${x.id}/resolve`, { resolution: text, expected_version: x.version });
+              const res = await apiPost<{ pending?: boolean }>(`/api/inventory/exceptions/${x.id}/resolve`, {
+                action,
+                resolution: text,
+                expected_version: x.version,
+                ...(action === "issue_now" && needsMapping ? { product_id: productId, quantity: qty } : {}),
+              });
               invalidateStockData(qc);
-              toast.show(t("stock.toast-variance-closed"), "success");
+              toast.show(res?.pending ? t("stock.exception-close-pending") : t("stock.toast-variance-closed"), "success");
             } catch (err) {
               toast.show(err instanceof ApiClientError ? err.message : t("stock.toast-error"), "error");
             }
           }}
         >
+          <select className="field shrink-0" value={action} onChange={(e) => setAction(e.target.value as typeof action)} aria-label={t("stock.exception-action")}>
+            <option value="issue_now">{t("stock.exception-issue-now")}</option>
+            <option value="close_no_movement">{t("stock.exception-close-no-movement")}</option>
+          </select>
+          {action === "issue_now" && needsMapping && (
+            <>
+              <input className="field w-40" placeholder={t("stock.exception-product-id")} value={productId} onChange={(e) => setProductId(e.target.value)} aria-label={t("stock.exception-product-id")} />
+              <input className="field w-24" dir="ltr" inputMode="decimal" placeholder={t("stock.exception-base-qty")} value={qty} onChange={(e) => setQty(e.target.value)} aria-label={t("stock.exception-base-qty")} />
+            </>
+          )}
           <input className="field" placeholder={t("stock.form-how-solved")} value={text} onChange={(e) => setText(e.target.value)}  aria-label={t("stock.form-how-solved")}/>
           <button className="btn-primary shrink-0">{t("stock.btn-close")}</button>
         </form>

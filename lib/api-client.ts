@@ -1,4 +1,9 @@
-export class ApiClientError extends Error {}
+export class ApiClientError extends Error {
+  /** Machine-readable code and structured detail the server attached, when any. */
+  constructor(message: string, public code?: string, public details?: unknown, public status?: number) {
+    super(message);
+  }
+}
 
 /** The locale the user picked (lib/locale/context.tsx); null when unset or storage is blocked. */
 function storedLocale(): string | null {
@@ -57,7 +62,7 @@ export async function apiFetch<T = Untyped>(path: string, init?: RequestInit): P
     // A non-JSON body (proxy error page) or a non-string `error` must still read as
     // text — never "[object Object]" or an empty message.
     const serverMessage = typeof data?.error === "string" && data.error.trim() ? data.error : null;
-    throw new ApiClientError(serverMessage ?? (loc === "en" ? `Error (${res.status})` : `خطأ (${res.status})`));
+    throw new ApiClientError(serverMessage ?? (loc === "en" ? `Error (${res.status})` : `خطأ (${res.status})`), typeof data?.code === "string" ? data.code : undefined, data?.details, res.status);
   }
   return data as T;
 }

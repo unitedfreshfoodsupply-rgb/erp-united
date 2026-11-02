@@ -1,3 +1,4 @@
+import { todayLocalISO } from "@/lib/localDate";
 import { getSetting } from "@/lib/core/settings-service";
 import { Prisma } from "@prisma/client";
 import { idempotencyKeyField, lockKey, replayRequest, requestFingerprint } from "@/lib/core/idempotency";
@@ -265,8 +266,9 @@ export async function integrityReport() {
   // cost and it stays in inventory until a scrap document writes it off. Whether and when to
   // write it off is the accountant's policy; this shows what is waiting.
   (async (): Promise<Check> => {
-    const waste = await prisma.$queryRaw<{ productId: string; name: string; nameAr: string | null; unit: string; qty: Prisma.Decimal; value: Prisma.Decimal }[]>`
-      SELECT m."productId", p."name", p."nameAr", p."unit", sum(m."quantity") AS qty, coalesce(sum(v."value"), 0) AS value
+    const waste = await prisma.$queryRaw<{ productId: string; name: string; nameAr: string | null; unit: string; qty: Prisma.Decimal; value: Prisma.Decimal; since: string | null }[]>`
+      SELECT m."productId", p."name", p."nameAr", p."unit", sum(m."quantity") AS qty, coalesce(sum(v."value"), 0) AS value,
+             min(m."effectiveDate") FILTER (WHERE m."quantity" > 0) AS since
       FROM "StockMovement" m
       JOIN "StorageLocation" l ON l."id" = m."locationId"
       JOIN "StockProduct" p ON p."id" = m."productId"
@@ -276,8 +278,12 @@ export async function integrityReport() {
       HAVING sum(m."quantity") <> 0 OR coalesce(sum(v."value"), 0) <> 0
       ORDER BY value DESC`;
     const wasteValue = waste.reduce((sum, w) => sum.plus(w.value), D(0));
+    // Waste carried past the end of the month it entered is a loss sitting in inventory
+    // (remediation 2026-11): the check fails until it is written off.
+    const monthStart = `${todayLocalISO().slice(0, 7)}-01`;
+    const stale = waste.filter((w) => D(w.value).gt(0) && w.since && w.since < monthStart);
     return {
-      key: "waste_pending", label: "هالك لسه في المخزون مستني الإعدام (معلومة)", ok: true, ledger: wasteValue.toFixed(2), count: waste.length,
+      key: "waste_pending", label: "هالك لسه في المخزون مستني الإعدام (من شهر فات = لازم يتعدم)", ok: stale.length === 0, ledger: wasteValue.toFixed(2), count: waste.length,
       detail: waste.slice(0, 20).map((w) => ({ productId: w.productId, name: w.name, nameAr: w.nameAr, unit: w.unit, quantity: D(w.qty).toString(), value: D(w.value).toFixed(2) })),
     };
   })(),

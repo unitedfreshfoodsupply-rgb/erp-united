@@ -596,6 +596,23 @@ export async function closePeriod(code: string, actor: ServiceActor) {
     // The month's depreciation is part of the month: posted before it locks (once).
     const { depreciationForClose } = await import("@/lib/accounting/fixed-assets");
     await depreciationForClose(tx, code, actor);
+    // Waste is a loss of the month it happened in (remediation 2026-11): a month does not
+    // close while waste that entered by its last day is still valued in inventory.
+    if (await getSetting("accounting.close_requires_waste_writeoff")) {
+      const lastDay = `${code}-31`;
+      const pending = await tx.$queryRaw<{ name: string; unit: string; qty: Prisma.Decimal; value: Prisma.Decimal }[]>`
+        SELECT p."name", p."unit", sum(m."quantity") AS qty, coalesce(sum(v."value"), 0) AS value
+        FROM "StockMovement" m
+        JOIN "StorageLocation" l ON l."id" = m."locationId"
+        JOIN "StockProduct" p ON p."id" = m."productId"
+        LEFT JOIN "StockValuationLayer" v ON v."movementId" = m."id"
+        WHERE l."type" = 'waste' AND m."effectiveDate" <= ${lastDay}
+        GROUP BY p."id", p."name", p."unit"
+        HAVING sum(m."quantity") > 0 AND coalesce(sum(v."value"), 0) > 0`;
+      if (pending.length) {
+        throw new ApiError(409, `مينفعش تقفل ${code}: فيه هالك لسه متقيّم في المخزون — اعمل مستند إعدام (هالك) الأول: ${pending.slice(0, 5).map((w) => `${w.name} ${D(w.qty).toFixed()} ${w.unit} (${D(w.value).toFixed(2)})`).join("، ")}`, "waste_not_written_off");
+      }
+    }
     const updated = await tx.accountingPeriod.update({ where: { id: p.id, version: p.version }, data: { status: "closed", closedBy: actor.name, closedAt: new Date(), version: { increment: 1 } } });
     await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "period_closed", entityType: "accounting_period", entityId: p.id, fieldChanged: code, oldValue: "open", newValue: "closed", source: "user", deviceId: actor.deviceId }, tx);
     return updated;

@@ -338,6 +338,14 @@ export const SETTING_DEFS = {
     schema: z.number().int().min(1).max(12),
     default: 1,
   }),
+  "accounting.close_requires_waste_writeoff": def({
+    group: "accounting",
+    label: "قفل الشهر محتاج إعدام الهالك",
+    description: "مفعّل افتراضيًا: الشهر مايتقفلش وفيه هالك دخل لحد آخر يوم فيه ولسه متقيّم في المخزون — الهالك خسارة الشهر اللي حصل فيه، بيتعدم بمستند هالك.",
+    unit: "",
+    schema: z.boolean({ invalid_type_error: "القيمة لازم تكون true أو false" }),
+    default: true as boolean,
+  }),
   "accounting.direct_opening_entries": def({
     group: "accounting",
     label: "تسجيل الأرصدة الافتتاحية مباشرة",
@@ -463,6 +471,7 @@ export const SETTING_EN: Record<SettingKey, { label: string; description: string
   "sales.price_exception_approval": { label: "Below-cost prices and large discounts need approval", description: "On by default: a line priced below its stock cost, or discounted above the limit, holds the order until another person with price-approval permission approves." },
   "sales.max_discount_pct": { label: "Maximum line discount without approval", description: "A line discount above this percentage needs approval." },
   "accounting.direct_opening_entries": { label: "Direct opening entries", description: "Off by default: opening balances (customers, suppliers, stock) go through one opening batch approved by a second person. Direct entry without approval is allowed only if switched on here by decision." },
+  "accounting.close_requires_waste_writeoff": { label: "Month close requires waste write-off", description: "On by default: a month does not close while waste that entered by its last day is still valued in inventory — waste is a loss of the month it happened in, written off with a scrap document." },
   "documents.max_upload_mb": { label: "Largest file upload", description: "Any larger file is refused before it is uploaded." },
   "inventory.default_warehouse_code": { label: "Default warehouse", description: "The warehouse code receipts and adjustments go to when the screen does not name one." },
   "inventory.adjustment_approval_threshold": { label: "Adjustment needing approval", description: "Any stock adjustment (up or down) larger than this quantity, in the product's base unit, waits for approval before it is recorded. Zero = no approval." },
