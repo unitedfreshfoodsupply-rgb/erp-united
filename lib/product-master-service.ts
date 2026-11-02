@@ -613,7 +613,9 @@ export async function mapOrderProductName(
     // the new product's stock in full — or the whole mapping is refused (WF-01).
     for (const orderId of new Set(targets.map((t) => t.orderId))) {
       await applyListPrices(tx, orderId, actor, { refresh: true });
-      await commitOrderStock(tx, orderId, actor);
+      // Only the lines this mapping links are reserved: a legacy order's other unmapped
+      // lines must not block it (they are mapped — and reserved — on their own).
+      await commitOrderStock(tx, orderId, actor, { lines: targets.filter((t) => t.orderId === orderId).map((t) => t.id) });
     }
 
     await writeAudit({

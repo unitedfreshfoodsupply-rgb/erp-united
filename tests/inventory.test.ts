@@ -100,9 +100,15 @@ async function main() {
   check("cannot reserve beyond available -> 400", (await call("sara", "POST", "/api/inventory/reservations", { product_id: mango.id, quantity: 123, source_type: "manual", source_id: `${TAG}-x` })).status === 400);
   check("scrap that would eat reserved stock -> 400", (await call("hossam", "POST", "/api/inventory/scrap", { reason: "x", lines: [{ product_id: mango.id, quantity: 130 }] })).status === 400);
   check("reserving for a line not on the order -> 400", (await call("sara", "POST", "/api/inventory/reservations", { product_id: mango.id, quantity: 1, source_type: "order", source_id: order.id, source_line_id: "nope" })).status === 400);
-  check("release without a reason -> 400", (await call("sara", "POST", `/api/inventory/reservations/${res.id}/release`, {})).status === 400);
-  check("release", (await call("sara", "POST", `/api/inventory/reservations/${res.id}/release`, { reason: "العميل لغى" })).status === 200);
-  check("released twice -> 409", (await call("sara", "POST", `/api/inventory/reservations/${res.id}/release`, { reason: "x" })).status === 409);
+  // WF-01: a live order's hold is released with the order (quantity edit, cancel), never
+  // by hand — the manual release mechanics are exercised on a manual reservation.
+  check("releasing a live order's hold by hand -> 409", (await call("sara", "POST", `/api/inventory/reservations/${res.id}/release`, { reason: "العميل لغى" })).status === 409);
+  const man = (await call("sara", "POST", "/api/inventory/reservations", { product_id: mango.id, quantity: 10, source_type: "manual", source_id: `${TAG}-man` })).body.reservation;
+  check("release without a reason -> 400", (await call("sara", "POST", `/api/inventory/reservations/${man.id}/release`, {})).status === 400);
+  check("release", (await call("sara", "POST", `/api/inventory/reservations/${man.id}/release`, { reason: "العميل لغى" })).status === 200);
+  check("released twice -> 409", (await call("sara", "POST", `/api/inventory/reservations/${man.id}/release`, { reason: "x" })).status === 409);
+  r = await call("sara", "POST", `/api/orders/${order.id}/items/${order.items[0].id}/required`, { quantity: 0, reason: "العميل لغى الكمية" });
+  check("the order's line set to 0 through the order releases its hold", r.status === 200, r.body);
   check("available back to 222", (await detail()).available === "222");
 
   section("7. COUNT, WITH APPROVAL ABOVE THE THRESHOLD");

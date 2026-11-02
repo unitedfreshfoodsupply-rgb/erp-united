@@ -163,13 +163,9 @@ async function main() {
   check("adjustment reduces the balance", near(await ledgerSum(prodB.id), balBBefore-4));
   const posAdj = await adjustWithApproval({product_id:prodB.id,quantity_kg:2.5,reason:"جرد: فرق زيادة"});
   check("positive adjustment accepted", posAdj.request.status === 202 && posAdj.decision?.status === 200, [posAdj.request.status, posAdj.decision?.body]);
-  // CTL-01: the request waits for approval and the balance is judged when it is approved
-  // (stock may move in between) — the approval of a below-zero adjustment is refused.
+  // A decrease the books cannot cover is refused at the request (and re-checked at approval).
   const below = await call("hossam","POST","/api/stock/adjustments",{product_id:prodB.id,quantity_kg:-99999,reason:"محاولة"});
-  const belowReq = (await call("sara","GET","/api/approvals?status=pending")).body.approvals.find((a: any)=>a.type==="inventory.adjustment"&&a.entityId===below.body?.document?.id);
-  const belowDecision = await call("sara","POST",`/api/approvals/${belowReq?.id}/decide`,{decision:"approve",comment:"محاولة"});
-  check("adjustment below zero refused (at approval: 400, nothing posted)", below.status === 202 && belowDecision.status === 400, [below.status, belowDecision.status, belowDecision.body]);
-  await call("sara","POST",`/api/approvals/${belowReq?.id}/decide`,{decision:"reject",comment:"تحت الصفر"});
+  check("adjustment below zero refused at the request: 400, nothing pending", below.status === 400 && !below.body?.document, [below.status, below.body]);
   check("balance unchanged after refusal", near(await ledgerSum(prodB.id), balBBefore-4+2.5));
 
   section("7b. NO PATH TO NEGATIVE STOCK");

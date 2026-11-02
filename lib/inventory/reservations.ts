@@ -119,6 +119,14 @@ export async function releaseReservation(id: string, reason: unknown, actor: Ser
     if (!r) throw new ApiError(404, "الحجز مش موجود");
     if (r.status !== "active") throw new ApiError(409, "الحجز ده مقفول بالفعل");
     if (expectedVersion !== undefined && expectedVersion !== r.version) throw new ApiError(409, "الحجز اتغيّر من واحد تاني، حدّث الشاشة");
+    // A live order's hold is part of the order (WF-01): it changes with the order's
+    // quantities and ends with its cancellation or dispatch, never by hand.
+    if (r.sourceType === "order") {
+      const o = await tx.order.findUnique({ where: { id: r.sourceId }, select: { status: true, orderNumber: true } });
+      if (o && o.status !== "dispatched" && o.status !== "cancelled") {
+        throw new ApiError(409, `الحجز ده تبع أوردر شغال (${o.orderNumber ?? r.sourceId}) — بيتغير بتعديل كمية السطر أو بإلغاء الأوردر، مش بفك الحجز يدويًا`);
+      }
+    }
     let updated: StockReservation;
     try {
       updated = await tx.stockReservation.update({

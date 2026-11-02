@@ -485,6 +485,19 @@ export async function createAdjustment(input: Record<string, unknown>, actor: Se
           if (loc?.type === "quarantine") throw new ApiError(400, "مينفعش تعمل تسوية على المخزون المحجوز — استخدم التقرير للإفراج");
         }
       }
+      // A decrease the books cannot cover is refused now, not only when someone approves
+      // it (the approval re-checks against the balances of that moment).
+      for (const p of plan) {
+        const q = D(p.quantity);
+        if (!q.lt(0)) continue;
+        const have = p.locationId
+          ? await bucketBalance(tx, p.productId, p.locationId, p.lotId)
+          : D((await tx.stockMovement.aggregate({ where: { productId: p.productId, warehouseId: wh.id, ...(p.lotId ? { lotId: p.lotId } : {}) }, _sum: { quantity: true } }))._sum.quantity);
+        if (have.plus(q).lt(0)) {
+          const prod = await tx.stockProduct.findUnique({ where: { id: p.productId }, select: { name: true, unit: true } });
+          throw new ApiError(400, `التسوية هتخلي رصيد "${prod?.name ?? p.productId}" بالسالب: الموجود ${have.toFixed()} ${prod?.unit ?? ""} والنقص ${q.abs().toFixed()}`);
+        }
+      }
       const needsApproval = requiresAdjustmentApproval(plan, threshold, approvalRequired);
       const doc = await createDoc(
         tx,

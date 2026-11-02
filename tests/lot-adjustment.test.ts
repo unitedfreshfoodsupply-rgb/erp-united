@@ -135,8 +135,8 @@ async function main() {
   }, { path: "/api/inventory/adjustments" });
   const r10b = a10b.request;
   check("N10a first reduction ok (202 + approved)", posted(a10a), [r10a.status, r10a.body?.error, a10a.decision?.body]);
-  // The balance is judged when the adjustment is approved (stock may move in between).
-  check("N10b over-reduction → refused at approval: 400 (insufficient)", r10b.status === 202 && a10b.decision?.status === 400, [r10b.status, a10b.decision?.status, a10b.decision?.body]);
+  // Refused at the request (the books cannot cover it); approval would re-check too.
+  check("N10b over-reduction → refused at the request: 400 (insufficient)", r10b.status === 400, [r10b.status, r10b.body?.error]);
 
   finish("LOT-ADJUSTMENT");
 }

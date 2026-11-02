@@ -90,7 +90,10 @@ type CommitLine = { itemId: string; line: number; productId: string; productName
  * availability locks, in one global order, so two orders can never both take the
  * same kilo. Throws StockUnavailableError (nothing written) on any shortfall.
  */
-export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceActor): Promise<{ reserved: number }> {
+export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceActor, opts: { lines?: string[] } = {}): Promise<{ reserved: number }> {
+  // `lines` limits the commitment to those lines (a mapping that links them to a product);
+  // the order's other lines and their reservations are left exactly as they are.
+  const only = opts.lines ? new Set(opts.lines) : null;
   const order = await tx.order.findUnique({
     where: { id: orderId },
     include: { items: { include: { stockProduct: true }, orderBy: { createdAt: "asc" } } },
@@ -102,6 +105,7 @@ export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceAc
   const lines: CommitLine[] = [];
   for (const [idx, item] of order.items.entries()) {
     const line = idx + 1;
+    if (only && !only.has(item.id)) continue;
     const p = item.stockProduct;
     const requested = D(item.requiredQuantity);
     const base = { line, itemId: item.id, productName: p?.nameAr ?? p?.name ?? item.productName, unit: item.unit, requested: requested.toFixed(), available: "0" };
@@ -135,7 +139,7 @@ export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceAc
   for (const id of productIds) {
     const { available } = await productAvailability(tx, id, warehouse.id);
     const own = await tx.stockReservation.aggregate({
-      where: { productId: id, warehouseId: warehouse.id, sourceType: "order", sourceId: orderId, status: "active" },
+      where: { productId: id, warehouseId: warehouse.id, sourceType: "order", sourceId: orderId, status: "active", ...(only ? { sourceLineId: { in: [...only] } } : {}) },
       _sum: { quantity: true },
     });
     const total = available.plus(D(own._sum.quantity));
@@ -158,7 +162,7 @@ export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceAc
   if (shortfalls.length) throw new StockUnavailableError(shortfalls.sort((a, b) => a.line - b.line));
 
   // Reservations follow the lines exactly: release what changed or vanished, then take.
-  const active = await tx.stockReservation.findMany({ where: { sourceType: "order", sourceId: orderId, status: "active" } });
+  const active = (await tx.stockReservation.findMany({ where: { sourceType: "order", sourceId: orderId, status: "active" } })).filter((r) => !only || (r.sourceLineId && only.has(r.sourceLineId)));
   const target = new Map(lines.map((l) => [l.itemId, l]));
   for (const r of active) {
     const want = r.sourceLineId ? target.get(r.sourceLineId) : undefined;

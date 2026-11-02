@@ -1528,4 +1528,6 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["يا سعر متفق عليه يا سعر مؤقت — مش الاتنين", "Either an agreed price or a provisional cost — not both"],
   ["السعر المؤقت لازم يكون أكبر من صفر", "The provisional cost must be greater than zero"],
   ["مفيش سعر متفق عليه للاستلام ده (لا أمر شراء ولا سعر مورد ولا سعر وحدة) — اكتب سعر مؤقت لحد ما فاتورة المورد توصل", "No agreed price for this receipt (no purchase order, supplier price or unit cost) — enter a provisional cost until the supplier bill arrives"],
+  ["الحجز ده تبع أوردر شغال ({}) — بيتغير بتعديل كمية السطر أو بإلغاء الأوردر، مش بفك الحجز يدويًا", "This hold belongs to a live order ({0}) — it changes with the line quantity or the order's cancellation, not by a manual release"],
+  ["التسوية هتخلي رصيد \"{}\" بالسالب: الموجود {} {} والنقص {}", "The adjustment would take \"{0}\" below zero: {1} {2} on hand, decrease {3}"],
 ];
