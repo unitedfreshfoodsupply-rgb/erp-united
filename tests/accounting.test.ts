@@ -4,6 +4,7 @@
    periods and bank reconciliation behave. */
 import { call, login, makeChecker } from "./_harness";
 import { todayBiz } from "./_days";
+import { taxNo, fundCash } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZACC${Date.now() % 1_000_000_000}`;
@@ -31,7 +32,8 @@ async function main() {
   const supplier = (await call("hossam", "POST", "/api/stock/suppliers", { name: `${TAG} مورد` })).body.supplier;
   const okra = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Okra`, unit: "KG" })).body.product;
   await call("admin", "POST", "/api/stock/intakes", { supplier_id: supplier.id, product_id: okra.id, received_kg: 100, unit_cost: "10" });
-  const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} سوبر ماركت` })).body.customer;
+  // MIG-01: an invoice needs the buyer's 9-digit tax number (on the card here).
+  const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} سوبر ماركت`, tax_registration_no: taxNo() })).body.customer;
   let o = (await call("sara", "POST", "/api/orders", { customer_account_id: customer.id, customer_name: customer.name, delivery_date: today, items: [{ stock_product_id: okra.id, product_name: okra.name, quantity: 40 }] })).body.order;
   await call("mona", "PATCH", `/api/orders/${o.id}/items/${o.items[0].id}/price`, { unit_price: "25", reason: "عقد" });
   await call("sara", "POST", `/api/orders/${o.id}/status`, { to: "loading", reason: "مباشر" });
@@ -79,6 +81,8 @@ async function main() {
   check("bill posted (matched)", (await call("karim", "POST", `/api/purchasing/bills/${bill.id}/post`, {})).body.bill?.status === "posted");
   je = await journalOf("supplier_bill", bill.number);
   check("…posted: Dr GRNI 1800 / Cr AP 1800 (supplier)", je && side(je, "2150") === 1800 && side(je, "2100") === -1800 && je.lines.find((l: any) => l.account.code === "2100").partyId === supplier.id, je?.lines);
+  // L2: the bank never goes negative — the owner puts money in first (approved journal).
+  await fundCash("bank_main", 2000);
   r = await call("karim", "POST", "/api/accounting/payments", { party_id: supplier.id, cash_account_id: "bank_main", amount: 1800, method: "bank_transfer", auto: true });
   check("paid in full by bank -> 201", r.status === 201 && /^PAY-\d{4}-\d{5}$/.test(r.body.payment.number), r.body);
   check("…bill open 0", (await call("karim", "GET", `/api/purchasing/bills/${bill.id}`)).body.bill.open === "0.00");
@@ -99,9 +103,18 @@ async function main() {
   const header = accounts.find((a: any) => a.code === "6000").id;
   check("unbalanced manual journal -> 400", (await call("karim", "POST", "/api/accounting/journals", { date: today, description: "x", lines: [{ account_id: acc("general_expenses"), debit: 50 }, { account_id: acc("cash"), credit: 40 }] })).status === 400);
   check("posting to a header account -> 400", (await call("karim", "POST", "/api/accounting/journals", { date: today, description: "x", lines: [{ account_id: header, debit: 50 }, { account_id: acc("cash"), credit: 50 }] })).status === 400);
+  // CTL-01 (replaces "a balanced manual journal -> 201"): manual journals wait for a
+  // second person (accounting.manual_journal_approval on, threshold 0).
   r = await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${TAG} مصروف نثرية`, lines: [{ account_id: acc("general_expenses"), debit: 50 }, { account_id: acc("cash"), credit: 50 }] });
-  check("a balanced manual journal -> 201", r.status === 201 && r.body.journal.total === "50.00", r.body);
-  const manual = r.body.journal;
+  check("a balanced manual journal -> 202, waiting for approval (nothing posted)", r.status === 202 && r.body.journalRequest?.status === "pending_approval" && r.body.journalRequest?.total === "50.00", r.body);
+  const jReq = (await call("admin", "GET", "/api/approvals?status=pending")).body.approvals.find((a: any) => a.type === "accounting.manual_journal" && a.entityId === r.body.journalRequest?.id);
+  check("…the accountant cannot approve their own journal -> 403", (await call("karim", "POST", `/api/approvals/${jReq?.id}/decide`, { decision: "approve", comment: "x" })).status === 403);
+  r = await call("admin", "POST", `/api/approvals/${jReq?.id}/decide`, { decision: "approve", comment: "معتمد" });
+  check("…someone else approves it", r.status === 200, r.body);
+  const jPosted = (await call("karim", "GET", "/api/accounting/journal-requests")).body.requests.find((x: any) => x.id === jReq?.entityId);
+  check("…and it posts: 50.00", jPosted?.status === "posted" && !!jPosted?.entry?.id, jPosted);
+  const manual = (await call("karim", "GET", `/api/accounting/journals/${jPosted?.entry?.id}`)).body.journal;
+  check("the posted manual journal totals 50.00", manual?.total === "50.00", manual);
   r = await call("karim", "POST", `/api/accounting/journals/${manual.id}/reverse`, { reason: "اتسجل مرتين" });
   check("reversed by a new entry", r.status === 201 && r.body.journal.reversalOfId === manual.id, r.body);
   check("reversing twice -> 409", (await call("karim", "POST", `/api/accounting/journals/${manual.id}/reverse`, { reason: "x" })).status === 409);

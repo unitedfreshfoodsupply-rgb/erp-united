@@ -2,6 +2,7 @@
    order intake from n8n/Hermes, validation, status read-back across the chain, and an
    append-only log of every call — accepted or refused. */
 import { BASE, call, login, makeChecker } from "./_harness";
+import { stockedProduct } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const TAG = `zzint${Date.now() % 1_000_000_000}`;
@@ -25,10 +26,15 @@ async function main() {
   check("an unknown scope -> 400", (await call("admin", "POST", "/api/admin/integrations", { code: `${TAG}c`, name: "x", scopes: ["stock.adjust"] })).status === 400);
 
   section("2. ORDER INTAKE");
-  const order = { external_id: `${TAG}-msg-1`, customer_name: `${TAG} مطعم البحر`, delivery_date: "2026-12-20", items: [{ product_name: "طماطم", quantity: 12, unit: "KG" }] };
+  // WF-01: the channel's lines must name a catalog product with sellable stock (the
+  // seed's free-text "طماطم" is not a catalog card). A run-unique stocked card is used.
+  const tomato = await stockedProduct(`${TAG} طماطم`, 100);
+  const order = { external_id: `${TAG}-msg-1`, customer_name: `${TAG} مطعم البحر`, delivery_date: "2026-12-20", items: [{ product_name: tomato.name, quantity: 12, unit: "KG" }] };
   check("a wrong key -> 401", (await withKey("uk_wrong", "POST", "/api/orders", order)).status === 401);
   check("a status-only key cannot create orders -> 403", (await withKey(statusOnly.key, "POST", "/api/orders", order)).status === 403);
   check("invalid payload -> 400 (validated like any order)", (await withKey(key, "POST", "/api/orders", { ...order, external_id: `${TAG}-bad`, delivery_date: "tomorrow" })).status === 400);
+  r = await withKey(key, "POST", "/api/orders", { ...order, external_id: `${TAG}-unmapped`, items: [{ product_name: "طماطم", quantity: 12, unit: "KG" }] });
+  check("a product the catalog does not know -> 409 (unmapped), not created", r.status === 409 && r.body?.details?.shortfalls?.[0]?.reason === "unmapped", r.body);
   r = await withKey(key, "POST", "/api/orders", order);
   check("the channel creates an order -> 201", r.status === 201 && r.body.order.externalId === order.external_id, r.body);
   const created = r.body.order;

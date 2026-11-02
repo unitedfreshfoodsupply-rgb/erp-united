@@ -164,3 +164,43 @@ export async function adjustWithApproval(body: Record<string, unknown>, opts: { 
   const decision: Res = await approve(approver, pending.id);
   return { request, decision };
 }
+
+/**
+ * A manual journal the CTL-01 way (accounting.manual_journal_approval on by default):
+ * `who` submits it; when it waits as a request, a different approver (default admin)
+ * approves it and it posts. Returns the submit response, the decision and the posted
+ * journal entry (null when nothing posted).
+ */
+export async function manualJournal(body: Record<string, unknown>, opts: { who?: string; approver?: string } = {}) {
+  const who = opts.who ?? "karim";
+  const approver = opts.approver ?? "admin";
+  await ensureLogin(who);
+  const submit = await call(who, "POST", "/api/accounting/journals", body);
+  if (submit.body?.journal) return { submit, decision: null as Res | null, journal: submit.body.journal };
+  const req = submit.body?.journalRequest;
+  if (!req) return { submit, decision: null as Res | null, journal: null };
+  const pending = await pendingApproval(approver, "accounting.manual_journal", { entityId: req.id });
+  if (!pending) throw new Error(`journal setup: no pending approval for ${req.id}`);
+  const decision: Res = await approve(approver, pending.id);
+  const posted = ((await call(who, "GET", "/api/accounting/journal-requests")).body?.requests ?? []).find((x: { id: string }) => x.id === req.id);
+  const journal = posted?.entry?.id ? (await call(who, "GET", `/api/accounting/journals/${posted.entry.id}`)).body.journal : null;
+  return { submit, decision, journal };
+}
+
+const CASH_GL: Record<string, string> = { cash_main: "acc_1100", bank_main: "acc_1200" };
+/**
+ * Funds a cash box or bank account with an owner's capital injection (Dr cash/bank,
+ * Cr capital 3100) — L2: cash and bank never go negative, so a scenario that pays out
+ * money first puts it there, through an approved manual journal.
+ */
+export async function fundCash(cashAccountId: string, amount: number | string, opts: { date?: string; who?: string; approver?: string; glAccountId?: string } = {}) {
+  const gl = opts.glAccountId ?? CASH_GL[cashAccountId];
+  if (!gl) throw new Error(`fundCash: unknown GL account for ${cashAccountId}`);
+  const r = await manualJournal({
+    date: opts.date ?? todayBiz(),
+    description: `e2e setup: capital injection into ${cashAccountId}`,
+    lines: [{ account_id: gl, debit: String(amount) }, { account_id: "acc_3100", credit: String(amount) }],
+  }, opts);
+  if (!r.journal) throw new Error(`fundCash failed: ${r.submit.status} ${JSON.stringify(r.submit.body).slice(0, 300)} / ${JSON.stringify(r.decision?.body ?? null).slice(0, 200)}`);
+  return r.journal;
+}

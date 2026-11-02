@@ -9,6 +9,7 @@
 import { call, login, makeChecker, page } from "./_harness";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { assertTestDatabase } from "./_guard";
+import { fundCash } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZP${Date.now() % 1_000_000_000}`;
@@ -41,6 +42,10 @@ async function main() {
   const first = `${P}-01`, last = `${P}-${String(monthDays).padStart(2, "0")}`;
   const before = new Date(Date.UTC(py, pm - 3, 1)).toISOString().slice(0, 10);
   const mid = `${P}-16`;
+  // L2: cash and bank never go negative. The on-account payment (cash) and the salary
+  // payments (bank) of month P are funded by the owner on its first day.
+  await fundCash("cash_main", 1000, { date: first });
+  await fundCash("bank_main", 50000, { date: first });
 
   section("1. PAY COMPONENTS — inactive until tax and insurance treatment is decided");
   check("finance cannot activate a component without its tax treatment (400)", (await call("karim", "POST", "/api/hr/payroll/components", { code: `${TAG}X`, name_ar: "x", kind: "earning", method: "fixed", active: true })).status === 400);
@@ -89,7 +94,11 @@ async function main() {
   const p2 = (await pkg(e2.id, mid, [[BASIC.id, 3000]], 3000)).body.package;
   await call("admin", "POST", `/api/approvals/${p2.approvalRequestId}/decide`, { decision: "approve" });
   r = await call("admin", "POST", "/api/hr/compensation", { employee_id: e3.id, effective_from: first, insurable_wage: 0, reason: "x", lines: [{ pay_component_id: BASIC.id, amount: 100 }] });
-  check("whoever proposed a package cannot approve it, even with the permission (403)", (await call("admin", "POST", `/api/approvals/${r.body.package.approvalRequestId}/decide`, { decision: "approve" })).status === 403);
+  // CTL-01 (replaces "cannot approve it (403)"): the SUPER_ADMIN is the only holder of the
+  // approving permission, so self-approval is the audited emergency path — refused
+  // without a written reason of at least 10 characters.
+  const selfPkg = await call("admin", "POST", `/api/approvals/${r.body.package.approvalRequestId}/decide`, { decision: "approve" });
+  check("whoever proposed a package cannot approve it without an emergency reason (400: sole approver, reason ≥10 chars required)", selfPkg.status === 400 && /10/.test(selfPkg.body?.error ?? ""), selfPkg.body);
   check("…the proposer withdraws it", (await call("admin", "POST", `/api/hr/compensation/${r.body.package.id}/cancel`, {})).status === 200);
   check("a package starting before the one in force -> 400", (await pkg(e1.id, before, [[BASIC.id, 1]], 0)).status === 400);
   check("the supervisor cannot read salaries (403)", (await call("sara", "GET", "/api/hr/compensation")).status === 403);

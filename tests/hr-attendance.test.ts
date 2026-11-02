@@ -155,7 +155,10 @@ async function main() {
   r = await call("admin", "POST", "/api/hr/attendance/corrections", { employee_id: e1.id, date: D, status: "absent", reason: "اختبار الفصل بين الطالب والمعتمد" });
   const own = r.body.correction;
   r = await call("admin", "POST", `/api/approvals/${own.approvalRequestId}/decide`, { decision: "approve" });
-  check("whoever requested a correction cannot approve it (403), even with the permission", r.status === 403, r.body);
+  // CTL-01 (replaces "cannot approve it (403)"): the SUPER_ADMIN is the only holder of the
+  // approving permission, so self-approval is the audited emergency path — refused
+  // without a written reason of at least 10 characters.
+  check("whoever requested a correction cannot approve it without an emergency reason (400: sole approver, reason ≥10 chars required)", r.status === 400 && /10/.test(r.body?.error ?? ""), r.body);
   check("…and nothing changed: the request and the day are as they were", (await s.attendanceCorrection.findUnique({ where: { id: own.id } }))?.status === "pending" && (await s.attendanceDay.findUnique({ where: { employeeId_date: { employeeId: e1.id, date: D } } }))?.status === "present");
   check("someone else (not the requester, no approve permission) cannot withdraw it (403)", (await call("sara", "POST", `/api/hr/attendance/corrections/${own.id}/cancel`, {})).status === 403);
   r = await call("admin", "POST", `/api/hr/attendance/corrections/${own.id}/cancel`, {});

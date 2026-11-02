@@ -123,7 +123,11 @@ async function main() {
 
   r = await call("admin", "POST", "/api/hr/leave/requests", { employee_id: e1.id, leave_type_id: annual.id, start_date: shift(S, 7), end_date: shift(S, 8) });
   const own = r.body.request;
-  check("whoever recorded a leave cannot approve it, even with the permission (403)", (await call("admin", "POST", `/api/approvals/${own.approvalRequestId}/decide`, { decision: "approve" })).status === 403);
+  // CTL-01 (replaces "cannot approve it (403)"): the SUPER_ADMIN is the only holder of the
+  // approving permission, so self-approval is the audited emergency path — refused
+  // without a written reason of at least 10 characters.
+  r = await call("admin", "POST", `/api/approvals/${own.approvalRequestId}/decide`, { decision: "approve" });
+  check("whoever recorded a leave cannot approve it without an emergency reason (400: sole approver, reason ≥10 chars required)", r.status === 400 && /10/.test(r.body?.error ?? ""), r.body);
   check("…nothing was written", (await s.attendanceDay.count({ where: { leaveRequestId: own.id } })) === 0 && (await s.leaveRequest.findUnique({ where: { id: own.id } }))?.status === "pending");
   r = await call("admin", "POST", `/api/hr/leave/requests/${own.id}/cancel`, {});
   check("the recorder withdraws it; its approval is cancelled", r.status === 200 && r.body.request.status === "cancelled" && (await s.approvalRequest.findUnique({ where: { id: own.approvalRequestId } }))?.status === "cancelled", r.body);

@@ -2,6 +2,7 @@
    posting to the ledger on approval, and an employee's balance moved by advances,
    reimbursements and expenses — read back from the journal. */
 import { call, login, makeChecker } from "./_harness";
+import { fundCash } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZHR${Date.now() % 1_000_000_000}`;
@@ -12,6 +13,9 @@ async function main() {
   const balance = async (id: string) => (await call("karim", "GET", "/api/hr/employees")).body.employees.find((e: any) => e.id === id)?.balance;
   const acc = (await call("sara", "GET", "/api/hr/expense-accounts")).body.accounts;
   const fuel = acc.find((a: any) => a.code === "6200");
+  // L2: the cash box never goes negative. Everything this suite pays out of it
+  // (200 fuel + 1500 reimbursement + 1000 advance) is put there first by the owner.
+  await fundCash("cash_main", 3000);
 
   section("1. EMPLOYEES");
   check("the supervisor cannot add employees -> 403", (await call("sara", "POST", "/api/hr/employees", { name: "x" })).status === 403);
