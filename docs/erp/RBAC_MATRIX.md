@@ -501,6 +501,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/sales/quotations` | `sales.quotations.view` | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  |
 | POST | `/api/sales/quotations` | `sales.quotations.manage` | ✓ |  |  |  |  | ✓ |  |  |  |
 | GET | `/api/sales/reports/aging` | `sales.invoices.view` | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
+| GET | `/api/sales/reports/collections` | `sales.invoices.view` | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
 | GET | `/api/sales/tax-rates` | `sales.pricing.view` | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  |
 | GET | `/api/settings/operational` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | POST | `/api/stock/adjustments` | `stock.adjust` | ✓ | ✓ | ✓ |  |  |  |  |  |  |

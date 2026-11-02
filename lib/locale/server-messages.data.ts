@@ -1361,6 +1361,12 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["تاريخ العكس قبل تاريخ الصرف", "The reversal date is before the payment date"],
   ["ملف البنك بيطلع لمسير مترحّل بس", "The bank file is only available for a posted run"],
   // ---- WS3 remediation 2026-11 ----
+  ["البيع يا نقدي (خزينة أو بنك) يا آجل لعميل — مش الاتنين", "A sale is either for cash (cash box or bank) or on credit to a customer — not both"],
+  ["حدد الخزينة أو البنك اللي استلم الثمن، أو العميل لو البيع آجل", "Choose the cash box or bank that received the price, or the customer for a sale on credit"],
+  ["العميل وتاريخ الاستحقاق للبيع الآجل بس", "A customer and a due date apply to a sale on credit only"],
+  ["تاريخ الاستحقاق للبيع الآجل بس", "A due date applies to a sale on credit only"],
+  ["تاريخ الاستحقاق قبل تاريخ البيع", "The due date is before the sale date"],
+  ["العميل {} موقوف ائتمانياً — مينفعش يتباع له آجل", "Customer {0} is on credit hold — nothing can be sold to them on credit"],
   ["تخفيض التكلفة أكبر من قيمة المخزون الحالية للصنف — راجع سعر الفاتورة أو الإشعار", "The cost reduction is larger than the product's current stock value — check the bill or the debit note price"],
   ["تكلفة الدفعة {} هتبقى بالسالب — راجع سعر الفاتورة أو الإشعار", "Lot {0}'s cost would become negative — check the bill or the debit note price"],
   ["الفاتورة {} اتعمل لها إعادة تقييم قبل كده", "Bill {0} has already revalued its receipts"],

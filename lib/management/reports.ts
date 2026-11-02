@@ -280,7 +280,7 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
   //   Financing CF = decrease in financing assets + increase in financing liabilities
 
   const operating = await operatingAccountIds();
-  type CfLine = { kind: "net_income" | "change" | "adjustment"; label: string; amount: string; accountCode?: string; accountName?: string; accountNameAr?: string | null; unclassified?: boolean; adjustment?: "disposal_noncash" | "disposal_proceeds" | "opening_result" };
+  type CfLine = { kind: "net_income" | "change" | "adjustment"; label: string; amount: string; accountCode?: string; accountName?: string; accountNameAr?: string | null; unclassified?: boolean; adjustment?: "disposal_noncash" | "disposal_proceeds" | "opening_result" | "disposal_on_credit" };
   const unclassified: { code: string; name: string; nameAr: string }[] = [];
   const sections: Record<string, { lines: CfLine[]; total: string }> = {
     operating: { lines: [], total: "0.00" },
@@ -359,6 +359,15 @@ export async function cashFlowReport(opts: { from: string; to: string }) {
   if (!shift.isZero()) {
     sections.operating.lines.push({ kind: "adjustment", adjustment: "disposal_noncash", label: "استبعاد أصول: مجمع الإهلاك والربح/الخسارة (غير نقدي)", amount: shift.toFixed(2) });
     sections.investing.lines.push({ kind: "adjustment", adjustment: "disposal_proceeds", label: "استبعاد أصول: الفرق بين التكلفة وثمن البيع", amount: shift.negated().toFixed(2) });
+  }
+  // WS3 G1: a sale on credit brought no cash in. Its price sits in the customer's balance
+  // (an increase of AR under operating); take it out of investing, back into operating.
+  const [credit] = await prisma.$queryRaw<{ p: Prisma.Decimal | null }[]>`
+    SELECT coalesce(sum("proceeds"), 0) AS p FROM "AssetEvent" WHERE "type" = 'disposal' AND "date" BETWEEN ${from} AND ${to} AND ("details"->>'onCredit') = 'true'`;
+  const onCredit = D(credit?.p ?? 0);
+  if (!onCredit.isZero()) {
+    sections.operating.lines.push({ kind: "adjustment", adjustment: "disposal_on_credit", label: "بيع أصول آجل: الثمن في رصيد العميل (غير نقدي)", amount: onCredit.toFixed(2) });
+    sections.investing.lines.push({ kind: "adjustment", adjustment: "disposal_on_credit", label: "بيع أصول آجل: الثمن لسه ماتحصّلش", amount: onCredit.negated().toFixed(2) });
   }
 
   if (!D(openingPl ?? 0).isZero()) {

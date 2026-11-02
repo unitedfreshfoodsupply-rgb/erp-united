@@ -1143,6 +1143,9 @@ model Customer {
   legalEntity   CustomerLegalEntity?  @relation(fields: [legalEntityId], references: [id], onDelete: Restrict)
   groupMembers  CustomerGroupMember[]
 
+  // ---- WS3 remediation 2026-11 (G1) ----
+  charges CustomerCharge[]
+
   @@index([active, name])
   @@index([legalEntityId])
 }
@@ -2122,6 +2125,9 @@ model JournalEntry {
   depreciationRun      DepreciationRun?        @relation("DepreciationRunEntry")
   depreciationReversal DepreciationRun?        @relation("DepreciationRunReversal")
   depreciationLines    AssetDepreciationLine[]
+
+  // ---- WS3 remediation 2026-11 (G1) ----
+  customerCharges CustomerCharge[]
 
   @@index([date])
   @@index([sourceType, sourceId])
@@ -3987,4 +3993,41 @@ model StockRevaluation {
   @@index([intakeId])
   @@index([productId, date])
   @@index([reversalOfId])
+}
+
+// ===========================================================================
+// WS3 remediation 2026-11 — accounting (G1 fixed-asset sale on credit)
+// ===========================================================================
+
+/// A receivable from a customer that is not a sales invoice — today only the sale of a
+/// fixed asset on credit. It is part of the customer's balance (statement, aging, credit
+/// exposure, the AR control account per party) and is settled by money received on
+/// account. Append-only.
+model CustomerCharge {
+  id           String   @id @default(cuid())
+  customerId   String
+  /// asset_disposal
+  sourceType   String
+  /// The AssetEvent (disposal) it comes from.
+  sourceId     String
+  /// What the customer sees on the statement (the asset number).
+  reference    String
+  description  String
+  date         String
+  dueDate      String
+  currencyCode String   @default("EGP")
+  net          Decimal  @db.Decimal(18, 2)
+  tax          Decimal  @db.Decimal(18, 2)
+  total        Decimal  @db.Decimal(18, 2)
+  entryId      String?
+  createdById  String?
+  createdBy    String
+  createdAt    DateTime @default(now())
+
+  customer Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  entry    JournalEntry? @relation(fields: [entryId], references: [id], onDelete: Restrict)
+
+  @@unique([sourceType, sourceId])
+  @@index([customerId, dueDate])
+  @@index([entryId])
 }

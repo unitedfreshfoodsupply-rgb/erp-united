@@ -3993,6 +3993,16 @@
     },
     {
       "method": "GET",
+      "path": "/api/sales/reports/collections",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "sales.invoices.view"
+        ]
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/sales/tax-rates",
       "gate": {
         "kind": "all",
