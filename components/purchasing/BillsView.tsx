@@ -16,7 +16,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { isServiceBillAccount } from "@/lib/purchasing/service-accounts";
-import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
+import { DataTable, FilterBar, useListQuery, useListState, type Column } from "@/components/ui/DataTable";
 import { formatNumber } from "@/lib/format";
 
 /**
@@ -65,41 +65,51 @@ export function BillsView({ initialBillId }: { initialBillId?: string | null }) 
 function Bills({ onOpen }: { onOpen: (id: string) => void }) {
   const { can } = usePermissions();
   const { t, locale } = useLocale();
-  const [status, setStatus] = useState("");
   const [creating, setCreating] = useState<"goods" | "service" | null>(null);
-  const [limit, setLimit] = useState(LIST_PAGE);
-  const q = useQuery({ queryKey: ["purchasing", "bills", status, limit], queryFn: () => apiFetch<{ bills: BillRow[]; total: number }>(`/api/purchasing/bills?limit=${limit}${status ? `&status=${status}` : ""}`), placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === status ? prev : undefined) });
+  // Shared list experience (maturity 2026-11): status segments stay; search by bill
+  // number, supplier invoice number or supplier; bill-date range; server paging.
+  const list = useListState(["status"], { prefix: "b_", pageSize: 50 });
+  const status = list.filters.status;
+  const setStatus = (v: string) => list.set({ status: v || null });
+  const q = useListQuery<{ bills: BillRow[]; total: number }>(["purchasing", "bills"], `/api/purchasing/bills?${list.apiQuery()}`);
   const done = (id?: string) => { setCreating(null); if (id) onOpen(id); };
   if (creating === "goods") return <NewBill onDone={done} />;
   if (creating === "service") return <NewServiceBill onDone={done} />;
+  const rows = q.data?.bills;
+  const columns: Column<BillRow>[] = [
+    { key: "number", label: t("purchasing.col.bill"), sortValue: (b) => b.number, render: (b) => <span dir="ltr">{b.number}</span> },
+    { key: "supplier", label: t("purchasing.col.supplier"), sortValue: (b) => localName(b.supplier, locale), render: (b) => <span>{localName(b.supplier, locale)}{b.kind === "service" ? <span className="ms-2 pill-neutral">{t("purchasing.bill.kind_service")}</span> : null}</span> },
+    { key: "inv", label: t("purchasing.bill.supplier_invoice_label"), render: (b) => <span dir="ltr" className="text-united-muted">{b.supplierInvoiceNo}</span>, secondary: true },
+    { key: "date", label: t("purchasing.col.bill-date"), sortValue: (b) => b.billDate, render: (b) => <span dir="ltr">{b.billDate}</span> },
+    { key: "due", label: t("purchasing.bill.due_date"), sortValue: (b) => b.dueDate, render: (b) => <span dir="ltr">{b.dueDate}</span>, secondary: true },
+    { key: "status", label: t("list.status"), sortValue: (b) => b.status, render: (b) => <span className={`rounded-full px-2 text-xs font-extrabold ${BILL_STATUS[b.status]?.cls}`}>{BILL_STATUS[b.status] ? t(BILL_STATUS[b.status].label) : b.status}</span> },
+    { key: "total", label: t("sales.col.total"), numeric: true, sortValue: (b) => Number(b.total), render: (b) => fmtMoney(b.total) },
+    { key: "open", label: t("purchasing.bill.remaining"), numeric: true, sortValue: (b) => Number(b.open ?? 0), render: (b) => (b.open === null ? "—" : fmtMoney(b.open)) },
+  ];
+  const sum = (k: "total" | "open") => fmtMoney((rows ?? []).reduce((a, r) => a + Number(r[k] ?? 0), 0));
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2 items-center">
-        <div className="min-w-0 flex-1"><Segmented value={status} onChange={(s) => { setStatus(s); setLimit(LIST_PAGE); }} items={[{ key: "", label: t("purchasing.bill.filter.all") }, { key: "draft", label: t("purchasing.bill.filter.drafts") }, { key: "pending_approval", label: t("purchasing.bill.filter.pending_approval") }, { key: "posted", label: t("purchasing.bill.filter.posted") }]} /></div>
+        <div className="min-w-0 flex-1"><Segmented value={status} onChange={setStatus} items={[{ key: "", label: t("purchasing.bill.filter.all") }, { key: "draft", label: t("purchasing.bill.filter.drafts") }, { key: "pending_approval", label: t("purchasing.bill.filter.pending_approval") }, { key: "posted", label: t("purchasing.bill.filter.posted") }]} /></div>
         {can("purchasing.bills.manage") && <button type="button" className="btn-primary shrink-0" onClick={() => setCreating("goods")}>{t("purchasing.bill.new_supplier")}</button>}
         {can("purchasing.bills.manage") && <button type="button" className="btn-secondary shrink-0" onClick={() => setCreating("service")}>{t("purchasing.bill.new_service")}</button>}
       </div>
-      {q.isLoading && <LoadingState />}
-      {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
-      {q.data && q.data.bills.length === 0 && <EmptyState icon="🧾" title={t("purchasing.bill.empty")} />}
-      <ul className="flex flex-col gap-2">
-        {q.data?.bills.map((b) => (
-          <li key={b.id}>
-            <button type="button" className="card p-3 w-full text-start flex justify-between gap-2" onClick={() => onOpen(b.id)}>
-              <div>
-                <div className="font-extrabold"><span dir="ltr">{b.number}</span> · {localName(b.supplier, locale)}{b.kind === "service" ? <span className="ms-2 rounded-full px-2 text-xs bg-united-dark/5">{t("purchasing.bill.kind_service")}</span> : null}</div>
-                <div className="text-xs font-bold text-united-muted">{t("purchasing.bill.supplier_invoice_label")} <span dir="ltr">{b.supplierInvoiceNo}</span> · {b.billDate} · {t("purchasing.bill.due_date")} {b.dueDate} · <span className={MATCH[b.matchStatus]?.cls}>{MATCH[b.matchStatus] ? t(MATCH[b.matchStatus].label) : b.matchStatus}</span></div>
-              </div>
-              <div className="flex flex-col items-end gap-1 shrink-0">
-                <span className={`rounded-full px-2 text-xs font-extrabold ${BILL_STATUS[b.status]?.cls}`}>{BILL_STATUS[b.status] ? t(BILL_STATUS[b.status].label) : b.status}</span>
-                <span dir="ltr" className="font-extrabold">{fmtMoney(b.total)}</span>
-                {b.open !== null && b.open !== b.total && <span className="text-xs font-bold text-united-muted">{t("purchasing.bill.remaining")} <span dir="ltr">{fmtMoney(b.open)}</span></span>}
-              </div>
-            </button>
-          </li>
-        ))}
-      </ul>
-      {q.data && <ListMore shown={q.data.bills.length} total={q.data.total} busy={q.isFetching} onMore={() => setLimit(limit + LIST_PAGE)} />}
+      <FilterBar list={list} searchLabel={t("purchasing.search.bills")} searchHint={t("purchasing.search.bills-hint")} filters={[{ key: "dates", label: t("purchasing.col.bill-date"), kind: "date-range" }]} />
+      <DataTable
+        rows={rows}
+        columns={columns}
+        rowKey={(b) => b.id}
+        onRowOpen={(b) => onOpen(b.id)}
+        totals={{ total: sum("total"), open: sum("open") }}
+        loading={q.isFetching}
+        error={q.error}
+        onRetry={() => q.refetch()}
+        empty={{ title: list.active ? t("list.empty-filtered") : t("purchasing.bill.empty") }}
+        total={q.data?.total}
+        page={list.page}
+        pageSize={list.pageSize}
+        onPage={(p) => list.set({ page: p })}
+      />
     </div>
   );
 }

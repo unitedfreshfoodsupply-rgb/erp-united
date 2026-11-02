@@ -4,6 +4,7 @@ import { handleApiError } from "@/lib/rbac";
 import { requireStockActor } from "@/lib/stock-auth";
 import { recordIntake, listIntakes } from "@/lib/stock-service";
 import { readJson } from "@/lib/http";
+import { searchText } from "@/lib/core/search";
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,6 +18,7 @@ export async function GET(req: NextRequest) {
       productId: q.get("product_id") ?? undefined,
       includeVoided: q.get("include_voided") === "1",
       limit: q.get("limit") ? Number(q.get("limit")) : undefined,
+      q: searchText(q.get("q")) || undefined,
     });
     return jsonFor(viewer, { intakes });
   } catch (err) {

@@ -19,6 +19,7 @@ import { supplierPayable } from "@/lib/purchasing/bills";
 import { listLimit } from "@/lib/core/list-window";
 import { requestApproval, type Decider } from "@/lib/core/approvals";
 import { requestFingerprint } from "@/lib/core/idempotency";
+import { searchWhere } from "@/lib/core/search";
 
 /**
  * Cash and bank: customer receipts and supplier payments (each allocated to invoices /
@@ -505,10 +506,10 @@ const present = (r: { id: string; number: string; date: string; amount: Prisma.D
   };
 };
 
-export async function listReceipts(filters: { customerId?: string; limit?: number; offset?: number }) {
+export async function listReceipts(filters: { customerId?: string; limit?: number; offset?: number; q?: string; from?: string; to?: string }) {
   const take = Math.min(Math.max(filters.limit ?? 50, 1), 200);
   const skip = Math.max(filters.offset ?? 0, 0);
-  const where = filters.customerId ? { customerId: filters.customerId } : {};
+  const where = { ...(filters.customerId ? { customerId: filters.customerId } : {}), ...dateRange(filters), ...(await searchWhere("customerReceipt", filters.q)) };
   const [total, rows] = await Promise.all([
     prisma.customerReceipt.count({ where }),
     prisma.customerReceipt.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { allocations: true, deductions: { include: { account: { select: { code: true } } } }, reversal: true, customer: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true, nameAr: true } } }, skip, take }),
@@ -516,10 +517,13 @@ export async function listReceipts(filters: { customerId?: string; limit?: numbe
   return { receipts: rows.map((r) => ({ ...present(r), customer: r.customer, cashAccount: r.cashAccount.name, cashAccountAr: r.cashAccount.nameAr })), pagination: { total, limit: take, offset: skip } };
 }
 
-export async function listPayments(filters: { supplierId?: string; limit?: number; offset?: number }) {
+/** A document-date range (maturity 2026-11 search). */
+const dateRange = (f: { from?: string; to?: string }) => (f.from || f.to ? { date: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } } : {});
+
+export async function listPayments(filters: { supplierId?: string; limit?: number; offset?: number; q?: string; from?: string; to?: string }) {
   const take = Math.min(Math.max(filters.limit ?? 50, 1), 200);
   const skip = Math.max(filters.offset ?? 0, 0);
-  const where = filters.supplierId ? { supplierId: filters.supplierId } : {};
+  const where = { ...(filters.supplierId ? { supplierId: filters.supplierId } : {}), ...dateRange(filters), ...(await searchWhere("supplierPayment", filters.q)) };
   const [total, rows] = await Promise.all([
     prisma.supplierPayment.count({ where }),
     prisma.supplierPayment.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { allocations: true, deductions: { include: { account: { select: { code: true } } } }, reversal: true, supplier: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true, nameAr: true } } }, skip, take }),

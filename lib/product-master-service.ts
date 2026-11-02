@@ -13,6 +13,7 @@ import {
 import type { StockActor } from "@/lib/stock-auth";
 import { applyListPrices } from "@/lib/sales/pricing";
 import { assertPermission } from "@/lib/authz-core";
+import { searchWhere } from "@/lib/core/search";
 
 /**
  * The Product Master.
@@ -341,9 +342,10 @@ export async function updateProduct(
   return updated;
 }
 
-export async function listProducts(opts: { includeInactive?: boolean } = {}) {
+export async function listProducts(opts: { includeInactive?: boolean; q?: string; category?: string } = {}) {
+  // Search by Arabic/English name, SKU, category or alias; and a category filter (maturity 2026-11).
   const products = await prisma.stockProduct.findMany({
-    where: opts.includeInactive ? undefined : { active: true },
+    where: { ...(opts.includeInactive ? {} : { active: true }), ...(await searchWhere("product", opts.q)), ...(opts.category ? { category: opts.category } : {}) },
     orderBy: { name: "asc" },
     include: {
       aliases: { orderBy: [{ kind: "asc" }, { alias: "asc" }] },

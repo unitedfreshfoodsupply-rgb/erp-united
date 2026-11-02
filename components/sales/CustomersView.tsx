@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { systemText } from "@/lib/locale/system-text";
 import { useEffect, useState } from "react";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
@@ -19,7 +19,7 @@ import { intlLocale } from "@/lib/format";
 import { localName, otherLocalName } from "@/lib/locale/names";
 import { useDialogs } from "@/components/ui/Dialog";
 import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
-import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
+import { DataTable, FilterBar, useListQuery, useListState, type Column } from "@/components/ui/DataTable";
 
 /**
  * Customer accounts for sales and finance: find a customer, see and edit who they
@@ -98,54 +98,62 @@ export function CustomersView() {
 
 function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
   const { t, locale } = useLocale();
-  const [q, setQ] = useState("");
-  const [inactive, setInactive] = useState(false);
+  // The shared list experience: server search (name in either language, code, phone, tax
+  // number, alias, group), filters in the URL, a sortable table (maturity 2026-11).
+  const list = useListState(["type", "status", "credit"], { prefix: "c_" });
   const [limit, setLimit] = useState(LIST_PAGE);
-  const search = useDebouncedValue(q.trim());
-  const query = useQuery({
-    queryKey: ["sales", "customers", search, inactive, limit],
-    queryFn: () => apiFetch<{ customers: CustomerRow[]; total: number }>(`/api/sales/customers?q=${encodeURIComponent(search)}${inactive ? "&include_inactive=1" : ""}&limit=${limit}`),
-    placeholderData: keepPreviousData,
-  });
+  const params = new URLSearchParams();
+  if (list.q) params.set("q", list.q);
+  if (list.filters.type) params.set("type", list.filters.type);
+  if (list.filters.status === "all" || list.filters.status === "inactive") params.set("include_inactive", "1");
+  if (list.filters.credit) params.set("credit", list.filters.credit);
+  params.set("limit", String(limit));
+  const query = useListQuery<{ customers: CustomerRow[]; total: number }>(["sales", "customers"], `/api/sales/customers?${params}`);
+  const rows = (query.data?.customers ?? []).filter((c) => list.filters.status !== "inactive" || !c.active);
+  const columns: Column<CustomerRow>[] = [
+    { key: "name", label: t("sales.col.customer"), sortValue: (c) => localName(c, locale), render: (c) => (
+      <span className="flex flex-col">
+        <span className={c.active ? "" : "text-united-muted line-through"}>{localName(c, locale)}</span>
+        {(c.groups.length > 0 || c.legalEntity) && <span className="text-xs text-united-muted">{[...c.groups.map((g) => g.code), c.legalEntity ? localName(c.legalEntity, locale) : null].filter(Boolean).join(" · ")}</span>}
+      </span>
+    ) },
+    { key: "code", label: t("sales.col.code"), sortValue: (c) => c.code, render: (c) => <span dir="ltr" className="text-united-muted">{c.code}</span> },
+    { key: "type", label: t("sales.customer.type"), sortValue: (c) => c.type, render: (c) => t(`sales.type.${c.type}`) ?? c.type, secondary: true },
+    { key: "area", label: t("sales.col.area"), sortValue: (c) => [c.area, c.city].filter(Boolean).join(" "), render: (c) => [c.area, c.city].filter(Boolean).join(locale === "en" ? ", " : "، ") || "—", secondary: true },
+    { key: "phone", label: t("sales.col.phone"), render: (c) => <span dir="ltr">{c.phone ?? "—"}</span>, secondary: true },
+    { key: "terms", label: t("sales.col.terms"), sortValue: (c) => c.paymentTermsDays, render: (c) => (c.paymentTermsDays ? `${c.paymentTermsDays} ${t("sales.label.day")}` : t("sales.label.payment-cash")) },
+    { key: "orders", label: t("sales.label.orders"), numeric: true, sortValue: (c) => c._count.orders, render: (c) => c._count.orders.toLocaleString("en-US") },
+    { key: "status", label: t("list.status"), render: (c) => (!c.active ? <span className="pill-neutral">{t("sales.label.inactive")}</span> : c.creditHold ? <span className="pill-danger"><span className="pill-dot" />{t("sales.label.on-hold")}</span> : <span className="pill-success"><span className="pill-dot" />{t("sales.col.active")}</span>) },
+  ];
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex gap-2">
-        <input className="field" placeholder={t("sales.placeholder.customer-search")} value={q} onChange={(e) => { setQ(e.target.value); setLimit(LIST_PAGE); }}  aria-label={t("sales.placeholder.customer-search")}/>
-        <button type="button" onClick={() => { setInactive(!inactive); setLimit(LIST_PAGE); }} aria-pressed={inactive} className="chip">{t("ui.inactive")}</button>
-      </div>
-      {query.isLoading && <LoadingState />}
-      {query.isError && <ErrorState message={errorMessage(query.error)} onRetry={() => query.refetch()} />}
-      {query.data && query.data.customers.length === 0 && <EmptyState icon="🏨" title={t("sales.empty.no-customers")} />}
-      <ul className="grid gap-2 sm:grid-cols-2">
-        {query.data?.customers.map((c) => (
-          <li key={c.id}>
-            <button type="button" onClick={() => onOpen(c.id)} className={`card p-4 w-full text-start flex flex-col gap-1 ${c.active ? "" : "opacity-60"}`}>
-              <div className="flex justify-between gap-2">
-                <span className="font-extrabold">{localName(c, locale)}</span>
-                <span className="text-xs font-bold text-united-muted" dir="ltr">{c.code}</span>
-              </div>
-              <div className="flex flex-wrap gap-2 text-xs font-bold text-united-muted">
-                <span>{t(`sales.type.${c.type}`) ?? c.type}</span>
-                {c.area || c.city ? <span>· {[c.area, c.city].filter(Boolean).join(locale === "en" ? ", " : "، ")}</span> : null}
-                <span>· {c.paymentTermsDays ? `${t("sales.label.payment-terms-prefix")}${c.paymentTermsDays} ${t("sales.label.day")}` : t("sales.label.payment-cash")}</span>
-                <span>· {c._count.orders} {t("sales.label.orders")}</span>
-                {c.creditHold && <span className="text-united-danger">· {t("sales.label.on-hold")}</span>}
-                {!c.active && <span className="text-united-danger">· {t("sales.label.inactive")}</span>}
-              </div>
-              {(c.groups.length > 0 || c.legalEntity) && (
-                <div className="flex flex-wrap gap-1.5">
-                  {c.groups.map((g) => <span key={g.id} className="rounded-lg bg-united-dark/5 px-2 py-0.5 text-[11px] font-extrabold text-united-dark" dir="ltr">{g.code}</span>)}
-                  {c.legalEntity && <span className="rounded-lg bg-united-green/10 px-2 py-0.5 text-[11px] font-extrabold text-united-green" title={t("sales.customer.legal-entity")}><Landmark size={12} className="me-1 inline" aria-hidden />{localName(c.legalEntity, locale)}</span>}
-                </div>
-              )}
-            </button>
-          </li>
-        ))}
-      </ul>
+      <FilterBar
+        list={list}
+        searchLabel={t("sales.search.customers")}
+        searchHint={t("sales.search.customers-hint")}
+        filters={[
+          { key: "type", label: t("sales.customer.type"), kind: "select", options: CUSTOMER_TYPES_UI.map((v) => ({ value: v, label: t(`sales.type.${v}`) })) },
+          { key: "status", label: t("list.status"), kind: "select", options: [{ value: "all", label: t("sales.filter.with-inactive") }, { value: "inactive", label: t("sales.label.inactive") }] },
+          { key: "credit", label: t("sales.filter.credit"), kind: "select", options: [{ value: "hold", label: t("sales.label.on-hold") }] },
+        ]}
+      />
+      <DataTable
+        rows={query.data ? rows : undefined}
+        columns={columns}
+        rowKey={(c) => c.id}
+        onRowOpen={(c) => onOpen(c.id)}
+        loading={query.isFetching}
+        error={query.error}
+        onRetry={() => query.refetch()}
+        empty={{ title: list.active ? t("list.empty-filtered") : t("sales.empty.no-customers") }}
+        caption={t("sales.search.customers")}
+      />
       {query.data && <ListMore shown={query.data.customers.length} total={query.data.total} busy={query.isFetching} onMore={() => setLimit(limit + LIST_PAGE)} />}
     </div>
   );
 }
+
+const CUSTOMER_TYPES_UI = ["hotel", "restaurant", "cafe", "retail", "wholesale", "institution", "other"] as const;
 
 type FormState = Record<string, string>;
 // label is used as a key into the dictionary via t()

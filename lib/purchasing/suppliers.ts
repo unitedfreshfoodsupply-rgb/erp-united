@@ -14,6 +14,7 @@ import { egpCurrencyCode } from "@/lib/core/currency";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { nextDocumentNumber } from "@/lib/core/sequences";
 import type { ServiceActor } from "@/lib/core/actor";
+import { searchIds } from "@/lib/core/search";
 
 /**
  * Supplier master, commercial side.
@@ -85,7 +86,7 @@ export async function listSuppliersFull(opts: { q?: string; includeInactive?: bo
   return prisma.supplier.findMany({
     where: {
       ...(opts.includeInactive ? {} : { active: true }),
-      ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { nameAr: { contains: q } }, { code: { contains: q.toUpperCase() } }, { phone: { contains: q } }] } : {}),
+      ...(q ? { OR: [{ id: { in: await searchIds("supplier", q) } }, { name: { contains: q, mode: "insensitive" } }, { nameAr: { contains: q } }, { code: { contains: q.toUpperCase() } }, { phone: { contains: q } }] } : {}),
     },
     orderBy: [{ active: "desc" }, { name: "asc" }],
     take: 300,

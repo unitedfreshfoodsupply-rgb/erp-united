@@ -10,6 +10,7 @@ import { unitLabel } from "@/lib/format";
 import { ErrorState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { todayLocalISO } from "@/lib/localDate";
+import { FilterBar, useListState } from "@/components/ui/DataTable";
 
 /**
  * Purchase requests (remediation 2026-11): customer demand the shelf could not cover.
@@ -47,9 +48,11 @@ export function PurchaseRequestsView() {
   const qc = useQueryClient();
   const toast = useToast();
   const [status, setStatus] = useState<string>("");
+  // Search (maturity 2026-11): request number, product (either language, SKU), customer.
+  const search = useListState([], { prefix: "pr_" });
   const list = useQuery({
-    queryKey: ["purchasing", "requests", status],
-    queryFn: () => apiFetch<{ items: Req[] }>(`/api/purchasing/requests${status ? `?status=${status}` : ""}`),
+    queryKey: ["purchasing", "requests", status, search.q],
+    queryFn: () => apiFetch<{ items: Req[] }>(`/api/purchasing/requests?${new URLSearchParams({ ...(status ? { status } : {}), ...(search.q ? { q: search.q } : {}) })}`),
   });
   const suppliers = useQuery({
     queryKey: ["purchasing", "suppliers-lite"],
@@ -85,8 +88,9 @@ export function PurchaseRequestsView() {
           {STATUSES.map((s) => <option key={s} value={s}>{t(`pr.status.${s}`)}</option>)}
         </select>
       </div>
+      <FilterBar list={search} searchLabel={t("pr.search")} searchHint={t("pr.search-hint")} />
       {list.isError && <ErrorState message={errorMessage(list.error)} onRetry={() => list.refetch()} />}
-      {list.data && list.data.items.length === 0 && <p className="text-united-muted">{t("pr.empty")}</p>}
+      {list.data && list.data.items.length === 0 && <p className="text-united-muted">{search.q ? t("list.empty-filtered") : t("pr.empty")}</p>}
       <div className="flex flex-col gap-3">
         {list.data?.items.map((r) => {
           const c = convert[r.id] ?? { supplier: "", expected: "" };

@@ -13,6 +13,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { BillsView } from "@/components/purchasing/BillsView";
 import { useLocale, type Locale } from "@/lib/locale/useLocale";
 import { localName, otherLocalName } from "@/lib/locale/names";
+import { FilterBar, useListState } from "@/components/ui/DataTable";
 
 /**
  * Purchasing: suppliers and what they charge, requests for quotation, purchase orders
@@ -108,7 +109,10 @@ function Orders({ onOpen, locale, t, poStatus }: { onOpen: (id: string) => void;
   const { can } = usePermissions();
   const [status, setStatus] = useState("open");
   const [creating, setCreating] = useState(false);
-  const q = useQuery({ queryKey: ["purchasing", "orders", status], queryFn: () => apiFetch<{ orders: Po[] }>(`/api/purchasing/orders${status === "open" ? "?open=1" : status ? `?status=${status}` : ""}`) });
+  // Search (maturity 2026-11): PO number or supplier (code, either language).
+  const search = useListState([], { prefix: "po_" });
+  const params = new URLSearchParams({ ...(status === "open" ? { open: "1" } : status ? { status } : {}), ...(search.q ? { q: search.q } : {}) });
+  const q = useQuery({ queryKey: ["purchasing", "orders", status, search.q], queryFn: () => apiFetch<{ orders: Po[] }>(`/api/purchasing/orders?${params}`) });
   if (creating) return <NewPo onDone={(id) => { setCreating(false); if (id) onOpen(id); }} locale={locale} t={t} />;
   return (
     <div className="flex flex-col gap-3">
@@ -122,8 +126,9 @@ function Orders({ onOpen, locale, t, poStatus }: { onOpen: (id: string) => void;
         {can("purchasing.orders.manage") && <button type="button" className="btn-primary shrink-0" onClick={() => setCreating(true)}>{t("purchasing.orders.btn.new")}</button>}
       </div>
       {q.isLoading && <LoadingState />}
+      <FilterBar list={search} searchLabel={t("purchasing.search.orders")} searchHint={t("purchasing.search.orders-hint")} />
       {q.isError && <ErrorState message={t("sales.invoice.error-generic")} onRetry={() => q.refetch()} />}
-      {q.data && q.data.orders.length === 0 && <EmptyState icon="🛒" title={t("purchasing.orders.empty")} />}
+      {q.data && q.data.orders.length === 0 && <EmptyState icon="🛒" title={search.q ? t("list.empty-filtered") : t("purchasing.orders.empty")} />}
       <ul className="flex flex-col gap-2">
         {q.data?.orders.map((po) => (
           <li key={po.id}>

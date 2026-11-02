@@ -4,12 +4,13 @@ import { handleApiError } from "@/lib/rbac";
 import { requireStockActor } from "@/lib/stock-auth";
 import { createProduct, listProducts } from "@/lib/product-master-service";
 import { readJson } from "@/lib/http";
+import { searchText } from "@/lib/core/search";
 
 export async function GET(req: NextRequest) {
   try {
     const viewer = await requireStockActor(req, "stock.view");
     const includeInactive = new URL(req.url).searchParams.get("all") === "1";
-    return jsonForGet(req, viewer, { products: await listProducts({ includeInactive }) });
+    return jsonForGet(req, viewer, { products: await listProducts({ includeInactive, q: searchText(new URL(req.url).searchParams.get("q")) || undefined, category: new URL(req.url).searchParams.get("category") || undefined }) });
   } catch (err) {
     return handleApiError(err, req);
   }

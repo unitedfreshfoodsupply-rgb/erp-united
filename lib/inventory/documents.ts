@@ -21,6 +21,7 @@ import { resolveLocation, resolveWarehouse, receivingLocation } from "@/lib/inve
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { requestFingerprint } from "@/lib/core/idempotency";
 import { requiresAdjustmentApproval } from "@/lib/inventory/adjustment-rules";
+import { searchWhere } from "@/lib/core/search";
 
 /**
  * Inventory documents: every stock operation other than a supplier receipt.
@@ -1088,10 +1089,10 @@ export async function reverseDocumentInTx(tx: Tx, documentId: string, reason: st
 
 const MAX_LIST_PAGE = 200;
 
-export async function listDocuments(filters: { type?: string; status?: string; limit?: number; offset?: number }) {
+export async function listDocuments(filters: { type?: string; status?: string; limit?: number; offset?: number; q?: string }) {
   const take = Math.min(Math.max(filters.limit ?? 50, 1), MAX_LIST_PAGE);
   const skip = Math.max(filters.offset ?? 0, 0);
-  const where = { ...(filters.type ? { type: filters.type } : {}), ...(filters.status ? { status: filters.status } : {}) };
+  const where = { ...(filters.type ? { type: filters.type } : {}), ...(filters.status ? { status: filters.status } : {}), ...(await searchWhere("document", filters.q)) };
   const [total, rows] = await Promise.all([
     prisma.inventoryDocument.count({ where }),
     prisma.inventoryDocument.findMany({

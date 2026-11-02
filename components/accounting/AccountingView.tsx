@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CashAccountSelect } from "@/components/accounting/CashAccountSelect";
 import { TreasuryView } from "@/components/accounting/TreasuryView";
 import { ChartView } from "@/components/accounting/ChartView";
@@ -26,6 +26,7 @@ import { formatNumber, intlLocale, unitLabel } from "@/lib/format";
 import { localName, type LocalizedNameSource } from "@/lib/locale/names";
 import { useDialogs } from "@/components/ui/Dialog";
 import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
+import { FilterBar, useListState } from "@/components/ui/DataTable";
 
 /**
  * Finance: cash position, customer receipts, supplier payments, journals, trial
@@ -163,10 +164,14 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
     queryFn: () => apiFetch<{ invoices?: { id: string; number: string; dueDate: string; open: string }[]; bills?: { id: string; number: string; dueDate: string; open: string }[] }>(isReceipt ? `/api/accounting/customers/${party}/open-invoices` : `/api/accounting/suppliers/${party}/open-bills`).then((r) => r.invoices ?? r.bills ?? []),
     enabled: !!party,
   });
+  // Search (maturity 2026-11): document number, reference, party (code, either language); date range.
+  const search = useListState([], { prefix: `${kind}_` });
+  const searchQs = [search.q ? `&q=${encodeURIComponent(search.q)}` : "", search.from ? `&from=${search.from}` : "", search.to ? `&to=${search.to}` : ""].join("");
+  useEffect(() => setPage(1), [searchQs]);
   const list = useQuery({
-    queryKey: ["acc", kind, page],
+    queryKey: ["acc", kind, page, searchQs],
     queryFn: async () => {
-      const r = await apiFetch<Partial<Record<typeof kind, SettlementRow[]>> & { pagination: { total: number; limit: number; offset: number } }>(`/api/accounting/${kind}?limit=${pageSize}&offset=${(page - 1) * pageSize}`);
+      const r = await apiFetch<Partial<Record<typeof kind, SettlementRow[]>> & { pagination: { total: number; limit: number; offset: number } }>(`/api/accounting/${kind}?limit=${pageSize}&offset=${(page - 1) * pageSize}${searchQs}`);
       const items: SettlementRow[] = r[kind] ?? [];
       const totalPages = Math.max(1, Math.ceil((r.pagination?.total ?? 0) / pageSize));
       return { items, total: r.pagination?.total ?? 0, totalPages };
@@ -233,6 +238,7 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
           }}>{isReceipt ? t("accounting.button.record-receipt") : t("accounting.button.record-payment")}</button>
         </section>
       )}
+      <FilterBar list={search} searchLabel={isReceipt ? t("accounting.search.receipts") : t("accounting.search.payments")} searchHint={isReceipt ? t("accounting.search.receipts-hint") : t("accounting.search.payments-hint")} filters={[{ key: "dates", label: t("list.dates"), kind: "date-range" }]} />
       {list.isLoading && <LoadingState />}
       {list.isError && <ErrorState message={errorMessage(list.error)} onRetry={() => list.refetch()} />}
       {list.data?.items.length === 0 && <EmptyState icon="💵" title={t("accounting.empty.no-transactions")} />}
@@ -380,7 +386,11 @@ function Journals() {
   const [open, setOpen] = useState<string | null>(null);
   const [jPage, setJPage] = useState(1);
   const jPageSize = 50;
-  const q = useQuery({ queryKey: ["acc", "journals", jPage], queryFn: () => apiFetch<{ journals: Journal[]; pagination: { total: number } }>(`/api/accounting/journals?limit=${jPageSize}&offset=${(jPage - 1) * jPageSize}`) });
+  // Search (maturity 2026-11): entry number or description; date range.
+  const jSearch = useListState([], { prefix: "j_" });
+  const jQs = [jSearch.q ? `&q=${encodeURIComponent(jSearch.q)}` : "", jSearch.from ? `&from=${jSearch.from}` : "", jSearch.to ? `&to=${jSearch.to}` : ""].join("");
+  useEffect(() => setJPage(1), [jQs]);
+  const q = useQuery({ queryKey: ["acc", "journals", jPage, jQs], queryFn: () => apiFetch<{ journals: Journal[]; pagination: { total: number } }>(`/api/accounting/journals?limit=${jPageSize}&offset=${(jPage - 1) * jPageSize}${jQs}`) });
   const detail = useQuery({ queryKey: ["acc", "journal", open], queryFn: () => apiFetch<{ journal: Journal }>(`/api/accounting/journals/${open}`), enabled: !!open });
   const accounts = useQuery({ queryKey: ["acc", "accounts"], queryFn: () => apiFetch<{ accounts: { id: string; code: string; name: string; nameAr: string; type: string; postable: boolean; active: boolean; systemKey: string | null; controlledBy: string | null }[] }>("/api/accounting/accounts"), enabled: can("accounting.manage") });
   const [m, setM] = useState({ date: todayLocalISO(), description: "", lines: [{ account_id: "", debit: "", credit: "", cost_center_id: "" }, { account_id: "", debit: "", credit: "", cost_center_id: "" }] });
@@ -454,9 +464,10 @@ function Journals() {
           </section>
         );
       })()}
+      <FilterBar list={jSearch} searchLabel={t("accounting.search.journals")} searchHint={t("accounting.search.journals-hint")} filters={[{ key: "dates", label: t("list.dates"), kind: "date-range" }]} />
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error) ?? t("ui.error.generic")} onRetry={() => q.refetch()} />}
-      {q.data && !q.data.journals.length && <EmptyState title={t("accounting.journals-empty")} />}
+      {q.data && !q.data.journals.length && <EmptyState title={jSearch.active ? t("list.empty-filtered") : t("accounting.journals-empty")} />}
       {!!q.data?.journals.length && (
         <div className="card overflow-x-auto">
           <table className="data-table">

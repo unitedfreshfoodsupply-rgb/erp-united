@@ -5,13 +5,15 @@ import { createBill, getBill, listBills } from "@/lib/purchasing/bills";
 import { postHandler } from "@/lib/route-handlers";
 import { jsonResponse } from "@/lib/http-response";
 import { listLimit } from "@/lib/core/list-window";
+import { listParams } from "@/lib/core/search";
 
 export async function GET(req: NextRequest) {
   try {
     await requirePermission(req, "purchasing.bills.view");
     const sp = new URL(req.url).searchParams;
     const limit = listLimit(sp.get("limit"));
-    const { items, total } = await listBills({ status: sp.get("status") ?? undefined, supplierId: sp.get("supplier_id") ?? undefined, limit });
+    const lp = listParams(sp);
+    const { items, total } = await listBills({ status: sp.get("status") ?? undefined, supplierId: sp.get("supplier_id") ?? undefined, limit, offset: lp.offset, q: lp.q, from: lp.from, to: lp.to });
     return jsonResponse(req, { bills: items, total, limit });
   } catch (err) {
     return handleApiError(err, req);

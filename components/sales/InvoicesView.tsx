@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { newClientKey } from "@/lib/clientKey";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
@@ -13,8 +13,8 @@ import { Field, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { Segmented } from "@/components/ui/Segmented";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
-import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
 import { formatNumber } from "@/lib/format";
+import { DataTable, FilterBar, useListQuery, useListState, type Column } from "@/components/ui/DataTable";
 
 /**
  * Invoicing for the accountant: orders that left and are not invoiced yet, drafts to
@@ -82,29 +82,40 @@ function ToInvoice({ onOpen }: { onOpen: (id: string) => void }) {
 
 function InvoiceList({ status, onOpen }: { status: string; onOpen: (id: string) => void }) {
   const { t, locale } = useLocale();
-  const [limit, setLimit] = useState(LIST_PAGE);
-  const q = useQuery({ queryKey: ["sales", "invoices", status, limit], queryFn: () => apiFetch<{ invoices: InvRow[]; total: number }>(`/api/sales/invoices?status=${status}&limit=${limit}`), placeholderData: keepPreviousData });
-  if (q.isLoading) return <LoadingState />;
-  if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
-  if (!q.data?.invoices.length) return <EmptyState icon="🧾" title={t("sales.invoice.no_invoices")} />;
+  // Shared list experience (maturity 2026-11): search by number, customer (either
+  // language), code or tax number; issue-date range; paged on the server.
+  const list = useListState([], { prefix: `${status}_`, pageSize: 50 });
+  const q = useListQuery<{ invoices: InvRow[]; total: number }>(["sales", "invoices", status], `/api/sales/invoices?status=${status}&${list.apiQuery()}`);
+  const rows = q.data?.invoices;
+  const sum = (k: "total" | "open") => fmtMoney((rows ?? []).reduce((a, r) => a + Number(r[k] ?? 0), 0));
+  const columns: Column<InvRow>[] = [
+    { key: "number", label: t("sales.col.invoice"), sortValue: (i) => i.number ?? "", render: (i) => <span dir="ltr">{i.number ?? t("sales.invoice.invoice_number_placeholder")}</span> },
+    { key: "customer", label: t("sales.col.customer"), sortValue: (i) => localName(i.customer, locale), render: (i) => localName(i.customer, locale) },
+    { key: "order", label: t("sales.col.order"), render: (i) => <span dir="ltr" className="text-united-muted">{i.order?.orderNumber ?? "—"}</span>, secondary: true },
+    { key: "issued", label: t("sales.col.issued"), sortValue: (i) => i.issueDate ?? "", render: (i) => <span dir="ltr">{i.issueDate ?? "—"}</span> },
+    { key: "due", label: t("sales.col.due"), sortValue: (i) => i.dueDate ?? "", render: (i) => <span dir="ltr">{i.dueDate ?? "—"}</span>, secondary: true },
+    { key: "total", label: t("sales.col.total"), numeric: true, sortValue: (i) => Number(i.total), render: (i) => fmtMoney(i.total) },
+    ...(status === "issued" ? [{ key: "open", label: t("sales.col.open"), numeric: true, sortValue: (i: InvRow) => Number(i.open ?? 0), render: (i: InvRow) => <span className={Number(i.open) > 0 ? "font-semibold text-united-dark" : "text-united-muted"}>{fmtMoney(i.open ?? 0)}</span> }] : []),
+  ];
   return (
-    <ul className="flex flex-col gap-2">
-      {q.data.invoices.map((i) => (
-        <li key={i.id}>
-          <button type="button" className="card p-3 w-full text-start flex justify-between gap-2" onClick={() => onOpen(i.id)}>
-            <div>
-              <div className="font-extrabold"><span dir="ltr">{i.number ?? t("sales.invoice.invoice_number_placeholder")}</span> · {localName(i.customer, locale)}</div>
-              <div className="text-xs font-bold text-united-muted">{i.order?.orderNumber ?? ""}{i.issueDate ? ` · ${i.issueDate} ${t("sales.invoice.due_date_text")}${i.dueDate}` : ""}</div>
-            </div>
-            <div className="text-end">
-              <div dir="ltr" className="font-extrabold">{fmtMoney(i.total)}</div>
-              {i.open !== null && Number(i.credited) > 0 && <div className="text-xs font-bold text-united-muted">{t("sales.invoice.open_amount_label")} <span dir="ltr">{fmtMoney(i.open)}</span></div>}
-            </div>
-          </button>
-        </li>
-      ))}
-      <li><ListMore shown={q.data.invoices.length} total={q.data.total} busy={q.isFetching} onMore={() => setLimit(limit + LIST_PAGE)} /></li>
-    </ul>
+    <div className="flex flex-col gap-3">
+      <FilterBar list={list} searchLabel={t("sales.search.invoices")} searchHint={t("sales.search.invoices-hint")} filters={[{ key: "dates", label: t("sales.col.issued"), kind: "date-range" }]} />
+      <DataTable
+        rows={rows}
+        columns={columns}
+        rowKey={(i) => i.id}
+        onRowOpen={(i) => onOpen(i.id)}
+        totals={{ total: sum("total"), ...(status === "issued" ? { open: sum("open") } : {}) }}
+        loading={q.isFetching}
+        error={q.error}
+        onRetry={() => q.refetch()}
+        empty={{ title: list.active ? t("list.empty-filtered") : t("sales.invoice.no_invoices") }}
+        total={q.data?.total}
+        page={list.page}
+        pageSize={list.pageSize}
+        onPage={(p) => list.set({ page: p })}
+      />
+    </div>
   );
 }
 

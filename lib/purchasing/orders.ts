@@ -18,6 +18,7 @@ import { resolveWarehouse } from "@/lib/inventory/context";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { amountsJSON, lineAmounts, sumAmounts } from "@/lib/sales/money";
 import { effectiveSupplierPrice } from "@/lib/purchasing/suppliers";
+import { searchWhere } from "@/lib/core/search";
 
 /**
  * Purchase orders.
@@ -406,9 +407,10 @@ export async function getPurchaseOrder(id: string, viewer: { permissions: readon
   return present(po, await receivedSoFar(prisma, id), canSeePrices(viewer));
 }
 
-export async function listPurchaseOrders(filters: { status?: string; supplierId?: string; open?: boolean }, viewer: Parameters<typeof getPurchaseOrder>[1]) {
+export async function listPurchaseOrders(filters: { status?: string; supplierId?: string; open?: boolean; q?: string }, viewer: Parameters<typeof getPurchaseOrder>[1]) {
   const rows = await prisma.purchaseOrder.findMany({
     where: {
+      ...(await searchWhere("purchaseOrder", filters.q)),
       ...(filters.status ? { status: filters.status } : {}),
       ...(filters.open ? { status: { in: ["approved", "sent", "partially_received"] } } : {}),
       ...(filters.supplierId ? { supplierId: filters.supplierId } : {}),

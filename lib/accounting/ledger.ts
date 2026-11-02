@@ -487,6 +487,7 @@ const manualInput = z.object({
 
 export { controlAccountMovedBy } from "@/lib/accounting/control-accounts";
 import { controlAccountMovedBy } from "@/lib/accounting/control-accounts";
+import { searchWhere } from "@/lib/core/search";
 
 export async function createManualJournal(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.manage");
@@ -860,10 +861,10 @@ export async function getJournal(id: string) {
 
 const MAX_LIST_PAGE = 200;
 
-export async function listJournals(filters: { from?: string; to?: string; sourceType?: string; limit?: number; offset?: number }) {
+export async function listJournals(filters: { from?: string; to?: string; sourceType?: string; limit?: number; offset?: number; q?: string }) {
   const take = Math.min(Math.max(filters.limit ?? 50, 1), MAX_LIST_PAGE);
   const skip = Math.max(filters.offset ?? 0, 0);
-  const where = { ...(filters.sourceType ? { sourceType: filters.sourceType } : {}), date: { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) } };
+  const where = { ...(filters.sourceType ? { sourceType: filters.sourceType } : {}), ...(await searchWhere("journal", filters.q)), date: { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) } };
   const [total, rows] = await Promise.all([
     prisma.journalEntry.count({ where }),
     prisma.journalEntry.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], skip, take }),

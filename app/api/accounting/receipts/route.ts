@@ -4,6 +4,7 @@ import { requireAnyPermission } from "@/lib/authz";
 import { listReceipts } from "@/lib/accounting/cash";
 import { createReceipt } from "@/lib/accounting/cash";
 import { postHandler } from "@/lib/route-handlers";
+import { searchOf } from "@/lib/core/search";
 
 export async function GET(req: NextRequest) {
   try {
@@ -11,7 +12,7 @@ export async function GET(req: NextRequest) {
     // these does not need the ledger, balances or reports — see lib/permissions.ts).
     await requireAnyPermission(req, ["accounting.view", "accounting.receipts.manage"]);
     const sp = new URL(req.url).searchParams;
-    return NextResponse.json(await listReceipts({ customerId: sp.get("customer_id") ?? undefined, limit: Number(sp.get("limit")) || undefined, offset: Number(sp.get("offset")) || undefined }));
+    return NextResponse.json(await listReceipts({ customerId: sp.get("customer_id") ?? undefined, limit: Number(sp.get("limit")) || undefined, offset: Number(sp.get("offset")) || undefined, ...searchOf(sp) }));
   } catch (err) {
     return handleApiError(err, req);
   }

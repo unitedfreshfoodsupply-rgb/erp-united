@@ -16,17 +16,21 @@ import { localName } from "@/lib/locale/names";
 import { useLocale } from "@/lib/locale";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { FilterBar, useListState } from "@/components/ui/DataTable";
 
 export function IntakeList() {
   const { t } = useLocale();
   const [date, setDate] = useState(todayLocalISO());
   const [showVoided, setShowVoided] = useState(false);
 
+  // Search (maturity 2026-11): a receipt number, supplier, product (either language, SKU)
+  // or lot finds the receipt on any day; without a search the list is the chosen day.
+  const search = useListState([], { prefix: "in_" });
   const { data, isLoading, isError, error, refetch, dataUpdatedAt } = useQuery({
-    queryKey: ["stock", "intakes", date, showVoided],
+    queryKey: ["stock", "intakes", date, showVoided, search.q],
     queryFn: () =>
       apiFetch<{ intakes: IntakeDTO[] }>(
-        `/api/stock/intakes?date=${date}${showVoided ? "&include_voided=1" : ""}`
+        `/api/stock/intakes?${search.q ? `q=${encodeURIComponent(search.q)}&limit=100` : `date=${date}`}${showVoided ? "&include_voided=1" : ""}`
       ),
     refetchInterval: 15_000,
   });
@@ -40,9 +44,11 @@ export function IntakeList() {
     <div className="page-narrow">
       <PageHeader title={t("intake.title")} actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />} />
 
+      <FilterBar list={search} searchLabel={t("intake.search")} searchHint={t("intake.search-hint")} />
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="date"
+          disabled={!!search.q}
           value={date}
           onChange={(e) => setDate(e.target.value || todayLocalISO())}
           className="field w-auto"

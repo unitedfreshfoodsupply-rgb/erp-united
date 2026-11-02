@@ -36,6 +36,7 @@ import { evaluateOrderCredit } from "@/lib/sales/credit";
 import { assertQuantityFitsUnit, commitOrderStock } from "@/lib/sales/stock-commitment";
 import { assertPricingCleared, evaluateOrderPricing } from "@/lib/sales/price-exceptions";
 import { releaseOrderInvoiceForReopen } from "@/lib/sales/invoicing";
+import { searchWhere } from "@/lib/core/search";
 
 function assertValidQuantity(quantity: unknown, label: string): asserts quantity is number {
   if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity < 0 || quantity > 999_999_999_999 || !Number.isInteger(quantity * 1000)) {
@@ -117,8 +118,11 @@ export async function listOrders(filters: {
   assignedToId?: string;
   /** board (default when nothing else narrows the list) | production */
   scope?: "board" | "production";
+  /** Search: order number, external id, customer name / code / phone (maturity 2026-11). A
+   * search looks across every order, not only today's board. */
+  q?: string;
 }) {
-  const unfiltered = !filters.status && !filters.date && !filters.assignedToId;
+  const unfiltered = !filters.status && !filters.date && !filters.assignedToId && !filters.q;
   const scope = filters.scope === "production" ? productionScope() : unfiltered || filters.scope === "board" ? boardScope() : {};
   return prisma.order.findMany({
     where: {
@@ -126,6 +130,7 @@ export async function listOrders(filters: {
       // overwrite the scope's own status condition.
       AND: [
         scope,
+        await searchWhere("order", filters.q),
         {
           ...(filters.assignedToId ? { assignedToId: filters.assignedToId } : {}),
           status: filters.status

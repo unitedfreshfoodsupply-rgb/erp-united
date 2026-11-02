@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     await requirePermission(req, "sales.customers.view");
     const sp = new URL(req.url).searchParams;
     const limit = listLimit(sp.get("limit"));
-    const { items, total } = await listCustomers({ q: sp.get("q") ?? undefined, includeInactive: sp.get("include_inactive") === "1", limit });
+    const { items, total } = await listCustomers({ q: sp.get("q") ?? undefined, includeInactive: sp.get("include_inactive") === "1", limit, type: sp.get("type") || undefined, onHold: sp.get("credit") === "hold" });
     return jsonResponse(req, { customers: items, total, limit });
   } catch (err) {
     return handleApiError(err, req);

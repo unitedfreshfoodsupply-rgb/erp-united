@@ -19,6 +19,7 @@ import { postCustomerReturnInTx } from "@/lib/inventory/documents";
 import { idempotencyKeyField, lockKey, replayRequest, requestFingerprint } from "@/lib/core/idempotency";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { listLimit } from "@/lib/core/list-window";
+import { searchWhere } from "@/lib/core/search";
 
 /**
  * Sales invoicing.
@@ -527,11 +528,17 @@ export async function openAmounts(db: Pick<Tx, "creditNote" | "receiptAllocation
   return out;
 }
 
-export async function listInvoices(filters: { status?: string; customerId?: string; orderId?: string; limit?: number }) {
-  const where = { ...(filters.status ? { status: filters.status } : {}), ...(filters.customerId ? { customerId: filters.customerId } : {}), ...(filters.orderId ? { orderId: filters.orderId } : {}) };
+export async function listInvoices(filters: { status?: string; customerId?: string; orderId?: string; limit?: number; offset?: number; q?: string; from?: string; to?: string }) {
+  // Search (number, buyer, customer code/name/tax number) and an issue-date range (maturity 2026-11).
+  const where = {
+    ...(filters.status ? { status: filters.status } : {}), ...(filters.customerId ? { customerId: filters.customerId } : {}), ...(filters.orderId ? { orderId: filters.orderId } : {}),
+    ...(filters.from || filters.to ? { issueDate: { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) } } : {}),
+    ...(await searchWhere("salesInvoice", filters.q)),
+  };
   const [total, rows] = await Promise.all([prisma.salesInvoice.count({ where }), prisma.salesInvoice.findMany({
     where,
     orderBy: [{ createdAt: "desc" }],
+    skip: Math.max(filters.offset ?? 0, 0),
     take: listLimit(filters.limit),
     include: { customer: { select: { code: true, name: true, nameAr: true } }, order: { select: { orderNumber: true } } },
   })]);

@@ -13,6 +13,7 @@ import { active, optDecimal, optText, parse, text, version } from "@/lib/core/va
 import type { ServiceActor } from "@/lib/core/actor";
 import { applyListPrices } from "@/lib/sales/pricing";
 import { listLimit } from "@/lib/core/list-window";
+import { searchIds } from "@/lib/core/search";
 
 /**
  * The customer master.
@@ -143,14 +144,18 @@ async function releaseCanonical(tx: Tx, customerId: string, kind: "canonical" | 
 // Reads
 // ---------------------------------------------------------------------------
 
-export async function listCustomers(opts: { q?: string; includeInactive?: boolean; limit?: number } = {}) {
+export async function listCustomers(opts: { q?: string; includeInactive?: boolean; limit?: number; type?: string; onHold?: boolean } = {}) {
   const q = opts.q?.trim();
   const normalized = q ? normalizeName(q) : "";
   const where: Prisma.CustomerWhereInput = {
       ...(opts.includeInactive ? {} : { active: true }),
+      ...(opts.type ? { type: opts.type } : {}),
+      ...(opts.onHold ? { creditHold: true } : {}),
       ...(q
         ? {
             OR: [
+              // Normalised (Arabic letter variants, diacritics, digit scripts) — maturity 2026-11.
+              { id: { in: await searchIds("customer", q) } },
               { name: { contains: q, mode: "insensitive" } },
               { nameAr: { contains: q } },
               { legalName: { contains: q, mode: "insensitive" } },

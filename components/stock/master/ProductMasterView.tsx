@@ -12,6 +12,7 @@ import { CoveragePanel } from "@/components/stock/master/CoveragePanel";
 import { SuppliersPanel } from "@/components/stock/master/SuppliersPanel";
 import { StatTile } from "@/components/stock/StatTile";
 import type { CoverageDTO, StockProductDTO } from "@/lib/stock-client-types";
+import { FilterBar, useListQuery, useListState } from "@/components/ui/DataTable";
 
 type Tab = "products" | "coverage" | "suppliers";
 
@@ -40,6 +41,13 @@ export function ProductMasterView() {
 
   const summary = coverageQ.data?.summary;
   const products = productsQ.data?.products ?? [];
+  // Discovery (maturity 2026-11): the server finds a product by its Arabic or English name,
+  // SKU, category or any alias; the category and status filters come from the catalogue.
+  const list = useListState(["category", "status"], { prefix: "p_" });
+  const categories = [...new Set(products.map((p) => p.category).filter((c): c is string => !!c))].sort();
+  const filtered = list.q || list.filters.category;
+  const searchQ = useListQuery<{ products: StockProductDTO[] }>(["stock", "products", "search"], filtered ? `/api/stock/products?all=1${list.q ? `&q=${encodeURIComponent(list.q)}` : ""}${list.filters.category ? `&category=${encodeURIComponent(list.filters.category)}` : ""}` : null);
+  const shown = (filtered ? searchQ.data?.products ?? [] : products).filter((p) => (list.filters.status === "inactive" ? !p.active : list.filters.status === "active" ? p.active : true));
 
   return (
     <div className="page-narrow max-w-4xl">
@@ -73,7 +81,21 @@ export function ProductMasterView() {
         <>
           {productsQ.isLoading && <LoadingState label={t("master.loading-products")} />}
           {productsQ.isError && <ErrorState message={errorMessage(productsQ.error)} onRetry={() => productsQ.refetch()} />}
-          {productsQ.data && <ProductsPanel products={products} canManage={canManage} />}
+          {productsQ.data && (
+            <>
+              <FilterBar
+                list={list}
+                searchLabel={t("master.search")}
+                searchHint={t("master.search-hint")}
+                filters={[
+                  { key: "category", label: t("stock.field-category"), kind: "select", options: categories.map((c) => ({ value: c, label: c })) },
+                  { key: "status", label: t("list.status"), kind: "select", options: [{ value: "active", label: t("master.stat-active") }, { value: "inactive", label: t("stock.suspended") }] },
+                ]}
+              />
+              <p className="text-sm text-united-muted" aria-live="polite">{t("master.showing", { shown: String(shown.length), total: String(products.length) })}</p>
+              {filtered && searchQ.isFetching && !searchQ.data ? <LoadingState /> : <ProductsPanel products={shown} canManage={canManage} />}
+            </>
+          )}
         </>
       )}
 

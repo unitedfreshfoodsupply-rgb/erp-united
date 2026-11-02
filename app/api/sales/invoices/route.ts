@@ -5,14 +5,16 @@ import { createInvoiceFromOrder, listInvoices } from "@/lib/sales/invoicing";
 import { postHandler } from "@/lib/route-handlers";
 import { jsonResponse } from "@/lib/http-response";
 import { listLimit } from "@/lib/core/list-window";
+import { listParams } from "@/lib/core/search";
 
 export async function GET(req: NextRequest) {
   try {
     await requirePermission(req, "sales.invoices.view");
     const sp = new URL(req.url).searchParams;
     const limit = listLimit(sp.get("limit"));
-    const { items, total } = await listInvoices({ status: sp.get("status") ?? undefined, customerId: sp.get("customer_id") ?? undefined, orderId: sp.get("order_id") ?? undefined, limit });
-    return jsonResponse(req, { invoices: items, total, limit });
+    const lp = listParams(sp);
+    const { items, total } = await listInvoices({ status: sp.get("status") ?? undefined, customerId: sp.get("customer_id") ?? undefined, orderId: sp.get("order_id") ?? undefined, limit, offset: lp.offset, q: lp.q, from: lp.from, to: lp.to });
+    return jsonResponse(req, { invoices: items, total, limit, pagination: { total, limit, offset: lp.offset } });
   } catch (err) {
     return handleApiError(err, req);
   }

@@ -22,6 +22,7 @@ import { afterPoReceipt, guardPoReceipt, loadPoLine, poLineUnitCost, lockPoForRe
 import { effectiveSupplierPrice } from "@/lib/purchasing/suppliers";
 import { assertReceiptNotBilled } from "@/lib/purchasing/bills";
 import { postingDate, postJournal } from "@/lib/accounting/ledger";
+import { searchWhere } from "@/lib/core/search";
 
 /** Row-locks a receipt (a supplier bill being booked on it takes the same lock) and
  * refuses when it is already on a live bill — the bill was matched against it. */
@@ -707,8 +708,11 @@ export async function listIntakes(filters: {
   productId?: string;
   includeVoided?: boolean;
   limit?: number;
+  /** Search: receipt number, supplier, product (Arabic/English/SKU), lot (maturity 2026-11). */
+  q?: string;
 }) {
   const where: Prisma.StockIntakeWhereInput = {
+    ...(await searchWhere("intake", filters.q)),
     supplierId: filters.supplierId,
     productId: filters.productId,
     ...(filters.includeVoided ? {} : { status: "posted" }),

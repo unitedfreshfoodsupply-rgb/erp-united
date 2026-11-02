@@ -14,6 +14,7 @@ import type { ServiceActor } from "@/lib/core/actor";
 import { isoDate, money, qty, createPoInTx } from "@/lib/purchasing/orders";
 import { assertQuantityFitsUnit, sellableNow } from "@/lib/sales/stock-commitment";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
+import { searchWhere } from "@/lib/core/search";
 
 /**
  * Purchase requests (remediation 2026-11, WF-01).
@@ -232,10 +233,10 @@ function present(r: Prisma.PurchaseRequestGetPayload<{ include: typeof INCLUDE }
   return { ...r, quantity: r.quantity.toFixed(), receivedGood: received?.toFixed() ?? null, availableNow: available?.toFixed() ?? null };
 }
 
-export async function listPurchaseRequests(filters: { status?: string; customerId?: string; orderId?: string; limit?: number }, actor: ServiceActor) {
+export async function listPurchaseRequests(filters: { status?: string; customerId?: string; orderId?: string; limit?: number; q?: string }, actor: ServiceActor) {
   assertPermission(actor, "purchasing.requests.view");
   const rows = await prisma.purchaseRequest.findMany({
-    where: { ...(filters.status ? { status: filters.status } : {}), ...(filters.customerId ? { customerId: filters.customerId } : {}), ...(filters.orderId ? { orderId: filters.orderId } : {}) },
+    where: { ...(filters.status ? { status: filters.status } : {}), ...(filters.customerId ? { customerId: filters.customerId } : {}), ...(filters.orderId ? { orderId: filters.orderId } : {}), ...(await searchWhere("purchaseRequest", filters.q)) },
     include: INCLUDE,
     orderBy: { createdAt: "desc" },
     take: Math.min(Math.max(filters.limit ?? 100, 1), 500),

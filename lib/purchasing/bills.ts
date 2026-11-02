@@ -26,6 +26,7 @@ import { postReturnToSupplierInTx } from "@/lib/inventory/documents";
 import { idempotencyKeyField, lockKey, replayRequest, requestFingerprint } from "@/lib/core/idempotency";
 import { listLimit } from "@/lib/core/list-window";
 import { revaluationsOf } from "@/lib/purchasing/revaluation";
+import { searchWhere } from "@/lib/core/search";
 
 /**
  * Supplier bills and debit notes — the payables side of purchasing.
@@ -769,11 +770,17 @@ async function debitedByBill(db: Pick<Tx, "debitNote" | "paymentAllocation">, bi
   return out;
 }
 
-export async function listBills(filters: { status?: string; supplierId?: string; limit?: number }) {
-  const where = { ...(filters.status ? { status: filters.status } : {}), ...(filters.supplierId ? { supplierId: filters.supplierId } : {}) };
+export async function listBills(filters: { status?: string; supplierId?: string; limit?: number; offset?: number; q?: string; from?: string; to?: string }) {
+  // Search (number, supplier invoice no., supplier code/name) and a bill-date range (maturity 2026-11).
+  const where = {
+    ...(filters.status ? { status: filters.status } : {}), ...(filters.supplierId ? { supplierId: filters.supplierId } : {}),
+    ...(filters.from || filters.to ? { billDate: { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) } } : {}),
+    ...(await searchWhere("supplierBill", filters.q)),
+  };
   const [total, rows] = await Promise.all([prisma.supplierBill.count({ where }), prisma.supplierBill.findMany({
     where,
     orderBy: [{ createdAt: "desc" }],
+    skip: Math.max(filters.offset ?? 0, 0),
     include: { supplier: { select: { id: true, code: true, name: true, nameAr: true } }, _count: { select: { lines: true, serviceLines: true } } },
     take: listLimit(filters.limit),
   })]);

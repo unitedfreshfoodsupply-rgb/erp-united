@@ -4,12 +4,13 @@ import { requirePermission } from "@/lib/authz";
 import { listJournals } from "@/lib/accounting/ledger";
 import { getJournal, submitManualJournal } from "@/lib/accounting/ledger";
 import { postHandler } from "@/lib/route-handlers";
+import { searchText } from "@/lib/core/search";
 
 export async function GET(req: NextRequest) {
   try {
     await requirePermission(req, "accounting.view");
     const sp = new URL(req.url).searchParams;
-    return NextResponse.json(await listJournals({ from: sp.get("from") ?? undefined, to: sp.get("to") ?? undefined, sourceType: sp.get("source_type") ?? undefined, limit: Number(sp.get("limit")) || undefined, offset: Number(sp.get("offset")) || undefined }));
+    return NextResponse.json(await listJournals({ from: sp.get("from") ?? undefined, to: sp.get("to") ?? undefined, sourceType: sp.get("source_type") ?? undefined, q: searchText(sp.get("q")) || undefined, limit: Number(sp.get("limit")) || undefined, offset: Number(sp.get("offset")) || undefined }));
   } catch (err) {
     return handleApiError(err, req);
   }
