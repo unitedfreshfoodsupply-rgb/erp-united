@@ -394,6 +394,16 @@ export const SETTING_DEFS = {
     schema: z.boolean({ invalid_type_error: "القيمة لازم تكون true أو false" }),
     default: false,
   }),
+  // --- WS4 ETA ------------------------------------------------------------------------
+  "accounting.eta_api_submission_from": def({
+    group: "accounting",
+    label: "بداية الإرسال الآلي للفاتورة الإلكترونية",
+    description: "تاريخ (YYYY-MM-DD) من أوله الفواتير والإشعارات الدائنة تتبعت لمصلحة الضرائب من البرنامج. فاضي = الإرسال الآلي مقفول. أي مستند تاريخه قبل كده بيتسجل يدويًا برقم البوابة (UUID) ومايتبعتش آلي أبدًا.",
+    unit: "",
+    schema: z.string().trim().regex(/^(\d{4}-\d{2}-\d{2})?$/, "التاريخ لازم يكون YYYY-MM-DD أو فاضي"),
+    default: "" as string,
+  }),
+  // ------------------------------------------------------------------------------------
   "hr.expense_approval_threshold": def({
     group: "hr",
     label: "حد اعتماد المصروفات",
@@ -502,6 +512,7 @@ export const SETTING_EN: Record<SettingKey, { label: string; description: string
   "accounting.manual_journal_approval_threshold": { label: "Manual journal approval threshold", description: "When approval is on: a journal whose total is above this waits for approval. Zero = every manual journal." },
   "accounting.transfer_approval": { label: "Cash and bank transfers need approval", description: "On by default (segregation of duties): a transfer above the threshold waits for someone else's approval before it posts." },
   "accounting.transfer_approval_threshold": { label: "Transfer approval threshold", description: "When approval is on: a transfer above this amount waits for approval. Zero = every transfer." },
+  "accounting.eta_api_submission_from": { label: "E-invoice API submission start date", description: "Date (YYYY-MM-DD) from which invoices and credit notes are sent to the Tax Authority by the system. Empty = API submission is off. Any document dated earlier is recorded by hand with its portal UUID and is never sent by the API." },
   "accounting.cost_center_required": { label: "Cost center required on expenses", description: "When on, every line on an expense account (expense, service bill, manual journal) must name a cost center. Off by default until the cost-center structure is approved." },
   "hr.expense_approval_threshold": { label: "Expense approval threshold", description: "An expense above this amount waits for approval before it posts to the accounts. Zero = every expense needs approval." },
 };

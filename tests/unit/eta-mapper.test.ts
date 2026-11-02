@@ -70,15 +70,39 @@ test("an internally inconsistent invoice is refused, never corrected", () => {
   assert.ok(has(h, "totals.total") && has(h, "totalAmount"));
 });
 
-test("a rounded line (qty × price ≠ 2-dp gross) is a warning, not silently changed", () => {
+// ETA-08 (rule changed): this used to be a non-blocking warning. ETA recomputes
+// salesTotal = quantity × amountEGP at 5 dp, so such a line would be refused on an
+// immutable invoice — it now BLOCKS the submission. It is still never silently changed.
+test("a rounded line (qty × price ≠ 2-dp gross) blocks the submission, and is never silently changed", () => {
   const s = source();
   // 3.333 kg × 7.5 = 24.9975 → invoiced 25.00
   s.lines = [{ ...s.lines[1], quantity: "3.333", unitPrice: "7.5", gross: "25", net: "25", total: "25" }];
   s.invoice = { ...s.invoice, gross: "25", discountTotal: "0", net: "25", taxTotal: "0", total: "25" };
   const { issues, document } = validateEtaSource(s);
-  assert.equal(hasBlockingIssues(issues), false, JSON.stringify(issues));
-  assert.ok(issues.some((i) => i.level === "warning" && i.field.endsWith("salesTotal")));
+  assert.equal(hasBlockingIssues(issues), true, JSON.stringify(issues));
+  assert.ok(issues.some((i) => i.level === "error" && i.field === "invoiceLines[2].salesTotal"), JSON.stringify(issues));
+  assert.ok(issues.some((i) => i.level === "error" && i.field === "invoiceLines.salesTotal"), "the 5-dp figures actually sent are checked too");
   assert.equal(document.invoiceLines[0].salesTotal, 25);
+  // A fractional quantity whose product is exact at 5 dp passes: 2.5 kg × 7.25 = 18.125.
+  const ok = source();
+  ok.lines = [{ ...ok.lines[1], quantity: "2.5", unitPrice: "7.25", gross: "18.125", net: "18.125", total: "18.125" }];
+  ok.invoice = { ...ok.invoice, gross: "18.125", discountTotal: "0", net: "18.125", taxTotal: "0", total: "18.125" };
+  assert.ok(!validateEtaSource(ok).issues.some((i) => i.field.endsWith("salesTotal")));
+});
+
+test("tax rounded to the piastre is reported as a warning (ETA's tolerance is unpublished)", () => {
+  const s = source();
+  // 123.45 × 14% = 17.283 → invoiced 17.28
+  s.lines = [{ ...s.lines[0], quantity: "1", unitPrice: "123.45", discountPct: "0", gross: "123.45", discount: "0", net: "123.45", tax: "17.28", total: "140.73" }];
+  s.invoice = { ...s.invoice, gross: "123.45", discountTotal: "0", net: "123.45", taxTotal: "17.28", total: "140.73" };
+  const { issues } = validateEtaSource(s);
+  assert.ok(issues.some((i) => i.level === "warning" && i.field === "invoiceLines.taxableItems"), JSON.stringify(issues));
+});
+
+test("text whose ETA serialization is unsettled (a quote or backslash) blocks before signing", () => {
+  const s = source();
+  s.invoice = { ...s.invoice, buyerName: 'Hotel "Nile"' };
+  assert.ok(has(s, "document.text"));
 });
 
 test("missing ETA data is reported field by field — nothing is invented", () => {

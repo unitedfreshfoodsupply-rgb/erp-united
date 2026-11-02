@@ -71,7 +71,10 @@ EtaSource (plain data)
       ▼
 ETA document JSON
       │  EtaSigner  (external signing bridge; never in the browser)
-      │  EtaGateway (OAuth client-credentials + POST /api/v1/documentsubmissions)
+      │  lib/eta/serialize.ts canonical form + SHA-256 (the text hashed = the text sent)
+      │  lib/eta/signature.ts checks the bridge's CAdES before anything is sent
+      │  EtaGateway (OAuth client-credentials + POST /api/v1.0/documentsubmissions/,
+      │              Get Submission, Search Documents by internalID, Get Document Details)
       ▼
 ETA submission id, UUID, long id, status
       │  lib/eta/service.ts  records the result on EtaDocument (+ event log)
@@ -86,11 +89,14 @@ The invoice is never edited by this flow. ETA state is keyed to it
 
 * One `EtaDocument` per invoice (unique `sourceType, sourceId`). The claim is made under
   an advisory lock in its own transaction, **before** any network call.
-* Only `pending`, `failed` (nothing reached ETA), `rejected` and `invalid` may be
-  (re)submitted.
-* `submitting` and `unknown` (a timeout after the request left) can only be resolved by
-  **refresh / reconcile**, never by sending again.
-* `submitted`, `valid` and `cancelled` return the existing state.
+* Only `pending`, `failed` (nothing reached ETA), `rejected` (ETA refused the submission
+  itself — nothing registered) and `invalid` (API documents only; the old UUID moves to
+  `priorUuids`) may be (re)submitted. A portal filing (`origin = portal`) never is.
+* `submitting` (stale) and `unknown` (timeout, 5xx, 422 DuplicateSubmission, any
+  undocumented 4xx) can only be resolved by an **ETA lookup** or a **two-person
+  decision** (§9), never by sending again.
+* `submitted`, `valid`, `receiver_rejected` and `cancelled` return the existing state.
+* A stored ETA UUID is never overwritten or erased (DB trigger `EtaDocument_uuid_guard`).
 * Every attempt and result is appended to `EtaDocumentEvent`. Raw responses are kept;
   credentials and tokens never are.
 
@@ -138,8 +144,8 @@ The invoice is never edited by this flow. ETA state is keyed to it
    person-ID threshold confirmed.
 7. Receiver structured addresses for B2B customers.
 8. **Rounding**: UNITED stores line amounts at 2 dp. ETA recomputes `quantity × unitValue`
-   at 5 dp. Lines where these differ are reported as warnings. Check the outcome in
-   pre-production before production.
+   at 5 dp. Lines where these differ now **block** API submission (WS4, ETA-08; see §9).
+   Check ETA's actual tolerance in pre-production before production.
 9. Verify every field marked ⚠ against the SDK pages (see the source note above).
 10. The accountant's reference invoice (requested earlier) to confirm the content
     expectations.
@@ -165,3 +171,70 @@ Tests:
 - `tests/unit/invoice-document.test.ts`: print model.
 - `tests/integration/eta-submission.test.ts`: duplicate protection, unknown/failed/rejected paths, invoice and ledger untouched, permanence.
 - `tests/eta.test.ts`: permissions per role, no credentials in responses, safe refusal, print rendering.
+
+## 9. WS4 remediation status (2026-11-02)
+
+ETA stays **disabled**: no `ETA_*` variable is set on any server, and the new setting
+`accounting.eta_api_submission_from` (API go-live date) is empty, which refuses every API
+submission (503) even if the variables were set. All tests use fakes; no ETA endpoint was
+called. Findings refer to the audit ledger `ledger-eta.md` (ETA-01…25).
+
+### What changed
+
+| Finding | Behaviour now | Where |
+|---|---|---|
+| ETA-01 | `unknown`/stale `submitting` leaves only by (a) **lookup**: Get Submission by `submissionUUID`, else Search Documents by `internalID` over the attempt's dates; one match → recorded after cross-check; several → refused; none → `failed` only ≥ 15 min after the attempt (ETA's duplicate window is 10 min) and not while the submission is "in progress"; or (b) **two-person decision**: proposal with portal evidence, confirmed by a *different* `accounting.eta.manage` user with their own evidence, also after the window. Every lookup, proposal and confirmation is an `EtaDocumentEvent` with the query/answer/evidence. The one-person `not_received` input is gone (400). | `lookupEta`, `reconcileEta` in `lib/eta/service.ts`; `/api/eta/{invoices,credit-notes}/[id]/lookup`, `/reconcile` |
+| ETA-02 | 422 DuplicateSubmission and undocumented 4xx → `unknown`; 401 / 429 → `failed` (nothing processed; `Retry-After` kept); 400 / 403 → `rejected` (whole submission refused). `error.code` parsed. | `lib/eta/gateway.ts` `submit` |
+| ETA-03 | Remote `Rejected` → `receiver_rejected` (registered; never resent; UUID kept). | `REMOTE_STATUS` |
+| ETA-11 | Refresh, lookup and UUID reconciliation require the remote `internalID` = ours, and total / issuer when ETA returns them; mismatch → 409 + `*_mismatch` event, no state change. A UUID typed by a person is verified with Get Document Details first. | `crossCheck` |
+| ETA-12 | Canonical document hash (`documentHash`) and the exact signed JSON text (`signedPayload`, `payloadHash`, also in the `signed` event) stored **before** sending; ETA's answer stored (`response_received`) **before** the status; if the status cannot be recorded → `unknown` with the answer kept (or the claim stays `submitting`); lookup by the stored `submissionUUID` recovers. | `submitToEta`, `recordSubmitResult` |
+| ETA-13/14 | Portal filings recorded with UUID (26 alphanumerics), submission date and evidence → `valid`, `origin = portal`, never sent by the API (DB-enforced), referencable by credit notes. Documents dated before the API go-live date are refused for API submission. | `recordPortalFiling`; `/api/eta/{invoices,credit-notes}/[id]/portal`; setting `accounting.eta_api_submission_from` |
+| ETA-15 | Read-only "Awaiting registration" list: issued invoices / credit notes not registered, oldest first, age in hours. | `etaPendingSubmissions`; `GET /api/eta/pending`; tab on `/eta` |
+| ETA-19 | `ETA_ENV` required (`preprod` \| `production`); API and identity URLs must be that environment's known https hosts (`ETA_KNOWN_HOSTS` in `lib/eta/config.ts`); signer https (http only to localhost outside production); production also requires `ETA_SIGNER_TOKEN` and `ETA_SIGNER_CERT_SHA256`. Fails closed (503) naming the variables only. | `lib/eta/config.ts` |
+| ETA-06 | Canonical serialization implemented as a pure function over the JSON text; verified byte for byte against the SDK's published sample (`tests/fixtures/eta/sdk-one-doc*.{json,txt}`). The app writes the JSON text itself (every amount with exactly 5 decimals) and sends those bytes. Strings containing `"`, `\` or control characters are blocked (the SDK leaves their canonical form open). | `lib/eta/serialize.ts` |
+| ETA-07 | Bridge answer checked before sending: one issuer signature, CMS signedData, CAdES-BES attributes (`messageDigest` = SHA-256 of *our* canonical form, `signingCertificateV2`), signature over the signed attributes verifies with the signer certificate, certificate in validity, optional pinned fingerprint. Failure → `failed`, nothing sent. Bridge contract now also receives `serialized` and `sha256`. | `lib/eta/signature.ts`, `externalSigner` |
+| ETA-08 | `salesTotal ≠ quantity × amountEGP` (5 dp) is a **blocking error** (was a warning); tax rounded to the piastre is a warning. | `lib/eta/validate.ts` |
+| ETA-09 | SDK paths `/api/v1.0/…`; `submissionUUID` read (`submissionId` fallback). | `lib/eta/gateway.ts` |
+| ETA-10 | One gateway per configuration per process → OAuth token reused until 60 s before expiry. | `sharedHttpGateway` |
+
+Migration `20261102130000_eta_state_machine` (additive): `EtaDocument.origin`, `priorUuids`,
+`documentHash`, `signedPayload`, `lastAttemptAt`; status CHECK gains `receiver_rejected`;
+portal rows need a UUID; UUID guard trigger; `(origin, status)` index.
+
+### Code-complete (tested with fakes)
+
+State machine and never-twice rules; lookup and two-person paths; cross-checks; evidence
+persistence order; portal filings and go-live cut-off; pending list; environment guard;
+canonical serializer (SDK vector); structural + cryptographic CAdES checks (test seal);
+5-dp amounts and ETA-08 blocking; token reuse. Tests: `tests/unit/eta-serialize.test.ts`,
+`eta-signature.test.ts`, `eta-gateway.test.ts`, `eta-mapper.test.ts`,
+`tests/integration/eta-submission.test.ts` (20 cases), `tests/eta.test.ts` (HTTP).
+
+### Needs a pre-production (sandbox) run — cannot be proven offline
+
+1. **Known hosts** in `ETA_KNOWN_HOSTS` (the SDK pages use relative paths; confirm with the
+   ERP registration e-mail).
+2. **Response shapes**: error body (`{error:{code}}` vs `{code}`), Get Document Details
+   `document` as object vs JSON string, `internalId` / `total` presence in each read path,
+   status casing, document UUID length (26 assumed for typed UUIDs).
+3. **Search Documents** behaviour right after submission (index lag), and whether ETA
+   accepts a second document with the same `internalID` (the wait window assumes it may).
+4. **Signature acceptance**: the bridge does not exist yet; ETA's acceptance of a CAdES-BES
+   made over the canonical form is unproven. String escapes in the canonical form.
+5. **Rounding**: whether ETA enforces `salesTotal = quantity × amountEGP` exactly; if not,
+   ETA-08 can be relaxed back to a warning. Today any fractional-kg line whose 2-dp gross
+   differs from qty × price **blocks** API submission — those invoices must be priced so
+   the product is exact (WS1 precision rules) or filed via the portal.
+6. Tax-amount tolerance (warning only).
+
+### BLOCKED (need the real e-seal / ETA)
+
+- **Certificate chain and revocation** of the e-seal (Egyptian root / ITIDA-licensed CA):
+  needs the real certificate and CA chain; only a pinned fingerprint is checked today.
+- **ETA acceptance of our signature** (true end-to-end CAdES verification by ETA): needs the
+  e-seal, the bridge and a pre-production account.
+- **Signer identity rule** (certificate subject = issuer registration number): the subject
+  format of Egyptian e-seals is not documented in the SDK; not enforced.
+- Cancellation / decline flows (ETA-04) and the B2B buyer-identity guard (ETA-05, owned by
+  the lead in `lib/sales/invoicing.ts`) are out of WS4 scope.
+
