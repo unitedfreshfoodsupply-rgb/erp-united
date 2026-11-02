@@ -735,6 +735,13 @@ async function ws5(s: PrismaClient, c: Ctx) {
   check("DB: a payment with no known user is refused", await rejects(() => s.payrollPayment.create({ data: { number: `${TAG}-pp2`, runId: run2.id, date: last, cashAccountId: "bank_main", method: "cash", amount: 1, createdById: null, createdBy: "system" } })));
   const ws5Audit = new Set((await s.auditLog.findMany({ where: { action: { in: ["final_settlement_created", "payroll_correction_created", "advance_plan_created", "advance_plan_approved", "advance_plan_cancelled", "payroll_remittance_exported"] }, timestamp: { gte: new Date(Date.now() - 3600_000) } }, select: { action: true } })).map((a) => a.action));
   check("settlements, corrections, plans and remittance exports are audited", ws5Audit.size === 6, [...ws5Audit]);
+
+  // Unwinding the month in the only order the rules allow (and leaving the books as found).
+  for (const p of await s.payrollPayment.findMany({ where: { runId: st.runId, reversedAt: null } })) await call("karim", "POST", `/api/hr/payroll/payments/${p.id}/reverse`, { reason: "تنظيف الاختبار" });
+  check("a settlement the month's posted run relies on cannot be reversed (409)", (await call("karim", "POST", `/api/hr/payroll/runs/${st.runId}/reverse`, { reason: "x" })).status === 409);
+  const rev = async (id: string) => (await call("karim", "POST", `/api/hr/payroll/runs/${id}/reverse`, { reason: "تنظيف الاختبار" })).status;
+  check("corrections are reversed first, then the month's run, then the settlement", (await rev(c2.id)) === 200 && (await rev(c1.id)) === 200 && (await rev(run2.id)) === 200 && (await rev(st.runId)) === 200);
+  check("…e7's encashed days are back", Number((await s.leaveLedgerEntry.aggregate({ where: { employeeId: e7.id, leaveTypeId: lt.id }, _sum: { days: true } }))._sum.days) === 5);
   health = (await call("karim", "GET", "/api/accounting/integrity")).body.integrity;
   check("Accounts Health at the end: all green", health.ok === true, health.checks.filter((x: any) => !x.ok));
 }
