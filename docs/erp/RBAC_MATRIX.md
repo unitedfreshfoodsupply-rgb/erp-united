@@ -252,16 +252,21 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/auth/logout` | public | · | · | · | · | · | · | · | · | · |
 | GET | `/api/auth/me` | public | · | · | · | · | · | · | · | · | · |
 | GET | `/api/core/reference` | any of `core.masterdata.view`, `stock.view`, `orders.view` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |  |
+| POST | `/api/eta/credit-notes/[id]/lookup` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/eta/credit-notes/[id]/portal` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/eta/credit-notes/[id]/reconcile` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/eta/credit-notes/[id]/refresh` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/eta/credit-notes/[id]` | `accounting.eta.view` | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | POST | `/api/eta/credit-notes/[id]/submit` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/eta/invoices/[id]/lookup` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/eta/invoices/[id]/portal` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/eta/invoices/[id]/reconcile` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/eta/invoices/[id]/refresh` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/eta/invoices/[id]` | `accounting.eta.view` | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | POST | `/api/eta/invoices/[id]/submit` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | PUT | `/api/eta/issuer` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | PUT | `/api/eta/items/[productId]` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/eta/pending` | `accounting.eta.view` | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | PUT | `/api/eta/receivers/[customerId]` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/eta` | `accounting.eta.view` | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | PUT | `/api/eta/units/[code]` | `accounting.eta.manage` | ✓ |  |  |  |  |  | ✓ |  |  |

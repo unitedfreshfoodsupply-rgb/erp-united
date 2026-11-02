@@ -1442,6 +1442,26 @@
     },
     {
       "method": "POST",
+      "path": "/api/eta/credit-notes/[id]/lookup",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.eta.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/eta/credit-notes/[id]/portal",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.eta.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
       "path": "/api/eta/credit-notes/[id]/reconcile",
       "gate": {
         "kind": "all",
@@ -1473,6 +1493,26 @@
     {
       "method": "POST",
       "path": "/api/eta/credit-notes/[id]/submit",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.eta.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/eta/invoices/[id]/lookup",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.eta.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/eta/invoices/[id]/portal",
       "gate": {
         "kind": "all",
         "permissions": [
@@ -1537,6 +1577,16 @@
         "kind": "all",
         "permissions": [
           "accounting.eta.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/eta/pending",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.eta.view"
         ]
       }
     },

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { lineAmounts } from "@/lib/sales/money";
 import { mapInvoiceToEta, receiverType } from "./mapper";
+import { unsettledStrings } from "./serialize";
 import type { EtaDocumentV1, EtaIssue, EtaSource } from "./types";
 
 /**
@@ -78,8 +79,11 @@ export function validateEtaSource(src: EtaSource): { issues: EtaIssue[]; documen
         if (!expect[k].equals(D(l[k]))) err(`${at}.${k}`, `سطر ${l.lineNo}: ${k} المسجل ${D(l[k]).toFixed(2)} والمحسوب ${expect[k].toFixed(2)} — الفاتورة مش متسقة`);
       }
     }
+    // ETA recomputes salesTotal = quantity × amountEGP (5 dp) and refuses a line that does
+    // not match. The invoice is immutable, so such a line can never be sent as it is: an
+    // error, not a warning — fix it at pricing (before issue) or file it via the portal.
     const exact = q.times(p);
-    if (!exact.equals(D(l.gross))) warn(`${at}.salesTotal`, `سطر ${l.lineNo}: الكمية × السعر = ${exact.toFixed(5)} والفاتورة مقرّبة ${D(l.gross).toFixed(2)} — راجع قاعدة التقريب في بيئة التجربة`);
+    if (!exact.toDecimalPlaces(5, Prisma.Decimal.ROUND_HALF_UP).equals(D(l.gross))) err(`${at}.salesTotal`, `سطر ${l.lineNo}: الكمية × السعر = ${exact.toFixed(5)} والفاتورة مقرّبة ${D(l.gross).toFixed(2)} — منظومة الضرائب هترفض السطر ده (salesTotal ≠ quantity × amountEGP)`);
     sum.gross = sum.gross.plus(l.gross);
     sum.discount = sum.discount.plus(l.discount);
     sum.net = sum.net.plus(l.net);
@@ -105,6 +109,20 @@ export function validateEtaSource(src: EtaSource): { issues: EtaIssue[]; documen
     const lineTax = l.taxableItems.reduce((s, t) => s.plus(t.amount), D(0));
     if (!D(l.netTotal).plus(lineTax).plus(l.totalTaxableFees).minus(l.itemsDiscount).equals(D(l.total))) err("invoiceLines.total", `${l.internalCode}: total ≠ netTotal + الضريبة`);
   }
+
+  // ETA's line arithmetic on the 5-dp figures actually sent.
+  for (const l of doc.invoiceLines) {
+    if (!D(l.quantity).times(l.unitValue.amountEGP).toDecimalPlaces(5, Prisma.Decimal.ROUND_HALF_UP).equals(D(l.salesTotal))) err("invoiceLines.salesTotal", `${l.internalCode}: salesTotal ≠ quantity × amountEGP`);
+    // Tax rounded to the piastre on the invoice; ETA's tolerance for it is not published.
+    for (const t of l.taxableItems) {
+      const exactTax = D(l.netTotal).times(t.rate).dividedBy(100).toDecimalPlaces(5, Prisma.Decimal.ROUND_HALF_UP);
+      if (!exactTax.equals(D(t.amount))) warn("invoiceLines.taxableItems", `${l.internalCode}: الضريبة ${D(t.amount).toFixed(2)} والمحسوبة بـ 5 أرقام عشرية ${exactTax.toFixed(5)} — راجع سماحية التقريب في بيئة التجربة`);
+    }
+  }
+
+  // Text whose canonical serialization the SDK leaves open (quote, backslash, control character).
+  const unsettled = unsettledStrings(doc);
+  if (unsettled.length) err("document.text", `نص فيه علامة تنصيص أو شرطة مائلة أو رموز تحكم (${unsettled.slice(0, 3).join("، ")}) — توقيعه عند المنظومة مش مؤكد، عدّل النص في البيانات الأساسية`);
 
   return { issues, document: doc };
 }

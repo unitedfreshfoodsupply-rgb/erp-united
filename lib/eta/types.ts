@@ -80,6 +80,8 @@ export type EtaSource = {
     number: string | null;
     status: string;
     issuedAt: string | null; // ISO
+    /** The invoice's legal issue date (YYYY-MM-DD), used for the API go-live cut-off. */
+    issueDate?: string | null;
     currencyCode: string;
     buyerName: string | null;
     buyerTaxId: string | null;
@@ -145,5 +147,14 @@ export type AddressSource = {
 
 export type EtaIssue = { level: "error" | "warning"; field: string; message: string };
 
-export const ETA_STATUSES = ["pending", "submitting", "submitted", "valid", "invalid", "rejected", "failed", "unknown", "cancelled"] as const;
+/**
+ * Local ETA states. Two families that must never be confused:
+ *   nothing registered at ETA — pending, failed (never reached ETA), rejected (ETA refused
+ *     the submission itself: in rejectedDocuments or a whole-submission 400/403);
+ *   registered at ETA (a UUID exists) — submitted, valid, invalid, receiver_rejected (the
+ *     receiver rejected a registered document), cancelled.
+ * `submitting` and `unknown` are "may be registered": only an ETA lookup or a two-person
+ * decision resolves them.
+ */
+export const ETA_STATUSES = ["pending", "submitting", "submitted", "valid", "invalid", "rejected", "failed", "unknown", "cancelled", "receiver_rejected"] as const;
 export type EtaStatus = (typeof ETA_STATUSES)[number];

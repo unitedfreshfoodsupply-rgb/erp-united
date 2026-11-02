@@ -3471,6 +3471,7 @@ model EtaDocument {
   documentType        String
   documentTypeVersion String
   /// pending | submitting | submitted | valid | invalid | rejected | failed | unknown | cancelled
+  /// | receiver_rejected (WS4: registered, then rejected by the receiver — never resent)
   status              String    @default("pending")
   submissionId        String?
   uuid                String?   @unique
@@ -3489,10 +3490,25 @@ model EtaDocument {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
+  // --- WS4 ETA remediation (20261102130000_eta_state_machine) -----------------------
+  /// api (submitted by UNITED) | portal (filed on the ETA portal, recorded with its UUID;
+  /// never sent through the API).
+  origin              String    @default("api")
+  /// Every ETA UUID this document had before a resend after `invalid` (append-only, DB trigger).
+  priorUuids          String[]  @default([])
+  /// ETA's document hash: SHA-256 of the canonical serialization that was signed.
+  documentHash        String?
+  /// The exact signed JSON text of the last attempt, stored before it was sent.
+  signedPayload       String?
+  /// When the last attempt was claimed (the start of the lookup wait window).
+  lastAttemptAt       DateTime?
+  // ------------------------------------------------------------------------------------
+
   events EtaDocumentEvent[]
 
   @@unique([sourceType, sourceId])
   @@index([status])
+  @@index([origin, status])
 }
 
 /// Append-only history of every ETA action on a document: claim, send, result, refresh.
