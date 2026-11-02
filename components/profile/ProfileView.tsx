@@ -9,6 +9,7 @@ import { useLocale } from "@/lib/locale";
 import { PERMISSION_DEFS, permissionText } from "@/lib/permissions";
 import { ROLE_LABEL, ROLE_DESC, ROLE_LABEL_EN, ROLE_DESC_EN, type Role } from "@/lib/types";
 import { GROUP_LABEL, GROUP_LABEL_EN } from "@/lib/admin-client-types";
+import { MfaSettings } from "@/components/security/MfaSettings";
 
 export type ProfileUser = {
   id: string;
@@ -95,6 +96,9 @@ export function ProfileView({ user }: { user: ProfileUser }) {
             <p className="rounded-lg border border-[#F3D9AE] bg-[#FFFBF3] p-3 text-sm font-medium text-united-warn">{t("ui.profile.must-change-pw")}</p>
           )}
         </section>
+
+        {/* WS6: two-step sign-in — the one security setting the user manages themselves. */}
+        <MfaSettings />
 
         <section className="card flex flex-col gap-2 p-5">
           <h2 className="section-title">{t("ui.profile.permissions", { n: String(permCount) })}</h2>

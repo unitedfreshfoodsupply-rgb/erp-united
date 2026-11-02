@@ -3,12 +3,10 @@ const nextConfig = {
   eslint: { ignoreDuringBuilds: true },
   // Don't advertise the framework to every visitor for free.
   poweredByHeader: false,
-  // Baseline security headers the app had none of. Deliberately NOT a Content-Security-
-  // Policy: Next's own hydration payload is an inline <script>, so a CSP tight enough to
-  // matter needs per-request nonces wired through the App Router — a real change, not a
-  // one-line header, and one that's easy to get subtly wrong (silently breaking the app)
-  // without a way to verify it against the actual production origin from here. These
-  // four are safe, well-understood, and cannot break the app.
+  // Baseline security headers. The Content-Security-Policy is NOT here: it needs a fresh
+  // nonce per request (Next's hydration payload is an inline <script>), so middleware.ts
+  // sets it (lib/security/csp.ts). Browsers intersect two CSP headers, so this file must
+  // never add a second one.
   async headers() {
     return [
       {
@@ -19,7 +17,13 @@ const nextConfig = {
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           // Nothing in the app uses the camera, microphone, location or payment APIs; the
           // attendance device posts over HTTP, not through the browser.
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
+          // WS6: extended to the other powerful features nothing here uses.
+          {
+            key: "Permissions-Policy",
+            value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=(), midi=(), magnetometer=(), gyroscope=(), accelerometer=(), display-capture=(), browsing-topics=()",
+          },
+          // No other site's window may hold a reference to ours (tab-nabbing, XS-leaks).
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
           ...(process.env.NODE_ENV === "production"
             ? [{ key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" }]
             : []),

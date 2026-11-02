@@ -30,6 +30,17 @@ async function main() {
   }
   await runSeed(prisma);
 
+  // WS6: auth.mfa_required_roles defaults to SUPER_ADMIN and ACCOUNTANT — in production
+  // those accounts must enrol a second factor before reaching anything. The regression
+  // suites sign in as `admin` and `karim` hundreds of times a run and cannot carry an
+  // authenticator, so the TEST database turns the requirement off (an explicit,
+  // attributed override row, exactly what an administrator would write). The
+  // requirement itself is exercised end to end by tests/mfa.test.ts, which switches it
+  // back on for its own accounts.
+  await prisma.systemSetting.create({
+    data: { key: "auth.mfa_required_roles", value: [], updatedBy: "test-reset (tests/reset-db.ts)" },
+  });
+
   const [users, orders, items] = await Promise.all([
     prisma.user.count(),
     prisma.order.count(),

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/authz";
+import { signInPath } from "@/lib/session-guard";
 import { ProfileView } from "@/components/profile/ProfileView";
 
 /**
@@ -15,7 +16,7 @@ import { ProfileView } from "@/components/profile/ProfileView";
  */
 export default async function ProfilePage() {
   const ctx = await getAuthContext();
-  if (!ctx) redirect("/login");
+  if (!ctx) redirect(await signInPath());
   return (
     <ProfileView
       user={{

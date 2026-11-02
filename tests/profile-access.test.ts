@@ -51,16 +51,16 @@ async function main() {
   check("PREPARER cannot change roles (403)", (await call("ahmed", "PATCH", `/api/admin/users/${saraId}`, { role: "SUPER_ADMIN" })).status === 403);
 
   section("4. ADMIN-MANAGED DATA AND PASSWORDS");
-  const created = await call("admin", "POST", "/api/admin/users", { name: `${TAG} موظف`, username: `${TAG}u`, password: "temp12345", role: "PREPARER" });
+  const created = await call("admin", "POST", "/api/admin/users", { name: `${TAG} موظف`, username: `${TAG}u`, password: "temp12345-ws6", role: "PREPARER" });
   check("admin creates a user with a password (201)", created.status === 201, created.status);
   const un = `${TAG}u`;
   const users = (await call("admin", "GET", "/api/admin/users")).body.users;
   const target = users.find((u: any) => u.username === un);
-  const firstLogin = await call("prf2", "POST", "/api/auth/login", { username: un, password: "temp12345" });
+  const firstLogin = await call("prf2", "POST", "/api/auth/login", { username: un, password: "temp12345-ws6" });
   check("admin-set password signs in", firstLogin.status === 200, firstLogin.status);
   const adminReset = await call("admin", "PATCH", `/api/admin/users/${target.id}`, { password: "reset99999", expected_version: target.version });
   check("admin resets the password (200)", adminReset.status === 200, adminReset.status);
-  check("old password rejected after reset", (await call("prf2", "POST", "/api/auth/login", { username: un, password: "temp12345" })).status === 401);
+  check("old password rejected after reset", (await call("prf2", "POST", "/api/auth/login", { username: un, password: "temp12345-ws6" })).status === 401);
   check("new password signs in", (await call("prf2", "POST", "/api/auth/login", { username: un, password: "reset99999" })).status === 200);
   // Admin edits names/roles normally.
   const t2 = (await call("admin", "GET", "/api/admin/users")).body.users.find((u: any) => u.username === un);

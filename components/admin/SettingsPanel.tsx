@@ -55,7 +55,9 @@ function SettingRow({ setting }: { setting: SettingDTO }) {
   const toast = useToast();
   const { t, isEN } = useLocale();
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(String(setting.value));
+  // A list setting (auth.mfa_required_roles) is edited as comma-separated text.
+  const isList = Array.isArray(setting.defaultValue);
+  const [value, setValue] = useState(Array.isArray(setting.value) ? setting.value.join(",") : String(setting.value));
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,11 +67,12 @@ function SettingRow({ setting }: { setting: SettingDTO }) {
   const choices = SETTING_CHOICES[setting.key as SettingKey];
   const show = (v: unknown) => {
     if (isBool) return v ? t("admin.settings.toggled-on") : t("admin.settings.toggled-off");
+    if (Array.isArray(v)) return v.length ? v.join("، ") : "—";
     const c = choices?.[String(v)];
     return c ? (isEN ? c.en : c.ar) : String(v);
   };
 
-  async function save(next: number | boolean | string | null) {
+  async function save(next: number | boolean | string | string[] | null) {
     if (busy) return;
     if (!reason.trim()) {
       setError(t("admin.settings.enter-reason"));
@@ -108,6 +111,10 @@ function SettingRow({ setting }: { setting: SettingDTO }) {
     }
     if (isText) {
       save(value.trim() as never);
+      return;
+    }
+    if (isList) {
+      save(value.split(/[,،\s]+/).map((x) => x.trim()).filter(Boolean));
       return;
     }
     const n = Number(value);
@@ -173,7 +180,7 @@ function SettingRow({ setting }: { setting: SettingDTO }) {
             ) : (
               <input
                 className="field tabular-nums"
-                inputMode={isText ? undefined : "decimal"}
+                inputMode={isText || isList ? undefined : "decimal"}
                 dir="ltr"
                 value={value}
                 onChange={(e) => setValue(e.target.value)}

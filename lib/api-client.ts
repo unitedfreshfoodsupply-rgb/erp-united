@@ -57,6 +57,10 @@ export async function apiFetch<T = Untyped>(path: string, init?: RequestInit): P
   }
 
   const data = await res.json().catch(() => ({}));
+  // WS6: the session is held until two-step sign-in is set up — go there, not to /login.
+  if (res.status === 403 && data?.code === "auth.mfa-enroll-required" && typeof window !== "undefined" && !window.location.pathname.startsWith("/mfa/")) {
+    window.location.href = "/mfa/setup";
+  }
   if (!res.ok) {
     const loc = storedLocale();
     // A non-JSON body (proxy error page) or a non-string `error` must still read as

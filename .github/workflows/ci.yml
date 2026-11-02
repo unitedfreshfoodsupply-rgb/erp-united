@@ -50,6 +50,8 @@ jobs:
       DIRECT_URL: postgresql://united:united@localhost:5432/united_test
       SHADOW_DATABASE_URL: postgresql://united:united@localhost:5433/united_shadow
       JWT_SECRET: ci-disposable-test-secret-0123456789abcdef
+      # WS6: required in production (next start); a disposable value for CI only.
+      MFA_ENCRYPTION_KEY: ci-disposable-mfa-key-0123456789abcdef0123456789
       N8N_API_KEY: ci-test-key
       STORAGE_PROVIDER: local
       UNITED_TEST_DB: "1"

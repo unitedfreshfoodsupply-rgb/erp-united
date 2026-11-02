@@ -55,7 +55,9 @@ export function scanRoutes(root = process.cwd()): RouteHandler[] {
       else if (/loggedIntegrationCall\(/.test(body)) gate = { kind: "api-key", scope: /requireScope\(\s*caller\s*,\s*"([^"]+)"/.exec(body)?.[1] ?? "?" };
       else if (any) gate = { kind: "any", permissions: list(any[1]) };
       else if (all.length) gate = { kind: "all", permissions: [...new Set(all.flatMap((m) => list(m[2])))] };
-      else if (/requireAuth\(/.test(body)) gate = { kind: "authenticated" };
+      // requireMfaSession (WS6): the caller's own two-step settings — any signed-in user,
+      // including one whose session is held at MFA enrolment. Anonymous is still 401.
+      else if (/requireAuth\(/.test(body) || /requireMfaSession\(/.test(body)) gate = { kind: "authenticated" };
       else throw new Error(`route-scan: cannot read the gate of ${method} ${path}`);
       out.push({ path, method, gate, file: relative(root, file) });
     }

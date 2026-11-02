@@ -37,11 +37,35 @@ model User {
   passwordChangedAt  DateTime?
   createdAt          DateTime  @default(now())
 
+  // --- WS6: two-step sign-in (TOTP). Secrets are AES-256-GCM envelopes ("v1.…"),
+  // never clear text (lib/security/mfa-crypto.ts). Null = not enrolled.
+  mfaSecret        String?
+  mfaEnabledAt     DateTime?
+  /// An enrolment shown to the user but not yet confirmed with a code.
+  mfaPendingSecret String?
+  mfaPendingAt     DateTime?
+  /// The last 30-second step a code was accepted for: the same code is never accepted twice.
+  mfaLastStep      Int?
+  mfaRecoveryCodes UserMfaRecoveryCode[]
+
   permissionOverrides UserPermissionOverride[]
   notifications       Notification[]
 
   @@index([role])
   @@index([active])
+}
+
+/// WS6: single-use MFA recovery codes. Only an HMAC of the code is kept.
+model UserMfaRecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  createdAt DateTime  @default(now())
+  usedAt    DateTime?
+
+  @@unique([userId, codeHash])
+  @@index([userId])
 }
 
 // ---------------------------------------------------------------------------

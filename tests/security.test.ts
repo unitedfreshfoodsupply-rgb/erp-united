@@ -89,7 +89,7 @@ async function main() {
   const adminId = (await call("admin", "GET", "/api/auth/me")).body.user.id;
   check("SUPERVISOR grants themselves SUPER_ADMIN: 403", (await call("sara", "PATCH", `/api/admin/users/${saraId}`, { role: "SUPER_ADMIN" })).status === 403);
   check("SUPERVISOR grants themselves a permission: 403", (await call("sara", "POST", `/api/admin/users/${saraId}/permissions`, { permission: "users.create", effect: "grant" })).status === 403);
-  check("normal user creates a user: 403", (await call("mona", "POST", "/api/admin/users", { name: "x", username: `${TAG}x`, password: "test1234", role: "SALES" })).status === 403);
+  check("normal user creates a user: 403", (await call("mona", "POST", "/api/admin/users", { name: "x", username: `${TAG}x`, password: "test1234-ws6", role: "SALES" })).status === 403);
   check("non-admin changes another user's password: 403", (await call("sara", "PATCH", `/api/admin/users/${adminId}`, { password: "hacked123" })).status === 403);
   check("non-admin edits role bundles / overrides: 403", (await call("karim", "POST", `/api/admin/users/${saraId}/permissions`, { permission: "orders.edit", effect: "revoke" })).status === 403);
   check("non-admin reads users: 403", (await call("sara", "GET", "/api/admin/users")).status === 403);
@@ -99,11 +99,11 @@ async function main() {
   // A deputy administrator built from overrides: holds every users.* and
   // settings.manage, but is not SUPER_ADMIN. The super admin account must stay out
   // of their reach, and so must their own access.
-  const deputy = (await call("admin", "POST", "/api/admin/users", { name: "نائب إدارة", username: `${TAG}dep`, password: "test1234", role: "SUPERVISOR" })).body.user;
+  const deputy = (await call("admin", "POST", "/api/admin/users", { name: "نائب إدارة", username: `${TAG}dep`, password: "test1234-ws6", role: "SUPERVISOR" })).body.user;
   for (const p of ["users.view", "users.create", "users.edit", "users.disable", "users.change_role", "settings.manage"]) {
     await call("admin", "POST", `/api/admin/users/${deputy.id}/permissions`, { permission: p, effect: "grant", reason: TAG });
   }
-  await login(`${TAG}dep`, "test1234");
+  await login(`${TAG}dep`, "test1234-ws6");
   const dep = `${TAG}dep`;
   check("deputy can manage ordinary users (sanity)", (await call(dep, "GET", "/api/admin/users")).status === 200);
   check("deputy cannot reset the super admin's password: 403", (await call(dep, "PATCH", `/api/admin/users/${adminId}`, { password: "takeover1" })).status === 403);
@@ -111,20 +111,20 @@ async function main() {
   check("deputy cannot demote the super admin: 403", (await call(dep, "PATCH", `/api/admin/users/${adminId}`, { role: "PREPARER" })).status === 403);
   check("deputy cannot sign the super admin out: 403", (await call(dep, "POST", `/api/admin/users/${adminId}/sessions/revoke`, {})).status === 403);
   check("deputy cannot make anyone SUPER_ADMIN: 403", (await call(dep, "PATCH", `/api/admin/users/${saraId}`, { role: "SUPER_ADMIN" })).status === 403);
-  check("deputy cannot create a SUPER_ADMIN: 403", (await call(dep, "POST", "/api/admin/users", { name: "x", username: `${TAG}sa2`, password: "test1234", role: "SUPER_ADMIN" })).status === 403);
+  check("deputy cannot create a SUPER_ADMIN: 403", (await call(dep, "POST", "/api/admin/users", { name: "x", username: `${TAG}sa2`, password: "test1234-ws6", role: "SUPER_ADMIN" })).status === 403);
   check("deputy cannot change their own role: 400", (await call(dep, "PATCH", `/api/admin/users/${deputy.id}`, { role: "ACCOUNTANT" })).status === 400);
   check("deputy cannot edit their own permissions: 400", (await call(dep, "POST", `/api/admin/users/${deputy.id}/permissions`, { permission: "sales.credit.manage", effect: "grant" })).status === 400);
   check("deputy cannot grant others a permission they lack: 403", (await call(dep, "POST", `/api/admin/users/${saraId}/permissions`, { permission: "sales.credit.manage", effect: "grant" })).status === 403);
   check("the super admin still signs in with their own password", (await call(null, "POST", "/api/auth/login", { username: "admin", password: "1234" })).status === 200);
 
   section("B3. SESSIONS");
-  const victim = (await call("admin", "POST", "/api/admin/users", { name: "ضحية", username: `${TAG}vic`, password: "test1234", role: "PREPARER" })).body.user;
-  await login(`${TAG}vic`, "test1234");
+  const victim = (await call("admin", "POST", "/api/admin/users", { name: "ضحية", username: `${TAG}vic`, password: "test1234-ws6", role: "PREPARER" })).body.user;
+  await login(`${TAG}vic`, "test1234-ws6");
   const vic = `${TAG}vic`;
   check("victim session works", (await call(vic, "GET", "/api/orders")).status === 200);
   check("super admin signs them out everywhere", (await call("admin", "POST", `/api/admin/users/${victim.id}/sessions/revoke`, {})).status === 200);
   check("…the existing session is refused at once: 401", (await call(vic, "GET", "/api/orders")).status === 401);
-  await login(vic, "test1234");
+  await login(vic, "test1234-ws6");
   let v = (await call("admin", "GET", "/api/admin/users")).body.users.find((u: any) => u.id === victim.id);
   await call("admin", "PATCH", `/api/admin/users/${victim.id}`, { active: false, expected_version: v.version });
   v = (await call("admin", "GET", "/api/admin/users")).body.users.find((u: any) => u.id === victim.id);
@@ -132,11 +132,11 @@ async function main() {
   check("disable → re-enable does not revive a session from before: 401", (await call(vic, "GET", "/api/orders")).status === 401);
 
   section("B4. ADMIN-SET PASSWORD MUST BE CHANGED");
-  await login(vic, "test1234");
+  await login(vic, "test1234-ws6");
   v = (await call("admin", "GET", "/api/admin/users")).body.users.find((u: any) => u.id === victim.id);
-  check("admin resets with 'must change'", (await call("admin", "PATCH", `/api/admin/users/${victim.id}`, { password: "temp12345", must_change_password: true, expected_version: v.version })).status === 200);
+  check("admin resets with 'must change'", (await call("admin", "PATCH", `/api/admin/users/${victim.id}`, { password: "temp12345-ws6", must_change_password: true, expected_version: v.version })).status === 200);
   check("…the old session is gone: 401", (await call(vic, "GET", "/api/orders")).status === 401);
-  check("the temporary password signs in", (await login(vic, "temp12345")).status === 200);
+  check("the temporary password signs in", (await login(vic, "temp12345-ws6")).status === 200);
   check("…the session says a change is required", (await call(vic, "GET", "/api/auth/me")).body.user.mustChangePassword === true);
   // Policy: passwords are administrator-managed. mustChangePassword is now an
   // informational notice (read-only profile) — it never strips permissions or
@@ -144,7 +144,7 @@ async function main() {
   check("…the user works normally (flag is informational, orders 200)", (await call(vic, "GET", "/api/orders")).status === 200);
   const vp = await page(vic, "/prep");
   check("…pages render normally — no forced-change lock", vp.status === 200, vp.status);
-  check("self-service change endpoint removed (404)", (await call(vic, "POST", "/api/auth/password", { current_password: "temp12345", new_password: "mine12345" })).status === 404);
+  check("self-service change endpoint removed (404)", (await call(vic, "POST", "/api/auth/password", { current_password: "temp12345-ws6", new_password: "mine12345" })).status === 404);
   check("anonymous change also 404", (await call(null, "POST", "/api/auth/password", { current_password: "x", new_password: "y12345678" })).status === 404);
   const pp = await page(vic, "/profile");
   check("read-only profile renders with the notice", pp.status === 200 && pp.html.includes("مش بتتعدل منك"), pp.status);
@@ -152,7 +152,7 @@ async function main() {
   v = (await call("admin", "GET", "/api/admin/users")).body.users.find((u: any) => u.id === victim.id);
   await call("admin", "PATCH", `/api/admin/users/${victim.id}`, { password: "fresh67890", expected_version: v.version });
   check("admin reset clears the notice", (await call(vic, "POST", "/api/auth/login", { username: `${TAG}vic`, password: "fresh67890" })).status === 200);
-  check("…the temporary password no longer signs in", (await call(null, "POST", "/api/auth/login", { username: `${TAG}vic`, password: "temp12345" })).status === 401);
+  check("…the temporary password no longer signs in", (await call(null, "POST", "/api/auth/login", { username: `${TAG}vic`, password: "temp12345-ws6" })).status === 401);
 
   // ---------------------------------------------------------------------------
   section("B5. DATA DOES NOT LEAK THROUGH OTHER MODULES' ENDPOINTS");

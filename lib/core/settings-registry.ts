@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ROLES, type Role } from "@/lib/types";
 
 /**
  * The catalogue of system settings — every operational policy number the business
@@ -237,7 +238,7 @@ export const SETTING_DEFS = {
   "auth.session_ttl_hours": def({
     group: "documents",
     label: "صلاحية الجلسة (ساعة)",
-    description: "مدة سريان جلسة الدخول قبل ما المستخدم يضطر يعيد تسجيل الدخول. أي قيمة أقل من 1 ساعة بتتعامل كساعة واحدة.",
+    description: "مدة سريان جلسة الدخول قبل ما المستخدم يضطر يعيد تسجيل الدخول. أي قيمة أقل من 1 ساعة بتتعامل كساعة واحدة، وأي قيمة أكبر من 24 ساعة بتتعامل كـ 24 ساعة (حد أقصى ثابت للأمان).",
     unit: "ساعة",
     schema: z.number().min(1, "أقل قيمة 1").max(720, "أكبر قيمة 720 (شهر)"),
     default: 12,
@@ -249,6 +250,19 @@ export const SETTING_DEFS = {
     unit: "محاولة",
     schema: z.number().int().min(0).max(1000),
     default: 20,
+  }),
+  // --- WS6 (security) -------------------------------------------------------
+  "auth.mfa_required_roles": def<Role[]>({
+    group: "documents",
+    label: "الأدوار اللي لازم عليها التحقق بخطوتين",
+    description:
+      "أي مستخدم في دور من الأدوار دي ومفيش عليه تحقق بخطوتين (تطبيق المصادقة) بيتطلب منه يفعّله أول ما يدخل، وقبل ما يوصل لأي صفحة أو عملية. اكتب الأدوار مفصولة بفاصلة (مثلًا SUPER_ADMIN,ACCOUNTANT). فاضي = مش إجباري على حد.",
+    unit: "",
+    schema: z
+      .array(z.enum(ROLES, { errorMap: () => ({ message: "دور مش معروف" }) }))
+      .max(ROLES.length, "أدوار كتير")
+      .refine((list) => new Set(list).size === list.length, "دور متكرر"),
+    default: ["SUPER_ADMIN", "ACCOUNTANT"],
   }),
   "purchasing.po_approval_threshold": def({
     group: "purchasing",
@@ -495,8 +509,9 @@ export const SETTING_EN: Record<SettingKey, { label: string; description: string
   "sales.auto_reserve": { label: "Reserve stock for orders", description: "Mandatory: every line of a confirmed order reserves its full quantity from sellable stock when it is confirmed; if it is not available the order is not confirmed. Cannot be switched off." },
   "sales.eta_person_id_threshold": { label: "National ID threshold on e-invoices", description: "An invoice to a person (not a company) at or above this amount is not sent to the Tax Authority without the customer's national ID. The value follows the published system rules \u2014 to be confirmed by the accountant." },
   "sales.quotation_validity_days": { label: "Quotation validity", description: "Days a quotation stays valid when no date is given." },
-  "auth.session_ttl_hours": { label: "Session lifetime (hours)", description: "How long a sign-in lasts before the user must sign in again. Anything under 1 hour counts as one hour." },
+  "auth.session_ttl_hours": { label: "Session lifetime (hours)", description: "How long a sign-in lasts before the user must sign in again. Anything under 1 hour counts as one hour; anything over 24 hours counts as 24 (a fixed security cap)." },
   "auth.login_ip_lockout_threshold": { label: "Failed sign-ins from one address", description: "If sign-in fails this many times from the same IP within 15 minutes, that address is locked for 15 minutes \u2014 whatever the user name. Zero = no IP lock." },
+  "auth.mfa_required_roles": { label: "Roles that must use two-step sign-in", description: "Any user in one of these roles without two-step sign-in (an authenticator app) must enrol at their next sign-in, before reaching any page or action. Comma-separated roles (e.g. SUPER_ADMIN,ACCOUNTANT). Empty = not required for anyone." },
   "purchasing.po_approval_threshold": { label: "Purchase order approval threshold", description: "A purchase order above this total waits for accounting approval before it goes to the supplier. Zero = every purchase order needs approval." },
   "purchasing.over_receipt_tolerance_pct": { label: "Over-receipt tolerance", description: "The most a receipt may exceed the ordered quantity (produce weights are never exact)." },
   "purchasing.bill_match_tolerance_pct": { label: "Supplier bill match tolerance", description: "If a supplier bill (before tax) differs from the received value at the agreed price by more than this percentage, the bill waits for approval before posting." },

@@ -17,12 +17,12 @@ async function main() {
   section("0. CREATE A USER WITH ADMIN-SET PASSWORD (informing notice)");
   const un = `${TAG}_user`;
   const created = await call("admin", "POST", "/api/admin/users", {
-    name: "PW Test", username: un, password: "temp12345", role: "PREPARER", must_change_password: true,
+    name: "PW Test", username: un, password: "temp12345-ws6", role: "PREPARER", must_change_password: true,
   });
   check("user created (201)", created.status === 201, created.status);
 
   section("1. THE ADMIN-SET PASSWORD SIGNS IN AND WORKS (no lock)");
-  const login1 = await call("pwtab", "POST", "/api/auth/login", { username: un, password: "temp12345" });
+  const login1 = await call("pwtab", "POST", "/api/auth/login", { username: un, password: "temp12345-ws6" });
   check("admin-set password signs in", login1.status === 200, login1.status);
   const oldToken = tokenFor("pwtab");
   check("login response carries a Bearer token", typeof oldToken === "string" && oldToken.length > 20, oldToken?.slice(0, 12));
@@ -32,7 +32,7 @@ async function main() {
   check("user works normally with the admin-set password (orders 200)", ordersAfterAdminSet.status === 200, ordersAfterAdminSet.status);
 
   section("2. SELF-SERVICE PASSWORD CHANGE IS GONE");
-  const selfSvc = await call("pwtab", "POST", "/api/auth/password", { current_password: "temp12345", new_password: "mine12345" });
+  const selfSvc = await call("pwtab", "POST", "/api/auth/password", { current_password: "temp12345-ws6", new_password: "mine12345" });
   check("POST /api/auth/password no longer exists (404)", selfSvc.status === 404, selfSvc.status);
 
   section("3. ADMIN RESETS THE PASSWORD (clears the notice)");
@@ -49,7 +49,7 @@ async function main() {
     signal: AbortSignal.timeout(45_000),
   });
   check("old-epoch token rejected after admin reset (401)", oldRes.status === 401, oldRes.status);
-  const oldLogin = await call("pwtab2", "POST", "/api/auth/login", { username: un, password: "temp12345" });
+  const oldLogin = await call("pwtab2", "POST", "/api/auth/login", { username: un, password: "temp12345-ws6" });
   check("old password no longer signs in (401)", oldLogin.status === 401, oldLogin.status);
   const newLogin = await call("pwtab", "POST", "/api/auth/login", { username: un, password: "fresh98765" });
   check("new password signs in (200)", newLogin.status === 200, newLogin.status);

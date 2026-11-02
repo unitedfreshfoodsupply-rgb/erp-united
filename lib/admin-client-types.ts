@@ -10,6 +10,8 @@ export type AdminUser = {
   version: number;
   createdAt: string;
   overrideCount: number;
+  /** WS6: two-step sign-in set up (absent from older servers). */
+  mfaEnabled?: boolean;
 };
 
 export type EffectivePermissionRow = {

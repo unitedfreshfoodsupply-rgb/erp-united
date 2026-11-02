@@ -1128,6 +1128,16 @@
       }
     },
     {
+      "method": "POST",
+      "path": "/api/admin/users/[id]/mfa/reset",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "users.edit"
+        ]
+      }
+    },
+    {
       "method": "GET",
       "path": "/api/admin/users/[id]/permissions",
       "gate": {
@@ -1448,6 +1458,41 @@
       }
     },
     {
+      "method": "POST",
+      "path": "/api/auth/mfa/disable",
+      "gate": {
+        "kind": "authenticated"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/mfa/enroll/confirm",
+      "gate": {
+        "kind": "authenticated"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/mfa/enroll",
+      "gate": {
+        "kind": "authenticated"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/mfa/recovery-codes",
+      "gate": {
+        "kind": "authenticated"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/mfa",
+      "gate": {
+        "kind": "authenticated"
+      }
+    },
+    {
       "method": "GET",
       "path": "/api/core/reference",
       "gate": {
@@ -1636,6 +1681,16 @@
         "kind": "all",
         "permissions": [
           "accounting.eta.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/health/deep",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "settings.manage"
         ]
       }
     },

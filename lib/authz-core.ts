@@ -60,6 +60,8 @@ export type AuthStateRow = {
   active: boolean;
   sessionEpoch: number;
   mustChangePassword: boolean;
+  /** WS6: true once a second factor is confirmed (User.mfaEnabledAt is set). */
+  mfa_enabled: boolean;
   effect: string | null;
   permission_key: string | null;
 };
@@ -75,6 +77,7 @@ export type AuthStateRow = {
 export async function loadUserWithOverrides(userId: string) {
   const rows = await prisma.$queryRaw<AuthStateRow[]>`
     SELECT u."id", u."name", u."username", u."role", u."active", u."sessionEpoch", u."mustChangePassword",
+           (u."mfaEnabledAt" IS NOT NULL) AS mfa_enabled,
            o."effect" AS effect, p."key" AS permission_key
     FROM "User" u
     LEFT JOIN "UserPermissionOverride" o ON o."userId" = u."id"
@@ -82,11 +85,11 @@ export async function loadUserWithOverrides(userId: string) {
     WHERE u."id" = ${userId}
   `;
   if (rows.length === 0) return null;
-  const { id, name, username, role, active, sessionEpoch, mustChangePassword } = rows[0];
+  const { id, name, username, role, active, sessionEpoch, mustChangePassword, mfa_enabled } = rows[0];
   const overrides = rows
     .filter((r) => r.effect !== null && r.permission_key !== null)
     .map((r) => ({ effect: r.effect as string, permission: { key: r.permission_key as string } }));
-  return { user: { id, name, username, role, active, sessionEpoch, mustChangePassword }, overrides };
+  return { user: { id, name, username, role, active, sessionEpoch, mustChangePassword, mfaEnabled: mfa_enabled === true }, overrides };
 }
 
 export function forbiddenMessage(missing: Permission[]) {

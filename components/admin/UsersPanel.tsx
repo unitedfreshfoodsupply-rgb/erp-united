@@ -214,6 +214,7 @@ function UserCard({
           {!user.active && <span className={`${pill} bg-united-danger/10 text-united-danger`}>{t("admin.users.suspended-badge")}</span>}
           {isLastActiveSuperAdmin && <span className={`${pill} bg-united-warn/10 text-united-warn`}>{t("admin.users.last-admin-badge")}</span>}
           {user.overrideCount > 0 && <span className={`${pill} bg-united-info/10 text-united-info`}>{t("admin.users.exception-badge", { count: user.overrideCount })}</span>}
+          {user.mfaEnabled && <span className={`${pill} bg-united-green/10 text-united-green`}>{t("mfa.admin.badge")}</span>}
         </div>
         <div className="ms-auto flex items-center gap-1">
           {(canEditDetails || canChangeRole) && (
@@ -227,6 +228,28 @@ function UserCard({
           <Menu
             label={t("admin.users.more-actions", { name: user.name })}
             items={[
+              // WS6: hand a locked-out user back their account (lost phone and recovery codes).
+              ...(can("users.edit") && mayManage && user.mfaEnabled
+                ? [
+                    {
+                      key: "mfa-reset",
+                      label: t("mfa.admin.reset-action"),
+                      tone: "danger" as const,
+                      disabled: busy,
+                      onSelect: async () => {
+                        const reason = await dialogs.prompt({ title: t("mfa.admin.reset-confirm", { name: user.name }), label: t("ui.reason-label"), required: true, tone: "danger", confirmLabel: t("mfa.admin.reset-action") });
+                        if (!reason) return;
+                        try {
+                          await apiPost(`/api/admin/users/${user.id}/mfa/reset`, { reason });
+                          await qc.invalidateQueries({ queryKey: ["admin"] });
+                          toast.show(t("mfa.admin.reset-toast"), "success");
+                        } catch (err) {
+                          toast.show(err instanceof ApiClientError ? err.message : t("admin.users.patch-error-toast"), "error");
+                        }
+                      },
+                    },
+                  ]
+                : []),
               ...(can("users.disable") && mayManage
                 ? [
                     {

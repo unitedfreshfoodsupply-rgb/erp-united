@@ -1,4 +1,4 @@
-import bcrypt from "bcryptjs";
+import { hashPassword, passwordProblem, passwordProblemMessage } from "@/lib/security/password-policy";
 import type { Prisma } from "@prisma/client";
 import { asText } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
@@ -33,11 +33,10 @@ import { ROLES, isRole, type Role } from "@/lib/types";
 // ---------------------------------------------------------------------------
 
 const SUPER_ADMIN_LOCK = "rbac:super-admin-guard";
-// 4 was the original MVP minimum, short enough to make credential guessing
-// realistic against a login endpoint with no other protection. Raising it only
-// affects NEW passwords being set — an existing account's current hash still logs
-// in exactly as before, so this cannot lock anyone out on deploy.
-const MIN_PASSWORD_LENGTH = 8;
+// Password rules live in lib/security/password-policy.ts (WS6: at least 10 characters,
+// not the username, not a well-known password; bcrypt cost 12). They apply only to NEW
+// passwords being set — an existing account's current hash still signs in exactly as
+// before (and is upgraded to the new cost on that sign-in), so nobody is locked out.
 
 export type AdminUserDTO = {
   id: string;
@@ -48,6 +47,8 @@ export type AdminUserDTO = {
   version: number;
   createdAt: Date;
   overrideCount: number;
+  /** WS6: whether two-step sign-in is set up (never the secret itself). */
+  mfaEnabled: boolean;
 };
 
 function assertUsername(value: unknown): asserts value is string {
@@ -56,10 +57,9 @@ function assertUsername(value: unknown): asserts value is string {
   }
 }
 
-function assertPassword(value: unknown): asserts value is string {
-  if (typeof value !== "string" || value.length < MIN_PASSWORD_LENGTH) {
-    throw new ApiError(400, `كلمة السر لازم تكون ${MIN_PASSWORD_LENGTH} خانات على الأقل`);
-  }
+function assertPassword(value: unknown, username: string): asserts value is string {
+  const problem = passwordProblem(value, username);
+  if (problem) throw new ApiError(400, passwordProblemMessage(problem));
 }
 
 /** Roles arrive as free text in a JSON body — validate against the code list, never cast. */
@@ -125,6 +125,7 @@ export async function listUsers(): Promise<AdminUserDTO[]> {
     version: u.version,
     createdAt: u.createdAt,
     overrideCount: u._count.permissionOverrides,
+    mfaEnabled: u.mfaEnabledAt !== null,
   }));
 }
 
@@ -135,12 +136,12 @@ export async function createUser(
   const name = typeof input.name === "string" ? input.name.trim() : "";
   if (!name) throw new ApiError(400, "الاسم مطلوب");
   assertUsername(input.username);
-  assertPassword(input.password);
+  assertPassword(input.password, input.username);
   assertRole(input.role);
   assertMayAssignRole(actor, input.role);
 
   const username = input.username.trim().toLowerCase();
-  const passwordHash = await bcrypt.hash(input.password, 10);
+  const passwordHash = await hashPassword(input.password);
 
   const role = input.role;
   return inTx(async (tx) => {
@@ -206,8 +207,9 @@ export async function updateUser(
     }
   }
   if (fields.password !== undefined) {
-    assertPassword(fields.password);
-    data.passwordHash = await bcrypt.hash(fields.password, 10);
+    // Judged against the username the account will have after this edit.
+    assertPassword(fields.password, typeof data.username === "string" ? data.username : existing.username);
+    data.passwordHash = await hashPassword(fields.password);
     // Ends every session signed in with the old password — including a stolen one.
     data.sessionEpoch = { increment: 1 };
     data.passwordChangedAt = new Date();

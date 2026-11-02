@@ -30,6 +30,7 @@ const ERRORS_AR: Record<string, string> = {
   "auth.change-password": "لازم تغيّر كلمة السر الأول",
   "auth.invalid-login": "بيانات الدخول غلط",
   "auth.enter-credentials": "دخّل اسم المستخدم وكلمة السر",
+  "auth.mfa-enroll-required": "لازم تفعّل التحقق بخطوتين الأول",
 };
 
 const ERRORS_EN: Record<string, string> = {
@@ -45,6 +46,7 @@ const ERRORS_EN: Record<string, string> = {
   "auth.change-password": "You must change your password first",
   "auth.invalid-login": "Invalid login credentials",
   "auth.enter-credentials": "Enter username and password",
+  "auth.mfa-enroll-required": "Set up two-step sign-in first",
 };
 
 function localeFromReq(req?: NextRequest): "ar" | "en" {
@@ -63,6 +65,8 @@ export function handleApiError(err: unknown, req?: NextRequest) {
   if (err instanceof ApiError) {
     // A known code has a fixed translation; any other message is translated from the
     // catalog with its specific details intact (unknown text stays as written).
+    // The code travels in the body whenever set (e.g. "auth.mfa-enroll-required",
+    // "stock_unavailable") so clients can tell refusals apart without parsing text.
     if (err.code && loc === "en") {
       const translated = ERRORS_EN[err.code];
       if (translated) {
