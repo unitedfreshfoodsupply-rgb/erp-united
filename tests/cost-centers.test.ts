@@ -5,6 +5,7 @@
    "required" setting makes people name one; inactive centers are refused. */
 import { Prisma, PrismaClient } from "@prisma/client";
 import { call, login, makeChecker } from "./_harness";
+import { fundCash, manualJournal } from "./_stock";
 import { assertTestDatabase } from "./_guard";
 import { todayBiz } from "./_days";
 
@@ -20,6 +21,13 @@ async function main() {
   const db = new PrismaClient();
   for (const u of ["admin", "karim", "mona", "omar"]) await login(u);
   await setSetting("accounting.cost_center_required", null);
+  // L2: cash and bank never go negative — the owner funds the account before it pays out.
+  // The van is bought from the bank last month; expenses are paid from the cash box.
+  {
+    const p = (() => { const d = new Date(`${today.slice(0, 7)}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); })();
+    await fundCash("bank_main", 15000, { date: `${p}-01` });
+    await fundCash("cash_main", 1000);
+  }
   const linesOf = async (sourceType: string, sourceId: string) => db.journalLine.findMany({ where: { entry: { sourceType, sourceId } }, include: { account: true } });
 
   section("1. CENTERS");
@@ -40,8 +48,9 @@ async function main() {
   let lines = await linesOf("expense", exp.id);
   check("…its expense line carries the van, the cash line none", lines.find((l) => l.account.code === "6200")?.costCenterId === van.id && lines.find((l) => l.account.code === "1100")?.costCenterId === null, lines.map((l) => [l.account.code, l.costCenterId]));
   check("a cost center on a balance-sheet line of a journal -> 400", (await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${TAG} x`, lines: [{ account_id: "acc_6100", debit: 1 }, { account_id: "acc_1100", credit: 1, cost_center_id: wh.id }] })).status === 400);
-  r = await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${TAG} إعادة توزيع`, lines: [{ account_id: "acc_6200", debit: 100, cost_center_id: wh.id }, { account_id: "acc_6200", credit: 100, cost_center_id: van.id }] });
-  check("reallocation between centers on the same account (manual journal) -> 201", r.status === 201, r.body);
+  // CTL-01: a manual journal waits for a second person (202) and posts on approval.
+  const realloc = await manualJournal({ date: today, description: `${TAG} إعادة توزيع`, lines: [{ account_id: "acc_6200", debit: 100, cost_center_id: wh.id }, { account_id: "acc_6200", credit: 100, cost_center_id: van.id }] });
+  check("reallocation between centers on the same account (manual journal) -> 202, approved by someone else, posted", realloc.submit.status === 202 && realloc.decision?.status === 200 && !!realloc.journal?.id, [realloc.submit.body, realloc.decision?.body]);
   const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} صيانة` })).body.supplier;
   r = await call("karim", "POST", "/api/purchasing/bills", { kind: "service", supplier_id: supplier.id, supplier_invoice_no: `${TAG}-1`, bill_date: today, lines: [{ account_id: "acc_6200", description: "صيانة", amount: "200", tax_code: "VAT14", cost_center_id: van.id }, { account_id: "acc_6100", description: "كهربا المخزن", amount: "150", tax_code: "VAT14", cost_center_id: wh.id }] });
   const bill = r.body.bill;

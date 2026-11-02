@@ -4,6 +4,7 @@
    layer and later COGS reconcile, and nothing posted is silently rewritten. */
 import { call, login, makeChecker } from "./_harness";
 import { todayBiz } from "./_days";
+import { taxNo } from "./_stock";
 
 const TAG = `ZZCOST-${Date.now()}`;
 const { check, section, finish } = makeChecker();
@@ -17,7 +18,8 @@ async function main() {
   for (const u of ["admin", "karim", "hossam", "mona", "ahmed", "mostafa", "sara"]) await login(u);
   const sup = (await call("hossam", "POST", "/api/stock/suppliers", { name: `${TAG} مزرعة تكاليف` })).body.supplier;
   const p = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} بطاطس تكلفة`, unit: "KG" })).body.product;
-  const c = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل تكاليف` })).body.customer;
+  // MIG-01: the sale below is invoiced, so the buyer carries a 9-digit tax number.
+  const c = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل تكاليف`, tax_registration_no: taxNo() })).body.customer;
   check("setup supplier/product/customer", !!sup && !!p && !!c);
 
   section("1. RECEIVE WITH UNKNOWN COST");

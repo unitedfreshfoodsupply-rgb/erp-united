@@ -4,6 +4,7 @@
    never exceeds the invoiced quantity. Uses its own products/customer so the
    tightly-coupled UAT totals are untouched. */
 import { call, login, makeChecker } from "./_harness";
+import { taxNo } from "./_stock";
 import { todayBiz } from "./_days";
 
 const TAG = `ZZRET-${Date.now()}`;
@@ -21,7 +22,8 @@ async function main() {
   if (r1.status !== 201) throw new Error("supplier: " + JSON.stringify(r1.body));
   const sup = r1.body.supplier;
   const p = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} ملفوف`, unit: "KG" })).body.product;
-  const c = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل` })).body.customer;
+  // MIG-01: invoices issued below need the buyer's 9-digit tax number (on the card).
+  const c = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل`, tax_registration_no: taxNo() })).body.customer;
   check("setup supplier/product/customer", !!sup && !!p && !!c);
 
   // Stock in the warehouse so the sale can be dispatched.
@@ -98,7 +100,7 @@ async function main() {
   // A second product received WITHOUT a price: its cost is unknown until the
   // supplier cost arrives. The sale's COGS must not be presented as confirmed.
   const p2 = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} بصل`, unit: "KG" })).body.product;
-  const c2 = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل تكلفة` })).body.customer;
+  const c2 = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل تكلفة`, tax_registration_no: taxNo() })).body.customer;
   const intake2 = await call("hossam", "POST", "/api/stock/intakes", { supplier_id: sup.id, product_id: p2.id, received_date: today, received_kg: 2000 });
   check("intake WITHOUT unit_cost -> 201 (cost unknown)", intake2.status === 201, intake2.body);
   check("…valuation layer records it as UNKNOWN cost (zero value)", (await call("karim", "GET", `/api/inventory/reports/valuation`)).body.rows.some((r: any) => r.productId === p2.id && Number(r.receivedWithoutCost) === 2000), (await call("karim", "GET", `/api/inventory/reports/valuation`)).body.rows.find((r: any) => r.productId === p2.id));

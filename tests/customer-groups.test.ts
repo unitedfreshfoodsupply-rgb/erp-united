@@ -3,6 +3,7 @@
    across hotels of one legal entity, search by group, invoice buyer snapshot,
    and the rejection of invented or duplicated tax data. */
 import { call, login, makeChecker, BASE, cookieFor } from "./_harness";
+import { stockUp } from "./_stock";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZGRP${Date.now() % 1_000_000_000}`;
@@ -143,6 +144,7 @@ async function main() {
     expected_version: h2cur.version,
   });
   const product = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Mango`, unit: "KG" })).body.product;
+  await stockUp(product.id, 5); // WF-01: the order below must be fully reservable
   // Price the product first — an order must be priced before it can be invoiced.
   const pl = (await call("mona", "POST", "/api/sales/price-lists", { code: `${TAG}-PL`, name: "الأسعار العامة", is_default: true })).body.priceList;
   await call("mona", "POST", `/api/sales/price-lists/${pl.id}/prices`, { valid_from: "2026-12-01", prices: [{ product_id: product.id, unit_price: "20" }] });
@@ -167,6 +169,7 @@ async function main() {
   // fields are missing because the API test entity has none — nothing invented).
   const gp = await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Grapes`, unit: "KG" });
   const grapes = gp.body.product;
+  await stockUp(grapes.id, 2); // WF-01: the order below must be fully reservable
   await call("mona", "POST", `/api/sales/price-lists/${pl.id}/prices`, { valid_from: "2026-12-01", prices: [{ product_id: grapes.id, unit_price: "30" }] });
   const order2 = await call(null, "POST", "/api/orders", { customer_name: `${TAG} JAZ Aqua`, customer_account_id: h2.id, delivery_date: "2026-12-11", items: [{ product_name: `${TAG} Grapes`, quantity: 2, product_id: grapes.id }] }, { "x-api-key": process.env.N8N_API_KEY! });
   const oid2 = order2.body.order.id;

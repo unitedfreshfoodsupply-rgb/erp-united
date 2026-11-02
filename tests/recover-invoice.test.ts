@@ -1,6 +1,7 @@
 /* Invoice draft recover: void a draft, recover it, issue it.
    Tests state guards, authorization, version protection, and audit. */
 import { call, login, makeChecker } from "./_harness";
+import { taxNo } from "./_stock";
 import { todayBiz } from "./_days";
 
 const { check, section, finish } = makeChecker();
@@ -14,7 +15,8 @@ async function main() {
   const prod = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Prod`, unit: "KG" })).body.product;
   const sup = (await call("admin", "POST", "/api/stock/suppliers", { name: `${TAG} Sup` })).body.supplier;
   await call("admin", "POST", "/api/stock/intakes", { supplier_id: sup.id, product_id: prod.id, received_kg: 50, unit_cost: "3" });
-  const cust = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} Cust` })).body.customer;
+  // MIG-01: invoices issued below need the buyer's 9-digit tax number (on the card).
+  const cust = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} Cust`, tax_registration_no: taxNo() })).body.customer;
 
   const today = todayBiz();
 

@@ -11,6 +11,7 @@
    500 or a deadlock), and books that still reconcile afterwards. */
 import { Prisma, PrismaClient } from "@prisma/client";
 import { call, login, makeChecker, type Res } from "./_harness";
+import { fundCash, setSetting, manualJournal } from "./_stock";
 import { assertTestDatabase } from "./_guard";
 import { todayBiz } from "./_days";
 
@@ -30,6 +31,15 @@ async function main() {
   const today = todayBiz();
   const balanceOf = async (accountId: string) => { const [r] = await db.$queryRaw<{ b: Prisma.Decimal | null }[]>`SELECT sum("debit" - "credit") AS b FROM "JournalLine" WHERE "accountId" = ${accountId}`; return n(r?.b); };
   const pendingFor = async (entityId: string) => (await call("admin", "GET", "/api/approvals?status=pending")).body.approvals.find((x: any) => x.entityId === entityId);
+
+  // L2: cash and bank never go negative — the owner funds the main bank account that the
+  // transfers, asset purchases and journals below draw on.
+  await fundCash("bank_main", 20000);
+  // Sections 1–2 race transfer POSTINGS (draining a box, one idempotency key). CTL-01 makes
+  // every transfer wait for a second person by default (asserted in the treasury suite); the
+  // switch is turned off by an audited settings change for these two sections and the
+  // shipped default restored right after them.
+  await setSetting("accounting.transfer_approval", false, `${TAG} posting races`);
 
   section("1. A CASH BOX DRAINED BY PARALLEL TRANSFERS NEVER GOES NEGATIVE");
   const box = (await call("karim", "POST", "/api/accounting/cash-accounts", { type: "cash", name: `${TAG} box`, name_ar: `${TAG} خزنة` })).body.cashAccount;
@@ -52,6 +62,8 @@ async function main() {
   const revs = await Promise.all(Array.from({ length: 4 }, () => call("karim", "POST", `/api/accounting/transfers/${tid}/reverse`, { reason: `${TAG} مكرر` })));
   check("4 parallel reversals: one succeeds, the others 409", count(revs, 200) === 1 && count(revs, 409) === 3, statuses(revs));
   check("…one reversing entry", (await db.journalEntry.count({ where: { sourceType: "cash_transfer_reversal", sourceId: tid } })) === 1);
+
+  await setSetting("accounting.transfer_approval", null, `${TAG} posting races done`);
 
   section("3. ONE APPROVAL DECIDED TWICE AT ONCE");
   await call("admin", "PATCH", "/api/admin/settings/accounting.manual_journal_approval", { value: true, reason: `${TAG} اختبار` });
@@ -148,10 +160,14 @@ async function main() {
   const M = Array.from({ length: 12 }, (_, i) => `2016-${String(i + 1).padStart(2, "0")}`).find((m) => months2016.find((p) => p.code === m)?.status !== "closed");
   for (const p of await db.accountingPeriod.findMany({ where: { status: "open", code: { lt: M ?? "2016-01" } }, orderBy: { code: "asc" } })) await call("karim", "POST", `/api/accounting/periods/${p.code}/close`, {});
   if (M && !(await db.accountingPeriod.findFirst({ where: { status: "open", code: { lt: M } } }))) {
+    // The race is between POSTINGS and the close: manual-journal approval (on by default,
+    // CTL-01) is switched off by an audited settings change for the race and restored after.
+    await setSetting("accounting.manual_journal_approval", false, `${TAG} close race`);
     const posts = Array.from({ length: 8 }, (_, i) => call("karim", "POST", "/api/accounting/journals", { date: `${M}-15`, description: `${TAG} سباق ${i}`, lines: [{ account_id: "acc_6100", debit: 10 }, { account_id: "acc_1200", credit: 10 }] }));
     const closeIt = call("karim", "POST", `/api/accounting/periods/${M}/close`, {});
     const depIt = call("karim", "POST", "/api/assets/depreciation", { period: M });
     const all = await Promise.all([...posts, closeIt, depIt]);
+    await setSetting("accounting.manual_journal_approval", null, `${TAG} close race done`);
     check(`8 postings + depreciation + the close of ${M} at once: no 500 / deadlock`, no5xx(all), statuses(all));
     const p = await db.accountingPeriod.findUnique({ where: { code: M } });
     check("…the month is closed", p?.status === "closed", p);
@@ -232,9 +248,10 @@ async function main() {
 
   section("10. A REVERSAL KEEPS THE COST CENTER (AND THE PARTY)");
   const cc = (await call("karim", "POST", "/api/accounting/cost-centers", { code: `RV${SUF}`, name: `${TAG} cc`, name_ar: `${TAG} مركز`, kind: "other" })).body.costCenter;
-  r = await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${TAG} بمركز`, lines: [{ account_id: "acc_6100", debit: 77, cost_center_id: cc.id }, { account_id: "acc_1200", credit: 77 }] });
-  check("a manual journal on a cost center", r.status === 201, r.body);
-  const rv = await call("karim", "POST", `/api/accounting/journals/${r.body.journal.id}/reverse`, { reason: `${TAG} عكس` });
+  // CTL-01: the manual journal waits for a second person and posts on approval.
+  const ccJ = await manualJournal({ date: today, description: `${TAG} بمركز`, lines: [{ account_id: "acc_6100", debit: 77, cost_center_id: cc.id }, { account_id: "acc_1200", credit: 77 }] });
+  check("a manual journal on a cost center (202, approved by someone else, posted)", ccJ.submit.status === 202 && ccJ.decision?.status === 200 && !!ccJ.journal?.id, [ccJ.submit.body, ccJ.decision?.body]);
+  const rv = await call("karim", "POST", `/api/accounting/journals/${ccJ.journal?.id}/reverse`, { reason: `${TAG} عكس` });
   check("…reversed", rv.status === 200 || rv.status === 201, rv.body);
   const rep = (await call("karim", "GET", `/api/accounting/cost-centers/report?from=${today}&to=${today}`)).body.report;
   const row = rep.centers.find((g: any) => g.costCenter?.id === cc.id);

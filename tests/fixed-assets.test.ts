@@ -7,6 +7,7 @@
    shows the sale under investing, DB guards. Runs on the shared test database repeatedly. */
 import { Prisma, PrismaClient } from "@prisma/client";
 import { call, login, makeChecker } from "./_harness";
+import { fundCash } from "./_stock";
 import { assertTestDatabase } from "./_guard";
 import { todayBiz } from "./_days";
 
@@ -35,6 +36,9 @@ async function main() {
   };
   // Three months back: placed in service then, depreciated from the month after.
   const M0 = addMonths(thisMonth, -3), M1 = addMonths(thisMonth, -2), M2 = addMonths(thisMonth, -1);
+  // L2: cash and bank never go negative — the owner funds the account before it pays out.
+  // Assets are bought from the bank from M0 on (12,000 + 50,000 + 8,000 + a 6,000 improvement).
+  await fundCash("bank_main", 100000, { date: `${M0}-01` });
 
   section("1. ACCESS");
   check("sales cannot see the register -> 403", (await call("mona", "GET", "/api/assets")).status === 403);
