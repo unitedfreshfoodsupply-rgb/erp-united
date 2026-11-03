@@ -40,6 +40,8 @@ const PAIRS: readonly (readonly [ar: string, en: string])[] = [
   ["رصيد افتتاحي — {} ({})", "Opening balance — {} ({})"],
   ["رصيد افتتاحي — {}", "Opening balance — {}"],
   ["طلب شراء {}", "Purchase request {}"],
+  // Sales by the person who entered the order: orders that came from n8n have no user.
+  ["n8n / النظام", "n8n / system"],
   ["عكس مسير مرتبات {}: {}", "Reversal of payroll run {}: {}"],
   ["عكس صرف مرتبات {}: {}", "Reversal of salary payment {}: {}"],
   ["عكس {}: {}", "Reversal of {}: {}"],

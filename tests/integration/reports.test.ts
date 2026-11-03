@@ -125,12 +125,20 @@ test("drill-down: summary rows lead to their source (a screen or the next, narro
   let checked = 0;
   for (const key of linked) {
     const r = await runReport(key, wide({ group_by: "month" }), all);
-    for (const row of r.rows.filter((x) => !(key === "general-ledger" && x.number === "") && !(key === "stock-by-category" && x.category === "—"))) {
+    for (const row of r.rows.filter((x) => !(key === "general-ledger" && x.number === "") && !(["stock-by-category", "sales-by-category"].includes(key) && x.category === "—"))) {
       assert.ok(typeof row._href === "string" && row._href.startsWith("/"), `${key} row links to its source`);
       checked++;
     }
   }
   assert.ok(checked > 0, "some rows were checked");
+  // A category link opens a report that has rows; the uncategorised row has no link (nothing to filter on).
+  for (const [summary, detail] of [["sales-by-category", "sales-by-product"], ["stock-by-category", "stock-by-product"]] as const) {
+    for (const row of (await runReport(summary, wide(), all)).rows) {
+      if (row.category === "—") { assert.equal(row._href, null, `${summary}: the uncategorised row has no link`); continue; }
+      const category = new URL(String(row._href), "http://x").searchParams.get("category") ?? "";
+      assert.ok((await runReport(detail, wide({ category }), all)).rows.length > 0, `${summary} → ${detail}?category=${category} has rows`);
+    }
+  }
   const byPeriod = await runReport("sales-by-period", wide({ group_by: "month" }), all);
   for (const row of byPeriod.rows) assert.match(String(row._href), /^\/reports\/sales-by-customer\?from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}$/);
 });

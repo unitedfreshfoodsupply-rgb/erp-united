@@ -53,3 +53,8 @@ test("integration scopes stored as keys read as words", () => {
 test("purchase-request approval titles read in English; the product snapshot stays as stored", () => {
   assert.equal(systemText("طلب شراء PR-2026-00004 · جوافة", "en"), "Purchase request PR-2026-00004 · جوافة");
 });
+
+test("the system user of n8n orders reads in English in the sales-by-person report", () => {
+  assert.equal(systemText("n8n / النظام", "en"), "n8n / system");
+  assert.equal(systemText("n8n / النظام", "ar"), "n8n / النظام");
+});

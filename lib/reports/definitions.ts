@@ -587,7 +587,7 @@ async function salesByProduct(p: ReportParams, byCategory: boolean): Promise<Rep
   }
   const by = new Map<string, { net: Prisma.Decimal; cost: Prisma.Decimal }>();
   for (const r of active) { const k = r.category ?? "—"; const g = by.get(k) ?? { net: D(0), cost: D(0) }; g.net = g.net.plus(D(r.net)); g.cost = g.cost.plus(D(r.cost)); by.set(k, g); }
-  return { rows: [...by.entries()].sort((a, b) => b[1].net.comparedTo(a[1].net)).map(([category, g]) => ({ _href: `/reports/sales-by-product?from=${p.from}&to=${p.to}&category=${enc(category)}`, category, net: m2(g.net), cost: m2(g.cost), margin: m2(g.net.minus(g.cost)), margin_pct: pct(g.net.minus(g.cost), g.net) })) };
+  return { rows: [...by.entries()].sort((a, b) => b[1].net.comparedTo(a[1].net)).map(([category, g]) => ({ _href: category === "—" ? null : `/reports/sales-by-product?from=${p.from}&to=${p.to}&category=${enc(category)}`, category, net: m2(g.net), cost: m2(g.cost), margin: m2(g.net.minus(g.cost)), margin_pct: pct(g.net.minus(g.cost), g.net) })) };
 }
 
 export function reportByKey(key: string) {
