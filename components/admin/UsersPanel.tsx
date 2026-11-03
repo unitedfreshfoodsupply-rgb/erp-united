@@ -16,15 +16,21 @@ import { Menu } from "@/components/ui/Menu";
 import { Field } from "@/components/ui/Field";
 
 export function UsersPanel({ users }: { users: AdminUser[] }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { can } = usePermissions();
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   const activeSuperAdmins = users.filter((u) => u.role === "SUPER_ADMIN" && u.active).length;
   const [q, setQ] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const needle = q.trim().toLowerCase();
-  const shown = needle ? users.filter((u) => u.name.toLowerCase().includes(needle) || u.username.toLowerCase().includes(needle)) : users;
+  // The whole user list is loaded (it is small): search name or username, filter by role and status.
+  const shown = users.filter((u) =>
+    (!needle || u.name.toLowerCase().includes(needle) || u.username.toLowerCase().includes(needle)) &&
+    (!roleFilter || u.role === roleFilter) &&
+    (!statusFilter || (statusFilter === "active" ? u.active : !u.active)));
 
   return (
     <div className="flex flex-col gap-3">
@@ -44,7 +50,22 @@ export function UsersPanel({ users }: { users: AdminUser[] }) {
         <section className="card overflow-visible" aria-label={t("admin.users.list-label")}>
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-united-border px-4 py-3">
             <p className="text-sm text-united-muted">{t("admin.users.count", { count: shown.length, total: users.length })}</p>
-            <input type="search" value={q} onChange={(e) => setQ(e.target.value)} className="field w-full sm:w-64" placeholder={t("admin.users.search")} aria-label={t("admin.users.search")} />
+            <div className="flex flex-wrap items-end gap-2">
+              <Field label={t("admin.users.search")}><input type="search" value={q} onChange={(e) => setQ(e.target.value)} className="field-sm w-full sm:w-56" /></Field>
+              <Field label={t("form.role")}>
+                <select className="field-sm" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+                  <option value="">{t("list.all")}</option>
+                  {ROLES.map((r) => <option key={r} value={r}>{locale === "en" ? ROLE_LABEL_EN[r] : ROLE_LABEL[r]}</option>)}
+                </select>
+              </Field>
+              <Field label={t("list.status")}>
+                <select className="field-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                  <option value="">{t("list.all")}</option>
+                  <option value="active">{t("admin.users.status-active")}</option>
+                  <option value="inactive">{t("admin.users.suspended-badge")}</option>
+                </select>
+              </Field>
+            </div>
           </div>
           {shown.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-united-muted">{t("admin.users.no-match")}</p>

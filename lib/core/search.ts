@@ -38,7 +38,12 @@ const SOURCES = {
           WHERE united_norm(concat_ws(' ', i."receiptNumber", s."code", s."name", s."nameAr", p."name", p."nameAr", p."sku", l."lotNumber")) LIKE $1`,
   journal: `SELECT e."id" FROM "JournalEntry" e WHERE united_norm(concat_ws(' ', e."number", e."description")) LIKE $1`,
   document: `SELECT d."id" FROM "InventoryDocument" d LEFT JOIN "Supplier" s ON s."id" = d."supplierId"
-          WHERE united_norm(concat_ws(' ', d."number", d."reason", s."name", s."nameAr")) LIKE $1`,
+          WHERE united_norm(concat_ws(' ', d."number", d."reason", s."name", s."nameAr",
+            (SELECT string_agg(concat_ws(' ', p."name", p."nameAr", p."sku", l."lotNumber"), ' ') FROM "StockMovement" m
+               JOIN "StockProduct" p ON p."id" = m."productId" LEFT JOIN "StockLot" l ON l."id" = m."lotId" WHERE m."documentId" = d."id"))) LIKE $1`,
+  trip: `SELECT t."id" FROM "Trip" t JOIN "Vehicle" v ON v."id" = t."vehicleId" JOIN "Driver" r ON r."id" = t."driverId"
+          WHERE united_norm(concat_ws(' ', t."number", v."code", v."plate", r."name", r."phone",
+            (SELECT string_agg(concat_ws(' ', o."orderNumber", o."customerName"), ' ') FROM "TripStop" s JOIN "Order" o ON o."id" = s."orderId" WHERE s."tripId" = t."id"))) LIKE $1`,
   lot: `SELECT l."id" FROM "StockLot" l JOIN "StockProduct" p ON p."id" = l."productId"
           WHERE united_norm(concat_ws(' ', l."lotNumber", p."name", p."nameAr", p."sku")) LIKE $1`,
 } as const;

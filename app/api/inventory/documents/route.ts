@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   try {
     const ctx = await requirePermission(req, "stock.view");
     const sp = new URL(req.url).searchParams;
-    const result = await listDocuments({ type: sp.get("type") ?? undefined, status: sp.get("status") ?? undefined, limit: Number(sp.get("limit")) || undefined, offset: Number(sp.get("offset")) || undefined, q: searchText(sp.get("q")) || undefined });
+    const result = await listDocuments({ type: sp.get("type") ?? undefined, status: sp.get("status") ?? undefined, limit: Number(sp.get("limit")) || undefined, offset: Number(sp.get("offset")) || undefined, q: searchText(sp.get("q")) || undefined, from: sp.get("from") ?? undefined, to: sp.get("to") ?? undefined });
     // Movement costs are valuation data.
     const withValue = ctx.can("stock.valuation.view");
     return jsonFor(ctx, {

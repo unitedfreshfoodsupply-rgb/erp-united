@@ -4,6 +4,7 @@ import { unitLabel } from "@/lib/format";
 import { useEffect, useState } from "react";
 import { systemText } from "@/lib/locale/system-text";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { DataTable, FilterBar, useListQuery, useListState, type Column } from "@/components/ui/DataTable";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
@@ -77,32 +78,53 @@ function Trips() {
   const { t } = useLocale();
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [all, setAll] = useState(false);
-  const q = useQuery({ queryKey: ["ops", "trips", all], queryFn: () => apiFetch<{ trips: TripRow[] }>(`/api/operations/trips${all ? "" : "?open=1"}`) });
+  // The shared list experience (maturity 2026-11): search by trip, vehicle, driver, order or
+  // customer; open/all, status and date filters in the URL; a sortable table.
+  const list = useListState(["scope", "status"], { prefix: "t_" });
+  const params = new URLSearchParams();
+  if (list.filters.scope !== "all") params.set("open", "1");
+  if (list.q) params.set("q", list.q);
+  if (list.filters.status) params.set("status", list.filters.status);
+  if (list.from) params.set("from", list.from);
+  if (list.to) params.set("to", list.to);
+  const q = useListQuery<{ trips: TripRow[] }>(["ops", "trips"], `/api/operations/trips?${params}`);
   if (open) return <TripView id={open} onClose={() => setOpen(null)} />;
   if (creating) return <NewTrip onDone={(id) => { setCreating(false); if (id) setOpen(id); }} />;
+  const columns: Column<TripRow>[] = [
+    { key: "number", label: t("ops.col.trip"), sortValue: (r) => r.number, render: (r) => <span dir="ltr" className="font-bold">{r.number}</span> },
+    { key: "date", label: t("list.date"), sortValue: (r) => r.tripDate, render: (r) => <span dir="ltr">{r.tripDate}</span> },
+    { key: "vehicle", label: t("ops.new.vehicle-label"), sortValue: (r) => r.vehicle.code, render: (r) => <span>{r.vehicle.code}{r.vehicle.refrigerated && <Snowflake size={14} className="ms-1 inline text-united-info" aria-label={t("ops.fleet.refrigerated")} />}</span> },
+    { key: "driver", label: t("ops.new.driver-label"), sortValue: (r) => r.driver.name, render: (r) => r.driver.name, secondary: true },
+    { key: "stops", label: t("ops.trips.orders-label"), numeric: true, sortValue: (r) => r.stops, render: (r) => String(r.stops) },
+    { key: "delivered", label: t("ops.trips.delivered-count"), numeric: true, sortValue: (r) => r.delivered, render: (r) => String(r.delivered) },
+    { key: "status", label: t("list.status"), sortValue: (r) => r.status, render: (r) => <span className={`rounded-full px-2 text-xs font-extrabold ${TRIP_STATUS[r.status]?.cls}`}>{TRIP_STATUS[r.status] ? t(TRIP_STATUS[r.status].label) : r.status}</span> },
+  ];
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2 items-center">
-        <div className="min-w-0 flex-1"><Segmented value={all ? "all" : "open"} onChange={(v) => setAll(v === "all")} items={[{ key: "open", label: t("ops.tab.open") }, { key: "all", label: t("ops.tab.all") }]} /></div>
+        <div className="min-w-0 flex-1"><Segmented value={list.filters.scope === "all" ? "all" : "open"} onChange={(v) => list.set({ scope: v === "all" ? "all" : null })} items={[{ key: "open", label: t("ops.tab.open") }, { key: "all", label: t("ops.tab.all") }]} /></div>
         {can("operations.trips.manage") && <button type="button" className="btn-primary shrink-0" onClick={() => setCreating(true)}>{t("ops.btn.new-trip")}</button>}
       </div>
-      {q.isLoading && <LoadingState />}
-      {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
-      {q.data && q.data.trips.length === 0 && <EmptyState icon="🚚" title={t("ops.trip.empty")} />}
-      <ul className="flex flex-col gap-2">
-        {q.data?.trips.map((t2) => (
-          <li key={t2.id}>
-            <button type="button" className="card p-3 w-full text-start flex justify-between gap-2" onClick={() => setOpen(t2.id)}>
-              <div>
-                <div className="font-extrabold"><span dir="ltr">{t2.number}</span> · {t2.vehicle.code}{t2.vehicle.refrigerated && <Snowflake size={14} className="ms-1 inline text-united-info" aria-label={t("ops.fleet.refrigerated")} />} · {t2.driver.name}</div>
-                <div className="text-xs font-bold text-united-muted">{t2.tripDate} · {t2.stops} {t("ops.trips.orders-label")} · {t("ops.trips.delivered-count")} {t2.delivered}</div>
-              </div>
-              <span className={`self-start rounded-full px-2 text-xs font-extrabold ${TRIP_STATUS[t2.status]?.cls}`}>{TRIP_STATUS[t2.status] ? t(TRIP_STATUS[t2.status].label) : t2.status}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <FilterBar
+        list={list}
+        searchLabel={t("ops.trips.search")}
+        searchHint={t("ops.trips.search-hint")}
+        filters={[
+          { key: "status", label: t("list.status"), kind: "select", options: Object.entries(TRIP_STATUS).map(([value, s]) => ({ value, label: t(s.label) })) },
+          { key: "date", label: t("list.date"), kind: "date-range" },
+        ]}
+      />
+      <DataTable
+        rows={q.data?.trips}
+        columns={columns}
+        rowKey={(r) => r.id}
+        onRowOpen={(r) => setOpen(r.id)}
+        loading={q.isFetching}
+        error={q.error}
+        onRetry={() => q.refetch()}
+        empty={{ title: list.active ? t("list.empty-filtered") : t("ops.trip.empty") }}
+        caption={t("ops.trips.search")}
+      />
     </div>
   );
 }

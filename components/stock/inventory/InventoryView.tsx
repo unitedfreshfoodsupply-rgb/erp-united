@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { systemText } from "@/lib/locale/system-text";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FilterBar, useListState } from "@/components/ui/DataTable";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
@@ -595,30 +596,40 @@ const DOC_STATUS_MAP_EN: Record<string, { label: string; cls: string }> = {
 function Documents() {
   const { can } = usePermissions();
   const { t, locale } = useLocale();
-  const [type, setType] = useState("");
   const [highlight, setHighlight] = useState<string | null>(null);
-  const [dPage, setDPage] = useState(1);
-  const dPageSize = 50;
   useEffect(() => setHighlight(new URLSearchParams(window.location.search).get("doc")), []);
-  const onTypeChange = (t2: string) => { setType(t2); setDPage(1); };
   const dm = locale === "en" ? DOC_TYPE_MAP_EN : DOC_TYPE_MAP;
+  const sm = locale === "en" ? DOC_STATUS_MAP_EN : DOC_STATUS_MAP;
+  // The shared list experience (maturity 2026-11): search by number, reason, product or
+  // lot; type, status and date filters in the URL; paging on the server.
+  const list = useListState(["type", "status"], { prefix: "d_", pageSize: 50 });
   const q = useQuery({
-    queryKey: ["stock", "inventory", "documents", type, dPage],
-    queryFn: () => apiFetch<{ documents: DocumentDTO[]; pagination: { total: number } }>(`/api/inventory/documents?limit=${dPageSize}&offset=${(dPage - 1) * dPageSize}${type ? `&type=${type}` : ""}`),
+    queryKey: ["stock", "inventory", "documents", list.apiQuery()],
+    queryFn: () => apiFetch<{ documents: DocumentDTO[]; pagination: { total: number } }>(`/api/inventory/documents?${list.apiQuery()}`),
     refetchInterval: 30_000,
+    placeholderData: keepPreviousData,
   });
   return (
     <div className="flex flex-col gap-3">
-      <Segmented value={type} onChange={onTypeChange} items={[{ key: "", label: t("stock.doc-all") }, ...Object.entries(dm).map(([k, v]) => ({ key: k, label: v }))]} />
+      <Segmented value={list.filters.type} onChange={(v) => list.set({ type: v || null })} items={[{ key: "", label: t("stock.doc-all") }, ...Object.entries(dm).map(([k, v]) => ({ key: k, label: v }))]} />
+      <FilterBar
+        list={list}
+        searchLabel={t("stock.doc-search")}
+        searchHint={t("stock.doc-search-hint")}
+        filters={[
+          { key: "status", label: t("list.status"), kind: "select", options: Object.entries(sm).map(([value, s]) => ({ value, label: s.label })) },
+          { key: "date", label: t("list.date"), kind: "date-range" },
+        ]}
+      />
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
-      {q.data && q.data.documents.length === 0 && <EmptyState icon="🗂️" title={t("stock.empty-documents")} />}
+      {q.data && q.data.documents.length === 0 && <EmptyState icon="🗂️" title={list.active ? t("list.empty-filtered") : t("stock.empty-documents")} />}
       <ul className="flex flex-col gap-2">
         {q.data?.documents.map((d) => (
           <DocumentCard key={d.id} d={d} highlight={d.id === highlight} canReverse={can("stock.adjust") && d.status === "posted" && d.type !== "issue" && !d.reversalOfId} />
         ))}
       </ul>
-      {q.data && <Pagination page={dPage} pageSize={dPageSize} total={q.data.pagination?.total ?? 0} onChange={setDPage} />}
+      {q.data && <Pagination page={list.page} pageSize={list.pageSize} total={q.data.pagination?.total ?? 0} onChange={(p) => list.set({ page: p })} />}
     </div>
   );
 }

@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   try {
     await requirePermission(req, "orders.view");
     const sp = new URL(req.url).searchParams;
-    return NextResponse.json({ trips: await listTrips({ status: sp.get("status") ?? undefined, date: sp.get("date") ?? undefined, open: sp.get("open") === "1" }) });
+    return NextResponse.json({ trips: await listTrips({ status: sp.get("status") ?? undefined, date: sp.get("date") ?? undefined, open: sp.get("open") === "1", q: sp.get("q") ?? undefined, from: sp.get("from") ?? undefined, to: sp.get("to") ?? undefined }) });
   } catch (err) {
     return handleApiError(err, req);
   }

@@ -1089,10 +1089,11 @@ export async function reverseDocumentInTx(tx: Tx, documentId: string, reason: st
 
 const MAX_LIST_PAGE = 200;
 
-export async function listDocuments(filters: { type?: string; status?: string; limit?: number; offset?: number; q?: string }) {
+export async function listDocuments(filters: { type?: string; status?: string; limit?: number; offset?: number; q?: string; from?: string; to?: string }) {
   const take = Math.min(Math.max(filters.limit ?? 50, 1), MAX_LIST_PAGE);
   const skip = Math.max(filters.offset ?? 0, 0);
-  const where = { ...(filters.type ? { type: filters.type } : {}), ...(filters.status ? { status: filters.status } : {}), ...(await searchWhere("document", filters.q)) };
+  const dates = { ...(filters.from && isValidISODate(filters.from) ? { gte: filters.from } : {}), ...(filters.to && isValidISODate(filters.to) ? { lte: filters.to } : {}) };
+  const where = { ...(filters.type ? { type: filters.type } : {}), ...(filters.status ? { status: filters.status } : {}), ...(Object.keys(dates).length ? { businessDate: dates } : {}), ...(await searchWhere("document", filters.q)) };
   const [total, rows] = await Promise.all([
     prisma.inventoryDocument.count({ where }),
     prisma.inventoryDocument.findMany({
