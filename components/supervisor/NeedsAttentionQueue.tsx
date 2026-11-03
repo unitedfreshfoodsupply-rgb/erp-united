@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { ClassifiedOrderDTO, PriorityReason } from "@/lib/client-types";
 import { ArrowRight, CheckCircle2, Clock, Hourglass, OctagonAlert, PauseCircle, Truck, type LucideIcon } from "lucide-react";
 import { useLocale } from "@/lib/locale";
+import { orderCustomerName } from "@/lib/locale/names";
 
 /** Each reason: an icon and a severity colour (bar + icon), never colour alone. */
 const REASON: Record<PriorityReason, { icon: LucideIcon; tone: "danger" | "warn" | "neutral" }> = {
@@ -30,7 +31,7 @@ function minutesLabel(min: number, t: (key: string, params?: Record<string, stri
  * read first. Only orders with a genuinely actionable reason appear here
  * (server-classified); nothing that's merely informational/historical. */
 export function NeedsAttentionQueue({ items }: { items: ClassifiedOrderDTO[] }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   // The server sends Arabic text plus the reason code; show the code's own wording in
   // the user's language, and the server text for a code this screen does not know.
   const byCode = (kind: "reason" | "why" | "action", code: string, fallback: string) => {
@@ -67,7 +68,7 @@ export function NeedsAttentionQueue({ items }: { items: ClassifiedOrderDTO[] }) 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
                     <span className="font-semibold text-united-dark">
-                      {o.customerName} <span className="text-sm font-normal text-united-muted">· <span dir="ltr">{o.orderNumber}</span></span>
+                      {orderCustomerName(o, locale === "en" ? "en" : "ar")} <span className="text-sm font-normal text-united-muted">· <span dir="ltr">{o.orderNumber}</span></span>
                     </span>
                     <span className="whitespace-nowrap text-xs text-united-muted">{t("attention.since", { duration: minutesLabel(o.minutesInStage, t) })}</span>
                   </div>

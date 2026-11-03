@@ -77,7 +77,7 @@ function Bills({ onOpen }: { onOpen: (id: string) => void }) {
   if (creating === "service") return <NewServiceBill onDone={done} />;
   const rows = q.data?.bills;
   const columns: Column<BillRow>[] = [
-    { key: "number", label: t("purchasing.col.bill"), sortValue: (b) => b.number, render: (b) => <span dir="ltr">{b.number}</span> },
+    { key: "number", label: t("purchasing.col.bill"), sortValue: (b) => b.number, render: (b) => <span dir="ltr" className="whitespace-nowrap">{b.number}</span> },
     { key: "supplier", label: t("purchasing.col.supplier"), sortValue: (b) => localName(b.supplier, locale), render: (b) => <span>{localName(b.supplier, locale)}{b.kind === "service" ? <span className="ms-2 pill-neutral">{t("purchasing.bill.kind_service")}</span> : null}</span> },
     { key: "inv", label: t("purchasing.bill.supplier_invoice_label"), render: (b) => <span dir="ltr" className="text-united-muted">{b.supplierInvoiceNo}</span>, secondary: true },
     { key: "date", label: t("purchasing.col.bill-date"), sortValue: (b) => b.billDate, render: (b) => <span dir="ltr">{b.billDate}</span> },

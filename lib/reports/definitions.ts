@@ -17,6 +17,9 @@ const pct = (part: Prisma.Decimal.Value | null | undefined, whole: Prisma.Decima
 const enc = encodeURIComponent;
 const name = (ar: string | null | undefined, en: string | null | undefined) => ({ name_ar: ar || en || "", name_en: en || ar || "" });
 const PARTY_COLS = [{ key: "name_ar", label: { ar: "الاسم", en: "Name (Arabic)" }, type: "text" as const }, { key: "name_en", label: { ar: "الاسم بالإنجليزي", en: "Name" }, type: "text" as const }];
+/** A supplier named in both languages (the screen shows the reader's; exports carry both, like PARTY_COLS). */
+const SUPPLIER_COLS = [{ key: "supplier_ar", label: { ar: "المورد", en: "Supplier (Arabic)" }, type: "text" as const }, { key: "supplier_en", label: { ar: "المورد بالإنجليزي", en: "Supplier" }, type: "text" as const }];
+const supplierName = (ar: string | null | undefined, en: string | null | undefined) => ({ supplier_ar: ar || en || "", supplier_en: en || ar || "" });
 
 const FIN: ReportDef["permissions"] = ["accounting.view", "reports.finance"];
 const SALES: ReportDef["permissions"] = ["reports.finance", "sales.invoices.view"];
@@ -285,14 +288,14 @@ export const REPORTS: ReportDef[] = [
     title: { ar: "أوامر الشراء: المطلوب والمستلم", en: "Purchase orders: ordered vs received" },
     description: { ar: "لكل سطر أمر شراء: المطلوب، المستلم، والباقي", en: "Per purchase-order line: ordered, received and outstanding" },
     permissions: ["purchasing.orders.view"], filters: ["period", "supplier"],
-    columns: [{ key: "number", label: { ar: "أمر الشراء", en: "PO" }, type: "code" }, { key: "supplier", label: { ar: "المورد", en: "Supplier" }, type: "text" }, ...PARTY_COLS, { key: "ordered", label: { ar: "المطلوب", en: "Ordered" }, type: "qty" }, { key: "received", label: { ar: "المستلم", en: "Received" }, type: "qty" }, { key: "outstanding", label: { ar: "الباقي", en: "Outstanding" }, type: "qty" }, { key: "fill", label: { ar: "نسبة الاستلام %", en: "Fill %" }, type: "percent" }, { key: "status", label: { ar: "الحالة", en: "Status" }, type: "text" }],
+    columns: [{ key: "number", label: { ar: "أمر الشراء", en: "PO" }, type: "code" }, ...SUPPLIER_COLS, ...PARTY_COLS, { key: "ordered", label: { ar: "المطلوب", en: "Ordered" }, type: "qty" }, { key: "received", label: { ar: "المستلم", en: "Received" }, type: "qty" }, { key: "outstanding", label: { ar: "الباقي", en: "Outstanding" }, type: "qty" }, { key: "fill", label: { ar: "نسبة الاستلام %", en: "Fill %" }, type: "percent" }, { key: "status", label: { ar: "الحالة", en: "Status" }, type: "text" }],
     run: async (p) => {
       const rows = await prisma.$queryRaw<{ id: string; number: string; status: string; sname: string; snameAr: string | null; name: string; nameAr: string | null; ordered: Prisma.Decimal; received: Prisma.Decimal | null }[]>`
-        SELECT o."id", o."number", o."status", s."name" sname, s."nameAr" snameAr, pr."name", pr."nameAr", l."baseQuantity" ordered,
+        SELECT o."id", o."number", o."status", s."name" sname, s."nameAr" "snameAr", pr."name", pr."nameAr", l."baseQuantity" ordered,
           (SELECT sum(i."goodQty" + i."gradeBQty" + i."wasteQty") FROM "StockIntake" i WHERE i."purchaseOrderLineId" = l."id" AND i."status" = 'posted') received
         FROM "PurchaseOrderLine" l JOIN "PurchaseOrder" o ON o."id" = l."poId" JOIN "Supplier" s ON s."id" = o."supplierId" JOIN "StockProduct" pr ON pr."id" = l."productId"
         WHERE o."orderDate" BETWEEN ${p.from} AND ${p.to} AND o."status" NOT IN ('cancelled', 'draft') AND (${p.supplierId ?? null}::text IS NULL OR s."id" = ${p.supplierId ?? null}) ORDER BY o."orderDate" DESC, o."number"`;
-      return { rows: rows.map((r) => { const rec = D(r.received); const out = Prisma.Decimal.max(0, D(r.ordered).minus(rec)); return { number: r.number, supplier: r.snameAr || r.sname, ...name(r.nameAr, r.name), ordered: q3(r.ordered), received: q3(rec), outstanding: q3(out), fill: pct(rec, r.ordered), status: r.status, _tone: out.gt(0) ? "warn" : null }; }) };
+      return { rows: rows.map((r) => { const rec = D(r.received); const out = Prisma.Decimal.max(0, D(r.ordered).minus(rec)); return { number: r.number, ...supplierName(r.snameAr, r.sname), ...name(r.nameAr, r.name), ordered: q3(r.ordered), received: q3(rec), outstanding: q3(out), fill: pct(rec, r.ordered), status: r.status, _tone: out.gt(0) ? "warn" : null }; }) };
     },
   },
   {
@@ -392,10 +395,10 @@ export const REPORTS: ReportDef[] = [
     title: { ar: "البضاعة المستلمة والفرز", en: "Goods received and grading" },
     description: { ar: "كل استلام: المستلم، السليم، الفرزة، الهالك، المرفوض، والتكلفة", en: "Every receipt: received, good, grade B, waste, rejected and cost" },
     permissions: STOCK, filters: ["period", "supplier", "product"],
-    columns: [{ key: "date", label: { ar: "التاريخ", en: "Date" }, type: "date" }, { key: "number", label: { ar: "الاستلام", en: "Receipt" }, type: "code" }, { key: "supplier", label: { ar: "المورد", en: "Supplier" }, type: "text" }, ...PARTY_COLS, { key: "received", label: { ar: "المستلم", en: "Received" }, type: "qty", total: true }, { key: "good", label: { ar: "سليم", en: "Good" }, type: "qty", total: true }, { key: "gradeb", label: { ar: "فرزة", en: "Grade B" }, type: "qty", total: true }, { key: "waste", label: { ar: "هالك", en: "Waste" }, type: "qty", total: true }, { key: "rejected", label: { ar: "مرفوض", en: "Rejected" }, type: "qty", total: true }, { key: "unit_cost", label: { ar: "سعر الكيلو", en: "Unit cost" }, type: "money" }],
+    columns: [{ key: "date", label: { ar: "التاريخ", en: "Date" }, type: "date" }, { key: "number", label: { ar: "الاستلام", en: "Receipt" }, type: "code" }, ...SUPPLIER_COLS, ...PARTY_COLS, { key: "received", label: { ar: "المستلم", en: "Received" }, type: "qty", total: true }, { key: "good", label: { ar: "سليم", en: "Good" }, type: "qty", total: true }, { key: "gradeb", label: { ar: "فرزة", en: "Grade B" }, type: "qty", total: true }, { key: "waste", label: { ar: "هالك", en: "Waste" }, type: "qty", total: true }, { key: "rejected", label: { ar: "مرفوض", en: "Rejected" }, type: "qty", total: true }, { key: "unit_cost", label: { ar: "سعر الكيلو", en: "Unit cost" }, type: "money" }],
     run: async (p) => {
       const rows = await prisma.stockIntake.findMany({ where: { status: "posted", receivedDate: { gte: p.from, lte: p.to }, ...(p.supplierId ? { supplierId: p.supplierId } : {}), ...(p.productId ? { productId: p.productId } : {}) }, include: { supplier: { select: { name: true, nameAr: true } }, product: { select: { name: true, nameAr: true } } }, orderBy: [{ receivedDate: "desc" }, { createdAt: "desc" }], take: 5000 });
-      return { rows: rows.map((r) => ({ date: r.receivedDate, number: r.receiptNumber, supplier: r.supplier?.nameAr || r.supplier?.name || "", ...name(r.product.nameAr, r.product.name), received: q3(r.receivedQty), good: q3(r.goodQty), gradeb: q3(r.gradeBQty), waste: q3(r.wasteQty), rejected: q3(r.rejectedQty), unit_cost: r.unitCost == null ? null : D(r.unitCost).toFixed(2), _href: `/stock/entries?in_q=${enc(r.receiptNumber)}` })) };
+      return { rows: rows.map((r) => ({ date: r.receivedDate, number: r.receiptNumber, ...supplierName(r.supplier?.nameAr, r.supplier?.name), ...name(r.product.nameAr, r.product.name), received: q3(r.receivedQty), good: q3(r.goodQty), gradeb: q3(r.gradeBQty), waste: q3(r.wasteQty), rejected: q3(r.rejectedQty), unit_cost: r.unitCost == null ? null : D(r.unitCost).toFixed(2), _href: `/stock/entries?in_q=${enc(r.receiptNumber)}` })) };
     },
   },
   {

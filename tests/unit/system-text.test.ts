@@ -7,6 +7,8 @@ import { unitLabel, qtyUnit, intlLocale } from "../../lib/format";
 
 test("Arabic system text reads in English, values carried over", () => {
   assert.equal(systemText("فاتورة مبيعات INV-2026-00010", "en"), "Sales invoice INV-2026-00010");
+  assert.equal(systemText("اعتماد خسارة الفرز · استلام RC-20261103-0005", "en"), "grading loss approved · goods receipt RC-20261103-0005");
+  assert.equal(systemText("رفض العميل — TRP-2026-00001", "en"), "Rejected by the customer — TRP-2026-00001");
   assert.equal(systemText("قيمة مخزون — مرتجع عميل RET-2026-00006", "en"), "Inventory value — customer return RET-2026-00006");
   assert.equal(systemText("مسير مرتبات PRL-2026-00001 · 2025-08 · 2 موظف", "en"), "Payroll run PRL-2026-00001 · 2025-08 · 2 employees");
   assert.equal(systemText("payroll_run · 10600.00", "en"), "Payroll run · 10600.00");

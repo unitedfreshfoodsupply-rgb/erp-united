@@ -99,7 +99,7 @@ export function CommandCenter() {
                   {STAGES.map((s) => (
                     <li key={s} className="rounded-lg bg-united-subtle px-1 py-2">
                       <span className="num block text-lg font-bold" dir="ltr" style={{ textAlign: "center" }}>{d.orders!.byStatus[s] ?? 0}</span>
-                      <span className="block truncate text-[11px] text-united-muted">{t(`orders.status.${s}`)}</span>
+                      <span className="block text-[11px] leading-tight text-united-muted">{t(`orders.status.${s}`)}</span>
                     </li>
                   ))}
                 </ol>

@@ -64,6 +64,11 @@ const PAIRS: readonly (readonly [ar: string, en: string])[] = [
   ["فرق التحصيل ({})", "Settlement difference ({})"],
   // Stock movement kinds (in "قيمة مخزون — استلام RC-…")
   ["استلام {}", "goods receipt {}"],
+  // Stock released after a grading-loss approval ("اعتماد خسارة الفرز · استلام RC-…").
+  ["اعتماد خسارة الفرز", "grading loss approved"],
+  // Goods back from a delivery trip (lib/operations/trips.ts).
+  ["رفض العميل — {}", "Rejected by the customer — {}"],
+  ["فشل تسليم {}: {}", "Delivery failed on {}: {}"],
   ["استلام", "goods receipt"],
   ["تصحيح استلام {}", "receipt correction {}"],
   ["إلغاء استلام {}", "receipt void {}"],

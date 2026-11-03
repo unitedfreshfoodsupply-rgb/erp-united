@@ -124,7 +124,7 @@ function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
         {(c.groups.length > 0 || c.legalEntity) && <span className="text-xs text-united-muted">{[...c.groups.map((g) => g.code), c.legalEntity ? localName(c.legalEntity, locale) : null].filter(Boolean).join(" · ")}</span>}
       </span>
     ) },
-    { key: "code", label: t("sales.col.code"), sortValue: (c) => c.code, render: (c) => <span dir="ltr" className="text-united-muted">{c.code}</span> },
+    { key: "code", label: t("sales.col.code"), sortValue: (c) => c.code, render: (c) => <span dir="ltr" className="whitespace-nowrap text-united-muted">{c.code}</span> },
     { key: "type", label: t("sales.customer.type"), sortValue: (c) => c.type, render: (c) => t(`sales.type.${c.type}`) ?? c.type, secondary: true },
     { key: "area", label: t("sales.col.area"), sortValue: (c) => [c.area, c.city].filter(Boolean).join(" "), render: (c) => [c.area, c.city].filter(Boolean).join(locale === "en" ? ", " : "، ") || "—", secondary: true },
     { key: "phone", label: t("sales.col.phone"), render: (c) => <span dir="ltr">{c.phone ?? "—"}</span>, secondary: true },

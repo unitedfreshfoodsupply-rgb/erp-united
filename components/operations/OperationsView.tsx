@@ -91,12 +91,12 @@ function Trips() {
   if (open) return <TripView id={open} onClose={() => setOpen(null)} />;
   if (creating) return <NewTrip onDone={(id) => { setCreating(false); if (id) setOpen(id); }} />;
   const columns: Column<TripRow>[] = [
-    { key: "number", label: t("ops.col.trip"), sortValue: (r) => r.number, render: (r) => <span dir="ltr" className="font-bold">{r.number}</span> },
+    { key: "number", label: t("ops.col.trip"), sortValue: (r) => r.number, render: (r) => <span dir="ltr" className="whitespace-nowrap font-bold">{r.number}</span> },
     { key: "date", label: t("list.date"), sortValue: (r) => r.tripDate, render: (r) => <span dir="ltr">{r.tripDate}</span> },
     { key: "vehicle", label: t("ops.new.vehicle-label"), sortValue: (r) => r.vehicle.code, render: (r) => <span>{r.vehicle.code}{r.vehicle.refrigerated && <Snowflake size={14} className="ms-1 inline text-united-info" aria-label={t("ops.fleet.refrigerated")} />}</span> },
     { key: "driver", label: t("ops.new.driver-label"), sortValue: (r) => r.driver.name, render: (r) => r.driver.name, secondary: true },
-    { key: "stops", label: t("ops.trips.orders-label"), numeric: true, sortValue: (r) => r.stops, render: (r) => String(r.stops) },
-    { key: "delivered", label: t("ops.trips.delivered-count"), numeric: true, sortValue: (r) => r.delivered, render: (r) => String(r.delivered) },
+    { key: "stops", label: t("ops.col.orders"), numeric: true, sortValue: (r) => r.stops, render: (r) => String(r.stops) },
+    { key: "delivered", label: t("ops.col.delivered"), numeric: true, sortValue: (r) => r.delivered, render: (r) => String(r.delivered) },
     { key: "status", label: t("list.status"), sortValue: (r) => r.status, render: (r) => <span className={`rounded-full px-2 text-xs font-extrabold ${TRIP_STATUS[r.status]?.cls}`}>{TRIP_STATUS[r.status] ? t(TRIP_STATUS[r.status].label) : r.status}</span> },
   ];
   return (

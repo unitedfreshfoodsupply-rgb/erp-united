@@ -92,7 +92,7 @@ function InvoiceList({ status, onOpen }: { status: string; onOpen: (id: string) 
   const rows = q.data?.invoices;
   const sum = (k: "total" | "open") => fmtMoney((rows ?? []).reduce((a, r) => a + Number(r[k] ?? 0), 0));
   const columns: Column<InvRow>[] = [
-    { key: "number", label: t("sales.col.invoice"), sortValue: (i) => i.number ?? "", render: (i) => <span dir="ltr">{i.number ?? t("sales.invoice.invoice_number_placeholder")}</span> },
+    { key: "number", label: t("sales.col.invoice"), sortValue: (i) => i.number ?? "", render: (i) => <span dir="ltr" className="whitespace-nowrap">{i.number ?? t("sales.invoice.invoice_number_placeholder")}</span> },
     { key: "customer", label: t("sales.col.customer"), sortValue: (i) => localName(i.customer, locale), render: (i) => localName(i.customer, locale) },
     { key: "order", label: t("sales.col.order"), render: (i) => <span dir="ltr" className="text-united-muted">{i.order?.orderNumber ?? "—"}</span>, secondary: true },
     { key: "issued", label: t("sales.col.issued"), sortValue: (i) => i.issueDate ?? "", render: (i) => <span dir="ltr">{i.issueDate ?? "—"}</span> },

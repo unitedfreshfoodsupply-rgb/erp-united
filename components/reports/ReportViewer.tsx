@@ -46,8 +46,10 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
   const r = q.data;
   const has = (f: string) => !!r?.filters.includes(f);
 
-  // Party columns come in both languages (for the exports); the screen shows the reader's one.
-  const cols = r ? r.columns.filter((c) => c.key !== (lang === "ar" ? "name_en" : "name_ar")) : [];
+  // Names come in both languages (x_ar / x_en, for the exports); the screen shows the reader's one.
+  const keys = new Set(r?.columns.map((c) => c.key));
+  const twin = (k: string) => (k.endsWith("_ar") ? `${k.slice(0, -3)}_en` : k.endsWith("_en") ? `${k.slice(0, -3)}_ar` : null);
+  const cols = r ? r.columns.filter((c) => { const tw = twin(c.key); return !tw || !keys.has(tw) || c.key.endsWith(lang === "ar" ? "_ar" : "_en"); }) : [];
   const fmt = (c: Col, v: unknown) => {
     if (v === null || v === undefined || v === "") return "—";
     if (c.type === "money") return formatNumber(v as string, { minDp: 2, maxDp: 2 });

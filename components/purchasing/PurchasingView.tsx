@@ -481,7 +481,7 @@ function Suppliers({ locale, t, sup_type, initialOpen }: { locale: Locale; t: (k
   if (open) return <SupplierDetail id={open} onClose={() => setOpen(null)} locale={locale} t={t} />;
   const columns: Column<SupplierRow>[] = [
     { key: "name", label: t("purchasing.col.supplier"), sortValue: (s) => localName(s, locale), render: (s) => <span className={s.active ? "" : "text-united-muted line-through"}>{localName(s, locale)}</span> },
-    { key: "code", label: t("sales.col.code"), sortValue: (s) => s.code, render: (s) => <span dir="ltr" className="text-united-muted">{s.code}</span> },
+    { key: "code", label: t("sales.col.code"), sortValue: (s) => s.code, render: (s) => <span dir="ltr" className="whitespace-nowrap text-united-muted">{s.code}</span> },
     { key: "type", label: t("purchasing.col.supplier-type"), sortValue: (s) => sup_type[s.type] ?? s.type, render: (s) => sup_type[s.type] ?? s.type, secondary: true },
     { key: "phone", label: t("sales.col.phone"), render: (s) => <span dir="ltr">{s.phone ?? "—"}</span>, secondary: true },
     { key: "city", label: t("sales.col.area"), sortValue: (s) => s.city ?? "", render: (s) => s.city ?? "—", secondary: true },

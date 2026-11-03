@@ -36,7 +36,7 @@ export function ReportsCentre() {
       </label>
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         {groups.map(({ c, items }) => {
           const Icon = ICON[c];
           return (

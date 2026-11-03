@@ -9,6 +9,7 @@ import {
 import type { MovementDTO } from "@/lib/stock-client-types";
 import { localName } from "@/lib/locale/names";
 import { useLocale } from "@/lib/locale";
+import { systemText } from "@/lib/locale/system-text";
 import { EventIcon } from "@/components/ui/EventIcon";
 
 /** One ledger line. Shows the signed quantity, because the sign is the whole point of
@@ -36,7 +37,7 @@ export function MovementRow({ movement }: { movement: MovementDTO }) {
           <span>· {movement.actorName}</span>
         </div>
         {movement.reason && (
-          <p className="mt-0.5 text-xs text-united-dark/80">{t("audit.reason-prefix")} {movement.reason}</p>
+          <p className="mt-0.5 text-xs text-united-dark/80">{t("audit.reason-prefix")} {systemText(movement.reason, locale)}</p>
         )}
       </div>
     </li>

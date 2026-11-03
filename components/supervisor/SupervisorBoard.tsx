@@ -45,6 +45,8 @@ function matchesSearch(o: OrderDTO, q: string) {
   if (!needle) return true;
   return (
     o.customerName.toLowerCase().includes(needle) ||
+    (o.customerAccount?.name ?? "").toLowerCase().includes(needle) ||
+    (o.customerAccount?.nameAr ?? "").toLowerCase().includes(needle) ||
     o.orderNumber.toLowerCase().includes(needle) ||
     (o.externalId ?? "").toLowerCase().includes(needle)
   );
