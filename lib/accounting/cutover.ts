@@ -43,6 +43,8 @@ export function openingItems(f: {
   equity: Prisma.Decimal;
   equityAtCutover: Prisma.Decimal | null;
   directStock: { number: string; businessDate: string }[];
+  /** Direct opening stock entries that were reversed, with the GL date of the reversal. */
+  reversedDirect?: { number: string; reversedOn: string }[];
   partyRows: number;
   batchPartyLines: number;
 }): Item[] {
@@ -54,6 +56,10 @@ export function openingItems(f: {
     { key: "direct_party_opening", ok: directParty === 0, severity: "warning", label: "أرصدة افتتاحية للعملاء/الموردين اتسجلت مباشرة من غير دفعة", labelEn: "Customer/supplier opening balances posted directly, outside a batch", count: directParty, value: `${f.partyRows} / ${f.batchPartyLines}` },
   ];
   if (f.initial) items.splice(2, 0, { key: "opening_equity_at_cutover", ok: !!f.equityAtCutover?.isZero(), severity: "blocker", label: `حساب الأرصدة الافتتاحية (3300) صفر في تاريخ الافتتاح ${f.initial.cutoverDate}`, labelEn: `Opening equity (3300) is zero as at the cut-over date ${f.initial.cutoverDate}`, value: f.equityAtCutover?.toFixed(2) });
+  // A batch dated before the reversal of a direct opening entry: on every day from the cut-over
+  // date until that reversal, the balance sheet carries the opening stock twice (D13).
+  const late = f.initial ? (f.reversedDirect ?? []).filter((r) => r.reversedOn > f.initial!.cutoverDate) : [];
+  if (f.initial && f.reversedDirect?.length) items.splice(3, 0, { key: "cutover_after_direct_reversal", ok: late.length === 0, severity: "blocker", label: `تاريخ الافتتاح ${f.initial.cutoverDate} مش قبل عكس المخزون الافتتاحي المباشر`, labelEn: `The cut-over date ${f.initial.cutoverDate} is not before the reversal of the direct opening stock`, count: late.length, detail: late });
   return items;
 }
 
@@ -74,8 +80,15 @@ export async function cutoverReadiness() {
     prisma.inventoryDocument.findMany({ where: { type: "adjustment", sourceType: "opening_balance", status: "posted", reversalOfId: null, sourceId: null }, select: { number: true, businessDate: true }, orderBy: { number: "asc" } }),
   ]);
   const initial = batches.find((b) => b.kind === "initial" && b.status === "posted") ?? null;
+  // The GL date the reversal of each direct opening stock entry took the stock off the books.
+  const reversedDirect = await prisma.$queryRaw<{ number: string; reversedOn: string }[]>`
+    SELECT d."number", max(e."date") AS "reversedOn"
+    FROM "InventoryDocument" d JOIN "InventoryDocument" r ON r."reversalOfId" = d."id"
+    JOIN "StockMovement" m ON m."documentId" = r."id" JOIN "StockValuationPosting" p ON p."movementId" = m."id" JOIN "JournalEntry" e ON e."id" = p."entryId"
+    WHERE d."type" = 'adjustment' AND d."sourceType" = 'opening_balance' AND d."sourceId" IS NULL
+    GROUP BY d."number" ORDER BY d."number"`;
   const [equity, equityAtCutover] = await Promise.all([glBalance("opening_equity"), initial ? glBalance("opening_equity", initial.cutoverDate) : Promise.resolve(null)]);
-  items.push(...openingItems({ initial, batches, equity, equityAtCutover, directStock, partyRows, batchPartyLines }));
+  items.push(...openingItems({ initial, batches, equity, equityAtCutover, directStock, reversedDirect, partyRows, batchPartyLines }));
 
   // Sub-ledgers against the GL (UNITED's side of the Odoo reconciliation).
   const [ar, ap, inv, grni, cash] = await Promise.all([glBalance("ar"), glBalance("ap"), glBalance("inventory"), glBalance("grni"), prisma.$queryRaw<{ code: string; v: Prisma.Decimal | null }[]>`

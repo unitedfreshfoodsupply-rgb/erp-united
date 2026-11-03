@@ -181,13 +181,24 @@ async function main() {
     check(`${roles[u]} (${u}): management and report-like routes answer as their gate says`, wrong.length === 0, wrong);
   }
   // The Command Center computes and returns only the sections a viewer may see.
+  const wasteSeen = { hidden: 0, shown: 0 };
   for (const u of users.filter((x) => may(x, ["reports.finance", "reports.view"]))) {
     const cc = (await call(u, "GET", "/api/management/command-center")).body ?? {};
     const finance = perms[u].has("reports.finance");
+    const valuation = perms[u].has("stock.valuation.view");
     const leaks = ["profit", "purchases", "receivables", "payables", "cash", "upcomingPayments"].filter((k) => (k in cc) !== finance);
-    if (cc.inventory && !perms[u].has("stock.valuation.view") && cc.inventory.value !== null) leaks.push("inventory.value");
+    if (cc.inventory && !valuation && cc.inventory.value !== null) leaks.push("inventory.value");
+    // REP-AUTH-03: the waste value is what the waste cost; only valuation holders see it.
+    for (const part of cc.produce ? [cc.produce.current, cc.produce.previous] : []) {
+      if (!valuation && part?.wasteValue !== null) leaks.push("produce.wasteValue");
+      if (valuation && typeof part?.wasteValue !== "string") leaks.push("produce.wasteValue missing for a valuation viewer");
+    }
+    if (cc.produce) wasteSeen[valuation ? "shown" : "hidden"]++;
     check(`${roles[u]} (${u}): Command Center sections match the permissions`, leaks.length === 0, leaks);
   }
+  // Every seeded role that reaches the Command Center also holds stock.valuation.view, so the
+  // hidden case is only reachable by a custom role; the integration test covers it directly.
+  check("the waste value was checked for the viewers who reach the Command Center", wasteSeen.shown > 0, wasteSeen);
 
   section("6. PAGES: /reports, a report page and the Command Center open exactly for the permitted roles");
   const pages: [string, readonly string[]][] = [

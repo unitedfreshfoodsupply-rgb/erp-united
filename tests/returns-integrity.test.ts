@@ -167,7 +167,9 @@ async function main() {
   const ret4 = await call("hossam", "POST", "/api/inventory/returns", { direction: "supplier", supplier_id: sup.id, reason: `${TAG}-sup-2`, lines: [{ product_id: p.id, quantity: 10 }] });
   const r4 = await call("hossam", "POST", `/api/inventory/documents/${docOf(ret4)}/reverse`, { reason: `${TAG}-rejected` });
   check("a supplier return with no debit note can still be reversed", ret4.status === 201 && r4.status === 201, [ret4.status, r4.status, r4.body]);
-  check("…and the reversed return backs no debit note -> 409", (await debit(5, docOf(ret4), "reversed")).status === 409);
+  // The full 10 kg, so only the reversed-return guard can refuse it (not the exact-quantity one).
+  const onReversed = await debit(10, docOf(ret4), "reversed");
+  check("…and the reversed return backs no debit note -> 409 (the reversed-return refusal itself)", onReversed.status === 409 && /ملغي/.test(onReversed.body?.error ?? ""), [onReversed.status, onReversed.body?.error]);
   const crev = await call("hossam", "POST", `/api/inventory/documents/${docId}/reverse`, { reason: `${TAG}-undo` });
   check("the credited customer return cannot be reversed -> 409", crev.status === 409, [crev.status, crev.body?.error]);
   const en = await call("hossam", "POST", `/api/inventory/documents/${docId}/reverse`, { reason: `${TAG}-undo` }, { "Accept-Language": "en" });

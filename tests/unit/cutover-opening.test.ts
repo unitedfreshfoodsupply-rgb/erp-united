@@ -21,7 +21,7 @@ test("production today: no batch, the direct opening stock entry stands and 3300
 });
 
 test("Option B done right: the direct entry reversed, one batch with stock and party lines — nothing flagged", () => {
-  const items = openingItems({ initial: { number: "OPB-2026-00001", cutoverDate: "2026-11-05" }, batches: [], equity: D("0"), equityAtCutover: D("0"), directStock: [], partyRows: 191, batchPartyLines: 191 });
+  const items = openingItems({ initial: { number: "OPB-2026-00001", cutoverDate: "2026-11-05" }, batches: [], equity: D("0"), equityAtCutover: D("0"), directStock: [], reversedDirect: [{ number: "ADJ-2026-00001", reversedOn: "2026-11-05" }], partyRows: 191, batchPartyLines: 191 });
   assert.ok(items.every((x) => x.ok), JSON.stringify(items.filter((x) => !x.ok)));
   assert.equal(blocked(items), false);
 });
@@ -39,4 +39,19 @@ test("a batch posted while the direct stock entry stands: 3300 keeps its credit 
   assert.equal(blocked(items), true);
   assert.equal(i.direct_opening_stock.count, 1);
   assert.equal(i.direct_party_opening.count, 1, "one party balance did not come from the batch");
+});
+
+test("a cut-over date before the reversal of the direct entry — even before 31 Oct — is blocked: the stock would be counted twice in between", () => {
+  // 3300 nets to zero at any date before 31 Oct (neither the direct entry nor its reversal yet),
+  // so the as-at check alone passes; the reversal date is what decides.
+  for (const cutoverDate of ["2026-10-30", "2026-11-04"]) {
+    const i = byKey(openingItems({ initial: { number: "OPB-2026-00001", cutoverDate }, batches: [], equity: D("0"), equityAtCutover: D("0"), directStock: [], reversedDirect: [{ number: "ADJ-2026-00001", reversedOn: "2026-11-05" }], partyRows: 0, batchPartyLines: 0 }));
+    assert.equal(i.opening_equity_at_cutover.ok, true, cutoverDate);
+    assert.equal(i.cutover_after_direct_reversal.ok, false, cutoverDate);
+    assert.equal(i.cutover_after_direct_reversal.severity, "blocker");
+    assert.deepEqual(i.cutover_after_direct_reversal.detail, [{ number: "ADJ-2026-00001", reversedOn: "2026-11-05" }]);
+  }
+  const same = byKey(openingItems({ initial: { number: "OPB-2026-00001", cutoverDate: "2026-11-05" }, batches: [], equity: D("0"), equityAtCutover: D("0"), directStock: [], reversedDirect: [{ number: "ADJ-2026-00001", reversedOn: "2026-11-05" }], partyRows: 0, batchPartyLines: 0 }));
+  assert.equal(same.cutover_after_direct_reversal.ok, true, "the reversal day itself is fine");
+  assert.equal("cutover_after_direct_reversal" in byKey(openingItems({ initial: null, batches: [], equity: D("0"), equityAtCutover: null, directStock: [], reversedDirect: [{ number: "ADJ-2026-00001", reversedOn: "2026-11-05" }], partyRows: 0, batchPartyLines: 0 })), false, "no batch yet: nothing to compare");
 });
