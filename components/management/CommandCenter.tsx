@@ -11,7 +11,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ErrorState, LoadingState } from "@/components/States";
 
-type Profit = { revenue: string; costOfSales: string; grossProfit: string; operatingExpenses: string; netProfit: string; grossMarginPct: string | null };
+type Profit = { revenue: string; costOfSales: string; grossProfit: string; operatingExpenses: string; otherIncome: string; netProfit: string; grossMarginPct: string | null };
 type Produce = { receivedKg: string; goodKg: string; gradeBKg: string; wasteKg: string; wastePct: string | null; wasteValue: string };
 type CC = {
   period: { from: string; to: string; prevFrom: string; prevTo: string };
@@ -77,6 +77,7 @@ export function CommandCenter() {
                 <Tile label={t("cc.opex")} def={t("cc.def.opex")} value={money(d.profit.current.operatingExpenses)} cur={n(d.profit.current.operatingExpenses)} prev={n(d.profit.previous.operatingExpenses)} upIsBad href="/management" />
                 <Tile label={t("cc.net-profit")} def={t("cc.def.net-profit")} value={money(d.profit.current.netProfit)} cur={n(d.profit.current.netProfit)} prev={n(d.profit.previous.netProfit)} strong href="/management" />
               </div>
+              {Number(d.profit.current.otherIncome) !== 0 && <p className="mt-2 text-xs text-united-muted">{t("cc.other-income", { amount: money(d.profit.current.otherIncome) })}</p>}
             </section>
           )}
           {(d.cash || d.receivables) && (

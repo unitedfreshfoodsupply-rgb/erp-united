@@ -15,14 +15,17 @@ import type { Permission } from "@/lib/permissions";
  * Sections the viewer may not see are not computed at all.
  *
  * Profit mapping (from the general ledger; year-end closing entries excluded):
- *   revenue        = revenue accounts (credit − debit)
+ *   revenue        = revenue accounts (credit − debit), sales net of returns — not asset gains
  *   cost of sales  = COGS + purchase price variance + inventory adjustments & waste
  *   gross profit   = revenue − cost of sales
- *   operating exp. = every other expense account
- *   net profit     = revenue − all expenses
+ *   operating exp. = every other expense account except asset disposal losses
+ *   other income   = gains − losses on disposal of fixed assets
+ *   net profit     = gross profit − operating expenses + other income (= all revenue − all expenses)
  */
 const D = (v: Prisma.Decimal.Value | null | undefined) => new Prisma.Decimal(v ?? 0);
 const COST_OF_SALES = ["cogs", "ppv", "inventory_adjustment"];
+// Not trading: a gain or loss on selling a fixed asset is "other income", outside gross margin.
+const OTHER = ["fa_disposal_gain", "fa_disposal_loss"];
 type Viewer = { can: (p: Permission) => boolean };
 
 function periods(fromRaw?: string | null, toRaw?: string | null) {
@@ -41,11 +44,13 @@ async function profit(from: string, to: string) {
     FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId" JOIN "Account" a ON a."id" = l."accountId"
     WHERE a."type" IN ('revenue', 'expense') AND e."date" BETWEEN ${from} AND ${to} AND e."sourceType" NOT IN ('year_end_close', 'year_end_reopen')
     GROUP BY 1, 2`;
-  const revenue = rows.filter((r) => r.type === "revenue").reduce((s, r) => s.minus(r.amount), D(0));
+  const other = (k: string | null) => OTHER.includes(k ?? "");
+  const revenue = rows.filter((r) => r.type === "revenue" && !other(r.key)).reduce((s, r) => s.minus(r.amount), D(0));
   const costOfSales = rows.filter((r) => r.type === "expense" && COST_OF_SALES.includes(r.key ?? "")).reduce((s, r) => s.plus(r.amount), D(0));
-  const opex = rows.filter((r) => r.type === "expense" && !COST_OF_SALES.includes(r.key ?? "")).reduce((s, r) => s.plus(r.amount), D(0));
+  const opex = rows.filter((r) => r.type === "expense" && !COST_OF_SALES.includes(r.key ?? "") && !other(r.key)).reduce((s, r) => s.plus(r.amount), D(0));
+  const otherIncome = rows.filter((r) => other(r.key)).reduce((s, r) => s.minus(r.amount), D(0));
   const gross = revenue.minus(costOfSales);
-  return { revenue: revenue.toFixed(2), costOfSales: costOfSales.toFixed(2), grossProfit: gross.toFixed(2), operatingExpenses: opex.toFixed(2), netProfit: gross.minus(opex).toFixed(2), grossMarginPct: revenue.isZero() ? null : gross.div(revenue).times(100).toFixed(1) };
+  return { revenue: revenue.toFixed(2), costOfSales: costOfSales.toFixed(2), grossProfit: gross.toFixed(2), operatingExpenses: opex.toFixed(2), otherIncome: otherIncome.toFixed(2), netProfit: gross.minus(opex).plus(otherIncome).toFixed(2), grossMarginPct: revenue.isZero() ? null : gross.div(revenue).times(100).toFixed(1) };
 }
 
 async function purchases(from: string, to: string) {

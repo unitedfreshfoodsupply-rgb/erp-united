@@ -16,18 +16,19 @@ const D = (v: Prisma.Decimal.Value | null | undefined) => new Prisma.Decimal(v ?
 const all = { can: () => true };
 const today = todayLocalISO();
 const from = `${today.slice(0, 7)}-01`;
-type Profit = { revenue: string; costOfSales: string; grossProfit: string; operatingExpenses: string; netProfit: string };
+type Profit = { revenue: string; costOfSales: string; grossProfit: string; operatingExpenses: string; otherIncome: string; netProfit: string };
 const profitOf = async () => ((await commandCenter(all, { from, to: today })).profit as { current: Profit }).current;
 
 test("profit reconciles to the ledger: net profit = revenue − every expense account over the period", async () => {
   const p = await profitOf();
-  const [gl] = await prisma.$queryRaw<{ rev: Prisma.Decimal | null; exp: Prisma.Decimal | null }[]>`
-    SELECT sum(CASE WHEN a."type" = 'revenue' THEN l."credit" - l."debit" END) rev, sum(CASE WHEN a."type" = 'expense' THEN l."debit" - l."credit" END) exp
+  const [gl] = await prisma.$queryRaw<{ rev: Prisma.Decimal | null; exp: Prisma.Decimal | null; sales: Prisma.Decimal | null }[]>`
+    SELECT sum(CASE WHEN a."type" = 'revenue' THEN l."credit" - l."debit" END) rev, sum(CASE WHEN a."type" = 'expense' THEN l."debit" - l."credit" END) exp,
+      sum(CASE WHEN a."type" = 'revenue' AND a."systemKey" IS DISTINCT FROM 'fa_disposal_gain' THEN l."credit" - l."debit" END) sales
     FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId" JOIN "Account" a ON a."id" = l."accountId"
     WHERE e."date" BETWEEN ${from} AND ${today} AND e."sourceType" NOT IN ('year_end_close', 'year_end_reopen')`;
-  assert.equal(p.revenue, D(gl.rev).toFixed(2));
-  assert.equal(p.netProfit, D(gl.rev).minus(D(gl.exp)).toFixed(2));
-  assert.equal(D(p.grossProfit).minus(D(p.operatingExpenses)).toFixed(2), p.netProfit);
+  assert.equal(p.revenue, D(gl.sales).toFixed(2), "revenue = sales accounts (asset disposal gains are other income)");
+  assert.equal(p.netProfit, D(gl.rev).minus(D(gl.exp)).toFixed(2), "net = all revenue − all expenses");
+  assert.equal(D(p.grossProfit).minus(D(p.operatingExpenses)).plus(D(p.otherIncome)).toFixed(2), p.netProfit);
 });
 
 test("a posting moves revenue, operating expenses and net profit by exactly its amounts", async () => {
@@ -42,6 +43,20 @@ test("a posting moves revenue, operating expenses and net profit by exactly its 
   assert.equal(D(after_.operatingExpenses).minus(D(before.operatingExpenses)).toFixed(2), "30.00");
   assert.equal(D(after_.costOfSales).minus(D(before.costOfSales)).toFixed(2), "0.00");
   assert.equal(D(after_.netProfit).minus(D(before.netProfit)).toFixed(2), "70.00");
+});
+
+test("a gain on selling a fixed asset is other income: net profit moves, revenue and gross margin do not", async () => {
+  const before = await profitOf();
+  const who = actor("command-center-test", ["accounting.journals.post"]);
+  await inTx((tx) => postJournal(tx, {
+    date: today, description: "اختبار ربح بيع أصل", sourceType: "manual", sourceId: `cc-fa-${Date.now()}`,
+    lines: [{ key: "cash", amount: D(50) }, { key: "fa_disposal_gain", amount: D(-50) }],
+  }, who));
+  const after_ = await profitOf();
+  assert.equal(D(after_.revenue).minus(D(before.revenue)).toFixed(2), "0.00");
+  assert.equal(D(after_.grossProfit).minus(D(before.grossProfit)).toFixed(2), "0.00");
+  assert.equal(D(after_.otherIncome).minus(D(before.otherIncome)).toFixed(2), "50.00");
+  assert.equal(D(after_.netProfit).minus(D(before.netProfit)).toFixed(2), "50.00");
 });
 
 test("permissions: sections the viewer may not see are not computed or returned", async () => {
