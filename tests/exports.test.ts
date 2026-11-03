@@ -102,7 +102,10 @@ async function main() {
     check(`default export unchanged: ${path.split("?")[0]}`, r.status === 200 && head(body) === keys, `${r.status} ${head(body).slice(0, 80)}`);
   }
   const enFin = await (await fetch(url(`/api/management/finance/export?from=2000-01-01&to=2099-12-31&lang=en`), { headers: { cookie } })).text();
-  check("English finance: same receivables total as Arabic", enFin.split("\r\n").find((l) => l.startsWith("Customers (largest)"))?.split(",")[1] === rowAmount("عملاء (كبار)"));
+  // Read both languages now (section 5's file predates the receipt posted above).
+  const arFin = await (await fetch(url(`/api/management/finance/export?from=2000-01-01&to=2099-12-31&lang=ar`), { headers: { cookie } })).text();
+  const total = (text: string, label: string) => text.split("\r\n").find((l) => l.startsWith(label))?.split(",")[1] ?? null;
+  check("English finance: same receivables total as Arabic", total(enFin, "Customers (largest)") !== null && total(enFin, "Customers (largest)") === total(arFin, "عملاء (كبار)"), `${total(enFin, "Customers (largest)")} vs ${total(arFin, "عملاء (كبار)")}`);
   const enVal = await (await fetch(url(`/api/inventory/reports/valuation/export?lang=en`), { headers: { cookie } })).text();
   check("English valuation: English total row and titles", enVal.includes("Inventory value") && enVal.split("\r\n")[0].includes("Average cost"));
 
