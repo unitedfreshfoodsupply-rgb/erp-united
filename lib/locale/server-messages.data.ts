@@ -1549,4 +1549,7 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["مفيش سعر متفق عليه للاستلام ده (لا أمر شراء ولا سعر مورد ولا سعر وحدة) — اكتب سعر مؤقت لحد ما فاتورة المورد توصل", "No agreed price for this receipt (no purchase order, supplier price or unit cost) — enter a provisional cost until the supplier bill arrives"],
   ["الحجز ده تبع أوردر شغال ({}) — بيتغير بتعديل كمية السطر أو بإلغاء الأوردر، مش بفك الحجز يدويًا", "This hold belongs to a live order ({0}) — it changes with the line quantity or the order's cancellation, not by a manual release"],
   ["التسوية هتخلي رصيد \"{}\" بالسالب: الموجود {} {} والنقص {}", "The adjustment would take \"{0}\" below zero: {1} {2} on hand, decrease {3}"],
+  ["تاريخ البداية بعد تاريخ النهاية", "The start date is after the end date"],
+  ["التقرير مش موجود", "Report not found"],
+  ["مالكش صلاحية تشوف التقرير ده", "You don't have permission to view this report"],
 ];

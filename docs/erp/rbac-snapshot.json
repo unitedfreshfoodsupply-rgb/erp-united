@@ -3015,6 +3015,17 @@
     },
     {
       "method": "GET",
+      "path": "/api/management/command-center",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "reports.finance",
+          "reports.view"
+        ]
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/management/finance/export",
       "gate": {
         "kind": "all",
@@ -3891,12 +3902,33 @@
     },
     {
       "method": "GET",
+      "path": "/api/reports/[key]/export",
+      "gate": {
+        "kind": "authenticated"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/reports/[key]",
+      "gate": {
+        "kind": "authenticated"
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/reports/daily",
       "gate": {
         "kind": "all",
         "permissions": [
           "reports.view"
         ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/reports",
+      "gate": {
+        "kind": "authenticated"
       }
     },
     {
@@ -4752,6 +4784,27 @@
         "hr.payroll.post",
         "hr.payroll.pay",
         "hr.statutory.manage"
+      ],
+      "pageOpenToAll": false
+    },
+    {
+      "href": "/management/command-center",
+      "permission": [
+        "reports.finance",
+        "reports.view"
+      ],
+      "pageOpenToAll": false
+    },
+    {
+      "href": "/reports",
+      "permission": [
+        "reports.view",
+        "reports.finance",
+        "accounting.view",
+        "stock.view",
+        "sales.invoices.view",
+        "purchasing.bills.view",
+        "purchasing.orders.view"
       ],
       "pageOpenToAll": false
     },

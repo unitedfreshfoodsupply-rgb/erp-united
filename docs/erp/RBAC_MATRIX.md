@@ -121,6 +121,8 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `/hr/attendance` الحضور والانصراف (`hr.attendance.record` / `hr.attendance.approve` / `hr.employees.manage`) | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | `/hr/leave` الإجازات (`hr.leave.request` / `hr.leave.approve` / `hr.leave.configure`) | ✓ |  |  |  |  |  | ✓ |  |  |
 | `/hr/payroll` المرتبات (`hr.compensation.view` / `hr.compensation.manage` / `hr.payroll.prepare` / `hr.payroll.view` / `hr.payroll.approve` / `hr.payroll.post` / `hr.payroll.pay` / `hr.statutory.manage`) | ✓ |  |  |  |  |  | ✓ |  |  |
+| `/management/command-center` مركز القيادة (`reports.finance` / `reports.view`) | ✓ | ✓ |  |  |  |  | ✓ |  |  |
+| `/reports` مركز التقارير (`reports.view` / `reports.finance` / `accounting.view` / `stock.view` / `sales.invoices.view` / `purchasing.bills.view` / `purchasing.orders.view`) | ✓ | ✓ | ✓ |  |  | ✓ | ✓ | ✓ | ✓ |
 | `/management/overview` لوحة الأداء (`reports.finance`) | ✓ |  |  |  |  |  | ✓ |  |  |
 | `/management` تقارير الإدارة (`reports.finance`) | ✓ |  |  |  |  |  | ✓ |  |  |
 | `/management/operations` أداء التشغيل (`reports.view`) | ✓ | ✓ |  |  |  |  |  |  |  |
@@ -407,6 +409,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/inventory/stock` | `stock.view` | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |
 | POST | `/api/inventory/transfers` | `stock.transfer` | ✓ | ✓ | ✓ |  |  |  |  |  |  |
 | GET | `/api/management/cash-flow` | `reports.finance` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/management/command-center` | any of `reports.finance`, `reports.view` | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | GET | `/api/management/finance/export` | `reports.finance` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/management/finance` | `reports.finance` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/management/operations` | `reports.view` | ✓ | ✓ |  |  |  |  |  |  |  |
@@ -495,7 +498,10 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/purchasing/suppliers/[id]/statement` | `purchasing.bills.view` | ✓ |  |  |  |  |  | ✓ | ✓ | ✓ |
 | GET | `/api/purchasing/suppliers` | `purchasing.suppliers.view` | ✓ | ✓ |  |  |  |  | ✓ | ✓ | ✓ |
 | POST | `/api/purchasing/suppliers` | `purchasing.suppliers.manage` | ✓ |  |  |  |  |  | ✓ | ✓ |  |
+| GET | `/api/reports/[key]/export` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| GET | `/api/reports/[key]` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | GET | `/api/reports/daily` | `reports.view` | ✓ | ✓ |  |  |  |  |  |  |  |
+| GET | `/api/reports` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | GET | `/api/sales/catalog` | any of `sales.quotations.view`, `sales.pricing.view`, `purchasing.orders.view`, `purchasing.rfq.manage`, `purchasing.prices.view` | ✓ | ✓ | ✓ |  |  | ✓ | ✓ | ✓ |  |
 | GET | `/api/sales/customer-groups` | `sales.customers.view` | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | POST | `/api/sales/customer-groups` | `sales.customers.manage` | ✓ | ✓ |  |  |  | ✓ |  |  |  |

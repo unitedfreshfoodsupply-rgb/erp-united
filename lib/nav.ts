@@ -33,7 +33,10 @@ export const HOME_PERMISSIONS = [
   "accounting.view", "accounting.receipts.manage", "accounting.payments.manage", "stock.view", "hr.employees.view",
 ] as const satisfies readonly Permission[];
 
-export type NavGroup = "home" | "ops" | "control" | "sales" | "purchasing" | "stock" | "finance" | "people" | "admin";
+export type NavGroup = "home" | "ops" | "control" | "sales" | "purchasing" | "stock" | "finance" | "reports" | "people" | "admin";
+/** Anyone holding one of these reaches the Reports centre; each report checks its own. */
+export const REPORT_PAGE_PERMISSIONS = ["reports.view", "reports.finance", "accounting.view", "stock.view", "sales.invoices.view", "purchasing.bills.view", "purchasing.orders.view"] as const satisfies readonly Permission[];
+
 export const NAV_GROUPS: { key: NavGroup; labelKey: TranslationKey; label: string }[] = [
   { key: "home", labelKey: "nav.group.home", label: "الرئيسية" },
   { key: "ops", labelKey: "nav.group.ops", label: "التشغيل" },
@@ -42,6 +45,7 @@ export const NAV_GROUPS: { key: NavGroup; labelKey: TranslationKey; label: strin
   { key: "purchasing", labelKey: "nav.group.purchasing", label: "المشتريات" },
   { key: "stock", labelKey: "nav.group.stock", label: "المخزون" },
   { key: "finance", labelKey: "nav.group.finance", label: "الحسابات" },
+  { key: "reports", labelKey: "nav.group.reports", label: "التقارير والإدارة" },
   { key: "people", labelKey: "nav.group.people", label: "الموظفين" },
   { key: "admin", labelKey: "nav.group.admin", label: "الإدارة" },
 ];
@@ -70,9 +74,12 @@ export const NAV_LINKS: NavLink[] = [
   { href: "/hr/attendance", labelKey: "nav.link.attendance", label: "الحضور والانصراف", permission: ["hr.attendance.record", "hr.attendance.approve", "hr.employees.manage"], group: "people", primary: true },
   { href: "/hr/leave", labelKey: "nav.link.leave", label: "الإجازات", permission: ["hr.leave.request", "hr.leave.approve", "hr.leave.configure"], group: "people", primary: true },
   { href: "/hr/payroll", labelKey: "nav.link.payroll", label: "المرتبات", permission: ["hr.compensation.view", "hr.compensation.manage", "hr.payroll.prepare", "hr.payroll.view", "hr.payroll.approve", "hr.payroll.post", "hr.payroll.pay", "hr.statutory.manage"], group: "people", primary: true },
-  { href: "/management/overview", labelKey: "nav.link.overview", label: "لوحة الأداء", permission: "reports.finance", group: "finance", primary: true },
-  { href: "/management", labelKey: "nav.link.management", label: "تقارير الإدارة", permission: "reports.finance", group: "finance", primary: true },
-  { href: "/management/operations", labelKey: "nav.link.ops-report", label: "أداء التشغيل", permission: "reports.view", group: "control", primary: true },
+  // Maturity 2026-11: one place for every report, and the management command center.
+  { href: "/management/command-center", labelKey: "nav.link.command-center", label: "مركز القيادة", permission: ["reports.finance", "reports.view"], group: "reports", primary: true },
+  { href: "/reports", labelKey: "nav.link.reports", label: "مركز التقارير", permission: [...REPORT_PAGE_PERMISSIONS], group: "reports", primary: true },
+  { href: "/management/overview", labelKey: "nav.link.overview", label: "لوحة الأداء", permission: "reports.finance", group: "reports", primary: true },
+  { href: "/management", labelKey: "nav.link.management", label: "تقارير الإدارة", permission: "reports.finance", group: "reports", primary: true },
+  { href: "/management/operations", labelKey: "nav.link.ops-report", label: "أداء التشغيل", permission: "reports.view", group: "reports", primary: true },
   { href: "/stock", labelKey: "nav.link.stock", label: "المخزون", permission: "stock.view", group: "stock", primary: true },
   { href: "/stock/inventory", labelKey: "nav.link.inventory", label: "إدارة المخزون", permission: "stock.view", group: "stock", primary: true },
   { href: "/stock/entries", labelKey: "nav.link.entries", label: "الاستلامات", permission: "stock.receive", group: "stock", primary: true },

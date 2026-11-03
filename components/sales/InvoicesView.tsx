@@ -29,9 +29,12 @@ type InvDetail = InvRow & {
   creditNotes: { id: string; number: string; issueDate: string; reason: string; total: string; createdBy: string }[];
 };
 
-export function InvoicesView() {
+export const INVOICE_TABS = ["todo", "draft", "issued", "aging"] as const;
+export type InvoiceTab = (typeof INVOICE_TABS)[number];
+
+export function InvoicesView({ initialTab }: { initialTab?: InvoiceTab } = {}) {
   const { t } = useLocale();
-  const [tab, setTab] = useState<"todo" | "draft" | "issued" | "aging">("todo");
+  const [tab, setTab] = useState<InvoiceTab>(initialTab ?? "todo");
   const [open, setOpen] = useState<string | null>(null);
   if (open) return <InvoiceDetail id={open} onClose={() => setOpen(null)} />;
   return (

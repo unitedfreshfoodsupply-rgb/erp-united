@@ -12,7 +12,7 @@ import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { CreateOrderForm } from "@/components/supervisor/CreateOrderForm";
 import { PriceListsView } from "@/components/sales/PriceListsView";
 import { QuotationsView } from "@/components/sales/QuotationsView";
-import { CustomerStatement, InvoicesView } from "@/components/sales/InvoicesView";
+import { CustomerStatement, INVOICE_TABS, InvoicesView, type InvoiceTab } from "@/components/sales/InvoicesView";
 import { Landmark, Star } from "lucide-react";
 import { useLocale } from "@/lib/locale";
 import { intlLocale } from "@/lib/format";
@@ -49,10 +49,17 @@ export function CustomersView() {
   const { t } = useLocale();
   const [tab, setTab] = useState<"list" | "unmapped" | "new" | "order" | "prices" | "quotations" | "invoices">("list");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [invoiceTab, setInvoiceTab] = useState<InvoiceTab | undefined>(undefined);
   const { can } = usePermissions();
+  // Deep links (reports, statements): ?customer=<id> opens a customer, ?tab=invoices&itab=aging a tab.
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get("customer");
+    const sp = new URLSearchParams(window.location.search);
+    const id = sp.get("customer");
     if (id) setOpenId(id);
+    const tb = sp.get("tab");
+    if (tb && ["list", "unmapped", "quotations", "invoices", "prices"].includes(tb)) setTab(tb as typeof tab);
+    const it = sp.get("itab");
+    if (it && (INVOICE_TABS as readonly string[]).includes(it)) setInvoiceTab(it as InvoiceTab);
   }, []);
   const unmapped = useQuery({
     queryKey: ["sales", "unmapped"],
@@ -80,7 +87,7 @@ export function CustomersView() {
       ) : tab === "list" ? (
         <CustomerList onOpen={setOpenId} />
       ) : tab === "invoices" ? (
-        <InvoicesView />
+        <InvoicesView key={invoiceTab ?? "todo"} initialTab={invoiceTab} />
       ) : tab === "quotations" ? (
         <QuotationsView />
       ) : tab === "prices" ? (

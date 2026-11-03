@@ -37,6 +37,8 @@ export function PurchasingView() {
   const [tab, setTab] = useState<Tab>("orders");
   const [poId, setPoId] = useState<string | null>(null);
   const [billId, setBillId] = useState<string | null>(null);
+  const [billView, setBillView] = useState<"bills" | "payables" | undefined>(undefined);
+  const [supplierId, setSupplierId] = useState<string | null>(null);
   const [rfqSeed, setRfqSeed] = useState<{ product_id: string; quantity: string; uom: string; unit_price: string }[] | null>(null);
 
   // Build localized status/type maps and tab labels inside component body
@@ -67,6 +69,9 @@ export function PurchasingView() {
     if (sp.get("po")) setPoId(sp.get("po"));
     if (sp.get("bill")) { setBillId(sp.get("bill")); setTab("bills"); }
     if (sp.get("tab")) setTab(sp.get("tab") as Tab);
+    // Deep links from reports: ?supplier=<id> opens the supplier, ?tab=bills&btab=payables the aging.
+    if (sp.get("supplier")) { setSupplierId(sp.get("supplier")); setTab("suppliers"); }
+    if (sp.get("btab") === "payables") setBillView("payables");
   }, []);
   const tabs: { key: Tab; label: string }[] = [
     ...(can("purchasing.orders.view") ? [
@@ -90,9 +95,9 @@ export function PurchasingView() {
       ) : tab === "rfqs" ? (
         <Rfqs onOpenPo={setPoId} seedLines={rfqSeed ?? undefined} onSeedUsed={() => setRfqSeed(null)} locale={locale} t={t} />
       ) : tab === "bills" ? (
-        <BillsView key={billId ?? "list"} initialBillId={billId} />
+        <BillsView key={`${billId ?? "list"}-${billView ?? ""}`} initialBillId={billId} initialView={billView} />
       ) : (
-        <Suppliers locale={locale} t={t} sup_type={sup_type} />
+        <Suppliers key={supplierId ?? "list"} locale={locale} t={t} sup_type={sup_type} initialOpen={supplierId} />
       )}
     </div>
   );
@@ -452,12 +457,12 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
 // Suppliers
 // ---------------------------------------------------------------------------
 
-function Suppliers({ locale, t, sup_type }: { locale: Locale; t: (key: string) => string; sup_type: Record<string, string> }) {
+function Suppliers({ locale, t, sup_type, initialOpen }: { locale: Locale; t: (key: string) => string; sup_type: Record<string, string>; initialOpen?: string | null }) {
   const { can } = usePermissions();
   const toast = useToast();
   const qc = useQueryClient();
   const q = useSuppliers();
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(initialOpen ?? null);
   const [form, setForm] = useState({ name: "", name_ar: "", type: "farm", payment_terms_days: "0", tax_registration_no: "" });
   if (open) return <SupplierDetail id={open} onClose={() => setOpen(null)} locale={locale} t={t} />;
   return (

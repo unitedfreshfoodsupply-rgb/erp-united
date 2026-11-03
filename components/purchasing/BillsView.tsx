@@ -49,9 +49,9 @@ type Bill = Omit<BillRow, "lineCount"> & { currencyCode: string; notes: string |
 type Billable = { intakeId: string; receiptNumber: string; receivedDate: string; product: { id: string; name: string; unit: string }; poNumber: string | null; goodQty: string; gradeBQty?: string; wasteQty?: string; billableQty?: string; expectedUnitPrice: string | null; priceSource: string | null; expectedNet: string | null; taxCode: string; taxRate: string };
 
 
-export function BillsView({ initialBillId }: { initialBillId?: string | null }) {
+export function BillsView({ initialBillId, initialView }: { initialBillId?: string | null; initialView?: "bills" | "payables" }) {
   const { t } = useLocale();
-  const [view, setView] = useState<"bills" | "payables">("bills");
+  const [view, setView] = useState<"bills" | "payables">(initialView ?? "bills");
   const [billId, setBillId] = useState<string | null>(initialBillId ?? null);
   if (billId) return <BillDetail id={billId} onClose={() => setBillId(null)} />;
   return (
