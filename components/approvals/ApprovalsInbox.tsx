@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusPill, type Tone } from "@/components/ui/StatusPill";
 import { Check, X } from "lucide-react";
 import { Segmented } from "@/components/ui/Segmented";
+import { Field } from "@/components/ui/Field";
 
 type Decision = { id: string; level: number; decision: "approve" | "reject"; decider: string; comment: string | null; createdAt: string };
 type ApprovalDTO = {
@@ -147,13 +148,9 @@ function ApprovalCard({ a }: { a: ApprovalDTO }) {
         )}
         {a.canDecide && (
           <>
-            <input
-              className="field flex-1 min-w-[12rem]"
-              placeholder={t("approvals.comment")}
-              aria-label={t("approvals.comment")}
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-            />
+            <Field label={t("approvals.comment")} className="flex-1 min-w-[12rem]">
+              <input className="field" value={comment} onChange={(e) => setComment(e.target.value)} />
+            </Field>
             <button type="button" className="btn-primary" disabled={busy} onClick={() => decide("approve")}>
               {t("approvals.btn.approve")}
             </button>

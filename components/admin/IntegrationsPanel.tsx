@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useLocale } from "@/lib/locale";
 import { useDialogs } from "@/components/ui/Dialog";
 import { intlLocale } from "@/lib/format";
+import { Field } from "@/components/ui/Field";
 
 /** Integration keys (shown once at creation), revocation, and the recent call log. */
 type Row = { id: string; code: string; name: string; keyPrefix: string; scopes: string[]; active: boolean; lastUsedAt: string | null; createdBy: string; revokedAt: string | null };
@@ -26,8 +27,8 @@ export function IntegrationsPanel() {
   return (
     <div className="flex flex-col gap-3">
       <section className="card p-4 grid grid-cols-2 sm:grid-cols-6 gap-2 items-center">
-        <input className="field" dir="ltr" placeholder={t("admin.integrations.code-placeholder")} value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })}  aria-label={t("admin.integrations.code-placeholder")}/>
-        <input className="field" placeholder={t("admin.integrations.name-placeholder")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })}  aria-label={t("admin.integrations.name-placeholder")}/>
+        <Field label={t("admin.integrations.code-placeholder")}><input className="field" dir="ltr" value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} /></Field>
+        <Field label={t("admin.integrations.name-placeholder")}><input className="field" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
         <label className="flex gap-2 font-bold text-sm"><input type="checkbox" checked={f.create} onChange={(e) => setF({ ...f, create: e.target.checked })} />{t("admin.integrations.create-orders")}</label>
         <label className="flex gap-2 font-bold text-sm"><input type="checkbox" checked={f.status} onChange={(e) => setF({ ...f, status: e.target.checked })} />{t("admin.integrations.track-status")}</label>
         <label className="flex gap-2 font-bold text-sm"><input type="checkbox" checked={f.attendance} onChange={(e) => setF({ ...f, attendance: e.target.checked })} />{t("admin.integrations.attendance-ingest")}</label>

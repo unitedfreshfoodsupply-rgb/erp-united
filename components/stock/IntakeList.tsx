@@ -17,6 +17,7 @@ import { useLocale } from "@/lib/locale";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { FilterBar, useListState } from "@/components/ui/DataTable";
+import { Field } from "@/components/ui/Field";
 
 export function IntakeList() {
   const { t } = useLocale();
@@ -222,12 +223,9 @@ function IntakeCard({ intake }: { intake: IntakeDTO }) {
             <EditField label={t("intake.rejected")} value={rejectedKg} onChange={setRejectedKg} />
             <EditField label={t("intake.crates")} value={crates} onChange={setCrates} integer />
           </div>
-          <input
-            placeholder={t("intake.edit-reason")}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className="field"
-          />
+          <Field label={t("intake.edit-reason")}>
+            <input value={reason} onChange={(e) => setReason(e.target.value)} className="field" />
+          </Field>
           <p className="text-[11px] font-bold text-united-muted">
             {t("intake.edit-note")}
           </p>
@@ -244,12 +242,9 @@ function IntakeCard({ intake }: { intake: IntakeDTO }) {
 
       {mode === "void" && (
         <div className="flex flex-col gap-2 mt-3">
-          <input
-            placeholder={t("intake.void-reason")}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className="field"
-          />
+          <Field label={t("intake.void-reason")}>
+            <input value={reason} onChange={(e) => setReason(e.target.value)} className="field" />
+          </Field>
           <p className="text-[11px] font-bold text-united-muted">
             {t("intake.void-note")}
           </p>

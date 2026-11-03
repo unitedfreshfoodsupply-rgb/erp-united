@@ -291,7 +291,7 @@ function Withholding({ side }: { side: "receivable" | "payable" }) {
         <div className="flex flex-wrap gap-2 items-center">
           <label className="text-xs">{t("accounting.date-from")} <input type="date" className="field ms-1" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
           <label className="text-xs">{t("accounting.date-to")} <input type="date" className="field ms-1" value={to} onChange={(e) => setTo(e.target.value)} /></label>
-          <a className="btn-secondary text-xs" href={`/api/accounting/withholding/export?side=${side}&from=${from}&to=${to}`} download>{t("accounting.withholding.export")}</a>
+          <a className="btn-secondary text-xs" href={`/api/accounting/withholding/export?side=${side}&from=${from}&to=${to}&lang=${locale}`} download>{t("accounting.withholding.export")}</a>
         </div>
       </div>
       <ul className="divide-y divide-united-dark/5">
@@ -404,7 +404,7 @@ function Journals() {
           <div className="flex flex-col gap-2 mt-2">
             <div className="grid grid-cols-2 gap-2">
               <input type="date" className="field" aria-label={t("accounting.form.date")} value={m.date} onChange={(e) => setM({ ...m, date: e.target.value })} />
-              <input className="field" placeholder={t("accounting.description")} value={m.description} onChange={(e) => setM({ ...m, description: e.target.value })}  aria-label={t("accounting.description")}/>
+              <Field label={t("accounting.description")}><input className="field" value={m.description} onChange={(e) => setM({ ...m, description: e.target.value })} /></Field>
             </div>
             {m.lines.map((l, i) => (
               <div key={i} className="grid grid-cols-[1fr_6rem_6rem] sm:grid-cols-[1fr_10rem_6rem_6rem] gap-2">
@@ -413,8 +413,8 @@ function Journals() {
                   {accounts.data?.accounts.filter((a) => a.postable && a.active && !controlAccountMovedBy(a.systemKey, a.controlledBy)).map((a) => <option key={a.id} value={a.id}>{a.code} · {localName(a, locale)}</option>)}
                 </select>
                 {(() => { const acc = accounts.data?.accounts.find((a) => a.id === l.account_id); const pl = acc && ["expense", "revenue"].includes((acc as { type?: string }).type ?? ""); return pl ? <CostCenterSelect value={l.cost_center_id} onChange={(id) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, cost_center_id: id } : x)) })} /> : <span className="hidden sm:block" />; })()}
-                <input className="field" dir="ltr" placeholder={t("accounting.debit-placeholder")} aria-label={t("accounting.debit-placeholder")} value={l.debit} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, debit: e.target.value } : x)) })} />
-                <input className="field" dir="ltr" placeholder={t("accounting.credit-placeholder")} aria-label={t("accounting.credit-placeholder")} value={l.credit} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, credit: e.target.value } : x)) })} />
+                <Field label={t("accounting.debit-placeholder")}><input className="field" dir="ltr" value={l.debit} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, debit: e.target.value } : x)) })} /></Field>
+                <Field label={t("accounting.credit-placeholder")}><input className="field" dir="ltr" value={l.credit} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, credit: e.target.value } : x)) })} /></Field>
               </div>
             ))}
             <div className="flex gap-2">
@@ -803,8 +803,8 @@ function Opening() {
         {stock.map((l, i) => (
           <div key={i} className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <select className="field" value={l.product_id} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, product_id: e.target.value } : x)))} aria-label={t("accounting.product-label")}><option value="">{t("accounting.product-label")}</option>{products.data?.map((p) => <option key={p.id} value={p.id}>{localName(p, locale)} ({unitLabel(p.unit)})</option>)}</select>
-            <input className="field" dir="ltr" inputMode="decimal" placeholder={t("stock.qty")} value={l.quantity} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, quantity: e.target.value } : x)))}  aria-label={t("stock.qty")}/>
-            <input className="field" dir="ltr" inputMode="decimal" placeholder={t("stock.unit-cost")} value={l.unit_cost} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, unit_cost: e.target.value } : x)))}  aria-label={t("stock.unit-cost")}/>
+            <Field label={t("stock.qty")}><input className="field" dir="ltr" inputMode="decimal" value={l.quantity} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, quantity: e.target.value } : x)))} /></Field>
+            <Field label={t("stock.unit-cost")}><input className="field" dir="ltr" inputMode="decimal" value={l.unit_cost} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, unit_cost: e.target.value } : x)))} /></Field>
             <input type="date" className="field" aria-label={t("accounting.info-expiry")} value={l.expiry_date} onChange={(e) => setStock(stock.map((x, j) => (j === i ? { ...x, expiry_date: e.target.value } : x)))} />
           </div>
         ))}

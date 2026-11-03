@@ -431,10 +431,10 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
       )}
       <p className="text-xs font-bold text-united-muted">{b.createdBy}{b.postedBy ? ` · ${t("operations.performed_by_prefix")} ${b.postedBy}` : ""}{b.approvedBy ? ` · ${b.approvedBy}` : ""}{b.cancelReason ? ` · ${b.cancelReason}` : ""}</p>
       {manage && b.status !== "cancelled" && (
-        <section className="card p-4 flex flex-wrap gap-2">
+        <section className="card p-4 flex flex-wrap items-end gap-2">
           {b.status === "draft" && <button type="button" className="btn-primary" onClick={() => act("post")}>{t("purchasing.bill.post_action")}</button>}
           {b.status === "draft" && <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>{t("ui.edit")}</button>}
-          <input className="field flex-1 min-w-48" placeholder={b.status === "posted" ? t("purchasing.bill.debit_reason_placeholder") : t("purchasing.bill.cancel_reason_placeholder")} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <Field label={b.status === "posted" ? t("purchasing.bill.debit_reason_placeholder") : t("purchasing.bill.cancel_reason_placeholder")} className="flex-1 min-w-48"><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
           {b.status !== "posted" && <button type="button" className="btn-danger" onClick={() => act("cancel", { reason })}>{t("purchasing.bill.cancel_bill_btn")}</button>}
           {b.status === "posted" && b.open !== "0.00" && service && (
             <button type="button" className="btn-secondary" disabled={allowanceLines.length === 0} onClick={() => act("debit-notes", { reason, lines: allowanceLines })}>{t("purchasing.bill.allowance_btn")}</button>
@@ -499,7 +499,7 @@ function Statement({ supplier, onClose }: { supplier: { id: string; name: string
   return (
     <div className="flex flex-col gap-3">
       <div className="flex justify-between items-center"><h2 className="text-xl font-extrabold">{t("purchasing.bill.statement_title", { name: localName(supplier, locale) })}</h2><button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button></div>
-      <div className="flex gap-2"><input type="date" className="field" value={from} onChange={(e) => setFrom(e.target.value)} /><input type="date" className="field" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+      <div className="flex gap-2"><Field label={t("list.from")}><input type="date" className="field" value={from} onChange={(e) => setFrom(e.target.value)} /></Field><Field label={t("list.to")}><input type="date" className="field" value={to} onChange={(e) => setTo(e.target.value)} /></Field></div>
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
       {q.data && (

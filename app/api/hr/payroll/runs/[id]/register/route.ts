@@ -9,7 +9,8 @@ import { csvResponse, toCsv } from "@/lib/core/csv-export";
 export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
   try {
     const actor = serviceActorFromContext(await requireAnyPermission(req, ["hr.payroll.prepare", "hr.payroll.view", "hr.payroll.approve", "hr.payroll.post", "hr.payroll.pay"]));
-    const { run, rows } = await payrollRegister(ctx.params.id, actor);
+    const lang = new URL(req.url).searchParams.get("lang");
+    const { run, rows } = await payrollRegister(ctx.params.id, actor, lang === "en" || lang === "ar" ? lang : undefined);
     return csvResponse(toCsv(rows), `payroll-register-${run.number}`);
   } catch (err) {
     return handleApiError(err, req);

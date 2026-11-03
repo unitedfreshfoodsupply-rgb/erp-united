@@ -16,6 +16,7 @@ import Link from "next/link";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { unitLabel } from "@/lib/format";
+import { Field } from "@/components/ui/Field";
 
 type OpenPoLine = { lineId: string; poNumber: string; expectedDate: string | null; supplier: { id: string; name: string }; product: { id: string; name: string; unit: string }; ordered: string; receivedGood: string; remaining: string };
 type Packaging = { uomCode: string; qtyInBaseUnit: string; active: boolean; uom: { nameAr: string | null; name: string } };
@@ -347,7 +348,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
       )}
 
       {Number(rejectedKg) > 0 && (
-        <input placeholder={t("stock.rejection-reason-placeholder")} value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} className="field"  aria-label={t("stock.rejection-reason-placeholder")}/>
+        <Field label={t("stock.rejection-reason-placeholder")}><input value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} className="field" /></Field>
       )}
 
       <div className="flex items-center justify-between rounded-xl bg-united-dark/[0.03] px-4 py-3">
@@ -389,12 +390,9 @@ export function QuickIntakeForm({ date }: { date: string }) {
         </div>
       )}
 
-      <input
-        placeholder={t("stock.notes-input")}
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        className="field"
-       aria-label={t("stock.notes-input")}/>
+      <Field label={t("stock.notes-input")}>
+        <input value={notes} onChange={(e) => setNotes(e.target.value)} className="field" />
+      </Field>
 
       <button type="submit" disabled={busy || !preview} className="btn-primary w-full text-lg">
         {busy ? t("stock.saving") : t("stock.record-intake")}

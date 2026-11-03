@@ -15,6 +15,7 @@ import type { MovementDTO, StockBalanceDTO } from "@/lib/stock-client-types";
 import { useLocale } from "@/lib/locale";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { localName } from "@/lib/locale/names";
+import { Field } from "@/components/ui/Field";
 
 export function LedgerView() {
   const { t, locale } = useLocale();
@@ -138,6 +139,7 @@ function AdjustmentForm({ products }: { products: StockBalanceDTO[] }) {
     <form onSubmit={submit} className="card p-4 flex flex-col gap-3">
       <h2 className="font-extrabold text-united-dark">{t("ledger.adjust-title")}</h2>
       {error && <p className="text-united-danger font-bold text-sm">{error}</p>}
+      <Field label={t("form.product")} required>
       <select value={productId} onChange={(e) => setProductId(e.target.value)} className="field font-bold">
         <option value="">{t("ledger.product-placeholder")}</option>
         {products.map((p) => (
@@ -146,21 +148,20 @@ function AdjustmentForm({ products }: { products: StockBalanceDTO[] }) {
           </option>
         ))}
       </select>
-      <input
-        type="number"
-        inputMode="decimal"
-        step="any"
-        placeholder={t("ledger.qty-placeholder")}
-        value={qty}
-        onChange={(e) => setQty(e.target.value)}
-        className="field text-center text-xl font-extrabold"
-      />
-      <input
-        placeholder={t("ledger.reason-placeholder")}
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-        className="field"
-      />
+      </Field>
+      <Field label={t("ledger.qty-placeholder")} required>
+        <input
+          type="number"
+          inputMode="decimal"
+          step="any"
+          value={qty}
+          onChange={(e) => setQty(e.target.value)}
+          className="field text-center text-xl font-extrabold"
+        />
+      </Field>
+      <Field label={t("ledger.reason-placeholder")}>
+        <input value={reason} onChange={(e) => setReason(e.target.value)} className="field" />
+      </Field>
       <div className="flex gap-2">
         <button type="submit" disabled={busy} className="btn-primary flex-1 text-sm">
           {t("ledger.submit")}

@@ -116,7 +116,7 @@ function TransferForm() {
         <Field label={t("stock.move-field-to")}><LocationSelect value={to} onChange={setTo} /></Field>
       </div>
       <QtyInput value={qty} onChange={setQty} />
-      <input className="field" placeholder={t("stock-move-note-placeholder")} value={reason} onChange={(e) => setReason(e.target.value)} />
+      <Field label={t("stock-move-note-placeholder")}><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
       <button className="btn-primary w-full text-lg" disabled={s.busy}>{s.busy ? t("stock-move-btn-recorded") : t("stock.move-btn-save-transfer")}</button>
     </form>
   );
@@ -150,7 +150,7 @@ function CountForm() {
       <Field label={t("stock.move-field-product")}><ProductSelect value={productId} onChange={setProductId} /></Field>
       <Field label={t("stock.move-field-location")}><LocationSelect value={location} onChange={setLocation} allowAny={mode === "delta"} anyLabel={t("stock.move-field-any")} /></Field>
       <QtyInput value={qty} onChange={setQty} label={mode === "counted" ? t("stock.move-qty-counted") : t("stock.move-qty-delta")} />
-      <input className="field" placeholder={t("stock.move-reason-placeholder")} value={reason} onChange={(e) => setReason(e.target.value)} />
+      <Field label={t("stock.move-reason-placeholder")}><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
       <p className="text-xs font-bold text-united-muted">{t("stock-move-large-diff")}</p>
       <button className="btn-primary w-full text-lg" disabled={s.busy}>{s.busy ? t("stock-move-btn-recorded") : t("stock-move-btn-submit")}</button>
     </form>
@@ -181,7 +181,7 @@ function ScrapForm() {
       <Field label={t("stock.move-field-product")}><ProductSelect value={productId} onChange={setProductId} /></Field>
       <Field label={t("stock-move-field-from-location")}><LocationSelect value={location} onChange={setLocation} allowAny /></Field>
       <QtyInput value={qty} onChange={setQty} />
-      <input className="field" placeholder={t("stock-move-scrap-reason-placeholder")} value={reason} onChange={(e) => setReason(e.target.value)} />
+      <Field label={t("stock-move-scrap-reason-placeholder")}><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
       <button className="btn-danger w-full text-lg" disabled={s.busy}>{s.busy ? t("stock-move-btn-recorded") : t("stock-move-btn-save-scrap")}</button>
     </form>
   );
@@ -240,7 +240,7 @@ function ReturnForm({ direction }: { direction: "customer" | "supplier" }) {
         <LocationSelect value={location} onChange={setLocation} allowAny anyLabel={direction === "customer" ? t("stock-move-quarantine-label") : t("stock-move-any-location")} />
       </Field>
       <QtyInput value={qty} onChange={setQty} />
-      <input className="field" placeholder={t("stock.move-reason-placeholder")} value={reason} onChange={(e) => setReason(e.target.value)} />
+      <Field label={t("stock.move-reason-placeholder")}><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
       <button className="btn-primary w-full text-lg" disabled={s.busy}>{s.busy ? t("stock-move-btn-recorded") : t("stock-move-btn-save-return")}</button>
     </form>
   );

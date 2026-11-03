@@ -140,7 +140,7 @@ function RunDetail({ id, onBack }: { id: string; onBack: () => void }) {
               <button type="button" className="btn-danger btn-sm" disabled={busy} onClick={() => withReason(t("pay.return"), (comment) => apiPost(`/api/approvals/${run.approvalRequestId}/decide`, { decision: "reject", comment }), t("pay.returned"))}>{t("pay.return")}</button>
             </>}
             {run.can.reopen && <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={() => withReason(t("pay.reopen"), (reason) => apiPost(`/api/hr/payroll/runs/${id}/reopen`, { reason }), t("pay.saved"))}>{t("pay.reopen")}</button>}
-            {run.status !== "draft" && run.status !== "cancelled" && <a className="btn-ghost btn-sm gap-1.5" href={`/api/hr/payroll/runs/${id}/register`}><FileSpreadsheet size={16} aria-hidden />{t("pay.register")}</a>}
+            {run.status !== "draft" && run.status !== "cancelled" && <a className="btn-ghost btn-sm gap-1.5" href={`/api/hr/payroll/runs/${id}/register?lang=${locale}`}><FileSpreadsheet size={16} aria-hidden />{t("pay.register")}</a>}
             {run.can.cancel && <button type="button" className="btn-ghost btn-sm text-united-danger" disabled={busy} onClick={() => withReason(t("pay.cancel_run"), (reason) => apiPost(`/api/hr/payroll/runs/${id}/cancel`, { reason }), t("pay.saved"))}>{t("pay.cancel_run")}</button>}
           </div>
         </div>
@@ -297,8 +297,8 @@ function AdjustmentsDialog({ period, onClose }: { period: string; onClose: () =>
           <option value="">{t("pay.component")}</option>
           {comps.data?.filter((c) => c.active && c.method === "input").map((c) => <option key={c.id} value={c.id}>{nm(c)}</option>)}
         </select>
-        <input type="number" min={0} step="0.01" className="field" dir="ltr" placeholder={t("pay.amount")} value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
-        <input className="field" maxLength={500} placeholder={t("pay.reason")} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} />
+        <Field label={t("pay.amount")} required><input type="number" min={0} step="0.01" className="field" dir="ltr" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
+        <Field label={t("pay.reason")}><input className="field" maxLength={500} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} /></Field>
         <button type="submit" className="btn-primary">{t("pay.add")}</button>
       </form>
       <ul className="mt-4 divide-y divide-united-border text-sm">

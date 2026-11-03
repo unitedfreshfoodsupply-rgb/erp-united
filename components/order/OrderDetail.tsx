@@ -34,6 +34,7 @@ import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { orderCustomerName } from "@/lib/locale/names";
 import { OrderStepper } from "@/components/order/OrderStepper";
+import { Field } from "@/components/ui/Field";
 
 // Map order source → translation key
 const SOURCE_TKEY: Record<string, string> = {
@@ -558,6 +559,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
             </button>
           ) : (
             <form onSubmit={saveEdit} className="flex flex-col gap-2 bg-united-dark/5 rounded-xl p-3">
+              <Field label={t("orders.customer")} required>
               <select
                 value={editForm.customer_account_id}
                 onChange={(e) => {
@@ -575,32 +577,39 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                   <option key={c.id} value={c.id}>{localName(c, locale)}{!c.active ? ` ${t("orders.customer.inactive")}` : ""}</option>
                 ))}
               </select>
-              <div className="flex flex-wrap gap-2">
-                <input
-                  type="date"
-                  value={editForm.delivery_date}
-                  onChange={(e) => setEditForm((f) => ({ ...f, delivery_date: e.target.value }))}
-                  className="field flex-1"
-                />
-                <input
-                  type="time"
-                  value={editForm.delivery_time}
-                  onChange={(e) => setEditForm((f) => ({ ...f, delivery_time: e.target.value }))}
-                  className="field flex-1"
-                />
+              </Field>
+              <div className="flex flex-wrap items-end gap-2">
+                <Field label={t("orders.delivery-date")} required className="flex-1">
+                  <input
+                    type="date"
+                    value={editForm.delivery_date}
+                    onChange={(e) => setEditForm((f) => ({ ...f, delivery_date: e.target.value }))}
+                    className="field"
+                  />
+                </Field>
+                <Field label={t("orders.delivery-time-label")} className="flex-1">
+                  <input
+                    type="time"
+                    value={editForm.delivery_time}
+                    onChange={(e) => setEditForm((f) => ({ ...f, delivery_time: e.target.value }))}
+                    className="field"
+                  />
+                </Field>
               </div>
-              <input
-                value={editForm.notes}
-                onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
-                placeholder={t("orders.edit.notes_placeholder")}
-                className="field"
-               aria-label={t("orders.edit.notes_placeholder")}/>
-              <input
-                value={editForm.reason}
-                onChange={(e) => setEditForm((f) => ({ ...f, reason: e.target.value }))}
-                placeholder={t("orders.edit.reason_placeholder")}
-                className="field"
-               aria-label={t("orders.edit.reason_placeholder")}/>
+              <Field label={t("orders.edit.notes_placeholder")}>
+                <input
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
+                  className="field"
+                />
+              </Field>
+              <Field label={t("orders.edit.reason_placeholder")}>
+                <input
+                  value={editForm.reason}
+                  onChange={(e) => setEditForm((f) => ({ ...f, reason: e.target.value }))}
+                  className="field"
+                />
+              </Field>
               <div className="flex gap-2">
                 <button disabled={isBusy("edit")} className="btn-primary flex-1">
                   {t("orders.edit.save")}
@@ -666,12 +675,9 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                   </option>
                 ))}
               </select>
-              <input
-                value={overrideReason}
-                onChange={(e) => setOverrideReason(e.target.value)}
-                placeholder={t("orders.override_reason_placeholder")}
-                className="field"
-               aria-label={t("orders.override_reason_placeholder")}/>
+              <Field label={t("orders.override_reason_placeholder")}>
+                <input value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} className="field" />
+              </Field>
               <button
                 disabled={!overrideTo || !overrideReason.trim() || isBusy("override")}
                 onClick={submitOverride}

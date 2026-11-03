@@ -7,6 +7,7 @@ import { QuantityInput } from "@/components/QuantityInput";
 import { qty as qtyLabel, unitLabel } from "@/lib/format";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
+import { Field } from "@/components/ui/Field";
 
 type Mode = "display" | "prepare" | "load";
 
@@ -235,19 +236,22 @@ export function ItemRow({
             </button>
           ) : (
             <div className="flex flex-col gap-2">
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  value={reqQty}
-                  onChange={(e) => setReqQty(e.target.value)}
-                  className="field w-24 text-center"
-                />
-                <input
-                  placeholder={t("orders.item.reason_placeholder")}
-                  value={reqReason}
-                  onChange={(e) => setReqReason(e.target.value)}
-                  className="field flex-1"
-                />
+              <div className="flex items-end gap-2">
+                <Field label={t("orders.label.required")} required className="w-24">
+                  <input
+                    type="number"
+                    value={reqQty}
+                    onChange={(e) => setReqQty(e.target.value)}
+                    className="field text-center"
+                  />
+                </Field>
+                <Field label={t("form.reason")} required className="flex-1">
+                  <input
+                    value={reqReason}
+                    onChange={(e) => setReqReason(e.target.value)}
+                    className="field"
+                  />
+                </Field>
               </div>
               <div className="flex gap-2">
                 <button

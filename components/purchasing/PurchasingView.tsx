@@ -13,7 +13,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { BillsView } from "@/components/purchasing/BillsView";
 import { useLocale, type Locale } from "@/lib/locale/useLocale";
 import { localName, otherLocalName } from "@/lib/locale/names";
-import { FilterBar, useListState } from "@/components/ui/DataTable";
+import { DataTable, FilterBar, useListQuery, useListState, type Column } from "@/components/ui/DataTable";
 
 /**
  * Purchasing: suppliers and what they charge, requests for quotation, purchase orders
@@ -172,16 +172,20 @@ function LineEditor({ lines, setLines, withPrice, t }: { lines: { product_id: st
         const p = products.find((x) => x.id === l.product_id);
         return (
           <div key={i} className="grid grid-cols-2 sm:grid-cols-5 gap-2 border-t border-united-dark/5 pt-2">
-            <select className="field font-bold col-span-2" value={l.product_id} onChange={(e) => set(i, { product_id: e.target.value, uom: "" })} aria-label={t("purchasing.line.product.placeholder")}>
-              <option value="">{t("purchasing.line.product.placeholder")}</option>
-              {products.map((x) => <option key={x.id} value={x.id}>{localName(x, locale)}</option>)}
-            </select>
-            <input className="field" inputMode="decimal" dir="ltr" placeholder={t("purchasing.line.quantity.placeholder")} value={l.quantity} onChange={(e) => set(i, { quantity: e.target.value })}  aria-label={t("purchasing.line.quantity.placeholder")}/>
-            <select className="field" value={l.uom} onChange={(e) => set(i, { uom: e.target.value })}>
-              <option value="">{p?.unit ?? t("purchasing.line.unit.default")}</option>
-              {(p?.packagings ?? []).map((x) => <option key={x.uomCode} value={x.uomCode}>{x.uomCode}</option>)}
-            </select>
-            {withPrice && <input className="field" inputMode="decimal" dir="ltr" placeholder={t("purchasing.line.price.placeholder")} value={l.unit_price} onChange={(e) => set(i, { unit_price: e.target.value })}  aria-label={t("purchasing.line.price.placeholder")}/>}
+            <Field label={t("purchasing.line.product.placeholder")} required className="col-span-2">
+              <select className="field font-bold" value={l.product_id} onChange={(e) => set(i, { product_id: e.target.value, uom: "" })}>
+                <option value="">{t("form.choose")}</option>
+                {products.map((x) => <option key={x.id} value={x.id}>{localName(x, locale)}</option>)}
+              </select>
+            </Field>
+            <Field label={t("purchasing.line.quantity.placeholder")} required><input className="field" inputMode="decimal" dir="ltr" value={l.quantity} onChange={(e) => set(i, { quantity: e.target.value })} /></Field>
+            <Field label={t("purchasing.line.unit.default")}>
+              <select className="field" value={l.uom} onChange={(e) => set(i, { uom: e.target.value })}>
+                <option value="">{p?.unit ?? t("purchasing.line.unit.default")}</option>
+                {(p?.packagings ?? []).map((x) => <option key={x.uomCode} value={x.uomCode}>{x.uomCode}</option>)}
+              </select>
+            </Field>
+            {withPrice && <Field label={t("purchasing.line.price.placeholder")}><input className="field" inputMode="decimal" dir="ltr" value={l.unit_price} onChange={(e) => set(i, { unit_price: e.target.value })} /></Field>}
           </div>
         );
       })}
@@ -222,7 +226,7 @@ function NewPo({ onDone, locale, t }: { onDone: (id?: string) => void; locale: L
       </Field>
       <Field label={t("purchasing.new_po.expected_date.label")}><input type="date" className="field" value={expected} onChange={(e) => setExpected(e.target.value)} /></Field>
       <LineEditor lines={lines} setLines={setLines} withPrice t={t} />
-      <input className="field" placeholder={t("purchasing.new_po.notes.placeholder")} value={notes} onChange={(e) => setNotes(e.target.value)}  aria-label={t("purchasing.new_po.notes.placeholder")}/>
+      <Field label={t("purchasing.new_po.notes.placeholder")}><input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
       <button className="btn-primary text-lg" disabled={busy || !supplierId}>{busy ? t("purchasing.new_po.saving") : t("purchasing.new_po.save_draft")}</button>
     </form>
   );
@@ -271,10 +275,10 @@ function PoDetail({ id, onClose, locale, t, poStatus }: { id: string; onClose: (
       </section>
       {po.cancelReason && <p className="text-sm font-bold text-united-muted">{t("purchasing.po_detail.cancel_reason")}: {po.cancelReason}</p>}
       {manage && !["cancelled", "closed", "received"].includes(po.status) && (
-        <section className="card p-4 flex flex-wrap gap-2">
+        <section className="card p-4 flex flex-wrap items-end gap-2">
           {po.status === "draft" && <button type="button" className="btn-primary" onClick={() => act("submit")}>{t("purchasing.po_detail.submit_btn")}</button>}
           {po.status === "approved" && <button type="button" className="btn-primary" onClick={() => act("send")}>{t("purchasing.po_detail.send_to_supplier")}</button>}
-          <input className="field flex-1" placeholder={t("purchasing.po_detail.reason_placeholder")} value={reason} onChange={(e) => setReason(e.target.value)}  aria-label={t("purchasing.po_detail.reason_placeholder")}/>
+          <Field label={t("purchasing.po_detail.reason_placeholder")} className="flex-1"><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
           {["draft", "pending_approval", "approved", "sent"].includes(po.status) && <button type="button" className="btn-danger" onClick={() => act("cancel", { reason })}>{t("purchasing.po_detail.cancel_btn")}</button>}
           {["sent", "partially_received"].includes(po.status) && <button type="button" className="btn-secondary" onClick={() => act("close", { reason })}>{t("purchasing.po_detail.close_btn")}</button>}
         </section>
@@ -425,14 +429,16 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
       {r.status === "sent" && (
         <section className="card p-4 flex flex-col gap-2">
           <h3 className="font-extrabold">{t("purchasing.rfq.quote_section_title")}</h3>
-          <select className="field font-bold" value={quote.supplier} onChange={(e) => setQuote({ supplier: e.target.value, prices: {} })}>
-            <option value="">{t("purchasing.rfq.quote_supplier")}</option>
-            {r.invited.map((i) => <option key={i.supplier.id} value={i.supplier.id}>{localName(i.supplier, locale)}</option>)}
-          </select>
+          <Field label={t("purchasing.rfq.quote_supplier")} required>
+            <select className="field font-bold" value={quote.supplier} onChange={(e) => setQuote({ supplier: e.target.value, prices: {} })}>
+              <option value="">{t("form.choose")}</option>
+              {r.invited.map((i) => <option key={i.supplier.id} value={i.supplier.id}>{localName(i.supplier, locale)}</option>)}
+            </select>
+          </Field>
           {quote.supplier && r.comparison.map((c) => (
             <div key={c.line.id} className="flex items-center gap-2 text-sm font-bold">
               <span className="flex-1">{localName(c.line.product, locale)} ({c.line.uomCode})</span>
-              <input className="field w-32" inputMode="decimal" dir="ltr" placeholder={t("purchasing.rfq.quote_price")} value={quote.prices[c.line.id] ?? ""} onChange={(e) => setQuote({ ...quote, prices: { ...quote.prices, [c.line.id]: e.target.value } })} />
+              <input className="field w-32" inputMode="decimal" dir="ltr" placeholder={t("purchasing.rfq.quote_price")} aria-label={`${t("purchasing.rfq.quote_price")} — ${localName(c.line.product, locale)}`} value={quote.prices[c.line.id] ?? ""} onChange={(e) => setQuote({ ...quote, prices: { ...quote.prices, [c.line.id]: e.target.value } })} />
             </div>
           ))}
           {quote.supplier && (
@@ -461,14 +467,32 @@ function Suppliers({ locale, t, sup_type, initialOpen }: { locale: Locale; t: (k
   const { can } = usePermissions();
   const toast = useToast();
   const qc = useQueryClient();
-  const q = useSuppliers();
   const [open, setOpen] = useState<string | null>(initialOpen ?? null);
   const [form, setForm] = useState({ name: "", name_ar: "", type: "farm", payment_terms_days: "0", tax_registration_no: "" });
+  // The shared list experience (maturity 2026-11): server search on either name, code, phone
+  // and tax number; type and status filters in the URL; a sortable table.
+  const list = useListState(["type", "status"], { prefix: "s_" });
+  const params = new URLSearchParams();
+  if (list.q) params.set("q", list.q);
+  if (list.filters.type) params.set("type", list.filters.type);
+  if (list.filters.status === "all" || list.filters.status === "inactive") params.set("include_inactive", "1");
+  const query = useListQuery<{ suppliers: SupplierRow[] }>(["purchasing", "suppliers", "directory"], `/api/purchasing/suppliers?${params}`);
+  const rows = (query.data?.suppliers ?? []).filter((s) => list.filters.status !== "inactive" || !s.active);
   if (open) return <SupplierDetail id={open} onClose={() => setOpen(null)} locale={locale} t={t} />;
+  const columns: Column<SupplierRow>[] = [
+    { key: "name", label: t("purchasing.col.supplier"), sortValue: (s) => localName(s, locale), render: (s) => <span className={s.active ? "" : "text-united-muted line-through"}>{localName(s, locale)}</span> },
+    { key: "code", label: t("sales.col.code"), sortValue: (s) => s.code, render: (s) => <span dir="ltr" className="text-united-muted">{s.code}</span> },
+    { key: "type", label: t("purchasing.col.supplier-type"), sortValue: (s) => sup_type[s.type] ?? s.type, render: (s) => sup_type[s.type] ?? s.type, secondary: true },
+    { key: "phone", label: t("sales.col.phone"), render: (s) => <span dir="ltr">{s.phone ?? "—"}</span>, secondary: true },
+    { key: "city", label: t("sales.col.area"), sortValue: (s) => s.city ?? "", render: (s) => s.city ?? "—", secondary: true },
+    { key: "terms", label: t("sales.col.terms"), sortValue: (s) => s.paymentTermsDays, render: (s) => (s.paymentTermsDays ? t("purchasing.supplier.term_due").replace("%s", String(s.paymentTermsDays)) : t("purchasing.supplier.cash")) },
+    { key: "lead", label: t("purchasing.col.lead-time"), numeric: true, sortValue: (s) => s.leadTimeDays ?? -1, render: (s) => (s.leadTimeDays != null ? String(s.leadTimeDays) : "—"), secondary: true },
+    { key: "status", label: t("list.status"), render: (s) => (s.active ? null : <span className="pill-neutral">{t("sales.label.inactive")}</span>) },
+  ];
   return (
     <div className="flex flex-col gap-3">
       {can("purchasing.suppliers.manage") && (
-        <form className="card p-3 grid grid-cols-2 sm:grid-cols-5 gap-2" onSubmit={async (e) => {
+        <form className="card p-3 grid grid-cols-2 sm:grid-cols-5 items-end gap-2" onSubmit={async (e) => {
           e.preventDefault();
           try {
             await apiPost("/api/purchasing/suppliers", { name: form.name, name_ar: form.name_ar || null, type: form.type, payment_terms_days: Number(form.payment_terms_days || 0), tax_registration_no: form.tax_registration_no || undefined });
@@ -476,29 +500,37 @@ function Suppliers({ locale, t, sup_type, initialOpen }: { locale: Locale; t: (k
             void qc.invalidateQueries({ queryKey: ["purchasing", "suppliers"] });
           } catch (err) { toast.show(errorMsg(err), "error"); }
         }}>
-          <input className="field col-span-2" placeholder={t("purchasing.supplier.form.name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}  aria-label={t("purchasing.supplier.form.name")}/>
-          <input className="field col-span-2" dir="rtl" lang="ar" placeholder={t("purchasing.supplier.form.name_ar")} value={form.name_ar} onChange={(e) => setForm({ ...form, name_ar: e.target.value })}  aria-label={t("purchasing.supplier.form.name_ar")}/>
-          <select className="field" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-            {Object.entries(sup_type).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
-          <input className="field" inputMode="numeric" dir="ltr" placeholder={t("purchasing.supplier.form.payment_terms")} value={form.payment_terms_days} onChange={(e) => setForm({ ...form, payment_terms_days: e.target.value })}  aria-label={t("purchasing.supplier.form.payment_terms")}/>
+          <Field label={t("purchasing.supplier.form.name")} required className="col-span-2"><input className="field" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+          <Field label={t("purchasing.supplier.form.name_ar")} className="col-span-2"><input className="field" dir="rtl" lang="ar" value={form.name_ar} onChange={(e) => setForm({ ...form, name_ar: e.target.value })} /></Field>
+          <Field label={t("purchasing.col.supplier-type")}>
+            <select className="field" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+              {Object.entries(sup_type).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </Field>
+          <Field label={t("purchasing.supplier.form.payment_terms")}><input className="field" inputMode="numeric" dir="ltr" value={form.payment_terms_days} onChange={(e) => setForm({ ...form, payment_terms_days: e.target.value })} /></Field>
           <button className="btn-secondary">{t("purchasing.supplier.form.add_btn")}</button>
         </form>
       )}
-      <ul className="grid gap-2 sm:grid-cols-2">
-        {q.data?.suppliers.map((s) => (
-          <li key={s.id}>
-            <button type="button" className="card p-3 w-full text-start" onClick={() => setOpen(s.id)}>
-              <div className="flex justify-between"><span className="font-extrabold">{localName(s, locale)}</span><span className="text-xs font-bold text-united-muted" dir="ltr">{s.code}</span></div>
-              <div className="text-xs font-bold text-united-muted">
-                {sup_type[s.type]} ·
-                {s.paymentTermsDays ? ` ${t("purchasing.supplier.term_due").replace("%s", String(s.paymentTermsDays))}` : t("purchasing.supplier.cash")}
-                {s.leadTimeDays != null ? ` · ${t("purchasing.supplier.lead_time").replace("%s", String(s.leadTimeDays))}` : ""}
-              </div>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <FilterBar
+        list={list}
+        searchLabel={t("purchasing.search.suppliers")}
+        searchHint={t("purchasing.search.suppliers-hint")}
+        filters={[
+          { key: "type", label: t("purchasing.col.supplier-type"), kind: "select", options: Object.entries(sup_type).map(([value, label]) => ({ value, label })) },
+          { key: "status", label: t("list.status"), kind: "select", options: [{ value: "all", label: t("sales.filter.with-inactive") }, { value: "inactive", label: t("sales.label.inactive") }] },
+        ]}
+      />
+      <DataTable
+        rows={query.data ? rows : undefined}
+        columns={columns}
+        rowKey={(s) => s.id}
+        onRowOpen={(s) => setOpen(s.id)}
+        loading={query.isFetching}
+        error={query.error}
+        onRetry={() => query.refetch()}
+        empty={{ title: list.active ? t("list.empty-filtered") : t("purchasing.empty.suppliers") }}
+        caption={t("purchasing.search.suppliers")}
+      />
     </div>
   );
 }
@@ -540,7 +572,7 @@ function SupplierDetail({ id, onClose, locale, t }: { id: string; onClose: () =>
             } catch (err) { toast.show(errorMsg(err), "error"); }
             finally { setSavingNameAr(false); }
           }}>
-            <input className="field flex-1" dir="rtl" lang="ar" placeholder={t("purchasing.supplier.form.name_ar")} value={nameAr ?? s.nameAr ?? ""} onChange={(e) => setNameAr(e.target.value)}  aria-label={t("purchasing.supplier.form.name_ar")}/>
+            <Field label={t("purchasing.supplier.form.name_ar")} className="flex-1"><input className="field" dir="rtl" lang="ar" value={nameAr ?? s.nameAr ?? ""} onChange={(e) => setNameAr(e.target.value)} /></Field>
             <button type="submit" className="btn-secondary text-sm" disabled={nameAr === null || savingNameAr}>{t("purchasing.supplier.name_ar.save")}</button>
           </form>
         )}
@@ -566,7 +598,7 @@ function SupplierDetail({ id, onClose, locale, t }: { id: string; onClose: () =>
                 <option value="">{t("purchasing.line.product.placeholder")}</option>
                 {(catalog.data?.products ?? []).map((p) => <option key={p.id} value={p.id}>{localName(p, locale)} ({unitLabel(p.unit)})</option>)}
               </select>
-              <input className="field" dir="ltr" inputMode="decimal" placeholder={t("purchasing.rfq.quote_price")} aria-label={t("purchasing.rfq.quote_price")} value={price.unit_price} onChange={(e) => setPrice({ ...price, unit_price: e.target.value })} />
+              <Field label={t("purchasing.rfq.quote_price")}><input className="field" dir="ltr" inputMode="decimal" value={price.unit_price} onChange={(e) => setPrice({ ...price, unit_price: e.target.value })} /></Field>
               <input className="field" type="date" value={price.valid_from} onChange={(e) => setPrice({ ...price, valid_from: e.target.value })} aria-label={t("purchasing.supplier.price_valid_from")} />
               <button type="submit" className="btn-secondary col-span-full" disabled={!price.product_id || !price.unit_price.trim()}>{t("purchasing.supplier.price_register")}</button>
             </form>

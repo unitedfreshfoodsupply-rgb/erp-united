@@ -123,21 +123,25 @@ function NewQuotation({ onDone }: { onDone: (id?: string) => void }) {
         const p = products.find((x) => x.id === l.product_id);
         return (
           <div key={i} className="grid grid-cols-2 sm:grid-cols-5 gap-2 border-t border-united-dark/5 pt-2">
-            <select className="field font-bold col-span-2" value={l.product_id} onChange={(e) => set(i, { product_id: e.target.value, uom: "" })}>
-              <option value="">{t("sales.quotation.product-label")}</option>
-              {products.map((x) => <option key={x.id} value={x.id}>{localName(x, locale)}</option>)}
-            </select>
-            <input className="field" inputMode="decimal" dir="ltr" placeholder={t("sales.quotation.qty-placeholder")} value={l.quantity} onChange={(e) => set(i, { quantity: e.target.value })} />
-            <select className="field" value={l.uom} onChange={(e) => set(i, { uom: e.target.value })}>
-              <option value="">{p?.unit ?? t("sales.quotation.unit-default")}</option>
-              {(p?.packagings ?? []).map((x) => <option key={x.uomCode} value={x.uomCode}>{x.uomCode}</option>)}
-            </select>
-            <input className="field" inputMode="decimal" dir="ltr" placeholder={t("sales.quotation.price-placeholder")} value={l.unit_price} onChange={(e) => set(i, { unit_price: e.target.value })} />
+            <Field label={t("sales.quotation.product-label")} required className="col-span-2">
+              <select className="field font-bold" value={l.product_id} onChange={(e) => set(i, { product_id: e.target.value, uom: "" })}>
+                <option value="">{t("form.choose")}</option>
+                {products.map((x) => <option key={x.id} value={x.id}>{localName(x, locale)}</option>)}
+              </select>
+            </Field>
+            <Field label={t("sales.quotation.qty-placeholder")} required><input className="field" inputMode="decimal" dir="ltr" value={l.quantity} onChange={(e) => set(i, { quantity: e.target.value })} /></Field>
+            <Field label={t("sales.quotation.unit-default")}>
+              <select className="field" value={l.uom} onChange={(e) => set(i, { uom: e.target.value })}>
+                <option value="">{p?.unit ?? t("sales.quotation.unit-default")}</option>
+                {(p?.packagings ?? []).map((x) => <option key={x.uomCode} value={x.uomCode}>{x.uomCode}</option>)}
+              </select>
+            </Field>
+            <Field label={t("sales.quotation.price-placeholder")}><input className="field" inputMode="decimal" dir="ltr" value={l.unit_price} onChange={(e) => set(i, { unit_price: e.target.value })} /></Field>
           </div>
         );
       })}
       <button type="button" className="btn-secondary self-start" onClick={() => setLines([...lines, { product_id: "", quantity: "", uom: "", unit_price: "", discount_pct: "" }])}>{t("sales.quotation.add-line-btn")}</button>
-      <input className="field" placeholder={t("sales.quotation.notes-placeholder")} value={notes} onChange={(e) => setNotes(e.target.value)} />
+      <Field label={t("sales.quotation.notes-placeholder")}><input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
       <button className="btn-primary text-lg" disabled={busy || !customerId}>{busy ? t("sales.quotation.saving-text") : t("sales.quotation.save-draft-btn")}</button>
     </form>
   );
@@ -185,7 +189,7 @@ function QuotationDetail({ id, onClose }: { id: string; onClose: () => void }) {
       {x.order && <Link href={`/orders/${x.order.id}`} className="btn-secondary self-start">{t("sales.quotation.order-link", { number: x.order.orderNumber })}</Link>}
       {canManage && !["converted", "rejected", "cancelled"].includes(x.status) && (
         <section className="card p-4 flex flex-col gap-2">
-          <input className="field" placeholder={t("sales.quotation.note-placeholder")} value={note} onChange={(e) => setNote(e.target.value)} />
+          <Field label={t("sales.quotation.note-placeholder")}><input className="field" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
           <div className="flex flex-wrap gap-2">
             {x.status === "draft" && open && <button type="button" className="btn-primary" onClick={() => act("send")}>{t("sales.quotation.action-send")}</button>}
             {x.status === "sent" && open && <button type="button" className="btn-primary" onClick={() => act("accept")}>{t("sales.quotation.action-accept")}</button>}

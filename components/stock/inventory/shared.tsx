@@ -141,18 +141,8 @@ export function Tabs<T extends string>({ value, onChange, items }: { value: T; o
 
 /** A labelled form control. `required` adds a visible marker (the control itself should also
  * carry `required` / `aria-required`); `hint` is a short line under the control. */
-export function Field({ label, children, required, hint }: { label: string; children: React.ReactNode; required?: boolean; hint?: string }) {
-  return (
-    <label className="flex min-w-0 flex-col gap-1">
-      <span className="field-label">
-        {label}
-        {required && <span aria-hidden className="ms-0.5 text-united-danger">*</span>}
-      </span>
-      {children}
-      {hint && <span className="text-xs text-united-muted">{hint}</span>}
-    </label>
-  );
-}
+/** The shared labelled field (components/ui/Field.tsx), re-exported for this module's callers. */
+export { Field } from "@/components/ui/Field";
 
 export function LocationSelect({ value, onChange, allowAny, anyLabel }: { value: string; onChange: (v: string) => void; allowAny?: boolean; anyLabel?: string }) {
   const { locations } = useLocations();

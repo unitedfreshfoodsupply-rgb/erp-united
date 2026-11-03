@@ -272,6 +272,7 @@ function ProductCard({ product, canManage }: { product: StockProductDTO; canMana
                 value={newAlias}
                 onChange={(e) => setNewAlias(e.target.value)}
                 placeholder={t("stock.placeholder-alias")}
+                aria-label={t("stock.placeholder-alias")}
                 className="field flex-1"
               />
               <button

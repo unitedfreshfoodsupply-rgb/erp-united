@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/Toast";
 import { ATTACHMENT_CATEGORIES, ATTACHMENT_CATEGORIES_FOR, type AttachmentCategory } from "@/lib/core/attachment-entities";
 import { useLocale } from "@/lib/locale/useLocale";
 import { useDialogs } from "@/components/ui/Dialog";
+import { Field } from "@/components/ui/Field";
 
 type AttachmentDTO = {
   id: string;
@@ -121,14 +122,16 @@ export function AttachmentsPanel({ entityType, entityId, canManage }: { entityTy
         ))}
       </ul>
       {canManage && (
-        <div className="mt-3 flex gap-2 flex-wrap">
-          <select className="field !w-auto" value={category} onChange={(e) => setCategory(e.target.value as AttachmentCategory)}>
-            {offered.map((c) => (
-              <option key={c} value={c}>
-                {catLabel(c)}
-              </option>
-            ))}
-          </select>
+        <div className="mt-3 flex gap-2 flex-wrap items-end">
+          <Field label={t("form.attachment-type")} className="w-auto">
+            <select className="field !w-auto" value={category} onChange={(e) => setCategory(e.target.value as AttachmentCategory)}>
+              {offered.map((c) => (
+                <option key={c} value={c}>
+                  {catLabel(c)}
+                </option>
+              ))}
+            </select>
+          </Field>
           <input
             ref={input}
             type="file"

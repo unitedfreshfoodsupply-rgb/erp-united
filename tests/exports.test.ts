@@ -61,6 +61,16 @@ async function main() {
   const valText = await (await fetch(url(`/api/inventory/reports/valuation/export`), { headers: { cookie } })).text();
   check("valuation total row", valText.includes("قيمة المخزون") || valText.includes("inventory"), "");
 
+  section("6b. EXPORT LANGUAGE (?lang=en; Arabic stays the default)");
+  const enStmt = await (await fetch(url(`/api/sales/customers/${customer.id}/statement/export?from=2000-01-01&to=2099-12-31&lang=en`), { headers: { cookie } })).text();
+  check("English statement: English titles", enStmt.includes("Statement of account") && enStmt.includes("Closing balance") && enStmt.split("\r\n")[0].includes("Balance"));
+  check("English statement: no Arabic fixed labels", !enStmt.includes("الرصيد الختامي") && !enStmt.includes("كشف حساب"));
+  check("Arabic statement: Arabic column titles", text.split("\r\n")[0].includes("الرصيد"));
+  const enFin = await (await fetch(url(`/api/management/finance/export?from=2000-01-01&to=2099-12-31&lang=en`), { headers: { cookie } })).text();
+  check("English finance: same receivables total as Arabic", enFin.split("\r\n").find((l) => l.startsWith("Customers (largest)"))?.split(",")[1] === rowAmount("عملاء (كبار)"));
+  const enVal = await (await fetch(url(`/api/inventory/reports/valuation/export?lang=en`), { headers: { cookie } })).text();
+  check("English valuation: English total row and titles", enVal.includes("Inventory value") && enVal.split("\r\n")[0].includes("Average cost"));
+
   section("7. AUTHORIZATION");
   const loginMona = await fetch(url("/api/auth/login"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: "mona", password: "1234" }) });
   const cookieMona = loginMona.headers.get("set-cookie")?.split(";")[0] ?? "";

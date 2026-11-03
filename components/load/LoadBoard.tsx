@@ -18,6 +18,7 @@ import { useOperationalSettings } from "@/lib/use-operational-settings";
 import { useLocale } from "@/lib/locale/useLocale";
 import { useDialogs } from "@/components/ui/Dialog";
 import { orderCustomerName } from "@/lib/locale/names";
+import { Field } from "@/components/ui/Field";
 
 const URGENCY_RANK = { late: 0, soon: 1, ok: 2, none: 3 } as const;
 
@@ -147,30 +148,26 @@ export function LoadBoard() {
               <li key={o.id} className="flex items-center gap-2">
                 <CheckCircle2 size={20} className="shrink-0 text-united-green" aria-hidden />
                 <span className="font-bold flex-1 min-w-0 truncate">{orderCustomerName(o, locale === "en" ? "en" : "ar")}</span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  placeholder={t("orders.load-board.crate-count-placeholder")}
-                  value={crateCounts[o.id] ?? ""}
-                  onChange={(e) => setCrateCounts((c) => ({ ...c, [o.id]: e.target.value }))}
-                  className="w-20 tap-target border-2 border-united-dark/10 rounded-lg px-2 text-center focus:border-united-green outline-none shrink-0"
-                />
+                <label className="flex shrink-0 items-center gap-1 text-xs font-semibold text-united-muted">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={crateCounts[o.id] ?? ""}
+                    onChange={(e) => setCrateCounts((c) => ({ ...c, [o.id]: e.target.value }))}
+                    className="w-20 tap-target border-2 border-united-dark/10 rounded-lg px-2 text-center focus:border-united-green outline-none"
+                  />
+                  {t("orders.load-board.crate-count-placeholder")}
+                </label>
               </li>
             ))}
           </ul>
           <p className="mb-3 font-bold text-united-dark">{t("orders.load-board.total-orders")}: {readyToDispatch.length}</p>
-          <input
-            placeholder={t("orders.load-board.driver-placeholder")}
-            value={driverName}
-            onChange={(e) => setDriverName(e.target.value)}
-            className="field mb-3"
-          />
-          <input
-            placeholder={t("orders.load-board.vehicle-placeholder")}
-            value={vehicle}
-            onChange={(e) => setVehicle(e.target.value)}
-            className="field mb-3"
-          />
+          <Field label={t("orders.load-board.driver-placeholder")} className="mb-3">
+            <input value={driverName} onChange={(e) => setDriverName(e.target.value)} className="field" autoComplete="off" />
+          </Field>
+          <Field label={t("orders.load-board.vehicle-placeholder")} className="mb-3">
+            <input value={vehicle} onChange={(e) => setVehicle(e.target.value)} className="field" autoComplete="off" />
+          </Field>
           {error && <p className="text-united-danger font-bold mb-2">{error}</p>}
           <button disabled={busy || !canDispatch} onClick={dispatchAll} className="btn-dark w-full text-xl">
             {t("orders.load-board.dispatch-btn")}

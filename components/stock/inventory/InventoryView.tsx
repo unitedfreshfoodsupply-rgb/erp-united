@@ -281,7 +281,7 @@ function BucketRow({ b, unit, today, canEditLot, productId }: { b: Bucket; unit:
       </div>
       {editing && b.lotId && (
         <form
-          className="flex flex-wrap gap-2"
+          className="flex flex-wrap items-end gap-2"
           onSubmit={async (e) => {
             e.preventDefault();
             try {
@@ -294,8 +294,8 @@ function BucketRow({ b, unit, today, canEditLot, productId }: { b: Bucket; unit:
             }
           }}
         >
-          <input type="date" className="field flex-1" value={expiry} onChange={(e) => setExpiry(e.target.value)} />
-          <input className="field flex-[2]" placeholder={t("stock.form-required-reason")} value={reason} onChange={(e) => setReason(e.target.value)}  aria-label={t("stock.form-required-reason")}/>
+          <Field label={t("stock.lot-expiry-label")} className="flex-1"><input type="date" className="field" value={expiry} onChange={(e) => setExpiry(e.target.value)} /></Field>
+          <Field label={t("stock.form-required-reason")} className="flex-[2]"><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
           <button className="btn-primary">{t("stock.form-lot-expiry-save")}</button>
         </form>
       )}
@@ -332,7 +332,7 @@ function ReservationRow({ r, unit, canRelease }: { r: ProductDetail["reservation
             }
           }}
         >
-          <input className="field" placeholder={t("stock.form-required-reason")} value={reason} onChange={(e) => setReason(e.target.value)}  aria-label={t("stock.form-required-reason")}/>
+          <Field label={t("stock.form-required-reason")}><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
           <button className="btn-danger">{t("stock.form-release")}</button>
         </form>
       )}
@@ -414,14 +414,14 @@ function ProductSettings({ d }: { d: ProductDetail }) {
           </li>
         ))}
       </ul>
-      <form onSubmit={addPack} className="flex gap-2">
+      <form onSubmit={addPack} className="flex items-end gap-2">
         <select className="field font-bold" value={pack.uom} onChange={(e) => setPack({ ...pack, uom: e.target.value })} aria-label={t("stock.unit-choice")}>
           <option value="">{t("stock.unit-choice")}</option>
           {uoms.filter((x) => x.code !== p.unit).map((x) => (
             <option key={x.code} value={x.code}>{localName(x, locale)} ({x.code})</option>
           ))}
         </select>
-        <input className="field" inputMode="decimal" dir="ltr" placeholder={t("stock.packaging-qty-placeholder", { unit: unitLabel(p.unit) })} value={pack.qty} onChange={(e) => setPack({ ...pack, qty: e.target.value })}  aria-label={t("stock.packaging-qty-placeholder", { unit: unitLabel(p.unit) })}/>
+        <Field label={t("stock.packaging-qty-placeholder", { unit: unitLabel(p.unit) })}><input className="field" inputMode="decimal" dir="ltr" value={pack.qty} onChange={(e) => setPack({ ...pack, qty: e.target.value })} /></Field>
         <button className="btn-secondary shrink-0">{t("stock.add-button")}</button>
       </form>
     </section>
@@ -553,11 +553,11 @@ function ExceptionCard({ x, canResolve }: { x: ExceptionDTO; canResolve: boolean
           </select>
           {action === "issue_now" && needsMapping && (
             <>
-              <input className="field w-40" placeholder={t("stock.exception-product-id")} value={productId} onChange={(e) => setProductId(e.target.value)} aria-label={t("stock.exception-product-id")} />
-              <input className="field w-24" dir="ltr" inputMode="decimal" placeholder={t("stock.exception-base-qty")} value={qty} onChange={(e) => setQty(e.target.value)} aria-label={t("stock.exception-base-qty")} />
+              <Field label={t("stock.exception-product-id")} className="w-40"><input className="field" value={productId} onChange={(e) => setProductId(e.target.value)} /></Field>
+              <Field label={t("stock.exception-base-qty")} className="w-24"><input className="field" dir="ltr" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} /></Field>
             </>
           )}
-          <input className="field" placeholder={t("stock.form-how-solved")} value={text} onChange={(e) => setText(e.target.value)}  aria-label={t("stock.form-how-solved")}/>
+          <Field label={t("stock.form-how-solved")}><input className="field" value={text} onChange={(e) => setText(e.target.value)} /></Field>
           <button className="btn-primary shrink-0">{t("stock.btn-close")}</button>
         </form>
       )}
@@ -666,7 +666,7 @@ function DocumentCard({ d, highlight, canReverse }: { d: DocumentDTO; highlight:
                 }
               }}
             >
-              <input className="field" placeholder={t("stock.reverse-reason-placeholder")} value={reason} onChange={(e) => setReason(e.target.value)}  aria-label={t("stock.reverse-reason-placeholder")}/>
+              <Field label={t("stock.reverse-reason-placeholder")}><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
               <button className="btn-danger shrink-0">{t("stock.btn-reverse-doc")}</button>
             </form>
           )}
@@ -813,8 +813,8 @@ function ReleaseButton({ productId, bucket: b }: { productId: string; bucket: Bu
           </select>
         </label>
       </div>
-      <input placeholder={t("stock.release-reason-placeholder")} value={reason} onChange={(e) => setReason(e.target.value)} className="field text-sm"  aria-label={t("stock.release-reason-placeholder")}/>
-      <input placeholder={t("stock.release-notes-placeholder")} value={note} onChange={(e) => setNote(e.target.value)} className="field text-sm"  aria-label={t("stock.release-notes-placeholder")}/>
+      <Field label={t("stock.release-reason-placeholder")}><input value={reason} onChange={(e) => setReason(e.target.value)} className="field text-sm" /></Field>
+      <Field label={t("stock.release-notes-placeholder")}><input value={note} onChange={(e) => setNote(e.target.value)} className="field text-sm" /></Field>
       {err && <p className="text-united-danger font-bold text-sm">{err}</p>}
       <div className="flex gap-2">
         <button onClick={submit} disabled={busy || !qty || Number(qty) <= 0 || !destId || !reason.trim()} className="btn-primary flex-1 text-sm">

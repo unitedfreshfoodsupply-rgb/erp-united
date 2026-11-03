@@ -30,3 +30,40 @@ export function csvResponse(csv: string, filename: string) {
     },
   });
 }
+
+/**
+ * Export language (maturity 2026-11): `?lang=en` writes English column titles and labels,
+ * anything else Arabic — the long-standing default, so existing links keep their output.
+ */
+export type ExportLang = "ar" | "en";
+export const exportLang = (sp: URLSearchParams): ExportLang => (sp.get("lang") === "en" ? "en" : "ar");
+export const tr = (lang: ExportLang, ar: string, en: string) => (lang === "en" ? en : ar);
+/** A party or product name in the export's language (falls back to the name it has). */
+export const nameIn = (lang: ExportLang, x: { name: string; nameAr?: string | null }) => (lang === "ar" ? x.nameAr || x.name : x.name || x.nameAr || "");
+
+export type CsvColumn = { key: string; ar: string; en: string };
+/** Rows with fixed keys, written under the chosen language's column titles (header kept even when empty). */
+export function toCsvColumns(rows: Record<string, unknown>[], columns: CsvColumn[], lang: ExportLang): string {
+  const lines = [columns.map((c) => csvCell(c[lang])).join(",")];
+  for (const r of rows) lines.push(columns.map((c) => csvCell(r[c.key])).join(","));
+  return BOM + lines.join("\r\n");
+}
+
+/** Statement line kinds (customer and supplier statements), by language. */
+export const STATEMENT_KIND: Record<string, { ar: string; en: string }> = {
+  invoice: { ar: "فاتورة", en: "Invoice" },
+  credit_note: { ar: "إشعار دائن", en: "Credit note" },
+  receipt: { ar: "تحصيل", en: "Receipt" },
+  receipt_reversal: { ar: "عكس تحصيل", en: "Receipt reversal" },
+  refund: { ar: "رد مبلغ", en: "Refund" },
+  charge: { ar: "مستحق إضافي", en: "Charge" },
+  opening_balance: { ar: "رصيد افتتاحي", en: "Opening balance" },
+  bill: { ar: "فاتورة مورد", en: "Supplier bill" },
+  debit_note: { ar: "إشعار مدين", en: "Debit note" },
+  payment: { ar: "سداد", en: "Payment" },
+  payment_reversal: { ar: "عكس سداد", en: "Payment reversal" },
+};
+export const STATEMENT_COLUMNS: CsvColumn[] = [
+  { key: "date", ar: "التاريخ", en: "Date" }, { key: "kind", ar: "النوع", en: "Type" }, { key: "number", ar: "الرقم", en: "Number" },
+  { key: "reference", ar: "المرجع", en: "Reference" }, { key: "debit", ar: "مدين", en: "Debit" }, { key: "credit", ar: "دائن", en: "Credit" }, { key: "balance", ar: "الرصيد", en: "Balance" },
+];

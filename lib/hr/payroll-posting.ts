@@ -489,7 +489,8 @@ export async function runPayments(runId: string, actor: ServiceActor) {
 // ---------------------------------------------------------------------------
 
 /** One row per included payslip, a column per component (CSV rows; the route writes the file). */
-export async function payrollRegister(runId: string, actor: ServiceActor) {
+/** `lang` picks one language for the column titles (export `?lang=`); without it they stay "عربي / English". */
+export async function payrollRegister(runId: string, actor: ServiceActor, lang?: "ar" | "en") {
   assertCanRead(actor);
   const run = await prisma.payrollRun.findUnique({
     where: { id: runId },
@@ -497,8 +498,9 @@ export async function payrollRegister(runId: string, actor: ServiceActor) {
   });
   if (!run) throw new ApiError(404, "مسير المرتبات مش موجود");
   const open = new Map((await remaining(prisma, runId)).map((s) => [s.id, s]));
-  const columns = new Map<string, { kind: string; nameAr: string }>();
-  for (const e of run.employees) for (const l of e.lines) if (!columns.has(l.code)) columns.set(l.code, { kind: l.kind, nameAr: l.nameAr });
+  const columns = new Map<string, { kind: string; nameAr: string; nameEn: string | null }>();
+  for (const e of run.employees) for (const l of e.lines) if (!columns.has(l.code)) columns.set(l.code, { kind: l.kind, nameAr: l.nameAr, nameEn: l.nameEn });
+  const h = (ar: string, en: string) => (lang === "ar" ? ar : lang === "en" ? en : `${ar} / ${en}`);
   const ORDER: Record<string, number> = { earning: 0, deduction: 1, recovery: 2, employer_contribution: 3 };
   const cols = [...columns.entries()].sort((a, b) => ORDER[a[1].kind] - ORDER[b[1].kind] || a[0].localeCompare(b[0]));
   const rows = run.employees.map((e) => {
@@ -506,11 +508,14 @@ export async function payrollRegister(runId: string, actor: ServiceActor) {
     for (const l of e.lines) by.set(l.code, (by.get(l.code) ?? ZERO).plus(l.amount));
     const pay = open.get(e.id);
     return {
-      "كود الموظف / Code": e.employee.code, "الاسم / Name": e.employee.name, "القسم / Department": e.employee.department?.name ?? "", "الوظيفة / Job": e.employee.jobTitle ?? "",
-      ...Object.fromEntries(cols.map(([code, c]) => [`${c.nameAr} (${code})`, (by.get(code) ?? ZERO).toFixed(2)])),
-      "الإجمالي / Gross": e.gross.toFixed(2), "الاستقطاعات / Deductions": e.employeeDeductions.toFixed(2), "الاسترداد / Recovery": e.advanceRecovery.toFixed(2),
-      "الصافي / Net": e.netPayable.toFixed(2), "حصة صاحب العمل / Employer": e.employerContributions.toFixed(2),
-      "المصروف / Paid": (pay?.paid ?? ZERO).toFixed(2), "المتبقي / Unpaid": (pay?.remaining ?? e.netPayable).toFixed(2),
+      [h("كود الموظف", "Code")]: e.employee.code,
+      [h("الاسم", "Name")]: lang === "ar" ? e.employee.nameAr || e.employee.name : e.employee.name,
+      [h("القسم", "Department")]: (lang === "ar" ? e.employee.department?.nameAr || e.employee.department?.name : e.employee.department?.name) ?? "",
+      [h("الوظيفة", "Job")]: e.employee.jobTitle ?? "",
+      ...Object.fromEntries(cols.map(([code, c]) => [`${lang === "en" ? c.nameEn || c.nameAr : c.nameAr} (${code})`, (by.get(code) ?? ZERO).toFixed(2)])),
+      [h("الإجمالي", "Gross")]: e.gross.toFixed(2), [h("الاستقطاعات", "Deductions")]: e.employeeDeductions.toFixed(2), [h("الاسترداد", "Recovery")]: e.advanceRecovery.toFixed(2),
+      [h("الصافي", "Net")]: e.netPayable.toFixed(2), [h("حصة صاحب العمل", "Employer")]: e.employerContributions.toFixed(2),
+      [h("المصروف", "Paid")]: (pay?.paid ?? ZERO).toFixed(2), [h("المتبقي", "Unpaid")]: (pay?.remaining ?? e.netPayable).toFixed(2),
     };
   });
   await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "payroll_register_exported", entityType: "payroll_run", entityId: runId, fieldChanged: run.number, newValue: `${rows.length} payslips`, source: "user", deviceId: actor.deviceId }, prisma);

@@ -14,6 +14,7 @@ import { usePermissions } from "@/lib/use-session";
 import { useLocale } from "@/lib/locale";
 import type { IntakeDTO, StockProductDTO } from "@/lib/stock-client-types";
 import { localName } from "@/lib/locale/names";
+import { Field } from "@/components/ui/Field";
 
 /**
  * F-08 — the grading / فرز screen.
@@ -229,13 +230,14 @@ export function GradingForm({
             </label>
           </div>
 
-          <input
-            placeholder={t("stock.grading.reason-placeholder")}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className="field"
-            disabled={busy}
-          />
+          <Field label={t("stock.grading.reason-placeholder")}>
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="field"
+              disabled={busy}
+            />
+          </Field>
 
           {/* Live conservation bar — the server is still the hard gate. */}
           <div

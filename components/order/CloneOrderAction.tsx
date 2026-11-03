@@ -9,6 +9,7 @@ import { invalidateOrderData } from "@/lib/queryInvalidation";
 import { useToast } from "@/components/ui/Toast";
 import { todayLocalISO } from "@/lib/localDate";
 import { useLocale } from "@/lib/locale";
+import { Field } from "@/components/ui/Field";
 
 /** Duplicates this order into a brand-new one (new id/number, clean state, no
  * inherited history) — e.g. "same customer wants the same list again tomorrow". */
@@ -36,9 +37,9 @@ export function CloneOrderAction({ orderId }: { orderId: string }) {
       <p className="text-sm font-bold text-united-dark">
         {t("orders.clone.info")}
       </p>
-      <div className="flex flex-wrap gap-2">
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="field flex-1" />
-        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="field flex-1" />
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label={t("orders.delivery-date")} required className="flex-1"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="field" /></Field>
+        <Field label={t("orders.delivery-time-label")} className="flex-1"><input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="field" /></Field>
       </div>
       {error && <p className="text-united-danger font-bold text-sm">{error}</p>}
       <div className="flex gap-2">

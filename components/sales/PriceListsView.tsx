@@ -66,8 +66,8 @@ export function PriceListsView() {
             } catch (err) { fail(toast, err, t); }
           }}
         >
-          <input className="field flex-1" dir="ltr" placeholder={t("pricelists.code-placeholder")} value={newList.code} onChange={(e) => setNewList({ ...newList, code: e.target.value })}  aria-label={t("pricelists.code-placeholder")}/>
-          <input className="field flex-[2]" placeholder={t("pricelists.name-placeholder")} value={newList.name} onChange={(e) => setNewList({ ...newList, name: e.target.value })}  aria-label={t("pricelists.name-placeholder")}/>
+          <Field label={t("pricelists.code-placeholder")} className="flex-1"><input className="field" dir="ltr" value={newList.code} onChange={(e) => setNewList({ ...newList, code: e.target.value })} /></Field>
+          <Field label={t("pricelists.name-placeholder")} className="flex-[2]"><input className="field" value={newList.name} onChange={(e) => setNewList({ ...newList, name: e.target.value })} /></Field>
           <button className="btn-secondary shrink-0">{t("pricelists.add")}</button>
         </form>
       )}
@@ -134,11 +134,11 @@ function ListDetail({ id }: { id: string }) {
                     <td className="p-2 text-center" >{unitLabel(uom)}{idx > 0 ? ` (${Number(p.packagings[idx - 1].qtyInBaseUnit)} ${unitLabel(p.unit)})` : ""}</td>
                     <td className="p-2 text-center" dir="ltr">{priceOf.get(key) ?? (idx > 0 && priceOf.get(`${p.id}|${p.unit}`) ? `≈ ${(Number(priceOf.get(`${p.id}|${p.unit}`)) * Number(p.packagings[idx - 1].qtyInBaseUnit)).toFixed(2)}` : "—")}</td>
                     {canManage && (
-                      <td className="p-2"><input className="field text-center" inputMode="decimal" dir="ltr" value={draft[key] ?? ""} onChange={(e) => setDraft({ ...draft, [key]: e.target.value.replace(",", ".") })} /></td>
+                      <td className="p-2"><input className="field text-center" inputMode="decimal" dir="ltr" aria-label={`${t("form.new-price")} — ${localName(p, locale)} · ${unitLabel(uom)}`} value={draft[key] ?? ""} onChange={(e) => setDraft({ ...draft, [key]: e.target.value.replace(",", ".") })} /></td>
                     )}
                     <td className="p-2 text-center">
                       {idx === 0 && (can("sales.tax.manage") ? (
-                        <select className="field text-xs" value={p.salesTaxCode} onChange={async (e) => {
+                        <select className="field text-xs" aria-label={`${t("form.tax")} — ${localName(p, locale)}`} value={p.salesTaxCode} onChange={async (e) => {
                           const taxCode = e.target.value;
                           const reason = await dialogs.prompt({ title: t("pricelists.tax-reason"), label: t("ui.reason-label"), required: true, multiline: true });
                           if (!reason) return;

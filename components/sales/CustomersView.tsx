@@ -479,8 +479,8 @@ function CreditSection({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit: bo
           <Field label={t("sales.credit-terms-field")}><input className="field" inputMode="numeric" dir="ltr" value={f.terms} onChange={(e) => setF({ ...f, terms: e.target.value })} /></Field>
           <Field label={t("sales.credit-limit-field")}><input className="field" inputMode="decimal" dir="ltr" value={f.limit} onChange={(e) => setF({ ...f, limit: e.target.value })} /></Field>
           <label className="tap-target flex items-center gap-2 font-extrabold"><input type="checkbox" className="w-6 h-6" checked={f.hold} onChange={(e) => setF({ ...f, hold: e.target.checked })} />{t("sales.holding-toggle")}</label>
-          {f.hold && <input className="field" placeholder={t("sales.customer.credit-hold-reason")} value={f.holdReason} onChange={(e) => setF({ ...f, holdReason: e.target.value })}  aria-label={t("sales.customer.credit-hold-reason")}/>}
-          <input className="field col-span-2" placeholder={t("sales.field.reason")} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })}  aria-label={t("sales.field.reason")}/>
+          {f.hold && <Field label={t("sales.customer.credit-hold-reason")}><input className="field" value={f.holdReason} onChange={(e) => setF({ ...f, holdReason: e.target.value })} /></Field>}
+          <Field label={t("sales.field.reason")} className="col-span-2"><input className="field" value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} /></Field>
           <button className="btn-primary col-span-2">{t("sales.update-credit-button")}</button>
         </form>
       )}
@@ -500,6 +500,7 @@ function CustomerPriceList({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit
       {canEdit ? (
         <select
           className="field font-bold"
+          aria-label={t("sales.price-list")}
           value={c.priceListId ?? ""}
           onChange={async (e) => {
             const value = e.target.value;
@@ -542,11 +543,11 @@ function AddAlias({ id, onDone }: { id: string; onDone: () => void }) {
   const toast = useToast();
   const [alias, setAlias] = useState("");
   return (
-    <form className="flex gap-2" onSubmit={async (e) => {
+    <form className="flex items-end gap-2" onSubmit={async (e) => {
       e.preventDefault();
       try { await apiPost(`/api/sales/customers/${id}/aliases`, { alias }); setAlias(""); onDone(); } catch (err) { fail(toast, err); }
     }}>
-      <input className="field" placeholder={t("sales.placeholder.alias")} value={alias} onChange={(e) => setAlias(e.target.value)}  aria-label={t("sales.placeholder.alias")}/>
+      <Field label={t("sales.placeholder.alias")} className="flex-1"><input className="field" value={alias} onChange={(e) => setAlias(e.target.value)} /></Field>
       <button className="btn-secondary shrink-0">{t("ui.create")}</button>
     </form>
   );
@@ -574,9 +575,9 @@ function Contacts({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit: boolean
             onSaved();
           } catch (err) { fail(toast, err); }
         }}>
-          <input className="field" placeholder={t("placeholder-contact-name")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })}  aria-label={t("placeholder-contact-name")}/>
-          <input className="field" placeholder={t("placeholder-contact-role")} value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}  aria-label={t("placeholder-contact-role")}/>
-          <input className="field" dir="ltr" placeholder={t("placeholder-contact-phone")} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })}  aria-label={t("placeholder-contact-phone")}/>
+          <Field label={t("placeholder-contact-name")}><input className="field" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+          <Field label={t("placeholder-contact-role")}><input className="field" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} /></Field>
+          <Field label={t("placeholder-contact-phone")}><input className="field" dir="ltr" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
           <label className="flex items-center gap-2 font-bold"><input type="checkbox" className="w-6 h-6" checked={f.primary} onChange={(e) => setF({ ...f, primary: e.target.checked })} />{t("label-primary")}</label>
           <button className="btn-secondary col-span-2">{t("button-add-contact")}</button>
         </form>

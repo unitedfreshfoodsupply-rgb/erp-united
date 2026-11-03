@@ -13,6 +13,7 @@ import { useLocale } from "@/lib/locale";
 import { useDialogs } from "@/components/ui/Dialog";
 import { Avatar } from "@/components/ui/Avatar";
 import { Menu } from "@/components/ui/Menu";
+import { Field } from "@/components/ui/Field";
 
 export function UsersPanel({ users }: { users: AdminUser[] }) {
   const { t } = useLocale();
@@ -70,7 +71,7 @@ function CreateUserForm({ onDone }: { onDone: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const { can } = usePermissions();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -105,30 +106,24 @@ function CreateUserForm({ onDone }: { onDone: () => void }) {
     <form onSubmit={submit} className="card p-4 flex flex-col gap-3">
       <h2 className="font-extrabold text-united-dark">{t("admin.users.form-title")}</h2>
       {error && <p className="text-united-danger font-bold text-sm">{error}</p>}
-      <input placeholder={t("admin.users.name-label")} value={name} onChange={(e) => setName(e.target.value)} className="field" />
-      <input
-        placeholder={t("admin.users.username-en-label")}
-        dir="ltr"
-        autoComplete="off"
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
-        className="field"
-      />
-      <input
-        placeholder={t("admin.users.password-label")}
-        type="password"
-        autoComplete="new-password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        className="field"
-      />
-      <select value={role} onChange={(e) => setRole(e.target.value as Role)} className="field font-bold">
-        {assignableRoles.map((r) => (
-          <option key={r} value={r}>
-            {ROLE_LABEL[r]}
-          </option>
-        ))}
-      </select>
+      <Field label={t("admin.users.name-label")} required>
+        <input value={name} onChange={(e) => setName(e.target.value)} className="field" />
+      </Field>
+      <Field label={t("admin.users.username-en-label")} required>
+        <input dir="ltr" autoComplete="off" value={username} onChange={(e) => setUsername(e.target.value)} className="field" />
+      </Field>
+      <Field label={t("admin.users.password-label")} required>
+        <input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className="field" />
+      </Field>
+      <Field label={t("form.role")} required>
+        <select value={role} onChange={(e) => setRole(e.target.value as Role)} className="field font-bold">
+          {assignableRoles.map((r) => (
+            <option key={r} value={r}>
+              {locale === "en" ? ROLE_LABEL_EN[r] : ROLE_LABEL[r]}
+            </option>
+          ))}
+        </select>
+      </Field>
       <label className="flex items-center gap-2 text-sm font-bold">
         <input type="checkbox" className="w-5 h-5" checked={mustChange} onChange={(e) => setMustChange(e.target.checked)} />
         {t("admin.users.must-change-pw-hint")}

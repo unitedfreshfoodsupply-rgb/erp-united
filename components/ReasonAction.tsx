@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useLocale } from "@/lib/locale";
+import { Field } from "@/components/ui/Field";
 
 export function ReasonAction({
   label,
@@ -32,13 +33,14 @@ export function ReasonAction({
 
   return (
     <div className="flex flex-col gap-2 bg-united-dark/5 rounded-xl p-3">
-      <input
-        autoFocus
-        placeholder={t("ui.reason-placeholder")}
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-        className="field"
-      />
+      <Field label={t("form.reason")} required>
+        <input
+          autoFocus
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="field"
+        />
+      </Field>
       <div className="flex gap-2">
         <button
           disabled={!reason.trim() || busy}

@@ -15,6 +15,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { formatNumber } from "@/lib/format";
+import { Field } from "@/components/ui/Field";
 
 /**
  * Order entry (remediation 2026-11). Each line shows what can be promised now — the
@@ -247,10 +248,10 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
       {catalog.data && products.length === 0 && <p className="text-sm text-united-warn">{t("create.no-products")}</p>}
       {accountId && <p className="text-sm text-united-muted">{t("create.account-info")}</p>}
       <div className="flex gap-3">
-        <input type="date" aria-label={t("orders.delivery-date")} value={date} onChange={(e) => setDate(e.target.value)} className="field flex-1" />
-        <input type="time" aria-label={t("orders.delivery-time-label")} value={time} onChange={(e) => setTime(e.target.value)} className="field flex-1" />
+        <Field label={t("orders.delivery-date")} required className="flex-1"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="field" /></Field>
+        <Field label={t("orders.delivery-time-label")} className="flex-1"><input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="field" /></Field>
       </div>
-      <input placeholder={t("create.notes-placeholder")} value={notes} onChange={(e) => setNotes(e.target.value)} className="field" aria-label={t("create.notes-placeholder")} />
+      <Field label={t("create.notes-placeholder")}><input value={notes} onChange={(e) => setNotes(e.target.value)} className="field" /></Field>
 
       <div className="flex flex-col gap-3">
         {rows.map((row, i) => {
@@ -293,22 +294,24 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
               </div>
 
               {p && (
-                <div className="flex gap-2 flex-wrap items-center">
-                  <input
-                    placeholder={t("create.qty-placeholder")}
-                    type="number"
-                    inputMode={l.prec === 0 ? "numeric" : "decimal"}
-                    min={0}
-                    step={l.prec === 0 ? 1 : 1 / 10 ** l.prec}
-                    value={row.quantity}
-                    onChange={(e) => updateRow(i, { quantity: e.target.value })}
-                    className="field w-28"
-                    dir="ltr"
-                    aria-label={t("create.qty-placeholder")}
-                  />
-                  <select aria-label={t("ui.qty.unit")} value={row.unit} onChange={(e) => updateRow(i, { unit: e.target.value, unit_price: "" })} className="field w-28">
-                    {units.map((u) => <option key={u} value={u}>{unitLabel(u, locale)}</option>)}
-                  </select>
+                <div className="flex gap-2 flex-wrap items-end">
+                  <Field label={t("create.qty-placeholder")} required className="w-28">
+                    <input
+                      type="number"
+                      inputMode={l.prec === 0 ? "numeric" : "decimal"}
+                      min={0}
+                      step={l.prec === 0 ? 1 : 1 / 10 ** l.prec}
+                      value={row.quantity}
+                      onChange={(e) => updateRow(i, { quantity: e.target.value })}
+                      className="field"
+                      dir="ltr"
+                    />
+                  </Field>
+                  <Field label={t("ui.qty.unit")} className="w-28">
+                    <select value={row.unit} onChange={(e) => updateRow(i, { unit: e.target.value, unit_price: "" })} className="field">
+                      {units.map((u) => <option key={u} value={u}>{unitLabel(u, locale)}</option>)}
+                    </select>
+                  </Field>
                   <span className="text-sm text-united-muted">
                     {l.leftInUnit !== null
                       ? t("create.available-line", { qty: fmt(l.leftInUnit, l.prec), unit: unitLabel(row.unit, locale) })
@@ -371,7 +374,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
       </div>
 
       {canPrice && lines.some((l) => l.priceChanged) && (
-        <input className="field" placeholder={t("create.price-reason")} value={priceReason} onChange={(e) => setPriceReason(e.target.value)} aria-label={t("create.price-reason")} />
+        <Field label={t("create.price-reason")}><input className="field" value={priceReason} onChange={(e) => setPriceReason(e.target.value)} /></Field>
       )}
       <div className="flex items-center justify-between border-t border-united-border pt-3">
         <span className="text-united-muted">{t("create.total-before-tax")}{anyUnpriced ? ` ${t("create.some-unpriced")}` : ""}</span>

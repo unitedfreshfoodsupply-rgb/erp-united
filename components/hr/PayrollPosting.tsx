@@ -141,7 +141,7 @@ export function PaymentsPanel({ run }: { run: PostingRun }) {
           <h3 className="section-title flex items-center gap-1.5"><Wallet size={18} aria-hidden />{t("pay.payments")}</h3>
           <p className="text-sm text-united-muted" dir="auto">{run.status === "reversed" ? t("pay.payments_reversed_run") : t("pay.payments_summary", { net: fmtMoney(d.totals.netPayable), paid: fmtMoney(d.totals.paid), remaining: fmtMoney(d.totals.remaining) })}</p>
         </div>
-        {run.can.bankFile && <a className="btn-secondary btn-sm gap-1.5" href={`/api/hr/payroll/runs/${run.id}/bank-file`}><Landmark size={16} aria-hidden />{t("pay.bank_file")}</a>}
+        {run.can.bankFile && <a className="btn-secondary btn-sm gap-1.5" href={`/api/hr/payroll/runs/${run.id}/bank-file?lang=${locale}`}><Landmark size={16} aria-hidden />{t("pay.bank_file")}</a>}
       </div>
       {canPay && (
         <div className="grid grid-cols-2 gap-3 border-b border-united-border px-5 py-4 sm:grid-cols-4">

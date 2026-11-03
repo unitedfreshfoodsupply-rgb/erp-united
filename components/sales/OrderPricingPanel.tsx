@@ -8,6 +8,7 @@ import { usePermissions } from "@/lib/use-session";
 import { fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
+import { Field } from "@/components/ui/Field";
 
 type Amounts = { gross: string; discount: string; net: string; tax: string; total: string };
 type Pricing = {
@@ -107,9 +108,9 @@ export function OrderPricingPanel({ orderId }: { orderId: string }) {
                   }
                 }}
               >
-                <input className="field" inputMode="decimal" dir="ltr" placeholder={t("pricing.price")} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
-                <input className="field" inputMode="decimal" dir="ltr" placeholder={t("pricing.discount")} value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} />
-                <input className="field" placeholder={t("pricing.reason")} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
+                <Field label={t("pricing.price")}><input className="field" inputMode="decimal" dir="ltr" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /></Field>
+                <Field label={t("pricing.discount")}><input className="field" inputMode="decimal" dir="ltr" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} /></Field>
+                <Field label={t("pricing.reason")}><input className="field" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></Field>
                 <button className="btn-primary col-span-3">{t("pricing.save-price")}</button>
               </form>
             )}

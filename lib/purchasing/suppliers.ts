@@ -81,11 +81,12 @@ export async function getSupplier(id: string) {
   return s;
 }
 
-export async function listSuppliersFull(opts: { q?: string; includeInactive?: boolean } = {}) {
+export async function listSuppliersFull(opts: { q?: string; includeInactive?: boolean; type?: string } = {}) {
   const q = opts.q?.trim();
   return prisma.supplier.findMany({
     where: {
       ...(opts.includeInactive ? {} : { active: true }),
+      ...(opts.type ? { type: opts.type as never } : {}),
       ...(q ? { OR: [{ id: { in: await searchIds("supplier", q) } }, { name: { contains: q, mode: "insensitive" } }, { nameAr: { contains: q } }, { code: { contains: q.toUpperCase() } }, { phone: { contains: q } }] } : {}),
     },
     orderBy: [{ active: "desc" }, { name: "asc" }],

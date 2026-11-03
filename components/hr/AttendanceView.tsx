@@ -680,9 +680,9 @@ function HolidaysCard({ canManage }: { canManage: boolean }) {
       {canManage && (
         <form className="grid gap-3 border-b border-united-border p-4 sm:grid-cols-6" onSubmit={(e) => { e.preventDefault(); if (f.date && f.name_ar.trim() && !busy) void add(); }}>
           <input type="date" className="field" required value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} aria-label={t("att.date")} />
-          <input className="field" required maxLength={100} placeholder={t("att.name_ar")} value={f.name_ar} onChange={(e) => setF({ ...f, name_ar: e.target.value })}  aria-label={t("att.name_ar")}/>
-          <input className="field" dir="ltr" maxLength={100} placeholder={t("att.name_en")} value={f.name_en} onChange={(e) => setF({ ...f, name_en: e.target.value })}  aria-label={t("att.name_en")}/>
-          <input className="field" maxLength={200} placeholder={t("att.reference")} value={f.reference} onChange={(e) => setF({ ...f, reference: e.target.value })}  aria-label={t("att.reference")}/>
+          <Field label={t("att.name_ar")}><input className="field" required maxLength={100} value={f.name_ar} onChange={(e) => setF({ ...f, name_ar: e.target.value })} /></Field>
+          <Field label={t("att.name_en")}><input className="field" dir="ltr" maxLength={100} value={f.name_en} onChange={(e) => setF({ ...f, name_en: e.target.value })} /></Field>
+          <Field label={t("att.reference")}><input className="field" maxLength={200} value={f.reference} onChange={(e) => setF({ ...f, reference: e.target.value })} /></Field>
           <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={f.paid} onChange={(e) => setF({ ...f, paid: e.target.checked })} />{t("att.paid")}</label>
           <button type="submit" className="btn-primary" disabled={busy || !f.date || !f.name_ar.trim()}>{t("att.holiday_add")}</button>
         </form>
@@ -756,8 +756,8 @@ function DevicesCard({ canManage, canRecord }: { canManage: boolean; canRecord: 
           await apiPost("/api/hr/attendance/sources", { ...src, kind: "device" });
           setSrc({ code: "", name: "", integration_id: "" });
         }); }}>
-          <input className="field" dir="ltr" required placeholder={t("att.device_code")} value={src.code} onChange={(e) => setSrc({ ...src, code: e.target.value })}  aria-label={t("att.device_code")}/>
-          <input className="field" required placeholder={t("att.device_name")} value={src.name} onChange={(e) => setSrc({ ...src, name: e.target.value })}  aria-label={t("att.device_name")}/>
+          <Field label={t("att.device_code")}><input className="field" dir="ltr" required value={src.code} onChange={(e) => setSrc({ ...src, code: e.target.value })} /></Field>
+          <Field label={t("att.device_name")}><input className="field" required value={src.name} onChange={(e) => setSrc({ ...src, name: e.target.value })} /></Field>
           <select className="field" required value={src.integration_id} onChange={(e) => setSrc({ ...src, integration_id: e.target.value })} aria-label={t("att.device_key")}>
             <option value="">{ingestKeys.length ? t("att.device_key") : t("att.device_no_key")}</option>
             {ingestKeys.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
@@ -784,8 +784,8 @@ function DevicesCard({ canManage, canRecord }: { canManage: boolean; canRecord: 
                 ))}
               </div>
               {canManage && (
-                <form className="mt-2 flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); const m = map[s.id]; if (m?.external_user_id && m.employee_id) void run(async () => { await apiPost("/api/hr/attendance/identities", { source_id: s.id, ...m }); setMap({ ...map, [s.id]: { external_user_id: "", employee_id: "" } }); }); }}>
-                  <input className="field w-[140px]" dir="ltr" placeholder={t("att.device_user")} value={map[s.id]?.external_user_id ?? ""} onChange={(e) => setMap({ ...map, [s.id]: { employee_id: map[s.id]?.employee_id ?? "", external_user_id: e.target.value } })} />
+                <form className="mt-2 flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); const m = map[s.id]; if (m?.external_user_id && m.employee_id) void run(async () => { await apiPost("/api/hr/attendance/identities", { source_id: s.id, ...m }); setMap({ ...map, [s.id]: { external_user_id: "", employee_id: "" } }); }); }}>
+                  <Field label={t("att.device_user")} className="w-[140px]"><input className="field" dir="ltr" value={map[s.id]?.external_user_id ?? ""} onChange={(e) => setMap({ ...map, [s.id]: { employee_id: map[s.id]?.employee_id ?? "", external_user_id: e.target.value } })} /></Field>
                   <select className="field w-auto" value={map[s.id]?.employee_id ?? ""} onChange={(e) => setMap({ ...map, [s.id]: { external_user_id: map[s.id]?.external_user_id ?? "", employee_id: e.target.value } })} aria-label={t("att.col.employee")}>
                     <option value="">{t("att.col.employee")}</option>
                     {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{localName(e, locale)}</option>)}

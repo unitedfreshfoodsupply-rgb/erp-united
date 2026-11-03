@@ -241,6 +241,7 @@ function CoverageRow({
                 value={productId}
                 onChange={(e) => setProductId(e.target.value)}
                 className="field font-bold"
+                aria-label={t("form.official-product")}
               >
                 <option value="">{t("stock.select.placeholder")}</option>
                 {activeProducts.map((p) => (

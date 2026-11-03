@@ -170,7 +170,7 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
               {Number(l.creditedQty) > 0 && <span>{t("sales.invoice.is_deducted_text")}{fmtQty(l.creditedQty, l.uomCode)}</span>}
             </div>
             {inv.status === "issued" && manage && (
-              <input className="field text-sm" inputMode="decimal" dir="ltr" placeholder={t("sales.invoice.quantity_to_deduct").replace("${qty}", `${Number(l.quantity) - Number(l.creditedQty)}`)} value={credit[l.id] ?? ""} onChange={(e) => setCredit({ ...credit, [l.id]: e.target.value })} />
+              <Field label={t("sales.invoice.quantity_to_deduct").replace("${qty}", `${Number(l.quantity) - Number(l.creditedQty)}`)}><input className="field text-sm" inputMode="decimal" dir="ltr" value={credit[l.id] ?? ""} onChange={(e) => setCredit({ ...credit, [l.id]: e.target.value })} /></Field>
             )}
           </div>
         ))}
@@ -192,9 +192,9 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
       {manage && inv.status === "draft" && (
         <section className="card p-4 flex flex-col gap-2">
           <Field label={t("sales.invoice.issue_date_label")}><input type="date" className="field" value={issueDate} max={todayLocalISO()} onChange={(e) => setIssueDate(e.target.value)} /></Field>
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap items-end">
             <button type="button" className="btn-primary" onClick={async () => { try { await apiPost(`/api/sales/invoices/${id}/issue`, { issue_date: issueDate, expected_version: inv.version }); refresh(); toast.show(t("sales.invoice.toast_issued"), "success"); } catch (err) { toast.show(err instanceof ApiClientError ? err.message : t("sales.invoice.error_generic"), "error"); } }}>{t("sales.invoice.issue_now")}</button>
-            <input className="field flex-1" placeholder={t("sales.invoice.draft_reason_placeholder")} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <Field label={t("sales.invoice.draft_reason_placeholder")} className="flex-1"><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
             <button type="button" className="btn-danger" onClick={async () => { try { await apiPost(`/api/sales/invoices/${id}/void`, { reason, expected_version: inv.version }); refresh(); } catch (err) { toast.show(err instanceof ApiClientError ? err.message : t("sales.invoice.error_generic"), "error"); } }}>{t("sales.invoice.void_draft")}</button>
           </div>
         </section>
@@ -202,7 +202,7 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
       {manage && inv.status === "issued" && inv.open !== "0.00" && (
         <section className="card p-4 flex flex-col gap-2">
           <h3 className="font-extrabold">{t("sales.invoice.credit_note_heading")}</h3>
-          <input className="field" placeholder={t("sales.invoice.reason_label")} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <Field label={t("sales.invoice.reason_label")}><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
           <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" className="w-5 h-5" checked={restock} onChange={(e) => setRestock(e.target.checked)} />{t("sales.invoice.restock_checkbox")}</label>
           <div className="flex gap-2 flex-wrap">
             <button type="button" className="btn-primary" onClick={async () => {
