@@ -9,6 +9,7 @@ import { apiFetch } from "@/lib/api-client";
 import { useLocale } from "@/lib/locale";
 import { formatNumber } from "@/lib/format";
 import { localName } from "@/lib/locale/names";
+import { systemText } from "@/lib/locale/system-text";
 import { todayLocalISO } from "@/lib/localDate";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { useToast } from "@/components/ui/Toast";
@@ -56,6 +57,7 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
     if (c.type === "qty") return formatNumber(v as number, { maxDp: 3 });
     if (c.type === "number") return formatNumber(v as number, { maxDp: 1 });
     if (c.type === "percent") return `${formatNumber(v as number, { maxDp: 1 })}%`;
+    if (c.type === "text" && !/_(ar|en)$/.test(c.key)) return systemText(String(v), lang);
     return String(v);
   };
   const columns: Column<Row>[] = cols.map((c) => ({

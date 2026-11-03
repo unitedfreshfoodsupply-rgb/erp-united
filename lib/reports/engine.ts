@@ -5,6 +5,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { REPORTS, reportByKey } from "@/lib/reports/definitions";
 import type { ReportColumn, ReportDef, ReportParams, ReportResult } from "@/lib/reports/types";
 import type { Permission } from "@/lib/permissions";
+import { systemText } from "@/lib/locale/system-text";
 
 type Viewer = { can: (p: Permission) => boolean };
 
@@ -55,13 +56,15 @@ export async function runReport(key: string, p: ReportParams, viewer: Viewer) {
 }
 
 type Ran = Awaited<ReturnType<typeof runReport>>;
+/** Stored system text ("رصيد أول المدة", movement kinds…) in the export's language; names and user text stay as stored. */
+const localRows = (r: Ran, lang: "ar" | "en") => (lang === "ar" ? r.rows : r.rows.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, typeof v === "string" && r.columns.some((c) => c.key === k && c.type === "text" && !/_(ar|en)$/.test(k)) ? systemText(v, lang) : v]))));
 const cell = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 
 /** CSV in the chosen language: UTF-8 with a BOM (Excel opens Arabic correctly), header row, rows, totals row. */
 export function reportCsv(r: Ran, lang: "ar" | "en") {
   const esc = (s: string) => (/[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
   const head = r.columns.map((c) => c.label[lang]);
-  const lines = [head, ...r.rows.map((row) => r.columns.map((c) => cell(row[c.key])))];
+  const lines = [head, ...localRows(r, lang).map((row) => r.columns.map((c) => cell(row[c.key])))];
   if (Object.keys(r.totals).length) lines.push(r.columns.map((c, i) => (i === 0 ? (lang === "ar" ? "الإجمالي" : "Total") : cell(r.totals[c.key]))));
   return "﻿" + lines.map((l) => l.map((x) => esc(x)).join(",")).join("\r\n") + "\r\n";
 }
@@ -78,7 +81,7 @@ export function reportXls(r: Ran, lang: "ar" | "en") {
     `<Row><Cell ss:StyleID="t"><Data ss:Type="String">${x(r.title[lang])}</Data></Cell></Row>`,
     `<Row><Cell><Data ss:Type="String">${x(`${r.params.from} → ${r.params.to}`)}</Data></Cell></Row>`,
     `<Row>${r.columns.map((c) => `<Cell ss:StyleID="h"><Data ss:Type="String">${x(c.label[lang])}</Data></Cell>`).join("")}</Row>`,
-    ...r.rows.map((row) => `<Row>${r.columns.map((c) => data(c, row[c.key])).join("")}</Row>`),
+    ...localRows(r, lang).map((row) => `<Row>${r.columns.map((c) => data(c, row[c.key])).join("")}</Row>`),
     ...(Object.keys(r.totals).length ? [`<Row>${r.columns.map((c, i) => (i === 0 ? `<Cell ss:StyleID="h"><Data ss:Type="String">${lang === "ar" ? "الإجمالي" : "Total"}</Data></Cell>` : data(c, r.totals[c.key]))).join("")}</Row>`] : []),
   ];
   return `<?xml version="1.0" encoding="UTF-8"?>

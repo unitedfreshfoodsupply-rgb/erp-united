@@ -66,6 +66,12 @@ const PAIRS: readonly (readonly [ar: string, en: string])[] = [
   ["استلام {}", "goods receipt {}"],
   // Stock released after a grading-loss approval ("اعتماد خسارة الفرز · استلام RC-…").
   ["اعتماد خسارة الفرز", "grading loss approved"],
+  // Report rows (lib/reports/definitions.ts)
+  ["رصيد أول المدة", "Opening balance"],
+  ["إعدام", "Write-off"],
+  ["تسوية", "Adjustment"],
+  ["استثناء صرف", "Issue exception"],
+  ["مرتجع عميل", "Customer return"],
   // Goods back from a delivery trip (lib/operations/trips.ts).
   ["رفض العميل — {}", "Rejected by the customer — {}"],
   ["فشل تسليم {}: {}", "Delivery failed on {}: {}"],

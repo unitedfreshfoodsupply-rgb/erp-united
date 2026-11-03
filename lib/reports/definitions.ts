@@ -20,6 +20,13 @@ const PARTY_COLS = [{ key: "name_ar", label: { ar: "الاسم", en: "Name (Arab
 /** A supplier named in both languages (the screen shows the reader's; exports carry both, like PARTY_COLS). */
 const SUPPLIER_COLS = [{ key: "supplier_ar", label: { ar: "المورد", en: "Supplier (Arabic)" }, type: "text" as const }, { key: "supplier_en", label: { ar: "المورد بالإنجليزي", en: "Supplier" }, type: "text" as const }];
 const supplierName = (ar: string | null | undefined, en: string | null | undefined) => ({ supplier_ar: ar || en || "", supplier_en: en || ar || "" });
+/** The dates a grouped period row covers (day / week / month / year), inside the report's own range. */
+const periodSpan = (start: string, groupBy: string, p: { from: string; to: string }) => {
+  const d = new Date(`${start}T00:00:00Z`);
+  const end = groupBy === "day" ? d : groupBy === "week" ? new Date(d.getTime() + 6 * 86_400_000) : groupBy === "month" ? new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)) : new Date(Date.UTC(d.getUTCFullYear(), 11, 31));
+  const iso = (x: Date) => x.toISOString().slice(0, 10);
+  return `from=${start < p.from ? p.from : start}&to=${iso(end) > p.to ? p.to : iso(end)}`;
+};
 
 const FIN: ReportDef["permissions"] = ["accounting.view", "reports.finance"];
 const SALES: ReportDef["permissions"] = ["reports.finance", "sales.invoices.view"];
@@ -55,7 +62,7 @@ export const REPORTS: ReportDef[] = [
         FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId"
         WHERE l."accountId" = ${p.accountId} AND e."date" BETWEEN ${p.from} AND ${p.to} ORDER BY e."date", e."number"`;
       let bal = D(open?.b);
-      const rows: ReportRow[] = [{ date: p.from, number: "", description: "رصيد أول المدة / Opening balance", debit: null, credit: null, balance: m2(bal) }];
+      const rows: ReportRow[] = [{ date: p.from, number: "", description: "رصيد أول المدة", debit: null, credit: null, balance: m2(bal) }];
       for (const l of lines) {
         bal = bal.plus(l.debit).minus(l.credit);
         rows.push({ date: l.date, number: l.number, description: l.description, debit: m2(l.debit), credit: m2(l.credit), balance: m2(bal), _href: `/accounting?tab=journals&j_q=${enc(l.number)}` });
@@ -83,7 +90,7 @@ export const REPORTS: ReportDef[] = [
         SELECT e."date", e."number", e."description", l."debit", l."credit" FROM "JournalLine" l JOIN "JournalEntry" e ON e."id" = l."entryId"
         WHERE l."accountId" = ${acct.accountId} AND e."date" BETWEEN ${p.from} AND ${p.to} ORDER BY e."date", e."number"`;
       let bal = D(open?.b);
-      const rows: ReportRow[] = [{ date: p.from, number: "", description: "رصيد أول المدة / Opening balance", inflow: null, outflow: null, balance: m2(bal) }];
+      const rows: ReportRow[] = [{ date: p.from, number: "", description: "رصيد أول المدة", inflow: null, outflow: null, balance: m2(bal) }];
       for (const l of lines) { bal = bal.plus(l.debit).minus(l.credit); rows.push({ date: l.date, number: l.number, description: l.description, inflow: m2(l.debit), outflow: m2(l.credit), balance: m2(bal), _href: `/accounting?tab=journals&j_q=${enc(l.number)}` }); }
       return { rows, totals: { balance: m2(bal) } };
     },
@@ -142,7 +149,7 @@ export const REPORTS: ReportDef[] = [
         WITH inv AS (SELECT date_trunc(${p.groupBy}, i."issueDate"::date) p, count(*) n, sum(i."net") net, sum(i."taxTotal") tax FROM "SalesInvoice" i WHERE i."status" = 'issued' AND i."issueDate" BETWEEN ${p.from} AND ${p.to} GROUP BY 1),
              cn AS (SELECT date_trunc(${p.groupBy}, c."issueDate"::date) p, sum(c."net") cn FROM "CreditNote" c WHERE c."issueDate" BETWEEN ${p.from} AND ${p.to} GROUP BY 1)
         SELECT coalesce(inv.p, cn.p) p, inv.n, inv.net, inv.tax, cn.cn FROM inv FULL JOIN cn ON cn.p = inv.p ORDER BY 1`;
-      return { rows: rows.map((r) => ({ period: r.p.toISOString().slice(0, 10), invoices: Number(r.n ?? 0), gross: m2(r.net), credits: m2(r.cn), net: m2(D(r.net).minus(D(r.cn))), tax: m2(r.tax) })) };
+      return { rows: rows.map((r) => ({ period: r.p.toISOString().slice(0, 10), invoices: Number(r.n ?? 0), gross: m2(r.net), credits: m2(r.cn), net: m2(D(r.net).minus(D(r.cn))), tax: m2(r.tax), _href: `/reports/sales-by-customer?${periodSpan(r.p.toISOString().slice(0, 10), p.groupBy, p)}` })) };
     },
   },
   {
@@ -265,7 +272,7 @@ export const REPORTS: ReportDef[] = [
         FROM "SupplierBillLine" l JOIN "SupplierBill" b ON b."id" = l."billId" JOIN "StockProduct" pr ON pr."id" = l."productId"
         WHERE b."status" = 'posted' AND NOT l."released" AND b."billDate" BETWEEN ${p.from} AND ${p.to} AND (${p.category ?? null}::text IS NULL OR pr."category" = ${p.category ?? null})
         GROUP BY pr."id", pr."name", pr."nameAr" ORDER BY 5 DESC`;
-      return { rows: rows.map((r) => ({ ...name(r.nameAr, r.name), qty: q3(r.qty), net: m2(r.net), avg: D(r.qty).isZero() ? null : m2(D(r.net).div(D(r.qty))), min: m2(r.mn), max: m2(r.mx) })) };
+      return { rows: rows.map((r) => ({ ...name(r.nameAr, r.name), qty: q3(r.qty), net: m2(r.net), avg: D(r.qty).isZero() ? null : m2(D(r.net).div(D(r.qty))), min: m2(r.mn), max: m2(r.mx), _href: `/stock/inventory?product=${r.id}` })) };
     },
   },
   {
@@ -295,7 +302,7 @@ export const REPORTS: ReportDef[] = [
           (SELECT sum(i."goodQty" + i."gradeBQty" + i."wasteQty") FROM "StockIntake" i WHERE i."purchaseOrderLineId" = l."id" AND i."status" = 'posted') received
         FROM "PurchaseOrderLine" l JOIN "PurchaseOrder" o ON o."id" = l."poId" JOIN "Supplier" s ON s."id" = o."supplierId" JOIN "StockProduct" pr ON pr."id" = l."productId"
         WHERE o."orderDate" BETWEEN ${p.from} AND ${p.to} AND o."status" NOT IN ('cancelled', 'draft') AND (${p.supplierId ?? null}::text IS NULL OR s."id" = ${p.supplierId ?? null}) ORDER BY o."orderDate" DESC, o."number"`;
-      return { rows: rows.map((r) => { const rec = D(r.received); const out = Prisma.Decimal.max(0, D(r.ordered).minus(rec)); return { number: r.number, ...supplierName(r.snameAr, r.sname), ...name(r.nameAr, r.name), ordered: q3(r.ordered), received: q3(rec), outstanding: q3(out), fill: pct(rec, r.ordered), status: r.status, _tone: out.gt(0) ? "warn" : null }; }) };
+      return { rows: rows.map((r) => { const rec = D(r.received); const out = Prisma.Decimal.max(0, D(r.ordered).minus(rec)); return { _href: `/purchasing?po=${r.id}`, number: r.number, ...supplierName(r.snameAr, r.sname), ...name(r.nameAr, r.name), ordered: q3(r.ordered), received: q3(rec), outstanding: q3(out), fill: pct(rec, r.ordered), status: r.status, _tone: out.gt(0) ? "warn" : null }; }) };
     },
   },
   {
@@ -310,7 +317,7 @@ export const REPORTS: ReportDef[] = [
         SELECT s."id", s."name", s."nameAr", count(*) n, sum(i."receivedQty") rec, sum(i."gradeBQty") b, sum(i."wasteQty") w, sum(i."rejectedQty") r
         FROM "StockIntake" i JOIN "Supplier" s ON s."id" = i."supplierId" JOIN "StockProduct" pr ON pr."id" = i."productId"
         WHERE i."status" = 'posted' AND pr."unit" = 'KG' AND i."receivedDate" BETWEEN ${p.from} AND ${p.to} GROUP BY s."id", s."name", s."nameAr" ORDER BY 5 DESC`;
-      return { rows: rows.map((r) => { const w = pct(r.w, r.rec); return { ...name(r.nameAr, r.name), receipts: Number(r.n), received: q3(r.rec), gradeb_pct: pct(r.b, r.rec), waste_pct: w, rejected_pct: pct(r.r, r.rec), _tone: (w ?? 0) > 5 ? "warn" : null }; }) };
+      return { rows: rows.map((r) => { const w = pct(r.w, r.rec); return { _href: `/purchasing?supplier=${r.id}`, ...name(r.nameAr, r.name), receipts: Number(r.n), received: q3(r.rec), gradeb_pct: pct(r.b, r.rec), waste_pct: w, rejected_pct: pct(r.r, r.rec), _tone: (w ?? 0) > 5 ? "warn" : null }; }) };
     },
   },
 
@@ -346,7 +353,7 @@ export const REPORTS: ReportDef[] = [
       const rows = await prisma.$queryRaw<{ category: string | null; n: bigint; value: Prisma.Decimal }[]>`
         SELECT pr."category", count(DISTINCT pr."id") n, coalesce(sum(v."value"), 0) value FROM "StockProduct" pr LEFT JOIN "StockValuationLayer" v ON v."productId" = pr."id"
         WHERE pr."active" GROUP BY 1 ORDER BY 3 DESC`;
-      return { rows: rows.map((r) => ({ category: r.category ?? "—", products: Number(r.n), value: m2(r.value) })) };
+      return { rows: rows.map((r) => ({ category: r.category ?? "—", products: Number(r.n), value: m2(r.value), _href: r.category ? `/reports/stock-by-product?category=${enc(r.category)}` : null })) };
     },
   },
   {
@@ -412,7 +419,7 @@ export const REPORTS: ReportDef[] = [
       const rows = await prisma.$queryRaw<{ per: Date; rec: Prisma.Decimal; g: Prisma.Decimal; b: Prisma.Decimal; w: Prisma.Decimal; wv: Prisma.Decimal | null }[]>`
         SELECT date_trunc(${p.groupBy}, i."receivedDate"::date) per, sum(i."receivedQty") rec, sum(i."goodQty") g, sum(i."gradeBQty") b, sum(i."wasteQty") w, sum(i."wasteQty" * i."unitCost") wv
         FROM "StockIntake" i JOIN "StockProduct" pr ON pr."id" = i."productId" WHERE i."status" = 'posted' AND pr."unit" = 'KG' AND i."receivedDate" BETWEEN ${p.from} AND ${p.to} GROUP BY 1 ORDER BY 1`;
-      return { rows: rows.map((r) => ({ period: r.per.toISOString().slice(0, 10), received: q3(r.rec), good_pct: pct(r.g, r.rec), gradeb_pct: pct(r.b, r.rec), waste_pct: pct(r.w, r.rec), waste_value: m2(r.wv) })) };
+      return { rows: rows.map((r) => ({ period: r.per.toISOString().slice(0, 10), received: q3(r.rec), good_pct: pct(r.g, r.rec), gradeb_pct: pct(r.b, r.rec), waste_pct: pct(r.w, r.rec), waste_value: m2(r.wv), _href: `/reports/goods-received?${periodSpan(r.per.toISOString().slice(0, 10), p.groupBy, p)}` })) };
     },
   },
   {
@@ -422,11 +429,11 @@ export const REPORTS: ReportDef[] = [
     permissions: STOCK_VALUE, filters: ["period", "product"],
     columns: [{ key: "date", label: { ar: "التاريخ", en: "Date" }, type: "date" }, { key: "number", label: { ar: "المستند", en: "Document" }, type: "code" }, { key: "kind", label: { ar: "النوع", en: "Kind" }, type: "text" }, ...PARTY_COLS, { key: "qty", label: { ar: "الكمية", en: "Quantity" }, type: "qty" }, { key: "value", label: { ar: "القيمة", en: "Value" }, type: "money", total: true }, { key: "reason", label: { ar: "السبب", en: "Reason" }, type: "text" }],
     run: async (p) => {
-      const rows = await prisma.$queryRaw<{ date: string; number: string | null; kind: string; name: string; nameAr: string | null; qty: Prisma.Decimal; value: Prisma.Decimal | null; reason: string | null }[]>`
-        SELECT m."effectiveDate" date, d."number", m."kind", pr."name", pr."nameAr", m."quantity" qty, v."value", coalesce(m."reason", d."reason") reason
+      const rows = await prisma.$queryRaw<{ date: string; doc: string | null; number: string | null; kind: string; name: string; nameAr: string | null; qty: Prisma.Decimal; value: Prisma.Decimal | null; reason: string | null }[]>`
+        SELECT m."effectiveDate" date, d."id" doc, d."number", m."kind", pr."name", pr."nameAr", m."quantity" qty, v."value", coalesce(m."reason", d."reason") reason
         FROM "StockMovement" m JOIN "StockProduct" pr ON pr."id" = m."productId" LEFT JOIN "InventoryDocument" d ON d."id" = m."documentId" LEFT JOIN "StockValuationLayer" v ON v."movementId" = m."id"
         WHERE m."kind" IN ('adjustment', 'scrap') AND m."effectiveDate" BETWEEN ${p.from} AND ${p.to} AND (${p.productId ?? null}::text IS NULL OR pr."id" = ${p.productId ?? null}) ORDER BY m."effectiveDate" DESC`;
-      return { rows: rows.map((r) => ({ date: r.date, number: r.number ?? "", kind: r.kind === "scrap" ? "إعدام / write-off" : "تسوية / adjustment", ...name(r.nameAr, r.name), qty: q3(r.qty), value: m2(r.value), reason: r.reason ?? "" })) };
+      return { rows: rows.map((r) => ({ _href: r.doc ? `/stock/inventory?tab=documents&doc=${r.doc}` : null, date: r.date, number: r.number ?? "", kind: r.kind === "scrap" ? "إعدام" : "تسوية", ...name(r.nameAr, r.name), qty: q3(r.qty), value: m2(r.value), reason: r.reason ?? "" })) };
     },
   },
   {
@@ -539,7 +546,7 @@ export const REPORTS: ReportDef[] = [
       const rows = await prisma.$queryRaw<{ day: string; n: bigint; crates: bigint | null }[]>`
         SELECT x."businessDate" AS "day", count(DISTINCT x."sourceId") n, sum(o."crateCount") crates FROM "InventoryDocument" x JOIN "Order" o ON o."id" = x."sourceId"
         WHERE x."type" = 'issue' AND x."sourceType" = 'order' AND x."status" = 'posted' AND x."businessDate" BETWEEN ${p.from} AND ${p.to} GROUP BY 1 ORDER BY 1`;
-      return { rows: rows.map((r) => ({ date: r.day, orders: Number(r.n), crates: Number(r.crates ?? 0) })) };
+      return { rows: rows.map((r) => ({ date: r.day, orders: Number(r.n), crates: Number(r.crates ?? 0), _href: `/reports/order-lifecycle?from=${r.day}&to=${r.day}` })) };
     },
   },
   {
@@ -554,8 +561,8 @@ export const REPORTS: ReportDef[] = [
         prisma.inventoryDocument.findMany({ where: { type: "customer_return", businessDate: { gte: p.from, lte: p.to } }, take: 2000 }),
       ]);
       const rows: ReportRow[] = [
-        ...ex.map((e) => ({ date: e.createdAt.toISOString().slice(0, 10), kind: "استثناء صرف / issue exception", reference: e.order?.orderNumber ?? "", detail: e.reason, status: e.status, _href: e.order ? `/orders/${e.order.id}` : null, _tone: e.status === "open" ? ("warn" as const) : null })),
-        ...ret.map((d) => ({ date: d.businessDate, kind: "مرتجع عميل / customer return", reference: d.number, detail: d.reason ?? "", status: d.status })),
+        ...ex.map((e) => ({ date: e.createdAt.toISOString().slice(0, 10), kind: "استثناء صرف", reference: e.order?.orderNumber ?? "", detail: e.reason, status: e.status, _href: e.order ? `/orders/${e.order.id}` : null, _tone: e.status === "open" ? ("warn" as const) : null })),
+        ...ret.map((d) => ({ date: d.businessDate, kind: "مرتجع عميل", reference: d.number, detail: d.reason ?? "", status: d.status })),
       ];
       return { rows: rows.sort((a, b) => String(b.date).localeCompare(String(a.date))) };
     },
@@ -576,7 +583,7 @@ async function salesByProduct(p: ReportParams, byCategory: boolean): Promise<Rep
   }
   const by = new Map<string, { net: Prisma.Decimal; cost: Prisma.Decimal }>();
   for (const r of active) { const k = r.category ?? "—"; const g = by.get(k) ?? { net: D(0), cost: D(0) }; g.net = g.net.plus(D(r.net)); g.cost = g.cost.plus(D(r.cost)); by.set(k, g); }
-  return { rows: [...by.entries()].sort((a, b) => b[1].net.comparedTo(a[1].net)).map(([category, g]) => ({ category, net: m2(g.net), cost: m2(g.cost), margin: m2(g.net.minus(g.cost)), margin_pct: pct(g.net.minus(g.cost), g.net) })) };
+  return { rows: [...by.entries()].sort((a, b) => b[1].net.comparedTo(a[1].net)).map(([category, g]) => ({ _href: `/reports/sales-by-product?from=${p.from}&to=${p.to}&category=${enc(category)}`, category, net: m2(g.net), cost: m2(g.cost), margin: m2(g.net.minus(g.cost)), margin_pct: pct(g.net.minus(g.cost), g.net) })) };
 }
 
 export function reportByKey(key: string) {

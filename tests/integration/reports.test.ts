@@ -4,11 +4,12 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { Prisma } from "@prisma/client";
-import { prisma } from "./_db";
+import { prisma, actor } from "./_db";
 import { REPORTS } from "@/lib/reports/definitions";
 import { reportCatalogue, reportCsv, reportParams, reportXls, runReport } from "@/lib/reports/engine";
 import { ALL_PERMISSIONS } from "@/lib/permissions";
 import { todayLocalISO } from "@/lib/localDate";
+import { createIntake } from "@/lib/stock-service";
 
 after(() => prisma.$disconnect());
 const D = (v: Prisma.Decimal.Value | null | undefined) => new Prisma.Decimal(v ?? 0);
@@ -77,4 +78,32 @@ test("exports: CSV carries a BOM and the chosen language's headers; Excel is rig
 test("filters are validated: a bad date is a 400, an inverted range is a 400", async () => {
   assert.throws(() => reportParams(new URLSearchParams({ from: "2026-13-01" })), (e: { status?: number }) => e.status === 400);
   assert.throws(() => reportParams(new URLSearchParams({ from: "2026-05-02", to: "2026-05-01" })), (e: { status?: number }) => e.status === 400);
+});
+
+test("drill-down: summary rows lead to their source (a screen or the next, narrower report)", async () => {
+  // A graded receipt of its own, so the stock, receiving and supplier reports have rows to check.
+  const tag = `ZZREP${Date.now()}`;
+  const supplier = await prisma.supplier.create({ data: { code: `SUP-6${String(Date.now()).slice(-7)}`, name: `${tag} supplier` } });
+  const product = await prisma.stockProduct.create({ data: { name: `${tag} Lemon`, nameAr: `${tag} ليمون`, unit: "KG", category: `${tag}-cat` } });
+  await createIntake({ supplier_id: supplier.id, product_id: product.id, received_kg: 20, received_date: today, unit_cost: "6" } as never, actor("أمين مخزن", ["stock.view", "stock.receive"]) as never);
+  const linked = ["sales-by-period", "sales-by-product", "sales-by-category", "purchases-by-product", "po-outstanding", "supplier-performance", "adjustments", "stock-by-category", "waste-trend", "dispatch-activity", "general-ledger", "cogs-by-product", "stock-by-product", "outstanding-invoices"];
+  let checked = 0;
+  for (const key of linked) {
+    const r = await runReport(key, wide({ group_by: "month" }), all);
+    for (const row of r.rows.filter((x) => !(key === "general-ledger" && x.number === "") && !(key === "stock-by-category" && x.category === "—"))) {
+      assert.ok(typeof row._href === "string" && row._href.startsWith("/"), `${key} row links to its source`);
+      checked++;
+    }
+  }
+  assert.ok(checked > 0, "some rows were checked");
+  const byPeriod = await runReport("sales-by-period", wide({ group_by: "month" }), all);
+  for (const row of byPeriod.rows) assert.match(String(row._href), /^\/reports\/sales-by-customer\?from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}$/);
+});
+
+test("fixed report text is stored once and read in the export's language", async () => {
+  const acct = await prisma.account.findFirstOrThrow({ where: { systemKey: "inventory" } });
+  const r = await runReport("general-ledger", wide({ account_id: acct.id }), all);
+  const en = reportCsv(r, "en"), ar = reportCsv(r, "ar");
+  assert.ok(en.includes("Opening balance") && !en.includes("رصيد أول المدة"));
+  assert.ok(ar.includes("رصيد أول المدة") && !ar.includes("Opening balance"));
 });
