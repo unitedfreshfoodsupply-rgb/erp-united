@@ -57,6 +57,8 @@ export type ClassifiedOrderDTO = {
   id: string;
   orderNumber: string;
   customerName: string;
+  /** The linked customer card (additive, maturity 2026-11): the UI shows its name in the reader's language. */
+  customerAccount?: { name: string; nameAr: string | null } | null;
   status: OrderStatus;
   reason: PriorityReason;
   reasonLabel: string;

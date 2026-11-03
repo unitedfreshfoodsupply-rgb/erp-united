@@ -91,7 +91,8 @@ export async function commandCenter(viewer: Viewer, q: { from?: string | null; t
       const open = bills.map((b) => b.total.minus(off.get(b.id) ?? 0)).filter((o) => o.gt(0));
       out.upcomingPayments = { bills: open.length, total: open.reduce((s, o) => s.plus(o), D(0)).toFixed(2), until: week };
     }));
-    tasks.push(prisma.$queryRaw<{ type: string; b: Prisma.Decimal | null }[]>`SELECT c."type", sum(l."debit" - l."credit") b FROM "CashAccount" c JOIN "JournalLine" l ON l."accountId" = c."accountId" WHERE c."active" GROUP BY 1`.then((rows) => {
+    // Cash and bank as of today (postings may be dated later in the month; they are not money yet).
+    tasks.push(prisma.$queryRaw<{ type: string; b: Prisma.Decimal | null }[]>`SELECT c."type", sum(l."debit" - l."credit") b FROM "CashAccount" c JOIN "JournalLine" l ON l."accountId" = c."accountId" JOIN "JournalEntry" e ON e."id" = l."entryId" WHERE c."active" AND e."date" <= ${p.today} GROUP BY 1`.then((rows) => {
       const of = (t: string) => D(rows.find((r) => r.type === t)?.b);
       out.cash = { cash: of("cash").toFixed(2), bank: of("bank").toFixed(2), total: of("cash").plus(of("bank")).toFixed(2) };
     }));

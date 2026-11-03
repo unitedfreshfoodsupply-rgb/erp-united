@@ -53,6 +53,12 @@ async function main() {
   const spare = (await plan([Dd.id])).body.trip;
   check("cancel a planned trip (reason required)", (await call("sara", "POST", `/api/operations/trips/${spare.id}/cancel`, {})).status === 400 && (await call("sara", "POST", `/api/operations/trips/${spare.id}/cancel`, { reason: "اتأجل" })).body.trip?.status === "cancelled");
   check("…its order is free to plan again", (await call("sara", "GET", "/api/operations/trips/plannable")).body.orders.some((o: any) => o.id === Dd.id));
+  // The trips list: a status and the "open" scope both apply (open used to override the status).
+  const listed = async (qs: string) => ((await call("sara", "GET", `/api/operations/trips?${qs}`)).body.trips as { id: string }[]).map((x) => x.id);
+  check("trips list: open + status=loading -> not the planned trip (status is applied)", !(await listed("open=1&status=loading")).includes(trip.id));
+  check("trips list: status=cancelled (all) -> the cancelled trip", (await listed("status=cancelled")).includes(spare.id));
+  check("trips list: open + status=planned -> the planned trip only", (await listed("open=1&status=planned")).includes(trip.id) && !(await listed("open=1&status=planned")).includes(spare.id));
+  check("trips list: search by trip number", (await listed(`q=${encodeURIComponent(trip.number)}`)).includes(trip.id));
   check("an order on a trip cannot be cancelled -> 409", (await call("sara", "POST", `/api/orders/${B.id}/cancel`, { reason: "x" })).status === 409);
 
   section("3. PREPARATION");

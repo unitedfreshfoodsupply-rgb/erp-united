@@ -290,9 +290,10 @@ function DeliveryForm({ stop, onDone }: { stop: Stop; onDone: () => void }) {
                 <div key={i.id} className="flex flex-col gap-1 border-b border-united-dark/5 pb-2">
                   <div className="flex justify-between font-extrabold text-sm"><span>{i.productName}</span><span dir="ltr">{t("ops.dlv.qty-left-format", { shipped: fmtQty(i.shippedQty, i.unit), left: fmtQty(left, i.unit) })}</span></div>
                   <div className="grid grid-cols-3 gap-2">
-                    {(["shortage_qty", "damaged_qty", "rejected_qty"] as const).map((k) => (
-                      <input key={k} className="field" dir="ltr" inputMode="decimal" aria-label={`${k} ${i.productName}`} placeholder={k === "shortage_qty" ? t("ops.dlv.shortage-ph") : k === "damaged_qty" ? t("ops.dlv.damaged-ph") : t("ops.dlv.rejected-ph")} value={l?.[k] ?? ""} onChange={(e) => set(i.id, k, e.target.value)} />
-                    ))}
+                    {(["shortage_qty", "damaged_qty", "rejected_qty"] as const).map((k) => {
+                      const label = k === "shortage_qty" ? t("ops.dlv.shortage-ph") : k === "damaged_qty" ? t("ops.dlv.damaged-ph") : t("ops.dlv.rejected-ph");
+                      return <input key={k} className="field" dir="ltr" inputMode="decimal" aria-label={`${label} — ${i.productName}`} placeholder={label} value={l?.[k] ?? ""} onChange={(e) => set(i.id, k, e.target.value)} />;
+                    })}
                   </div>
                   {l && (l.shortage_qty || l.damaged_qty || l.rejected_qty) && <Field label={t("ops.dlv.reason-ph")}><input className="field" value={l.reason} onChange={(e) => set(i.id, "reason", e.target.value)} /></Field>}
                 </div>

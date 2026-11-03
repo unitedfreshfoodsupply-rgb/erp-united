@@ -315,6 +315,9 @@ async function main() {
   check("intelligence 200", intel.status===200);
   check("every classified order explained", intel.body.intelligence.orders.every((o: any)=>o.reason&&o.whyItMatters&&o.recommendedAction));
   check("open orders only", intel.body.intelligence.orders.every((o: any)=>!["dispatched","cancelled"].includes(o.status)));
+  // The needs-attention queue shows the linked customer card's name in the reader's language.
+  const cardOf = new Map(intel.body.orders.map((o: any)=>[o.id, o.customerAccount?.name ?? null]));
+  check("classified orders carry their customer card", intel.body.intelligence.orders.length > 0 && intel.body.intelligence.orders.every((o: any)=>(o.customerAccount?.name ?? null) === (cardOf.get(o.id) ?? null)));
   const E = (await manualOrder({customer_name:"أوردر استثناء",delivery_date:"2026-09-26",items:[{product_name:"Pears Local",quantity:100}]})).body.order;
   await call("ahmed","POST",`/api/orders/${E.id}/status`,{to:"preparing"});
   const eItem = (await call("sara","GET",`/api/orders/${E.id}`)).body.order.items[0];

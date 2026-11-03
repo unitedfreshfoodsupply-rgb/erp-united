@@ -4,7 +4,7 @@ import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { Prisma } from "@prisma/client";
 import { prisma, actor, withSetting } from "./_db";
-import { createIntake, updateIntake } from "@/lib/stock-service";
+import { createIntake, updateIntake, voidIntake } from "@/lib/stock-service";
 import { postJournal } from "@/lib/accounting/ledger";
 import { createPayment } from "@/lib/accounting/cash";
 import { apAgingReport, createBill, postBill } from "@/lib/purchasing/bills";
@@ -127,6 +127,49 @@ test("ACC-02: a back-dated stock document into a locked date is not refused — 
   } finally {
     await restoreLock();
     await restoreApproval();
+  }
+});
+
+test("ACC-17: the NRV waste-loss entry follows the lock date (posted today, audited); a correction leaves it exact; a graded receipt is not voided", async () => {
+  // The NRV path reads market prices from the default price list; use it, or a temporary one.
+  const existing = await prisma.priceList.findFirst({ where: { isDefault: true, active: true }, select: { id: true } });
+  const list = existing ?? (await prisma.priceList.create({ data: { code: `${TAG}-PL`, name: `${TAG} أسعار`, isDefault: true, createdBy: "test" } }));
+  const r1 = await withSetting("inventory.grading_cost_policy", "nrv");
+  const r2 = await withSetting("inventory.grading_waste_loss", "expense_at_grading");
+  const lockDay = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+  let restoreLock = async () => {};
+  try {
+    const price = (productId: string, unitPrice: string) => prisma.priceListItem.create({ data: { priceListId: list.id, productId, uomCode: "KG", unitPrice, validFrom: "2020-01-01", createdBy: "test" } });
+    const a = await prisma.stockProduct.create({ data: { name: `${TAG} Nrv A`, unit: "KG" } });
+    const b = await prisma.stockProduct.create({ data: { name: `${TAG} Nrv B`, unit: "KG" } });
+    await price(a.id, "15");
+    await price(b.id, "5");
+    restoreLock = await withSetting("accounting.lock_date", lockDay);
+    const r = await createIntake({ supplier_id: supplierId, product_id: a.id, received_kg: 100, grade_b_qty: 20, grade_b_product_id: b.id, waste_qty: 10, unit_cost: "9", received_date: lockDay } as never, boss);
+    const loss = await prisma.journalEntry.findFirstOrThrow({ where: { sourceId: `intake-waste|${r.id}` }, include: { lines: { include: { account: { select: { systemKey: true } } } } } });
+    const net = (k: string) => loss.lines.filter((l) => l.account.systemKey === k).reduce((t, l) => t.plus(l.debit).minus(l.credit), D(0)).toFixed(2);
+    assert.deepEqual([net("inventory_adjustment"), net("grni")], ["90.00", "-90.00"], "10 kg waste × 9: Dr inventory adjustments / Cr GRNI");
+    assert.equal(loss.date, today, "the lock date closes the receipt day, so the loss posts today");
+    assert.equal(await prisma.auditLog.count({ where: { action: "stock_valuation_redated", entityId: loss.id, oldValue: lockDay, newValue: today } }), 1, "and the move is audited");
+    await restoreLock();
+    restoreLock = async () => {};
+    // The loss is waste kg × the receipt price. A correction can change neither (the grading
+    // split and the price are not editable there), so the one entry stays exact.
+    const i1 = await prisma.stockIntake.findUniqueOrThrow({ where: { id: r.id } });
+    await updateIntake(r.id, { received_kg: "104" } as never, boss, "وزن أعيد", i1.version);
+    const after_ = await prisma.journalEntry.findMany({ where: { sourceId: `intake-waste|${r.id}` }, select: { id: true } });
+    assert.deepEqual(after_.map((e) => e.id), [loss.id], "still one waste-loss entry, unchanged");
+    // ACC-18 (open): a graded receipt cannot be voided, so no loss is left behind by a void.
+    // When that void is built it must also reverse this entry, and this check has to change.
+    const i2 = await prisma.stockIntake.findUniqueOrThrow({ where: { id: r.id } });
+    await assert.rejects(voidIntake(r.id, boss, "استلام غلط", i2.version), (e: { status?: number }) => (e.status ?? 0) >= 400 && (e.status ?? 0) < 500, "refused as a request error, not a crash");
+    assert.equal((await prisma.stockIntake.findUniqueOrThrow({ where: { id: r.id } })).status, "posted");
+    assert.equal(await prisma.journalEntry.count({ where: { sourceId: `intake-waste|${r.id}` } }), 1);
+  } finally {
+    await restoreLock();
+    await r2();
+    await r1();
+    if (!existing) await prisma.priceList.update({ where: { id: list.id }, data: { isDefault: false, active: false } });
   }
 });
 

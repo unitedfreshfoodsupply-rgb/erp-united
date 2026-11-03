@@ -13,6 +13,7 @@ import { Field, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { Segmented } from "@/components/ui/Segmented";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
+import { statementLine } from "@/lib/locale/statement-text";
 import { formatNumber } from "@/lib/format";
 import { DataTable, FilterBar, useListQuery, useListState, type Column } from "@/components/ui/DataTable";
 
@@ -251,7 +252,7 @@ function Aging() {
 
 /** A customer's statement for a period (used on the customer screen). */
 export function CustomerStatement({ customerId }: { customerId: string }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const today = todayLocalISO();
   const [from, setFrom] = useState(`${today.slice(0, 4)}-01-01`);
   const [to, setTo] = useState(today);
@@ -271,7 +272,7 @@ export function CustomerStatement({ customerId }: { customerId: string }) {
               <tr className="font-bold text-united-muted"><td className="p-1" colSpan={4}>{t("sales.invoice.stmt.opening_balance")}</td><td dir="ltr" className="p-1 text-center">{q.data.opening}</td></tr>
               {q.data.rows.map((r) => (
                 <tr key={r.id} className="border-t border-united-dark/5 font-bold">
-                  <td className="p-1">{r.date}</td><td className="p-1"><span dir="ltr">{r.number}</span> <span className="text-xs text-united-muted">{r.ref}</span></td>
+                  <td className="p-1">{r.date}</td><td className="p-1"><span dir="ltr">{statementLine(r, locale).number}</span> <span className="text-xs text-united-muted">{statementLine(r, locale).ref}</span></td>
                   <td dir="ltr" className="p-1 text-center">{Number(r.debit) ? r.debit : ""}</td><td dir="ltr" className="p-1 text-center">{Number(r.credit) ? r.credit : ""}</td><td dir="ltr" className="p-1 text-center">{r.balance}</td>
                 </tr>
               ))}

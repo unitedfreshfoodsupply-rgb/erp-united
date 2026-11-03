@@ -1447,6 +1447,8 @@ type OrderForIntel = {
   id: string;
   orderNumber: string;
   customerName: string;
+  /** The linked customer card, when the caller loaded it (names in both languages for the UI). */
+  customerAccount?: { name: string; nameAr: string | null } | null;
   status: string;
   needsReview: boolean;
   createdAt: Date;
@@ -1482,6 +1484,7 @@ export type ClassifiedOrder = {
   id: string;
   orderNumber: string;
   customerName: string;
+  customerAccount: { name: string; nameAr: string | null } | null;
   status: OrderStatus;
   reason: PriorityReason;
   reasonLabel: string;
@@ -1513,6 +1516,7 @@ export async function getOperationalIntelligence(allOrders: OrderForIntel[]) {
       id: o.id,
       orderNumber: o.orderNumber,
       customerName: o.customerName,
+      customerAccount: o.customerAccount ? { name: o.customerAccount.name, nameAr: o.customerAccount.nameAr } : null,
       status: o.status as OrderStatus,
       reason,
       reasonLabel: REASON_LABEL[reason],

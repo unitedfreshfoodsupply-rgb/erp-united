@@ -431,7 +431,12 @@ export async function recordDelivery(stopId: string, input: unknown, actor: Serv
 export async function listTrips(filters: { status?: string; date?: string; open?: boolean; q?: string; from?: string; to?: string }) {
   const dates = { ...(filters.from && isValidISODate(filters.from) ? { gte: filters.from } : {}), ...(filters.to && isValidISODate(filters.to) ? { lte: filters.to } : {}) };
   const rows = await prisma.trip.findMany({
-    where: { ...(await searchWhere("trip", filters.q)), ...(filters.status ? { status: filters.status } : {}), ...(filters.date ? { tripDate: filters.date } : Object.keys(dates).length ? { tripDate: dates } : {}), ...(filters.open ? { status: { notIn: ["completed", "cancelled"] } } : {}) },
+    // A status and the "open" scope both apply (the open condition used to replace the status one).
+    where: {
+      ...(await searchWhere("trip", filters.q)),
+      ...(filters.date ? { tripDate: filters.date } : Object.keys(dates).length ? { tripDate: dates } : {}),
+      AND: [...(filters.status ? [{ status: filters.status }] : []), ...(filters.open ? [{ status: { notIn: ["completed", "cancelled"] } }] : [])],
+    },
     orderBy: [{ tripDate: "desc" }, { createdAt: "desc" }],
     include: { vehicle: { select: { code: true, plate: true, refrigerated: true } }, driver: { select: { name: true, phone: true } }, stops: { where: { active: true }, select: { status: true } } },
     take: 200,

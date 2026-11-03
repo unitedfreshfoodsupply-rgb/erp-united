@@ -47,10 +47,45 @@ test("COGS by product = the COGS account's movement in the ledger over the same 
   assert.equal(r.totals.cogs, D(gl.b).toFixed(2));
 });
 
-test("stock by product: the total value equals the valuation layers of the products it lists", async () => {
-  const r = await runReport("stock-by-product", wide(), all);
-  const [v] = await prisma.$queryRaw<{ v: Prisma.Decimal | null }[]>`SELECT sum(v."value") v FROM "StockValuationLayer" v JOIN "StockProduct" p ON p."id" = v."productId" WHERE p."active" AND p."stockTracked"`;
-  assert.equal(r.totals.value, D(v.v).toFixed(2));
+const allLayers = async () => D((await prisma.$queryRaw<{ v: Prisma.Decimal | null }[]>`SELECT sum("value") v FROM "StockValuationLayer"`)[0].v);
+/** One product in its own category with a single layer worth 0.0050 (a row that shows 0.01). */
+async function halfCentProduct(category: string, i: number) {
+  const supplier = await prisma.supplier.create({ data: { code: `SUP-8${String(Date.now()).slice(-6)}${i}`, name: `${category} supplier ${i}` } });
+  const product = await prisma.stockProduct.create({ data: { name: `${category} P${i}`, unit: "KG", category } });
+  await createIntake({ supplier_id: supplier.id, product_id: product.id, received_kg: 1, received_date: today, unit_cost: "0.005" } as never, actor("أمين مخزن", ["stock.view", "stock.receive"]) as never);
+  assert.equal(D((await prisma.stockValuationLayer.aggregate({ where: { productId: product.id }, _sum: { value: true } }))._sum.value).toFixed(4), "0.0050");
+  return product;
+}
+
+test("stock by product: the total is the exact layer sum rounded once (rows of 0.0050 each show 0.01; two total 0.01, not 0.02)", async () => {
+  const cat = `ZZHALF${Date.now()}`;
+  await halfCentProduct(cat, 1);
+  await halfCentProduct(cat, 2);
+  const r = await runReport("stock-by-product", wide({ category: cat }), all);
+  assert.deepEqual(r.rows.map((x) => x.value), ["0.01", "0.01"]);
+  assert.equal(r.totals.value, "0.01");
+});
+
+test("stock by product and by category: the total equals every valuation layer (the inventory value), even for a product deactivated while holding stock", async () => {
+  const cat = `ZZOFF${Date.now()}`;
+  const p = await halfCentProduct(cat, 3);
+  await prisma.stockProduct.update({ where: { id: p.id }, data: { active: false, stockTracked: false } });
+  const byProduct = await runReport("stock-by-product", wide(), all);
+  assert.ok(byProduct.rows.some((x) => String(x._href).endsWith(p.id)), "the deactivated product holding stock is listed");
+  assert.equal(byProduct.totals.value, (await allLayers()).toFixed(2));
+  assert.equal((await runReport("stock-by-category", wide(), all)).totals.value, (await allLayers()).toFixed(2));
+  const drill = await runReport("stock-by-product", wide({ category: cat }), all);
+  const row = (await runReport("stock-by-category", wide(), all)).rows.find((x) => x.category === cat);
+  assert.equal(drill.totals.value, row?.value, "a category row equals the total of the products it drills to");
+});
+
+test("stock by category: four rows of 0.0050 total the exact sum, not the sum of the rounded rows", async () => {
+  const base = `ZZQ${Date.now()}`;
+  for (let i = 0; i < 4; i++) await halfCentProduct(`${base}-${i}`, 10 + i);
+  const r = await runReport("stock-by-category", wide(), all);
+  const shown = r.rows.reduce((t, x) => t.plus(D(x.value as string)), D(0)).toFixed(2);
+  assert.notEqual(shown, (await allLayers()).toFixed(2), "precondition: the rounded rows do not add up to the exact sum");
+  assert.equal(r.totals.value, (await allLayers()).toFixed(2));
 });
 
 test("cash movements: the closing balance equals the cash account in the ledger", async () => {

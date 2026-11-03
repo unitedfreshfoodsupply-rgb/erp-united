@@ -945,7 +945,7 @@ export async function supplierStatement(supplierId: string, from: string, to: st
     bal = bal.plus(e.credit).minus(e.debit);
     return { date: e.date, kind: e.kind, id: e.id, number: e.number, ref: e.ref, credit: e.credit.toFixed(2), debit: e.debit.toFixed(2), balance: bal.toFixed(2) };
   });
-  return { supplier: { id: s.id, code: s.code, name: s.name }, from, to, opening: opening.toFixed(2), closing: bal.toFixed(2), rows };
+  return { supplier: { id: s.id, code: s.code, name: s.name, nameAr: s.nameAr }, from, to, opening: opening.toFixed(2), closing: bal.toFixed(2), rows };
 }
 
 /** Open payables by how overdue they are, per supplier, as of a date. */
@@ -954,7 +954,7 @@ export async function apAgingReport(asOf = todayLocalISO()) {
   // All reads issued up front in four independent chains, party names in one query per
   // chain (see agingReport in lib/sales/invoicing.ts). The arithmetic below is unchanged.
   const partyNames = (ids: string[]) =>
-    ids.length ? prisma.supplier.findMany({ where: { id: { in: [...new Set(ids)] } }, select: { id: true, code: true, name: true } }).then((ss) => new Map(ss.map((x) => [x.id, x]))) : Promise.resolve(new Map<string, { code: string; name: string }>());
+    ids.length ? prisma.supplier.findMany({ where: { id: { in: [...new Set(ids)] } }, select: { id: true, code: true, name: true, nameAr: true } }).then((ss) => new Map(ss.map((x) => [x.id, x]))) : Promise.resolve(new Map<string, { code: string; name: string; nameAr: string | null }>());
   const [[bills, debited], [openingBalances, openingAllocations, openingParties], pays, [refunds, refundParties]] = await Promise.all([
     prisma.supplierBill.findMany({
       where: { status: "posted", billDate: { lte: asOf } },
@@ -976,7 +976,7 @@ export async function apAgingReport(asOf = todayLocalISO()) {
     prisma.supplierRefund.groupBy({ by: ["supplierId"], where: { date: { lte: asOf } }, _sum: { amount: true } }).then(async (fs) => [fs, await partyNames(fs.map((f) => f.supplierId))] as const),
   ]);
   type Bucket = "current" | "d1_30" | "d31_60" | "d61_90" | "d90_plus";
-  const bySupplier = new Map<string, { supplier: { id: string; code: string; name: string }; total: Prisma.Decimal } & Record<Bucket, Prisma.Decimal>>();
+  const bySupplier = new Map<string, { supplier: { id: string; code: string; name: string; nameAr: string | null }; total: Prisma.Decimal } & Record<Bucket, Prisma.Decimal>>();
   const day = (iso: string) => Date.parse(`${iso}T00:00:00Z`) / 86_400_000;
   // A debit note on a bill that was already paid leaves it below zero: that is credit the
   // supplier holds for us, on account like unapplied money — never dropped from the aging.
@@ -985,12 +985,12 @@ export async function apAgingReport(asOf = todayLocalISO()) {
     const open = b.total.minus(debited.get(b.id) ?? 0);
     if (open.lt(0)) {
       unapplied.set(b.supplierId, (unapplied.get(b.supplierId) ?? D(0)).plus(open.negated()));
-      if (!bySupplier.has(b.supplierId)) bySupplier.set(b.supplierId, { supplier: { id: b.supplierId, code: b.supplier.code, name: b.supplier.name }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) });
+      if (!bySupplier.has(b.supplierId)) bySupplier.set(b.supplierId, { supplier: { id: b.supplierId, code: b.supplier.code, name: b.supplier.name, nameAr: b.supplier.nameAr }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) });
     }
     if (!open.gt(0)) continue;
     const overdue = day(asOf) - day(b.dueDate);
     const k: Bucket = overdue <= 0 ? "current" : overdue <= 30 ? "d1_30" : overdue <= 60 ? "d31_60" : overdue <= 90 ? "d61_90" : "d90_plus";
-    const row = bySupplier.get(b.supplierId) ?? { supplier: { id: b.supplierId, code: b.supplier.code, name: b.supplier.name }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
+    const row = bySupplier.get(b.supplierId) ?? { supplier: { id: b.supplierId, code: b.supplier.code, name: b.supplier.name, nameAr: b.supplier.nameAr }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
     row[k] = row[k].plus(open);
     row.total = row.total.plus(open);
     bySupplier.set(b.supplierId, row);
@@ -1004,11 +1004,11 @@ export async function apAgingReport(asOf = todayLocalISO()) {
     if (!open.isZero()) {
       if (open.lt(0)) {
         unapplied.set(o.partyId, (unapplied.get(o.partyId) ?? D(0)).plus(open.negated()));
-        if (!bySupplier.has(o.partyId)) bySupplier.set(o.partyId, { supplier: { id: o.partyId, code: sp?.code ?? "", name: sp?.name ?? "" }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) });
+        if (!bySupplier.has(o.partyId)) bySupplier.set(o.partyId, { supplier: { id: o.partyId, code: sp?.code ?? "", name: sp?.name ?? "", nameAr: sp?.nameAr ?? null }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) });
       } else {
         const overdue = day(asOf) - day(o.dueDate);
         const k: Bucket = overdue <= 0 ? "current" : overdue <= 30 ? "d1_30" : overdue <= 60 ? "d31_60" : overdue <= 90 ? "d61_90" : "d90_plus";
-        const row = bySupplier.get(o.partyId) ?? { supplier: { id: o.partyId, code: sp?.code ?? "", name: sp?.name ?? "" }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
+        const row = bySupplier.get(o.partyId) ?? { supplier: { id: o.partyId, code: sp?.code ?? "", name: sp?.name ?? "", nameAr: sp?.nameAr ?? null }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
         row[k] = row[k].plus(open);
         row.total = row.total.plus(open);
         bySupplier.set(o.partyId, row);
@@ -1020,7 +1020,7 @@ export async function apAgingReport(asOf = todayLocalISO()) {
     const left = p.amount.minus(p.allocations.reduce((s, a) => s.plus(a.amount), D(0)));
     if (!left.gt(0)) continue;
     unapplied.set(p.supplierId, (unapplied.get(p.supplierId) ?? D(0)).plus(left));
-    if (!bySupplier.has(p.supplierId)) bySupplier.set(p.supplierId, { supplier: { id: p.supplierId, code: p.supplier.code, name: p.supplier.name }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) });
+    if (!bySupplier.has(p.supplierId)) bySupplier.set(p.supplierId, { supplier: { id: p.supplierId, code: p.supplier.code, name: p.supplier.name, nameAr: p.supplier.nameAr }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) });
   }
   // Money the supplier paid back uses up our credit with them first; anything beyond it is
   // owed to them again from today.
@@ -1032,7 +1032,7 @@ export async function apAgingReport(asOf = todayLocalISO()) {
     const rest = amt.minus(used);
     if (rest.gt(0)) {
       const sp = refundParties.get(f.supplierId);
-      const row = bySupplier.get(f.supplierId) ?? { supplier: { id: f.supplierId, code: sp?.code ?? "", name: sp?.name ?? "" }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
+      const row = bySupplier.get(f.supplierId) ?? { supplier: { id: f.supplierId, code: sp?.code ?? "", name: sp?.name ?? "", nameAr: sp?.nameAr ?? null }, total: D(0), current: D(0), d1_30: D(0), d31_60: D(0), d61_90: D(0), d90_plus: D(0) };
       row.current = row.current.plus(rest);
       row.total = row.total.plus(rest);
       bySupplier.set(f.supplierId, row);

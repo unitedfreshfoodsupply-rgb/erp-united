@@ -57,10 +57,12 @@ const Table = ({ head, rows, total }: { head: string[]; rows: (string | number |
 };
 const H = ({ children }: { children: React.ReactNode }) => <h2 className="section-title mt-3">{children}</h2>;
 
-export function ManagementView({ kind }: { kind: "finance" | "operations" | "cash-flow" }) {
+export function ManagementView({ kind, period }: { kind: "finance" | "operations" | "cash-flow"; period?: { from?: string; to?: string } }) {
   const { t, locale } = useLocale();
-  const [from, setFrom] = useState(`${todayLocalISO().slice(0, 7)}-01`);
-  const [to, setTo] = useState(todayLocalISO());
+  // A period passed in the link (e.g. from the Command Center) opens the same period here.
+  const day = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+  const [from, setFrom] = useState(day(period?.from) ?? `${todayLocalISO().slice(0, 7)}-01`);
+  const [to, setTo] = useState(day(period?.to) ?? todayLocalISO());
   const apiKind = kind === "cash-flow" ? "cash-flow" : kind;
 
   // Localized dictionaries for kind/experience code lookups

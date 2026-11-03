@@ -65,7 +65,7 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
     label: c.key === "name_ar" || c.key === "name_en" ? (lang === "ar" ? "الاسم" : "Name") : c.label[lang],
     numeric: ["money", "qty", "number", "percent"].includes(c.type),
     sortValue: (row) => (["money", "qty", "number", "percent"].includes(c.type) ? Number(row[c.key] ?? 0) : String(row[c.key] ?? "")),
-    render: (row) => <span dir={c.type === "code" || c.type === "date" ? "ltr" : undefined} className={row._tone === "danger" ? "font-semibold text-united-danger" : row._tone === "warn" ? "text-united-warn" : undefined}>{fmt(c, row[c.key])}</span>,
+    render: (row) => <span dir={c.type === "code" || c.type === "date" ? "ltr" : undefined} className={[c.type === "code" || c.type === "date" ? "whitespace-nowrap" : "", row._tone === "danger" ? "font-semibold text-united-danger" : row._tone === "warn" ? "text-united-warn" : ""].filter(Boolean).join(" ") || undefined}>{fmt(c, row[c.key])}</span>,
   }));
   const totals = r && Object.keys(r.totals).length ? Object.fromEntries(cols.filter((c) => r.totals[c.key] !== undefined).map((c) => [c.key, <span key={c.key} className="font-semibold">{fmt(c, r.totals[c.key])}</span>])) : undefined;
 

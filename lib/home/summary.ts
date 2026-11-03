@@ -107,11 +107,12 @@ export async function homeSummary(viewer: Viewer) {
       const t = a.totals;
       out.payables = { total: D(t.total).toFixed(2), overdue: D(t.d1_30).plus(D(t.d31_60)).plus(D(t.d61_90)).plus(D(t.d90_plus)).toFixed(2) };
     }));
-    // Cash in hand and at the bank: the GL balance of every active cash/bank account.
+    // Cash in hand and at the bank: the GL balance of every active cash/bank account as of
+    // today (a posting dated later this month is not money yet; same rule as the Command Center).
     tasks.push(prisma.$queryRaw<{ type: string; b: Prisma.Decimal | null }[]>`
       SELECT c."type", sum(l."debit" - l."credit") AS b
-      FROM "CashAccount" c JOIN "JournalLine" l ON l."accountId" = c."accountId"
-      WHERE c."active" GROUP BY c."type"`
+      FROM "CashAccount" c JOIN "JournalLine" l ON l."accountId" = c."accountId" JOIN "JournalEntry" e ON e."id" = l."entryId"
+      WHERE c."active" AND e."date" <= ${today} GROUP BY c."type"`
       .then((rows) => {
         const of = (t: string) => D(rows.find((r) => r.type === t)?.b ?? 0);
         out.cash = { cash: of("cash").toFixed(2), bank: of("bank").toFixed(2), total: of("cash").plus(of("bank")).toFixed(2) };

@@ -326,7 +326,7 @@ export const REPORTS: ReportDef[] = [
     key: "stock-by-product", category: "inventory",
     title: { ar: "المخزون الحالي حسب الصنف", en: "Current stock by product" },
     description: { ar: "الموجود، المحجوز، المتاح للبيع، الهالك، والقيمة لكل صنف", en: "On hand, reserved, available to sell, waste and value per product" },
-    notes: { ar: "الكمية من دفتر المخزون؛ القيمة من طبقات التقييم (تطابق حساب المخزون في الأستاذ). المتاح = المخزون القابل للبيع ناقص المحجوز.", en: "Quantities from the stock ledger; value from the valuation layers (agrees with the inventory account). Available = sellable stock less reservations." },
+    notes: { ar: "الكمية من دفتر المخزون؛ القيمة من طبقات التقييم (تطابق حساب المخزون في الأستاذ). المتاح = المخزون القابل للبيع ناقص المحجوز. صنف موقوف أو غير متتبَّع لسه عليه مخزون أو قيمة بيظهر برضه، عشان الإجمالي يطابق.", en: "Quantities from the stock ledger; value from the valuation layers (agrees with the inventory account). Available = sellable stock less reservations. A deactivated or untracked product that still holds stock or value is listed too, so the total agrees." },
     permissions: STOCK, filters: ["category"],
     columns: [...PARTY_COLS, { key: "category", label: { ar: "الفئة", en: "Category" }, type: "text" }, { key: "unit", label: { ar: "الوحدة", en: "Unit" }, type: "code" }, { key: "sellable", label: { ar: "قابل للبيع", en: "Sellable" }, type: "qty" }, { key: "reserved", label: { ar: "محجوز", en: "Reserved" }, type: "qty" }, { key: "available", label: { ar: "متاح", en: "Available" }, type: "qty" }, { key: "held", label: { ar: "في الحجر", en: "Quarantine" }, type: "qty" }, { key: "waste", label: { ar: "هالك", en: "Waste" }, type: "qty" }, { key: "value", label: { ar: "القيمة", en: "Value" }, type: "money", total: true }],
     run: async (p) => {
@@ -338,9 +338,13 @@ export const REPORTS: ReportDef[] = [
           coalesce((SELECT sum(r."quantity") FROM "StockReservation" r WHERE r."productId" = pr."id" AND r."status" = 'active'), 0) reserved,
           coalesce((SELECT sum(v."value") FROM "StockValuationLayer" v WHERE v."productId" = pr."id"), 0) value
         FROM "StockProduct" pr LEFT JOIN "StockMovement" m ON m."productId" = pr."id" LEFT JOIN "StorageLocation" l ON l."id" = m."locationId"
-        WHERE pr."active" AND pr."stockTracked" AND (${p.category ?? null}::text IS NULL OR pr."category" = ${p.category ?? null})
+        WHERE ((pr."active" AND pr."stockTracked") OR EXISTS (SELECT 1 FROM "StockValuationLayer" hv WHERE hv."productId" = pr."id" HAVING sum(hv."value") <> 0) OR EXISTS (SELECT 1 FROM "StockMovement" hm WHERE hm."productId" = pr."id" HAVING sum(hm."quantity") <> 0)) AND (${p.category ?? null}::text IS NULL OR pr."category" = ${p.category ?? null})
         GROUP BY pr."id", pr."name", pr."nameAr", pr."category", pr."unit", pr."reorderPointQty" ORDER BY pr."name"`;
-      return { rows: rows.map((r) => { const avail = D(r.sellable).minus(D(r.reserved)); return { ...name(r.nameAr, r.name), category: r.category ?? "", unit: r.unit, sellable: q3(r.sellable), reserved: q3(r.reserved), available: q3(avail), held: q3(r.held), waste: q3(r.waste), value: m2(r.value), _tone: r.reorder != null && avail.lte(D(r.reorder)) ? "warn" : null, _href: `/stock/inventory?product=${r.id}` }; }) };
+      return {
+        rows: rows.map((r) => { const avail = D(r.sellable).minus(D(r.reserved)); return { ...name(r.nameAr, r.name), category: r.category ?? "", unit: r.unit, sellable: q3(r.sellable), reserved: q3(r.reserved), available: q3(avail), held: q3(r.held), waste: q3(r.waste), value: m2(r.value), _tone: r.reorder != null && avail.lte(D(r.reorder)) ? "warn" : null, _href: `/stock/inventory?product=${r.id}` }; }),
+        // Layers carry 4 decimals: the total is their exact sum rounded once, not the sum of rounded rows.
+        totals: { value: m2(rows.reduce((t, r) => t.plus(D(r.value)), D(0))) },
+      };
     },
   },
   {
@@ -352,8 +356,8 @@ export const REPORTS: ReportDef[] = [
     run: async () => {
       const rows = await prisma.$queryRaw<{ category: string | null; n: bigint; value: Prisma.Decimal }[]>`
         SELECT pr."category", count(DISTINCT pr."id") n, coalesce(sum(v."value"), 0) value FROM "StockProduct" pr LEFT JOIN "StockValuationLayer" v ON v."productId" = pr."id"
-        WHERE pr."active" GROUP BY 1 ORDER BY 3 DESC`;
-      return { rows: rows.map((r) => ({ category: r.category ?? "—", products: Number(r.n), value: m2(r.value), _href: r.category ? `/reports/stock-by-product?category=${enc(r.category)}` : null })) };
+        WHERE ((pr."active" AND pr."stockTracked") OR EXISTS (SELECT 1 FROM "StockValuationLayer" hv WHERE hv."productId" = pr."id" HAVING sum(hv."value") <> 0) OR EXISTS (SELECT 1 FROM "StockMovement" hm WHERE hm."productId" = pr."id" HAVING sum(hm."quantity") <> 0)) GROUP BY 1 ORDER BY 3 DESC`;
+      return { rows: rows.map((r) => ({ category: r.category ?? "—", products: Number(r.n), value: m2(r.value), _href: r.category ? `/reports/stock-by-product?category=${enc(r.category)}` : null })), totals: { value: m2(rows.reduce((t, r) => t.plus(D(r.value)), D(0))) } };
     },
   },
   {

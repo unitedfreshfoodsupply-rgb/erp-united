@@ -5,6 +5,7 @@ import { STATUS_LABEL, STATUS_LABEL_EN, STATUS_DOT } from "@/lib/orderPresentati
 import { printDir, printIntl, printLocale, printT } from "@/lib/locale/print";
 import { ORDER_STATUSES, type OrderStatus } from "@/lib/types";
 import { PrintBar } from "@/components/print/PrintBar";
+import { orderCustomerName } from "@/lib/locale/names";
 
 const OPEN_ORDER: OrderStatus[] = ["new", "preparing", "ready_for_loading", "loading", "loaded"];
 
@@ -167,7 +168,7 @@ export default async function DailyReportPrintPage({ searchParams }: { searchPar
                 {data.needsAttention.map((n) => (
                   <tr key={n.id} className="border-b border-united-border print-break-inside-avoid">
                     <td className="p-2 text-start font-bold">
-                      {n.customerName} ({n.orderNumber})
+                      {orderCustomerName(n, locale)} ({n.orderNumber})
                     </td>
                     <td className="p-2 text-start">{byKey(`attention.reason.${n.reason}`, n.reasonLabel)}</td>
                     <td className="p-2 text-start">{byKey(`attention.action.${n.reason}`, n.recommendedAction)}</td>

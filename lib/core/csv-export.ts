@@ -32,14 +32,16 @@ export function csvResponse(csv: string, filename: string) {
 }
 
 /**
- * Export language (maturity 2026-11): `?lang=en` writes English column titles and labels,
- * anything else Arabic — the long-standing default, so existing links keep their output.
+ * Export language (maturity 2026-11): `?lang=ar|en` writes titled columns and labels in that
+ * language. Without it (null) a route writes exactly what it wrote before — machine keys as
+ * the header row and values as stored — so existing integrations keep their contract.
  */
 export type ExportLang = "ar" | "en";
-export const exportLang = (sp: URLSearchParams): ExportLang => (sp.get("lang") === "en" ? "en" : "ar");
+export const exportLang = (sp: URLSearchParams): ExportLang | null => (sp.get("lang") === "en" ? "en" : sp.get("lang") === "ar" ? "ar" : null);
 export const tr = (lang: ExportLang, ar: string, en: string) => (lang === "en" ? en : ar);
 /** A party or product name in the export's language (falls back to the name it has). */
-export const nameIn = (lang: ExportLang, x: { name: string; nameAr?: string | null }) => (lang === "ar" ? x.nameAr || x.name : x.name || x.nameAr || "");
+/** A party's name in the export's language. Some DTOs put the Arabic name in `name` and the English one in `nameEn`. */
+export const nameIn = (lang: ExportLang, x: { name: string; nameAr?: string | null; nameEn?: string | null }) => (lang === "ar" ? x.nameAr || x.name : x.nameEn || x.name || x.nameAr || "");
 
 export type CsvColumn = { key: string; ar: string; en: string };
 /** Rows with fixed keys, written under the chosen language's column titles (header kept even when empty). */

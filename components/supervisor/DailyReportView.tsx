@@ -11,6 +11,7 @@ import { STATUS_LABEL, STATUS_LABEL_EN } from "@/lib/orderPresentation";
 import { ORDER_DOT } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { qty } from "@/lib/format";
+import { orderCustomerName } from "@/lib/locale/names";
 import { ORDER_STATUSES, type OrderStatus } from "@/lib/types";
 import { useLocale } from "@/lib/locale";
 import { OperationalHealthBanner } from "./OperationalHealthBanner";
@@ -128,7 +129,7 @@ export function DailyReportView() {
                   href={`/orders/${data.bottleneck.mostStalledOrder.id}`}
                   className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-united-green hover:underline"
                 >
-                  {t("supervisor.most-stalled-prefix")} {data.bottleneck.mostStalledOrder.customerName} ({data.bottleneck.mostStalledOrder.orderNumber}) —{" "}<span dir="ltr">{data.bottleneck.mostStalledOrder.minutesInStage}</span> {t("supervisor.most-stalled-suffix")}
+                  {t("supervisor.most-stalled-prefix")} {orderCustomerName(data.bottleneck.mostStalledOrder, locale)} ({data.bottleneck.mostStalledOrder.orderNumber}) —{" "}<span dir="ltr">{data.bottleneck.mostStalledOrder.minutesInStage}</span> {t("supervisor.most-stalled-suffix")}
                   <ArrowRight size={15} className="rtl:rotate-180" aria-hidden />
                 </Link>
               )}

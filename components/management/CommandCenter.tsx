@@ -73,9 +73,9 @@ export function CommandCenter() {
               <h2 id="cc-pl" className="section-title mb-2">{t("cc.pl")}</h2>
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <Tile label={t("cc.revenue")} def={t("cc.def.revenue")} value={money(d.profit.current.revenue)} cur={n(d.profit.current.revenue)} prev={n(d.profit.previous.revenue)} href={`/reports/sales-by-period?${per}`} />
-                <Tile label={t("cc.gross-profit")} def={t("cc.def.gross-profit")} value={money(d.profit.current.grossProfit)} sub={d.profit.current.grossMarginPct ? t("cc.margin", { pct: d.profit.current.grossMarginPct }) : undefined} cur={n(d.profit.current.grossProfit)} prev={n(d.profit.previous.grossProfit)} href={`/reports/sales-by-product?${per}`} />
-                <Tile label={t("cc.opex")} def={t("cc.def.opex")} value={money(d.profit.current.operatingExpenses)} cur={n(d.profit.current.operatingExpenses)} prev={n(d.profit.previous.operatingExpenses)} upIsBad href="/management" />
-                <Tile label={t("cc.net-profit")} def={t("cc.def.net-profit")} value={money(d.profit.current.netProfit)} cur={n(d.profit.current.netProfit)} prev={n(d.profit.previous.netProfit)} strong href="/management" />
+                <Tile label={t("cc.gross-profit")} def={t("cc.def.gross-profit")} value={money(d.profit.current.grossProfit)} sub={[t("cc.cost-of-sales", { amount: money(d.profit.current.costOfSales) }), d.profit.current.grossMarginPct ? t("cc.margin", { pct: d.profit.current.grossMarginPct }) : null].filter(Boolean).join(" · ")} cur={n(d.profit.current.grossProfit)} prev={n(d.profit.previous.grossProfit)} href={`/reports/sales-by-product?${per}`} />
+                <Tile label={t("cc.opex")} def={t("cc.def.opex")} value={money(d.profit.current.operatingExpenses)} cur={n(d.profit.current.operatingExpenses)} prev={n(d.profit.previous.operatingExpenses)} upIsBad href={`/management?${per}`} />
+                <Tile label={t("cc.net-profit")} def={t("cc.def.net-profit")} value={money(d.profit.current.netProfit)} cur={n(d.profit.current.netProfit)} prev={n(d.profit.previous.netProfit)} strong href={`/management?${per}`} />
               </div>
               {Number(d.profit.current.otherIncome) !== 0 && <p className="mt-2 text-xs text-united-muted">{t("cc.other-income", { amount: money(d.profit.current.otherIncome) })}</p>}
             </section>
@@ -87,7 +87,7 @@ export function CommandCenter() {
                 {d.purchases && <Tile label={t("cc.purchases")} def={t("cc.def.purchases")} value={money(d.purchases.current)} cur={n(d.purchases.current)} prev={n(d.purchases.previous)} upIsBad href={`/reports/purchases-by-supplier?${per}`} />}
                 {d.cash && <Tile label={t("home.money.cash-bank")} def={t("home.def.cash")} value={money(d.cash.total)} sub={`${t("home.money.cash")} ${money(d.cash.cash)} · ${t("home.money.bank")} ${money(d.cash.bank)}`} href="/reports/cash-movements" />}
                 {d.receivables && <Tile label={t("mgmt.overview.receivables")} def={t("home.def.receivables")} value={money(d.receivables.total)} sub={n(d.receivables.overdue) > 0 ? `${t("home.sales.overdue")} ${money(d.receivables.overdue)}` : undefined} tone={n(d.receivables.overdue) > 0 ? "danger" : undefined} href="/reports/outstanding-invoices" />}
-                {d.payables && <Tile label={t("home.money.payables")} def={t("home.def.payables")} value={money(d.payables.total)} sub={d.upcomingPayments && d.upcomingPayments.bills > 0 ? t("cc.due-week", { amount: money(d.upcomingPayments.total), count: String(d.upcomingPayments.bills) }) : undefined} tone={n(d.payables.overdue) > 0 ? "warn" : undefined} href="/purchasing?view=bills&tab=payables" />}
+                {d.payables && <Tile label={t("home.money.payables")} def={t("home.def.payables")} value={money(d.payables.total)} sub={[n(d.payables.overdue) > 0 ? `${t("home.sales.overdue")} ${money(d.payables.overdue)}` : null, d.upcomingPayments && d.upcomingPayments.bills > 0 ? t("cc.due-week", { amount: money(d.upcomingPayments.total), count: String(d.upcomingPayments.bills) }) : null].filter(Boolean).join(" · ") || undefined} tone={n(d.payables.overdue) > 0 ? "warn" : undefined} href="/purchasing?tab=bills&btab=payables" />}
               </div>
             </section>
           )}

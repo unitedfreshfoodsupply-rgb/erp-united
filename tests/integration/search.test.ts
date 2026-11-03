@@ -7,6 +7,7 @@ import { prisma } from "./_db";
 import { searchIds, searchText, type SearchEntity } from "@/lib/core/search";
 import { createIntake } from "@/lib/stock-service";
 import { createTransfer } from "@/lib/inventory/documents";
+import { addAlias } from "@/lib/product-master-service";
 import { todayLocalISO } from "@/lib/localDate";
 import { actor } from "./_db";
 
@@ -28,10 +29,11 @@ test("customers: Arabic letter variants, diacritics and Arabic-Indic digits matc
   }
 });
 
-test("products: found by Arabic name, English name, SKU, category or an alias; % and _ are plain characters", async () => {
+test("products: found by Arabic name, English name, SKU, category or an alias (letter variant); % and _ are plain characters", async () => {
   const p = await prisma.stockProduct.create({ data: { name: `${TAG} Mango Ewais`, nameAr: `${TAG} مانجو عويس`, sku: `SKU_${TAG}`, category: "فاكهة" } });
-  await prisma.productAlias.create({ data: { productId: p.id, alias: `${TAG} مانجا عويسي`, kind: "alias" } as never }).catch(() => undefined);
-  for (const q of ["مانجو عويس", "mango ewais", `sku_${TAG.toLowerCase()}`, "فاكهه"]) {
+  // Through the product service (normalised, audited) — the alias text differs from both names.
+  await addAlias(p.id, `${TAG} مانجا عويسي`, actor("مسؤول الأصناف", ["stock.view", "stock.manage_products"]) as never);
+  for (const q of ["مانجو عويس", "mango ewais", `sku_${TAG.toLowerCase()}`, "فاكهه", "مانجا عويسى"]) {
     assert.ok((await searchIds("product", q)).includes(p.id), `"${q}" finds the product`);
   }
   assert.ok(!(await searchIds("product", "SKU%")).includes(p.id), "% is literal (no product's SKU contains a %)");

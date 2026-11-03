@@ -68,7 +68,8 @@ export function PurchasingView() {
     const sp = new URLSearchParams(window.location.search);
     if (sp.get("po")) setPoId(sp.get("po"));
     if (sp.get("bill")) { setBillId(sp.get("bill")); setTab("bills"); }
-    if (sp.get("tab")) setTab(sp.get("tab") as Tab);
+    const tb = sp.get("tab");
+    if (tb && (["orders", "replenishment", "rfqs", "suppliers", "bills"] as const).includes(tb as Tab)) setTab(tb as Tab);
     // Deep links from reports: ?supplier=<id> opens the supplier, ?tab=bills&btab=payables the aging.
     if (sp.get("supplier")) { setSupplierId(sp.get("supplier")); setTab("suppliers"); }
     if (sp.get("btab") === "payables") setBillView("payables");

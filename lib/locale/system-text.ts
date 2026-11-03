@@ -39,6 +39,7 @@ const PAIRS: readonly (readonly [ar: string, en: string])[] = [
   ["استرداد {} من {}: {}", "Refund {} from {}: {}"],
   ["رصيد افتتاحي — {} ({})", "Opening balance — {} ({})"],
   ["رصيد افتتاحي — {}", "Opening balance — {}"],
+  ["طلب شراء {}", "Purchase request {}"],
   ["عكس مسير مرتبات {}: {}", "Reversal of payroll run {}: {}"],
   ["عكس صرف مرتبات {}: {}", "Reversal of salary payment {}: {}"],
   ["عكس {}: {}", "Reversal of {}: {}"],

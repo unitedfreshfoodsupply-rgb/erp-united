@@ -10,6 +10,7 @@ import { postJournal } from "@/lib/accounting/ledger";
 import { createBill, createDebitNote, postBill } from "@/lib/purchasing/bills";
 import { createIntake } from "@/lib/stock-service";
 import { todayLocalISO } from "@/lib/localDate";
+import { homeSummary } from "@/lib/home/summary";
 
 after(() => prisma.$disconnect());
 const D = (v: Prisma.Decimal.Value | null | undefined) => new Prisma.Decimal(v ?? 0);
@@ -105,4 +106,30 @@ test("a bill due within 7 days counts once, at what is still open after a debit 
   const debited = await prisma.debitNote.aggregate({ where: { billId: bill.id }, _sum: { total: true } });
   assert.equal(after_.bills - before.bills, 1, "the new bill is due within 7 days");
   assert.equal(D(after_.total).minus(D(before.total)).toFixed(2), billed.total.minus(D(debited._sum.total)).toFixed(2), "counted at its open amount, not its total");
+});
+
+test("cash and bank are the ledger balance of active cash accounts as of today; a posting dated later this month is not counted (here or on the home page)", async (t) => {
+  const ccCash = async () => ((await commandCenter(all, {})).cash as { total: string }).total;
+  const homeCash = async () => ((await homeSummary({ id: "cc-test", permissions: new Set(["reports.finance"]) })).cash as { total: string }).total;
+  const ledger = async (asOf: string | null) => D((await prisma.$queryRaw<{ b: Prisma.Decimal | null }[]>`
+    SELECT sum(l."debit" - l."credit") b FROM "CashAccount" c JOIN "JournalLine" l ON l."accountId" = c."accountId" JOIN "JournalEntry" e ON e."id" = l."entryId"
+    WHERE c."active" AND c."type" IN ('cash', 'bank') AND (${asOf}::text IS NULL OR e."date" <= ${asOf})`)[0].b).toFixed(2);
+  assert.equal(await ccCash(), await ledger(today));
+  assert.equal(await homeCash(), await ledger(today), "the home tile of the same name agrees");
+  const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  if (tomorrow.slice(0, 7) !== today.slice(0, 7)) return t.skip("last day of the month: nothing may be dated later in it (ACC-10)");
+  const who = actor("command-center-test", ["accounting.journals.post"]);
+  const post = (amount: number, tag: string) => inTx((tx) => postJournal(tx, {
+    date: tomorrow, description: "اختبار قيد بتاريخ لاحق", sourceType: "manual", sourceId: `cc-later-${tag}-${Date.now()}`,
+    lines: [{ key: "cash", amount: D(amount) }, { key: "capital", amount: D(-amount) }],
+  }, who));
+  const [cc0, home0, all0] = [await ccCash(), await homeCash(), await ledger(null)];
+  await post(40, "in");
+  try {
+    assert.equal(D(await ledger(null)).minus(D(all0)).toFixed(2), "40.00", "precondition: the later-dated cash posting is in the ledger");
+    assert.equal(await ccCash(), cc0, "not cash today on the Command Center");
+    assert.equal(await homeCash(), home0, "nor on the home page");
+  } finally {
+    await post(-40, "out"); // the same date, opposite amount: every later balance is unchanged
+  }
 });
