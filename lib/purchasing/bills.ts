@@ -757,7 +757,8 @@ export async function createDebitNote(billId: string, input: unknown, actor: Ser
 
 /** What has been taken off each posted bill: debit notes + payments allocated to it. */
 /** Debited and paid against each bill — as of a date when given (ACC-08, see openAmounts). */
-async function debitedByBill(db: Pick<Tx, "debitNote" | "paymentAllocation">, billIds: string[], asOf?: string) {
+/** Per bill: debit notes plus live payment allocations (what no longer is owed on it). */
+export async function debitedByBill(db: Pick<Tx, "debitNote" | "paymentAllocation">, billIds: string[], asOf?: string) {
   const [dn, paid] = billIds.length
     ? await Promise.all([
         db.debitNote.groupBy({ by: ["billId"], where: { billId: { in: billIds }, ...(asOf ? { issueDate: { lte: asOf } } : {}) }, _sum: { total: true } }),

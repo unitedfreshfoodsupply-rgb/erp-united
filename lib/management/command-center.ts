@@ -4,7 +4,7 @@ import { ApiError } from "@/lib/rbac";
 import { isValidISODate } from "@/lib/dates";
 import { todayLocalISO } from "@/lib/localDate";
 import { agingReport } from "@/lib/sales/invoicing";
-import { apAgingReport } from "@/lib/purchasing/bills";
+import { apAgingReport, debitedByBill } from "@/lib/purchasing/bills";
 import { OPEN_STATUSES } from "@/lib/orderPresentation";
 import type { Permission } from "@/lib/permissions";
 
@@ -78,9 +78,14 @@ export async function commandCenter(viewer: Viewer, q: { from?: string | null; t
       out.receivables = { total: D(ar.totals.total).toFixed(2), overdue: overdue(ar.totals) };
       out.payables = { total: D(ap.totals.total).toFixed(2), overdue: overdue(ap.totals) };
     }));
-    // Supplier bills falling due in the next 7 days (upcoming payments).
+    // Upcoming payments: what is still open (after payments and debit notes) on posted
+    // supplier bills falling due in the next 7 days.
     const week = new Date(Date.parse(`${p.today}T00:00:00Z`) + 7 * 86_400_000).toISOString().slice(0, 10);
-    tasks.push(prisma.$queryRaw<{ n: bigint; t: Prisma.Decimal | null }[]>`SELECT count(*) n, sum(b."total") t FROM "SupplierBill" b WHERE b."status" = 'posted' AND b."dueDate" BETWEEN ${p.today} AND ${week}`.then(([r]) => { out.upcomingPayments = { bills: Number(r.n), total: D(r.t).toFixed(2), until: week }; }));
+    tasks.push(prisma.supplierBill.findMany({ where: { status: "posted", dueDate: { gte: p.today, lte: week } }, select: { id: true, total: true } }).then(async (bills) => {
+      const off = await debitedByBill(prisma, bills.map((b) => b.id));
+      const open = bills.map((b) => b.total.minus(off.get(b.id) ?? 0)).filter((o) => o.gt(0));
+      out.upcomingPayments = { bills: open.length, total: open.reduce((s, o) => s.plus(o), D(0)).toFixed(2), until: week };
+    }));
     tasks.push(prisma.$queryRaw<{ type: string; b: Prisma.Decimal | null }[]>`SELECT c."type", sum(l."debit" - l."credit") b FROM "CashAccount" c JOIN "JournalLine" l ON l."accountId" = c."accountId" WHERE c."active" GROUP BY 1`.then((rows) => {
       const of = (t: string) => D(rows.find((r) => r.type === t)?.b);
       out.cash = { cash: of("cash").toFixed(2), bank: of("bank").toFixed(2), total: of("cash").plus(of("bank")).toFixed(2) };

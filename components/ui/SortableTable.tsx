@@ -38,11 +38,11 @@ export function useSorted<T>(rows: readonly T[], columns: Record<string, (row: T
 }
 
 /** A header cell whose label sorts the column; `numeric` aligns it with `.num` cells. */
-export function SortHeader({ label, sortKey, sort, onSort, numeric }: { label: string; sortKey: string; sort: { key: string; dir: SortDir } | null; onSort: (key: string) => void; numeric?: boolean }) {
+export function SortHeader({ label, sortKey, sort, onSort, numeric, className }: { label: string; sortKey: string; sort: { key: string; dir: SortDir } | null; onSort: (key: string) => void; numeric?: boolean; className?: string }) {
   const active = sort?.key === sortKey;
   const Icon = !active ? ArrowUpDown : sort!.dir === "asc" ? ArrowUp : ArrowDown;
   return (
-    <th aria-sort={active ? (sort!.dir === "asc" ? "ascending" : "descending") : "none"} className={numeric ? "num" : undefined}>
+    <th aria-sort={active ? (sort!.dir === "asc" ? "ascending" : "descending") : "none"} className={[numeric ? "num" : "", className ?? ""].filter(Boolean).join(" ") || undefined}>
       <button type="button" onClick={() => onSort(sortKey)} className={`inline-flex items-center gap-1 font-semibold hover:text-united-dark ${active ? "text-united-dark" : ""}`}>
         {label}
         <Icon size={12} aria-hidden className={active ? "" : "opacity-40"} />

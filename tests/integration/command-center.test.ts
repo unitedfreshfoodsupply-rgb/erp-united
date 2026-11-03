@@ -7,6 +7,8 @@ import { Prisma } from "@prisma/client";
 import { prisma, inTx, actor } from "./_db";
 import { commandCenter } from "@/lib/management/command-center";
 import { postJournal } from "@/lib/accounting/ledger";
+import { createBill, createDebitNote, postBill } from "@/lib/purchasing/bills";
+import { createIntake } from "@/lib/stock-service";
 import { todayLocalISO } from "@/lib/localDate";
 
 after(() => prisma.$disconnect());
@@ -56,4 +58,36 @@ test("the period is validated, and the comparison period has the same length", a
   await assert.rejects(commandCenter(all, { from: "2026-05-02", to: "2026-05-01" }), (e: { status?: number }) => e.status === 400);
   const r = await commandCenter(all, { from: "2026-03-01", to: "2026-03-31" });
   assert.deepEqual(r.period, { from: "2026-03-01", to: "2026-03-31", prevFrom: "2026-01-29", prevTo: "2026-02-28" });
+});
+
+test("upcoming supplier payments = what is still open on posted bills due in the next 7 days (paid and debited parts excluded)", async () => {
+  const r = await commandCenter(all, {});
+  const up = r.upcomingPayments as { bills: number; total: string; until: string };
+  const [x] = await prisma.$queryRaw<{ n: bigint; t: Prisma.Decimal | null }[]>`
+    SELECT count(*) FILTER (WHERE o > 0) n, sum(o) FILTER (WHERE o > 0) t FROM (
+      SELECT b."total"
+        - coalesce((SELECT sum(d."total") FROM "DebitNote" d WHERE d."billId" = b."id"), 0)
+        - coalesce((SELECT sum(a."amount") FROM "PaymentAllocation" a JOIN "SupplierPayment" p ON p."id" = a."paymentId"
+                    WHERE a."billId" = b."id" AND NOT EXISTS (SELECT 1 FROM "SupplierPaymentReversal" v WHERE v."paymentId" = p."id")), 0) o
+      FROM "SupplierBill" b WHERE b."status" = 'posted' AND b."dueDate" BETWEEN ${today} AND ${up.until}) q`;
+  assert.equal(up.bills, Number(x.n));
+  assert.equal(up.total, D(x.t).toFixed(2));
+});
+
+test("a bill due within 7 days counts once, at what is still open after a debit note", async () => {
+  const tag = `ZZCC${Date.now()}`;
+  const boss = actor("أمين مخزن", ["stock.receive", "stock.sort", "stock.view", "stock.valuation.view"]);
+  const acct = actor("محاسب", ["purchasing.bills.manage", "purchasing.bills.view"]);
+  const supplier = await prisma.supplier.create({ data: { code: `SUP-7${String(Date.now()).slice(-7)}`, name: `${tag} مورد`, paymentTermsDays: 7 } });
+  const product = await prisma.stockProduct.create({ data: { name: `${tag} Pepper`, unit: "KG" } });
+  const intake = await createIntake({ supplier_id: supplier.id, product_id: product.id, received_kg: 10, received_date: today, unit_cost: "10" } as never, boss);
+  const before = (await commandCenter(all, {})).upcomingPayments as { bills: number; total: string };
+  const bill = await postBill((await createBill({ supplier_id: supplier.id, supplier_invoice_no: `${tag}-1`, bill_date: today, lines: [{ intake_id: intake.id, unit_price: "10" }] }, acct)).id, acct);
+  const line = await prisma.supplierBillLine.findFirstOrThrow({ where: { billId: bill.id } });
+  await createDebitNote(bill.id, { reason: "مرتجع", lines: [{ bill_line_id: line.id, quantity: 3 }] }, acct);
+  const after_ = (await commandCenter(all, {})).upcomingPayments as { bills: number; total: string };
+  const billed = await prisma.supplierBill.findUniqueOrThrow({ where: { id: bill.id } });
+  const debited = await prisma.debitNote.aggregate({ where: { billId: bill.id }, _sum: { total: true } });
+  assert.equal(after_.bills - before.bills, 1, "the new bill is due within 7 days");
+  assert.equal(D(after_.total).minus(D(before.total)).toFixed(2), billed.total.minus(D(debited._sum.total)).toFixed(2), "counted at its open amount, not its total");
 });

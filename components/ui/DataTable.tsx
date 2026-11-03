@@ -178,7 +178,7 @@ export function DataTable<T>({ rows, columns, rowKey, rowHref, onRowOpen, rowAct
             <tr>
               {columns.map((c) =>
                 c.sortValue ? (
-                  <SortHeader key={c.key} label={c.label} sortKey={c.key} sort={sort} onSort={toggle} numeric={c.numeric} />
+                  <SortHeader key={c.key} label={c.label} sortKey={c.key} sort={sort} onSort={toggle} numeric={c.numeric} className={c.secondary ? "hidden md:table-cell" : undefined} />
                 ) : (
                   <th key={c.key} className={`${c.numeric ? "num" : ""} ${c.secondary ? "hidden md:table-cell" : ""}`}>{c.label}</th>
                 )
