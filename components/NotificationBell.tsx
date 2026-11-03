@@ -84,8 +84,12 @@ export function NotificationBell() {
           </span>
         )}
       </button>
+      {/* On a phone the bell sits well inside the header, so a panel hung from it ran off the
+          start edge. Below sm the panel is pinned to the header instead (its backdrop-blur makes
+          the header the containing block of a fixed child), 1rem from either screen edge.
+          Mobile-first on purpose: `max-sm:` emits nothing with this project's custom screens. */}
       {open && (
-        <div className="absolute end-0 mt-2 w-[min(22rem,calc(100vw-2rem))] card shadow-pop p-2 z-40">
+        <div className="fixed inset-x-4 top-14 sm:absolute sm:inset-x-auto sm:top-auto sm:end-0 sm:w-[22rem] mt-2 card shadow-pop p-2 z-40">
           <div className="flex items-center justify-between px-2 py-1">
             <span className="font-extrabold text-united-dark">{t("ui.notifications")}</span>
             {unread > 0 && (

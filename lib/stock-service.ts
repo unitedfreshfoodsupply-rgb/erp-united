@@ -10,9 +10,9 @@ import type { StockActor } from "@/lib/stock-auth";
 import { isValidISODate } from "@/lib/dates";
 import { nextDocumentNumber } from "@/lib/core/sequences";
 import { D, num, parseMoney, parseQty, type Dec } from "@/lib/inventory/decimal";
-import { postMovements, type MoveInput } from "@/lib/inventory/ledger";
+import { bucketBalance, lockForMoves, postMovements, productValuation, type MoveInput } from "@/lib/inventory/ledger";
 import { receivingLocation, resolveLocation, resolveWarehouse } from "@/lib/inventory/context";
-import { requestApproval } from "@/lib/core/approvals";
+import { cancelPendingApproval, requestApproval } from "@/lib/core/approvals";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { createAdjustment as createAdjustmentDocument } from "@/lib/inventory/documents";
 import { computeGradingCosts, type GradingCostPolicy, type WasteLossPolicy } from "@/lib/inventory/grading";
@@ -883,6 +883,97 @@ export async function updateIntake(
  * and a compensating `intake_void` reverses exactly what it had added, from its own
  * bucket — refused if that stock is no longer there to take back.
  */
+/**
+ * ACC-18: undoes a receipt movement by movement, each at its own layer value and through its
+ * own counter account (the ACC-03 `reverses` rule), so a graded receipt — good stock, Grade B
+ * (possibly another product), waste: up to three buckets at three costs — and its corrections
+ * come back out exactly as they went in, and the NRV waste-loss entry is reversed line by line.
+ * Nothing is valued anew here: every posting is the negation of one that exists, and the
+ * checks below only refuse.
+ */
+async function reverseReceiptInTx(tx: Tx, intake: Prisma.StockIntakeGetPayload<object>, reason: string, actor: StockActor) {
+  const id = intake.id;
+  // A pending grading-loss approval goes first, before any stock lock (the approval takes its
+  // own lock, then the stock locks — the same order here).
+  await cancelPendingApproval(tx, { type: "inventory.grading_loss", entityId: id, reason: `الاستلام اتلغى: ${reason}`, actor: { id: actor.id, name: actor.name, role: actor.role, deviceId: actor.deviceId } });
+  // What was built on the receipt is undone first: a grading-loss release, a later sort.
+  const dependants = await tx.inventoryDocument.findMany({ where: { sourceType: "stock_intake", sourceId: id, status: "posted", reversalOfId: null }, select: { number: true }, orderBy: { number: "asc" } });
+  if (dependants.length) throw new ApiError(409, `الاستلام ده عليه مستندات لازم تتعكس الأول: ${dependants.map((d) => d.number).join("، ")}`);
+  if ((await tx.stockRevaluation.count({ where: { intakeId: id } })) > 0) throw new ApiError(409, "الاستلام ده اتعاد تقييمه من فاتورة المورد — مينفعش يتلغي");
+
+  // Its own movements, newest first: a correction is undone before what it corrected.
+  const own = await tx.stockMovement.findMany({ where: { intakeId: id, kind: { in: ["intake", "intake_correction"] } }, orderBy: { seq: "desc" }, include: { valuation: true, valuationPosting: true } });
+  if (own.some((m) => !m.valuation || !m.valuationPosting)) throw new ApiError(409, "حركات الاستلام ده من قبل تقييم المخزون — مينفعش تتلغي تلقائي، راجع المحاسب");
+  const moveOf = (m: (typeof own)[number]): MoveInput => ({
+    productId: m.productId, warehouseId: m.warehouseId, locationId: m.locationId, lotId: m.lotId,
+    quantity: D(m.quantity).negated(), kind: D(m.quantity).gt(0) ? "intake_void" : "intake_correction",
+    intakeId: id, reason, reverses: m.id,
+  });
+  await lockForMoves(tx, own.map(moveOf));
+
+  // Every bucket keeps what it had before the receipt, step by step: if part of it was issued,
+  // moved or scrapped, the document that took it is reversed first (or the receipt corrected).
+  const running = new Map<string, Dec>();
+  const products = new Map((await tx.stockProduct.findMany({ where: { id: { in: [...new Set(own.map((m) => m.productId))] } }, select: { id: true, name: true, costingMethod: true } })).map((p) => [p.id, p]));
+  for (const m of own) {
+    const key = `${m.productId}|${m.locationId}|${m.lotId ?? "-"}`;
+    const before = running.get(key) ?? (await bucketBalance(tx, m.productId, m.locationId, m.lotId));
+    const after = before.minus(m.quantity);
+    running.set(key, after);
+    if (after.lt(0)) {
+      const loc = await tx.storageLocation.findUnique({ where: { id: m.locationId }, select: { code: true } });
+      throw new ApiError(400, `"${products.get(m.productId)?.name}": جزء من اللي دخل بالاستلام ده اتصرف أو اتنقل من ${loc?.code ?? m.locationId} — اعكس المستند اللي سحب منه الأول، أو صحّح الاستلام بدل إلغائه`);
+    }
+  }
+  for (const [pid, p] of products) {
+    const mine = own.filter((m) => m.productId === pid);
+    const qty = mine.reduce((s, m) => s.plus(m.quantity), D(0));
+    const value = mine.reduce((s, m) => s.plus(m.valuation!.value), D(0));
+    if (p.costingMethod === "fifo") {
+      // FIFO: the receipt's own layers must still hold all of it — none of it costed an outbound.
+      const left = mine.filter((m) => D(m.quantity).gt(0)).reduce((s, m) => s.plus(m.valuation!.remainingQty), D(0));
+      if (left.lt(qty)) throw new ApiError(409, `"${p.name}" (FIFO): جزء من تكلفة الاستلام ده اتحمّل على صرف بعده — مينفعش يتلغي`);
+    } else if (p.costingMethod === "standard") {
+      if (await tx.standardCostChange.findFirst({ where: { productId: pid, createdAt: { gt: intake.createdAt } }, select: { id: true } })) {
+        throw new ApiError(409, `"${p.name}": التكلفة المعيارية اتغيرت بعد الاستلام ده — مينفعش يتلغي، راجع المحاسب`);
+      }
+    } else {
+      // Average cost: taking the receipt's own quantity and value out of the pool must leave a
+      // valuation that can exist (decision D-A) — never below zero, never value with no stock.
+      const val = await productValuation(tx, pid);
+      const leftQty = val.qty.minus(qty), leftValue = val.value.minus(value);
+      if (leftValue.lt(0) || (leftQty.lte(0) && !leftValue.isZero())) {
+        throw new ApiError(409, `"${p.name}": اتصرف من الصنف بمتوسط التكلفة بعد الاستلام ده — إلغاؤه هيسيب قيمة مخزون غلط (${leftValue.toFixed(2)} على ${leftQty.toFixed()}). راجع المحاسب`);
+      }
+    }
+  }
+
+  // One call per original GL entry, newest first, so each reversal entry is that entry negated
+  // to the piastre (rounding the pooled values instead could differ by one).
+  const groups = new Map<string, typeof own>();
+  for (const m of own) {
+    const k = m.valuationPosting!.entryId ?? `mv:${m.id}`;
+    groups.set(k, [...(groups.get(k) ?? []), m]);
+  }
+  for (const ms of groups.values()) {
+    await postMovements(tx, ms.map(moveOf), { actorId: actor.id, actorName: actor.name, effectiveDate: intake.receivedDate });
+  }
+
+  // NRV grading with the waste expensed at grading: its loss entry goes too, never dated
+  // before itself, through the same closed-period rule as the valuation it belongs to.
+  const loss = await tx.journalEntry.findFirst({ where: { sourceType: "stock_valuation", sourceId: `intake-waste|${id}` }, include: { lines: true, reversedBy: true } });
+  if (loss && !loss.reversedBy) {
+    const pd = await postingDate(tx, loss.date > intake.receivedDate ? loss.date : intake.receivedDate);
+    const rev = await postJournal(tx, {
+      date: pd.date, description: `عكس ${loss.number}: إلغاء الاستلام ${intake.receiptNumber}`, sourceType: "reversal", sourceId: loss.id, reversalOfId: loss.id,
+      lines: loss.lines.map((l) => ({ accountId: l.accountId, amount: l.credit.minus(l.debit), description: l.description ?? undefined, costCenterId: l.costCenterId })),
+    }, { id: actor.id, name: actor.name, role: actor.role });
+    if (pd.redated && rev) {
+      await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "stock_valuation_redated", entityType: "journal_entry", entityId: rev.id, fieldChanged: "date", oldValue: loss.date, newValue: pd.date, reason: "الفترة مقفولة — عكس قيد هالك الفرز اترحّل بتاريخ النهاردة", source: "system" }, tx);
+    }
+  }
+}
+
 export async function voidIntake(id: string, actor: StockActor, reason: string, expectedVersion?: number) {
   if (!asText(reason, "reason")?.trim()) throw new ApiError(400, "لازم تكتب سبب الإلغاء");
   const existing = await prisma.stockIntake.findUnique({ where: { id } });
@@ -905,28 +996,7 @@ export async function voidIntake(id: string, actor: StockActor, reason: string, 
       throw err;
     }
 
-    // Reverse the receipt's own net effect, read from the ledger rather than
-    // recomputed from the receipt — if it was corrected along the way, the sum of
-    // its movements is the only accurate statement of what it actually contributed.
-    const net = await tx.stockMovement.aggregate({ where: { intakeId: id }, _sum: { quantity: true } });
-    const contributed = D(net._sum.quantity);
-    if (!contributed.isZero()) {
-      await postMovements(
-        tx,
-        [
-          {
-            ...intakeBucket(existing),
-            quantity: contributed.negated(),
-            kind: "intake_void",
-            intakeId: id,
-            reason: reason.trim(),
-            unitCost: existing.unitCost,
-            costSource: existing.unitCost == null ? undefined : "lot",
-          },
-        ],
-        { actorId: actor.id, actorName: actor.name, effectiveDate: existing.receivedDate }
-      );
-    }
+    await reverseReceiptInTx(tx, existing, reason.trim(), actor);
 
     await writeAudit(
       {

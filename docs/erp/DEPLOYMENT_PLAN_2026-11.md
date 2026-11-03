@@ -1,5 +1,7 @@
 # UNITED ERP — Remediation release, deployment and rollback plan (November 2026)
 
+> **Superseded in part (3 Nov 2026).** The release is now `maturity/2026-11` with **18 migrations, 77 → 95**. §0 and §3 below describe the earlier set of 14 (77 → 91) and are kept for history; use `PRODUCTION_MIGRATION_PLAN_2026-11.md` for the migration set, preconditions, runbook gates and rollback limits.
+
 Status: **prepared, not executed.** Production is untouched. Every step below needs the
 owner's go-ahead and someone with VPS and Supabase access; the agent that prepared it
 has neither and never types credentials.

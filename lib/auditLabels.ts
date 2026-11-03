@@ -86,8 +86,19 @@ const STAGE_HEADLINE: Record<string, { icon: string; ar: string; en: string }> =
   new: { icon: "↩️", ar: "رجّع الأوردر لأول الخط", en: "sent the order back to the start" },
 };
 
+/**
+ * The arrow of an "old → new" change. The glyph does not mirror in right-to-left text, so
+ * Arabic, laid out right to left, needs "←" to point from the old value to the new one.
+ */
+export const changeArrow = (locale: TimelineLocale) => pick(locale, "←", "→");
+
+/** "old → new" in the reader's direction. Each value is isolated (FSI…PDI) so a Latin value
+ * on an Arabic page, or an Arabic one on an English page, cannot turn the pair around. */
+export const changeText = (oldValue: string, newValue: string, locale: TimelineLocale) =>
+  `⁨${oldValue}⁩ ${changeArrow(locale)} ⁨${newValue}⁩`;
+
 const item = (l: AuditLogDTO, locale: TimelineLocale) => l.itemName ?? pick(locale, "صنف", "an item");
-const change = (l: AuditLogDTO) => `${l.oldValue || "—"} ← ${l.newValue || "—"}`;
+const change = (l: AuditLogDTO, locale: TimelineLocale) => changeText(l.oldValue || "—", l.newValue || "—", locale);
 
 const DESCRIBE: Record<string, Describe> = {
   order_created: (_, x) => ({ icon: "📥", headline: pick(x, "الأوردر وصل", "order received"), milestone: true }),
@@ -131,7 +142,7 @@ const DESCRIBE: Record<string, Describe> = {
   required_quantity_edited: (l, x) => ({
     icon: "✏️",
     headline: pick(x, `عدّل المطلوب من ${item(l, x)}`, `changed the required quantity of ${item(l, x)}`),
-    detail: `${withUnit(l.oldValue, l.itemUnit)} ← ${withUnit(l.newValue, l.itemUnit)}`,
+    detail: changeText(withUnit(l.oldValue, l.itemUnit), withUnit(l.newValue, l.itemUnit), x),
     milestone: false,
   }),
 
@@ -142,7 +153,7 @@ const DESCRIBE: Record<string, Describe> = {
     milestone: true,
   }),
 
-  order_edited: (l, x) => ({ icon: "✏️", headline: pick(x, `عدّل ${fieldLabel(l.fieldChanged, x)}`, `changed ${fieldLabel(l.fieldChanged, x)}`), detail: change(l), milestone: false }),
+  order_edited: (l, x) => ({ icon: "✏️", headline: pick(x, `عدّل ${fieldLabel(l.fieldChanged, x)}`, `changed ${fieldLabel(l.fieldChanged, x)}`), detail: change(l, x), milestone: false }),
 
   order_cloned: (l, x) => ({
     icon: "📋",
@@ -189,7 +200,7 @@ const DESCRIBE: Record<string, Describe> = {
   order_product_mapped: (l, x) => ({ icon: "🔗", headline: pick(x, `ربط ${item(l, x)} بصنف المخزن`, `linked ${item(l, x)} to a stock product`), detail: l.newValue ?? undefined, milestone: false }),
   order_product_unmapped: (l, x) => ({ icon: "✂️", headline: pick(x, `فك ربط ${item(l, x)}`, `unlinked ${item(l, x)}`), milestone: false }),
   order_priced: (_, x) => ({ icon: "🏷️", headline: pick(x, "سعّر الأوردر من قائمة الأسعار", "priced the order from the price list"), milestone: false }),
-  order_line_price_overridden: (l, x) => ({ icon: "🏷️", headline: pick(x, `غيّر سعر ${item(l, x)}`, `changed the price of ${item(l, x)}`), detail: l.oldValue || l.newValue ? change(l) : undefined, milestone: false }),
+  order_line_price_overridden: (l, x) => ({ icon: "🏷️", headline: pick(x, `غيّر سعر ${item(l, x)}`, `changed the price of ${item(l, x)}`), detail: l.oldValue || l.newValue ? change(l, x) : undefined, milestone: false }),
   order_credit_evaluated: (l, x) => ({ icon: "💳", headline: pick(x, "راجع حد ائتمان العميل", "checked the customer's credit limit"), detail: l.newValue ?? undefined, milestone: false }),
   attachment_added: (l, x) => ({ icon: "📎", headline: pick(x, "أضاف مرفق", "added an attachment"), detail: l.newValue ?? undefined, milestone: false }),
   attachment_removed: (l, x) => ({ icon: "📎", headline: pick(x, "شال مرفق", "removed an attachment"), detail: l.oldValue ?? undefined, milestone: false }),

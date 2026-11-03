@@ -67,6 +67,10 @@ test("permissions: sections the viewer may not see are not computed or returned"
   const stock = await commandCenter({ can: (p: string) => p === "stock.view" }, {});
   assert.ok(stock.inventory && stock.produce);
   assert.equal((stock.inventory as { value: unknown }).value, null, "stock value needs stock.valuation.view");
+  const produce = stock.produce as { current: { wasteValue: unknown }; previous: { wasteValue: unknown } };
+  assert.deepEqual([produce.current.wasteValue, produce.previous.wasteValue], [null, null], "waste value needs stock.valuation.view");
+  const valued = await commandCenter({ can: (p: string) => p === "stock.view" || p === "stock.valuation.view" }, {});
+  assert.equal(typeof (valued.produce as { current: { wasteValue: unknown } }).current.wasteValue, "string", "and is shown with it");
   assert.equal("profit" in stock, false);
 });
 

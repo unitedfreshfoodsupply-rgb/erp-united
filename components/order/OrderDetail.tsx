@@ -68,6 +68,10 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     notes: "",
     reason: "",
   });
+  // The values the form opened with: only what the user changed is sent, so an unchanged
+  // customer is not read as a customer change, and a retry after someone else's edit (409)
+  // does not put their fields back.
+  const [editBase, setEditBase] = useState(editForm);
   const [overrideTo, setOverrideTo] = useState<OrderStatus | "">("");
   const [overrideReason, setOverrideReason] = useState("");
 
@@ -98,13 +102,17 @@ export function OrderDetail({ orderId }: { orderId: string }) {
    * up to date from that response — no refetch, no spinner, and the data is the
    * server's, not an optimistic guess. Only the derived views (production totals, the
    * report, the timeline) are marked stale afterwards, and that is not awaited.
+   *
+   * Resolves true only when the server accepted the action. A refusal is reported here
+   * (banner + toast) and resolves false, so a caller holding typed input — an edit form,
+   * a reason — keeps it open for the user to correct instead of discarding it.
    */
   async function run(
     id: string,
     fn: () => Promise<{ order?: OrderDTO; item?: OrderItemDTO } | void>,
     successMsg?: string
-  ): Promise<void> {
-    if (busyIds.has(id)) return; // same action already in flight — ignore the double tap
+  ): Promise<boolean> {
+    if (busyIds.has(id)) return false; // same action already in flight — ignore the double tap
     setError(null);
     setBusyIds((prev) => new Set(prev).add(id));
     try {
@@ -116,6 +124,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       }
       invalidateDerivedOrderData(qc, orderId);
       if (successMsg) toast.show(successMsg, "success");
+      return true;
     } catch (err) {
       const msg = err instanceof ApiClientError ? err.message : t("orders.error.generic");
       setError(msg);
@@ -123,6 +132,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       // The cache may now disagree with the server (a 409 means someone else moved
       // first) — pull the truth rather than leaving a stale screen.
       void qc.invalidateQueries({ queryKey: ["order", orderId] });
+      return false;
     } finally {
       setBusyIds((prev) => {
         const next = new Set(prev);
@@ -162,14 +172,16 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const showLoadProgress = ["loading", "loaded", "dispatched"].includes(order.status);
 
   function startEditing() {
-    setEditForm({
+    const base = {
       customer_account_id: order!.customerAccountId ?? "",
       customer_name: order!.customerName,
       delivery_date: order!.deliveryDate,
       delivery_time: order!.deliveryTime ?? "",
       notes: order!.notes ?? "",
       reason: "",
-    });
+    };
+    setEditBase(base);
+    setEditForm(base);
     setEditing(true);
   }
 
@@ -179,26 +191,28 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       setError(t("orders.edit.required_reason"));
       return;
     }
-    await run(
+    const changed = (["customer_account_id", "customer_name", "delivery_date", "delivery_time", "notes"] as const).filter((k) => editForm[k] !== editBase[k]);
+    if (changed.length === 0) return setEditing(false);
+    // The customer is one identity: its id and name go together when either changed.
+    const fields = changed.some((k) => k.startsWith("customer_")) ? [...new Set([...changed, "customer_account_id", "customer_name"] as const)] : changed;
+    const ok = await run(
       "edit",
       () =>
         apiPatch(`/api/orders/${orderId}`, {
-          customer_name: editForm.customer_name,
-          customer_account_id: editForm.customer_account_id,
-          delivery_date: editForm.delivery_date,
-          delivery_time: editForm.delivery_time,
-          notes: editForm.notes,
+          ...Object.fromEntries(fields.map((k) => [k, editForm[k]])),
           reason: editForm.reason,
           expected_version: order!.version,
         }),
       t("orders.edit.save_success")
     );
-    setEditing(false);
+    // A refused edit (version conflict, a customer or date the server rejects) keeps the
+    // form open with everything typed, next to the error banner.
+    if (ok) setEditing(false);
   }
 
   async function submitOverride() {
     if (!overrideTo || !overrideReason.trim()) return;
-    await run(
+    const ok = await run(
       "override",
       () =>
         apiPost(`/api/orders/${orderId}/status`, {
@@ -208,6 +222,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         }),
       t("orders.status.changed")
     );
+    if (!ok) return;
     setOverrideTo("");
     setOverrideReason("");
   }
@@ -324,8 +339,8 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     stickyAction = (
       <DispatchButton
         busy={isBusy("dispatch")}
-        onConfirm={({ vehicle, driverName, crateCount }) =>
-          run(
+        onConfirm={async ({ vehicle, driverName, crateCount }) => {
+          await run(
             "dispatch",
             () =>
               apiPost(`/api/orders/${orderId}/status`, {
@@ -340,8 +355,8 @@ export function OrderDetail({ orderId }: { orderId: string }) {
             // dispatched this order drops off the loader's own board entirely, so
             // this may be the last easy chance to reach it.
             t("orders.dispatch.success")
-          )
-        }
+          );
+        }}
       />
     );
   }
@@ -632,7 +647,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                   run(
                     "cancel",
                     () => apiPost(`/api/orders/${orderId}/cancel`, { reason, expected_version: order.version }),
-                    t("orders.loaded")
+                    t("orders.cancelled-toast")
                   )
                 }
               />
@@ -705,8 +720,9 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       </aside>
       </div>
 
+      {/* u-sticky-action: on desk widths the bar starts after the sidebar (app/globals.css). */}
       {stickyAction && (
-        <div className="fixed bottom-0 inset-x-0 bg-white border-t-2 border-united-green/20 p-4 z-10">
+        <div className="u-sticky-action fixed bottom-0 inset-x-0 bg-white border-t-2 border-united-green/20 p-4 sm:px-6 z-10">
           <div className="max-w-2xl lg:max-w-6xl mx-auto">{stickyAction}</div>
         </div>
       )}

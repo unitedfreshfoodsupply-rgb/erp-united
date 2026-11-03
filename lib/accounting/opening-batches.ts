@@ -93,8 +93,11 @@ async function lineEffect(db: Tx | typeof prisma, l: LineInput, batch: { kind: s
     return { debit: signed.gt(0) ? signed : D(0), credit: signed.lt(0) ? signed.negated() : D(0), accounts: [{ accountId: acc.id, amount: signed }] };
   }
   if (l.kind === "stock") {
-    const p = await db.stockProduct.findUnique({ where: { id: l.product_id }, select: { id: true, active: true, name: true } });
+    const p = await db.stockProduct.findUnique({ where: { id: l.product_id }, select: { id: true, active: true, name: true, costingMethod: true, standardCost: true } });
     if (!p?.active) throw new ApiError(404, "الصنف مش موجود أو موقوف");
+    // ACC-20: what the approver signs must be what posts (a standard product posts at its standard).
+    const { assertOpeningCostIsStandard } = await import("@/lib/inventory/documents");
+    assertOpeningCostIsStandard(p, l.unit_cost);
     if (l.expiry_date && l.expiry_date < batch.cutoverDate) throw new ApiError(400, `"${p.name}": دفعة منتهية الصلاحية قبل تاريخ الافتتاح — مش رصيد`);
     // Valued as the stock ledger values it (4 places per movement); the batch total is rounded
     // once to cents, the way the inventory posting rounds the document's value.
@@ -307,7 +310,8 @@ export async function applyOpeningBatchDecision(tx: Tx, id: string, approved: bo
   const stock = parsed.filter((p) => p.input.kind === "stock").map((p) => p.input as Extract<LineInput, { kind: "stock" }>);
   if (stock.length) {
     const { postOpeningStockInTx } = await import("@/lib/inventory/documents");
-    await postOpeningStockInTx(tx, { date, lines: stock.map((s) => ({ product_id: s.product_id, quantity: s.quantity.toString(), unit_cost: s.unit_cost.toString(), ...(s.location_id ? { location_id: s.location_id } : {}), ...(s.expiry_date ? { expiry_date: s.expiry_date } : {}) })) }, actor);
+    // Tagged with its batch (metadata only), so the cut-over report can tell it from a direct entry.
+    await postOpeningStockInTx(tx, { date, sourceId: `${b.id}:stock`, lines: stock.map((s) => ({ product_id: s.product_id, quantity: s.quantity.toString(), unit_cost: s.unit_cost.toString(), ...(s.location_id ? { location_id: s.location_id } : {}), ...(s.expiry_date ? { expiry_date: s.expiry_date } : {}) })) }, actor);
   }
   // 4. Fixed assets with their history; one entry for the batch.
   const assets = parsed.filter((p) => p.input.kind === "asset");

@@ -12,6 +12,8 @@ type Row = { action: string; entityType: string; fieldChanged: string | null };
 
 const RULES: { applies: (r: Row) => boolean; anyOf: Permission[] }[] = [
   { applies: (r) => r.action === "order_priced" || r.action === "order_line_price_overridden", anyOf: ["sales.pricing.view"] },
+  // A below-cost exception names the average cost: stock-valuation information, or the approver's.
+  { applies: (r) => r.action === "order_price_exception", anyOf: ["stock.valuation.view", "sales.pricing.approve"] },
   { applies: (r) => r.action.startsWith("order_credit_"), anyOf: ["sales.customers.view", "sales.credit.manage"] },
   { applies: (r) => r.entityType === "approval_request" && r.fieldChanged === "sales.credit", anyOf: ["sales.customers.view", "sales.credit.manage"] },
   { applies: (r) => r.entityType === "sales_invoice" || r.entityType === "credit_note", anyOf: ["sales.invoices.view"] },

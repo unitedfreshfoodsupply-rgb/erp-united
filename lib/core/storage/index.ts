@@ -10,7 +10,8 @@ let cached: StorageProvider | null = null;
  * STORAGE_PROVIDER=supabase (production default) or local (development default).
  * Production never falls back to local disk: a server whose disk is wiped on every
  * deploy would silently lose documents. Missing configuration fails closed — the
- * attachment endpoints answer 503 — rather than storing files somewhere unsafe.
+ * attachment endpoints answer 503 — rather than storing files somewhere unsafe. The
+ * error's message names the missing setting: it goes to the server log, never to the user.
  */
 export function storageProvider(): StorageProvider {
   if (cached) return cached;

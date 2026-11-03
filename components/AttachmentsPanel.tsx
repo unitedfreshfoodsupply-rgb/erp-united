@@ -61,16 +61,19 @@ export function AttachmentsPanel({ entityType, entityId, canManage }: { entityTy
       form.set("entity_id", entityId);
       form.set("category", category);
       form.set("file", file);
-      // Not apiFetch: that forces a JSON content type, and a multipart body needs the
-      // browser to set its own boundary.
-      const res = await fetch("/api/attachments", {
-        method: "POST",
-        body: form,
-        credentials: "include",
-        headers: typeof window !== "undefined" && window.sessionStorage.getItem("united_token")
-          ? { Authorization: `Bearer ${window.sessionStorage.getItem("united_token")}` }
-          : undefined,
-      });
+      // Not apiFetch: a multipart body needs the browser to set its own boundary. The tab's
+      // token and the chosen language go along as apiFetch would send them, so a refusal
+      // ("file too large", "type not allowed") reads in the user's language.
+      const headers: Record<string, string> = {};
+      const token = window.sessionStorage.getItem("united_token");
+      if (token) headers.Authorization = `Bearer ${token}`;
+      try {
+        const locale = window.localStorage.getItem("united_locale");
+        if (locale) headers["Accept-Language"] = locale;
+      } catch {
+        // Storage blocked: the server answers in its default language.
+      }
+      const res = await fetch("/api/attachments", { method: "POST", body: form, credentials: "include", headers });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new ApiClientError(typeof data?.error === "string" && data.error ? data.error : t("ui.attachment-error-status", { status: res.status }));
       toast.show(data.duplicate ? t("ui.attachment-duplicate") : t("ui.attachment-uploaded"), "success");

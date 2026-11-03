@@ -9,10 +9,11 @@ import { EmptyState, ErrorState } from "@/components/States";
 import { LiveIndicator } from "@/components/ui/LiveIndicator";
 import { systemText } from "@/lib/locale/system-text";
 import { settingLabel, settingValueText } from "@/lib/core/settings-registry";
-import { buildTimeline, timeLabel, SOURCE_LABEL, SOURCE_LABEL_EN, type TimelineLocale } from "@/lib/auditLabels";
+import { buildTimeline, changeText, timeLabel, SOURCE_LABEL, SOURCE_LABEL_EN, type TimelineLocale } from "@/lib/auditLabels";
 import { ROLE_LABEL, ROLE_LABEL_EN, isRole } from "@/lib/types";
 import { CardSkeleton } from "@/components/Skeleton";
 import { useLocale } from "@/lib/locale";
+import { usePermissions } from "@/lib/use-session";
 import { DICTIONARY } from "@/lib/locale/dictionary";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Pagination } from "@/components/ui/Pagination";
@@ -33,6 +34,7 @@ const PAGE_SIZE = 50;
 
 export function AuditLogView() {
   const { t, locale } = useLocale();
+  const { can } = usePermissions();
   const [search, setSearch] = useState("");
   const [decisionFilter, setDecisionFilter] = useState<DecisionFilter>("all");
   const [entityFilter, setEntityFilter] = useState("all");
@@ -61,7 +63,8 @@ export function AuditLogView() {
   return (
     <div className="page-narrow">
       <PageHeader
-        back={{ href: "/supervisor", label: t("audit.back-supervisor") }}
+        // The audit log is also read by roles without the supervisor board (audit.view only).
+        back={can("reports.view") ? { href: "/supervisor", label: t("audit.back-supervisor") } : undefined}
         title={t("audit.page-title")}
         description={t("audit.subtitle")}
         actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />}
@@ -182,7 +185,7 @@ function describeOne(l: AuditLogDTO, locale: TimelineLocale) {
     return {
       icon: "•",
       headline: `${en ? entity.en : entity.ar} — ${verb}`,
-      detail: `${setting}: ${settingValueText(l.fieldChanged!, l.oldValue, locale)} → ${settingValueText(l.fieldChanged!, l.newValue, locale)}`,
+      detail: `${setting}: ${changeText(settingValueText(l.fieldChanged!, l.oldValue, locale), settingValueText(l.fieldChanged!, l.newValue, locale), locale)}`,
     };
   }
   const isOrder = !l.entityType || l.entityType === "order" || l.entityType === "order_item";

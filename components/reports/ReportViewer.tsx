@@ -1,23 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, Download, Info, Printer } from "lucide-react";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, errorMessage } from "@/lib/api-client";
+import { isValidISODate } from "@/lib/dates";
 import { useLocale } from "@/lib/locale";
 import { formatNumber } from "@/lib/format";
 import { localName } from "@/lib/locale/names";
 import { systemText } from "@/lib/locale/system-text";
 import { todayLocalISO } from "@/lib/localDate";
 import { DataTable, type Column } from "@/components/ui/DataTable";
+import { ErrorState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 
 type Bi = { ar: string; en: string };
 type Col = { key: string; label: Bi; type: "text" | "code" | "date" | "money" | "qty" | "number" | "percent"; total?: boolean };
 type Row = Record<string, string | number | null> & { _href?: string | null; _tone?: "warn" | "danger" | null };
-type Ran = { key: string; title: Bi; description: Bi; notes: Bi | null; filters: string[]; params: Record<string, string>; columns: Col[]; rows: Row[]; totals: Record<string, string | number | null>; warnings: Bi[] };
+type Ran = { key: string; title: Bi; description: Bi; notes: Bi | null; filters: string[]; params: Record<string, string>; columns: Col[]; rows: Row[]; totals: Record<string, string | number | null>; warnings: Bi[]; scope: Bi | null };
 
 /** The URL keys of each filter (the API reads the same names). */
 const FILTER_PARAM: Record<string, string> = { customer: "customer_id", supplier: "supplier_id", product: "product_id", category: "category", account: "account_id", cashAccount: "cash_account_id", groupBy: "group_by", days: "days" };
@@ -44,8 +46,27 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
     }
     router.replace(`${pathname}${next.toString() ? `?${next}` : ""}`, { scroll: false });
   };
-  const r = q.data;
+  // The last result that loaded stays on screen when a filter is refused (the error shows above
+  // the table, with the filters to correct it), instead of the whole viewer disappearing.
+  const [last, setLast] = useState<Ran>();
+  useEffect(() => { if (q.data) setLast(q.data); }, [q.data]);
+  const r = [q.data, last].find((x) => x?.key === reportKey);
   const has = (f: string) => !!r?.filters.includes(f);
+
+  // What is typed in the period and days fields: sent to the URL only once it is a valid filter,
+  // so a half-typed date or number is neither replaced by the last response nor sent to be refused.
+  const [draft, setDraft] = useState({ from: "", to: "", days: "" });
+  const [pFrom, pTo, pDays] = [r?.params.from ?? "", r?.params.to ?? "", r ? String(r.params.days) : ""];
+  useEffect(() => { setDraft((d) => ({ ...d, from: pFrom })); }, [pFrom]);
+  useEffect(() => { setDraft((d) => ({ ...d, to: pTo })); }, [pTo]);
+  useEffect(() => { setDraft((d) => ({ ...d, days: pDays })); }, [pDays]);
+  const period = (patch: { from?: string; to?: string }) => {
+    const next = { ...draft, ...patch };
+    setDraft(next);
+    if (isValidISODate(next.from) && isValidISODate(next.to) && next.from <= next.to) set({ from: next.from, to: next.to });
+  };
+  const daysOk = (v: string) => v !== "" && Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 365;
+  const inverted = isValidISODate(draft.from) && isValidISODate(draft.to) && draft.from > draft.to;
 
   // Names come in both languages (x_ar / x_en, for the exports); the screen shows the reader's one.
   const keys = new Set(r?.columns.map((c) => c.key));
@@ -104,24 +125,27 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
           </div>
         )}
       </div>
-      {q.isError && <p className="card p-4 text-united-danger" role="alert">{(q.error as Error)?.message}</p>}
+      {q.isError && !r && <ErrorState message={errorMessage(q.error) ?? t("ui.error.generic")} onRetry={() => q.refetch()} />}
       {r && (
         <>
           <header className="flex flex-col gap-1">
             <h1 className="page-title">{r.title[lang]}</h1>
             <p className="page-subtitle">{r.description[lang]}</p>
-            {has("period") && <p className="text-sm font-semibold text-united-dark" dir="ltr" style={{ textAlign: "start" }}>{r.params.from} → {r.params.to}</p>}
+            {/* The line follows the page direction; the range itself is one left-to-right run. */}
+            {has("period") && <p className="text-sm font-semibold text-united-dark"><bdi dir="ltr">{r.params.from} → {r.params.to}</bdi></p>}
+            {r.scope && <p className="text-sm font-semibold text-united-dark">{r.scope[lang]}</p>}
           </header>
           <section className="no-print card flex flex-wrap items-end gap-3 p-4" aria-label={t("reports.filters")}>
             {has("period") && (
               <>
-                <label className="flex flex-col gap-1"><span className="field-label">{t("list.from")}</span><input type="date" className="field-sm" value={r.params.from} onChange={(e) => set({ from: e.target.value || null })} /></label>
-                <label className="flex flex-col gap-1"><span className="field-label">{t("list.to")}</span><input type="date" className="field-sm" value={r.params.to} onChange={(e) => set({ to: e.target.value || null })} /></label>
+                <label className="flex flex-col gap-1"><span className="field-label">{t("list.from")}</span><input type="date" className="field-sm" value={draft.from} aria-invalid={inverted || undefined} onChange={(e) => period({ from: e.target.value })} onBlur={() => { if (!isValidISODate(draft.from)) setDraft({ ...draft, from: pFrom }); }} /></label>
+                <label className="flex flex-col gap-1"><span className="field-label">{t("list.to")}</span><input type="date" className="field-sm" value={draft.to} aria-invalid={inverted || undefined} onChange={(e) => period({ to: e.target.value })} onBlur={() => { if (!isValidISODate(draft.to)) setDraft({ ...draft, to: pTo }); }} /></label>
                 <div className="flex flex-wrap gap-1" role="group" aria-label={t("reports.presets")}>
                   {presets.map(([label, from, to]) => (
-                    <button key={label} type="button" aria-pressed={r.params.from === from && r.params.to === to} className="chip !min-h-[36px] text-xs" onClick={() => set({ from, to })}>{label}</button>
+                    <button key={label} type="button" aria-pressed={r.params.from === from && r.params.to === to} className="chip !min-h-[36px] text-xs" onClick={() => period({ from, to })}>{label}</button>
                   ))}
                 </div>
+                {inverted && <p className="basis-full text-xs font-semibold text-united-danger" role="alert">{t("reports.range-invalid")}</p>}
               </>
             )}
             {has("groupBy") && (
@@ -131,11 +155,17 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
                 </select>
               </label>
             )}
-            {has("days") && <label className="flex flex-col gap-1"><span className="field-label">{t("reports.days")}</span><input type="number" min={0} max={365} className="field-sm w-24" value={r.params.days} onChange={(e) => set({ days: e.target.value || null })} /></label>}
+            {has("days") && <label className="flex flex-col gap-1"><span className="field-label">{t("reports.days")}</span><input type="number" min={0} max={365} className="field-sm w-24" value={draft.days} onChange={(e) => { setDraft({ ...draft, days: e.target.value }); if (daysOk(e.target.value)) set({ days: e.target.value }); }} onBlur={() => { if (!daysOk(draft.days)) setDraft({ ...draft, days: pDays }); }} /></label>}
             {(["customer", "supplier", "product", "category", "account", "cashAccount"] as const).filter(has).map((f) => (
               <PartyFilter key={f} kind={f} value={sp.get(FILTER_PARAM[f]) ?? ""} onChange={(v) => set({ [FILTER_PARAM[f]]: v || null })} />
             ))}
           </section>
+          {q.isError && (
+            <div className="card flex flex-wrap items-center justify-between gap-2 border-s-4 !border-s-united-danger p-3" role="alert">
+              <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-united-danger"><AlertTriangle size={15} aria-hidden /> {errorMessage(q.error) ?? t("ui.error.generic")}</p>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => q.refetch()}>{t("ui.retry")}</button>
+            </div>
+          )}
           {r.warnings.length > 0 && (
             <div className="card flex flex-col gap-1 border-s-4 !border-s-united-warn p-3" role="status">
               {r.warnings.map((w, i) => <p key={i} className="inline-flex items-center gap-1.5 text-sm font-semibold text-united-warn"><AlertTriangle size={15} aria-hidden /> {w[lang]}</p>)}

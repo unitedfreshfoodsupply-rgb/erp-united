@@ -16,6 +16,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
+import { changeArrow } from "@/lib/auditLabels";
 
 /**
  * Attendance (docs/erp/DESIGN_SYSTEM.md §8.2): the daily register (tablet-first: one row per
@@ -296,7 +297,7 @@ function DayHistory({ id, onClose }: { id: string; onClose: () => void }) {
                 <span className="text-xs text-united-muted" dir="ltr">{new Date(r.changedAt).toLocaleString("en-GB")}</span>
               </div>
               <div className="text-united-muted">
-                {r.before && r.before.status !== r.after.status ? `${t(`att.status.${r.before.status}`)} → ` : ""}{t(`att.status.${String(r.after.status)}`)} · {t(`att.state.${String(r.after.state)}`)} · {r.changedBy}
+                {r.before && r.before.status !== r.after.status ? `${t(`att.status.${r.before.status}`)} ${changeArrow(locale)} ` : ""}{t(`att.status.${String(r.after.status)}`)} · {t(`att.state.${String(r.after.state)}`)} · {r.changedBy}
               </div>
               {r.reason && <div className="text-xs text-united-muted">{t("att.reason")}: {r.reason}</div>}
             </li>
@@ -480,7 +481,7 @@ function CorrectionsTab() {
                   {c.retroStatus === "pending" && <StatusPill tone="info">{t("att.retro_pending")}</StatusPill>}
                 </div>
                 <div className="mt-0.5 text-sm text-united-dark">
-                  {localName(c.employee, locale)} · <span dir="ltr">{c.date}</span> → {t(`att.status.${c.requested.status}`)}{c.requested.first_in ? <span dir="ltr"> ({c.requested.first_in}–{c.requested.last_out})</span> : ""}
+                  {localName(c.employee, locale)} · <span dir="ltr">{c.date}</span> {changeArrow(locale)} {t(`att.status.${c.requested.status}`)}{c.requested.first_in ? <span dir="ltr"> ({c.requested.first_in}–{c.requested.last_out})</span> : ""}
                 </div>
                 <div className="mt-0.5 text-xs text-united-muted">{c.reason} · {c.requestedBy}{c.decidedBy ? ` · ${t("att.decided_by")} ${c.decidedBy}` : ""}{c.decisionComment ? `: ${c.decisionComment}` : ""}</div>
               </div>
@@ -661,7 +662,7 @@ function HolidaysCard({ canManage }: { canManage: boolean }) {
   const remove = async (h: Holiday) => {
     if (!(await dialogs.confirm({ title: t("att.holiday_remove"), body: `${h.date} · ${h.nameAr}`, tone: "danger" }))) return;
     try {
-      await fetchDelete(`/api/hr/holidays/${h.id}`);
+      await apiFetch(`/api/hr/holidays/${h.id}`, { method: "DELETE" });
       void qc.invalidateQueries({ queryKey: ["hr"] });
     } catch (err) {
       toast.show(fail(t, err), "error");
@@ -699,14 +700,6 @@ function HolidaysCard({ canManage }: { canManage: boolean }) {
       )}
     </section>
   );
-}
-
-async function fetchDelete(path: string) {
-  const res = await fetch(path, { method: "DELETE", headers: { "accept-language": document.documentElement.lang === "en" ? "en" : "ar" } });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new ApiClientError((body as { error?: string }).error ?? res.statusText);
-  }
 }
 
 type Source = {
@@ -778,8 +771,8 @@ function DevicesCard({ canManage, canRecord }: { canManage: boolean; canRecord: 
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {s.identities.map((i) => (
                   <span key={i.id} className="inline-flex items-center gap-1 rounded bg-united-subtle px-2 py-0.5 text-xs">
-                    <span dir="ltr">#{i.externalUserId}</span> → {localName(i.employee, locale)}
-                    {canManage && <button type="button" className="text-united-muted hover:text-united-danger" aria-label={t("att.unmap")} onClick={() => run(() => fetchDelete(`/api/hr/attendance/identities/${i.id}`))}>×</button>}
+                    <span dir="ltr">#{i.externalUserId}</span> {changeArrow(locale)} {localName(i.employee, locale)}
+                    {canManage && <button type="button" className="text-united-muted hover:text-united-danger" aria-label={t("att.unmap")} onClick={() => run(() => apiFetch(`/api/hr/attendance/identities/${i.id}`, { method: "DELETE" }))}>×</button>}
                   </span>
                 ))}
               </div>

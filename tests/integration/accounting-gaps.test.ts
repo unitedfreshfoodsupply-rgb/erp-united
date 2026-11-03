@@ -130,7 +130,7 @@ test("ACC-02: a back-dated stock document into a locked date is not refused — 
   }
 });
 
-test("ACC-17: the NRV waste-loss entry follows the lock date (posted today, audited); a correction leaves it exact; a graded receipt is not voided", async () => {
+test("ACC-17: the NRV waste-loss entry follows the lock date (posted today, audited); a correction leaves it exact; voiding the receipt reverses it (ACC-18)", async () => {
   // The NRV path reads market prices from the default price list; use it, or a temporary one.
   const existing = await prisma.priceList.findFirst({ where: { isDefault: true, active: true }, select: { id: true } });
   const list = existing ?? (await prisma.priceList.create({ data: { code: `${TAG}-PL`, name: `${TAG} أسعار`, isDefault: true, createdBy: "test" } }));
@@ -159,12 +159,22 @@ test("ACC-17: the NRV waste-loss entry follows the lock date (posted today, audi
     await updateIntake(r.id, { received_kg: "104" } as never, boss, "وزن أعيد", i1.version);
     const after_ = await prisma.journalEntry.findMany({ where: { sourceId: `intake-waste|${r.id}` }, select: { id: true } });
     assert.deepEqual(after_.map((e) => e.id), [loss.id], "still one waste-loss entry, unchanged");
-    // ACC-18 (open): a graded receipt cannot be voided, so no loss is left behind by a void.
-    // When that void is built it must also reverse this entry, and this check has to change.
+    // ACC-18: voiding the graded receipt reverses the loss with it, line by line, never dated
+    // before the loss itself; receipt + correction + void + loss + reversal net to nothing.
     const i2 = await prisma.stockIntake.findUniqueOrThrow({ where: { id: r.id } });
-    await assert.rejects(voidIntake(r.id, boss, "استلام غلط", i2.version), (e: { status?: number }) => (e.status ?? 0) >= 400 && (e.status ?? 0) < 500, "refused as a request error, not a crash");
-    assert.equal((await prisma.stockIntake.findUniqueOrThrow({ where: { id: r.id } })).status, "posted");
-    assert.equal(await prisma.journalEntry.count({ where: { sourceId: `intake-waste|${r.id}` } }), 1);
+    await voidIntake(r.id, boss, "استلام غلط", i2.version);
+    assert.equal((await prisma.stockIntake.findUniqueOrThrow({ where: { id: r.id } })).status, "voided");
+    const rev = await prisma.journalEntry.findFirstOrThrow({ where: { reversalOfId: loss.id }, include: { lines: { include: { account: { select: { systemKey: true } } } } } });
+    const revNet = (k: string) => rev.lines.filter((l) => l.account.systemKey === k).reduce((t, l) => t.plus(l.debit).minus(l.credit), D(0)).toFixed(2);
+    assert.deepEqual([rev.sourceType, revNet("inventory_adjustment"), revNet("grni")], ["reversal", "-90.00", "90.00"]);
+    assert.ok(rev.date >= loss.date, "not dated before the loss");
+    assert.equal(await prisma.journalEntry.count({ where: { reversalOfId: loss.id } }), 1);
+    const entryIds = [...new Set((await prisma.stockValuationPosting.findMany({ where: { movement: { intakeId: r.id } }, select: { entryId: true } })).map((x) => x.entryId).filter((x): x is string => !!x)), loss.id, rev.id];
+    const all = await prisma.journalLine.findMany({ where: { entryId: { in: entryIds } }, include: { account: { select: { systemKey: true } } } });
+    for (const k of ["inventory", "grni", "inventory_adjustment"]) {
+      assert.equal(all.filter((l) => l.account.systemKey === k).reduce((t, l) => t.plus(l.debit).minus(l.credit), D(0)).toFixed(2), "0.00", `${k} nets to zero`);
+    }
+    assert.deepEqual([await onHand(a.id), await onHand(b.id)], ["0", "0"]);
   } finally {
     await restoreLock();
     await r2();

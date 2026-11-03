@@ -22,7 +22,8 @@ export function ItemRow({
   mode: Mode;
   onConfirm?: (quantity: number) => Promise<void>;
   busy?: boolean;
-  supervisorEdit?: { onSave: (qty: number, reason: string) => Promise<void> };
+  /** onSave resolves false when the server refused the change: the editor stays open. */
+  supervisorEdit?: { onSave: (qty: number, reason: string) => Promise<boolean | void> };
 }) {
   const { t, locale } = useLocale();
   const startValue =
@@ -162,7 +163,9 @@ export function ItemRow({
 
       {(mode === "prepare" || mode === "load") && !done && (
         <div className="border-t border-united-border pt-3">
-          <div className="flex items-center justify-between gap-3">
+          {/* Wraps on a phone: the button drops under the stepper at full width instead
+              of running off the card. */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <QuantityInput value={qty} onChange={handleQtyChange} disabled={busy} />
             <button
               disabled={busy}
@@ -173,7 +176,7 @@ export function ItemRow({
                 }
                 onConfirm?.(qty);
               }}
-              className={`px-6 text-lg btn-primary ${isOutlier && !outlierConfirmed ? "!bg-united-warn" : ""}`}
+              className={`grow basis-32 px-6 text-lg btn-primary ${isOutlier && !outlierConfirmed ? "!bg-united-warn" : ""}`}
             >
               {busy
                 ? t("orders.item.confirm_recording")
@@ -257,7 +260,10 @@ export function ItemRow({
                 <button
                   disabled={!reqReason.trim() || !reqQty}
                   onClick={async () => {
-                    await supervisorEdit.onSave(Number(reqQty), reqReason);
+                    // Close and clear only once the server accepted it — a refusal (stock
+                    // unavailable, version conflict) leaves the quantity and reason in place.
+                    const ok = await supervisorEdit.onSave(Number(reqQty), reqReason);
+                    if (ok === false) return;
                     setEditingRequired(false);
                     setReqReason("");
                   }}

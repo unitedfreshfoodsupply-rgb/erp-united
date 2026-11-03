@@ -85,7 +85,8 @@ export function FilterBar({ list, filters = [], searchLabel, searchHint, childre
   for (const f of filters) {
     if (f.kind === "select" && list.filters[f.key]) chips.push({ key: f.key, label: `${f.label}: ${f.options.find((o) => o.value === list.filters[f.key])?.label ?? list.filters[f.key]}`, clear: { [f.key]: null } });
   }
-  if (list.from || list.to) chips.push({ key: "dates", label: `${list.from || "…"} → ${list.to || "…"}`, clear: { from: null, to: null } });
+  // One left-to-right run (LRI…PDI): on an Arabic page the range would otherwise read end → start.
+  if (list.from || list.to) chips.push({ key: "dates", label: `\u2066${list.from || "…"} → ${list.to || "…"}\u2069`, clear: { from: null, to: null } });
   return (
     <div className="flex flex-col gap-2" role="search">
       <div className="flex flex-wrap items-end gap-2">

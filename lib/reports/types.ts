@@ -10,7 +10,10 @@ import type { Permission } from "@/lib/permissions";
 export type Bilingual = { ar: string; en: string };
 export type ReportCategory = "financial" | "sales" | "purchasing" | "inventory" | "operations";
 export type ColumnType = "text" | "code" | "date" | "money" | "qty" | "number" | "percent";
-export type ReportColumn = { key: string; label: Bilingual; type: ColumnType; total?: boolean };
+/** `cost`: a cost or a figure derived from cost (stock value, unit cost, cost of sales, margin). It is
+ *  shown only to viewers who may see what stock is worth (stock.valuation.view), as everywhere else
+ *  (lib/security/redact.ts): the report stays open to its other viewers without those columns. */
+export type ReportColumn = { key: string; label: Bilingual; type: ColumnType; total?: boolean; cost?: boolean };
 export type FilterKey = "period" | "customer" | "supplier" | "product" | "category" | "account" | "cashAccount" | "groupBy" | "days";
 
 export type ReportParams = {
@@ -33,6 +36,8 @@ export type ReportResult = {
   totals?: Record<string, string | number | null>;
   /** Shown above the table: why a figure cannot be taken as complete. */
   warnings?: Bilingual[];
+  /** Whose figures these are when a filter decides it (e.g. the cash account): under the period, and in the Excel title. */
+  scope?: Bilingual;
 };
 
 export type ReportDef = {
@@ -47,6 +52,6 @@ export type ReportDef = {
   filters: FilterKey[];
   columns: ReportColumn[] | ((p: ReportParams) => ReportColumn[]);
   run?: (p: ReportParams) => Promise<ReportResult>;
-  /** A report that already has its own screen: the catalogue links there. */
+  /** A report that already has its own screen: the catalogue links there (listed only to viewers who can open it). */
   href?: string;
 };

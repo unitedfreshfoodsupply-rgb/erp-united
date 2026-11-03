@@ -45,6 +45,8 @@ const PAIRS: readonly (readonly [ar: string, en: string])[] = [
   ["عكس مسير مرتبات {}: {}", "Reversal of payroll run {}: {}"],
   ["عكس صرف مرتبات {}: {}", "Reversal of salary payment {}: {}"],
   ["عكس {}: {}", "Reversal of {}: {}"],
+  ["إلغاء الاستلام {}", "Void of receipt {}"],
+  ["الاستلام اتلغى: {}", "Receipt voided: {}"],
   ["مسير مرتبات {}", "Payroll run {}"],
   ["صرف مرتبات {}", "Salary payment {}"],
   ["استرداد سلف {}", "Advance recovery {}"],

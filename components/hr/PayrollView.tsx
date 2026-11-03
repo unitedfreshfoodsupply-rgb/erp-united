@@ -16,6 +16,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
 import { PayrollRuns } from "@/components/hr/PayrollRuns";
+import { changeArrow } from "@/lib/auditLabels";
 import { localName } from "@/lib/locale/names";
 
 /**
@@ -397,7 +398,7 @@ function RuleParams({ parameters }: { parameters: unknown }) {
 }
 
 function RulesTab({ canManage }: { canManage: boolean }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const dialogs = useDialogs();
   const qc = useQueryClient();
@@ -418,7 +419,7 @@ function RulesTab({ canManage }: { canManage: boolean }) {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-united-dark">{t(`pay.rule.${r.code}`)}</span>
                   <StatusPill tone={RULE_TONE[r.status] ?? "neutral"}>{t(`pay.rule_status.${r.status}`)}</StatusPill>
-                  <span className="text-xs text-united-muted">{t("pay.effective")} <bdi dir="ltr">{r.effectiveFrom}</bdi> → <bdi dir="ltr">{r.effectiveTo ?? "…"}</bdi></span>
+                  <span className="text-xs text-united-muted">{t("pay.effective")} <bdi dir="ltr">{r.effectiveFrom}</bdi> {changeArrow(locale)} <bdi dir="ltr">{r.effectiveTo ?? "…"}</bdi></span>
                 </div>
                 <RuleParams parameters={r.parameters} />
                 <div className="mt-0.5 text-xs text-united-muted">{t("pay.source")}: {r.sourceReference} · {r.createdBy}{r.verifiedBy ? ` · ${t("pay.verified_by")} ${r.verifiedBy}` : ""}</div>

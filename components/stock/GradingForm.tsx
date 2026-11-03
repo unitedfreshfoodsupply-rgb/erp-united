@@ -296,6 +296,9 @@ function SortResult({
   const { t, dir, locale } = useLocale();
   const p = doc.payload;
   const moved = (kind: string) => doc.movements.filter((m) => m.kind === kind).reduce((s, m) => s + (m.quantityKg ?? 0), 0);
+  // Every output (good, grade B, waste) is posted as a sorting_in movement, so the
+  // movements cannot tell them apart: the split is read from the document's own payload.
+  const splitKg = (v: string | undefined) => (v == null ? "—" : fmtKg(Number(v)));
   const fallback = p?.costBasis === "nrv_fallback_proportional";
 
   const costBasisKey = p?.costBasis ? COST_BASIS_TKEY[p.costBasis] : null;
@@ -309,10 +312,11 @@ function SortResult({
             {doc.number}
           </span>
         </div>
-        <div className="grid grid-cols-4 gap-1 mt-2 text-center text-xs font-extrabold">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-1 mt-2 text-center text-xs font-extrabold">
           <ResultCell label={t("stock.movement.sorting_out_label")} value={fmtKg(moved("sorting_out"))} />
-          <ResultCell label={t("stock.grading.good")} value={fmtKg(moved("sorting_in") - 0)} tone="text-united-green" />
-          <ResultCell label={t("stock.waste")} value={fmtKg(moved("sorting_in"))} />
+          <ResultCell label={t("stock.grading.good")} value={splitKg(p?.goodKg)} tone="text-united-green" />
+          <ResultCell label={t("stock.grading.grade-b")} value={splitKg(p?.gradeBKg)} />
+          <ResultCell label={t("stock.waste")} value={splitKg(p?.wasteKg)} />
           <ResultCell label={t("stock.result.yield")} value={yieldPct == null ? "—" : fmtYield(yieldPct)} />
         </div>
       </div>

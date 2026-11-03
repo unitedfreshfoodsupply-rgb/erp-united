@@ -397,6 +397,8 @@ export async function createCreditNote(invoiceId: string, input: unknown, actor:
       await advisoryXactLock(tx, `sales:return-doc:${v.return_document_id}`);
       const doc = await tx.inventoryDocument.findUnique({ where: { id: v.return_document_id } });
       if (!doc || doc.type !== "customer_return") throw new ApiError(400, "مستند المرتجع مش موجود");
+      // A reversed return took the goods back out: it backs no credit.
+      if (doc.status !== "posted" || doc.reversalOfId) throw new ApiError(409, "مستند المرتجع ده ملغي — مينفعش يتعمل عليه إشعار دائن");
       const used = await tx.creditNote.findFirst({ where: { returnDocumentId: v.return_document_id }, select: { number: true } });
       if (used) throw new ApiError(409, `مستند المرتجع ده اتستخدم في الإشعار ${used.number} بالفعل`);
       // The credit cannot exceed what the return document physically moved back in —

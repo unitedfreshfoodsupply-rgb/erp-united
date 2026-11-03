@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { Prisma } from "@prisma/client";
 import { prisma, actor, withSetting, inTx } from "./_db";
 import { createIntake, voidIntake } from "@/lib/stock-service";
-import { createAdjustment } from "@/lib/inventory/documents";
+import { createAdjustment, postOpeningStockInTx } from "@/lib/inventory/documents";
 import { applyBillDecision, createBill, createDebitNote, postBill } from "@/lib/purchasing/bills";
 import { updateInventorySettings } from "@/lib/inventory/products";
 import { assertStandardCostAccounts } from "@/lib/inventory/standard-cost";
@@ -253,4 +253,19 @@ test("the integrity report still reconciles inventory with the GL after all of t
   const inv = (report as { checks: { key: string; ok: boolean }[] }).checks.find((c) => c.key === "inventory");
   assert.ok(inv, "an inventory check exists");
   assert.equal(inv!.ok, true, JSON.stringify(inv));
+});
+
+test("ACC-20: opening stock of a standard product must be entered at its standard — another cost is refused, nothing posts; at the standard it posts as before", async () => {
+  const p = await standardProduct("Opening", "7");
+  const opener = actor("محاسب", ["accounting.opening.manage", "accounting.opening.approve", "stock.view", "stock.valuation.view"]);
+  const docsBefore = await prisma.inventoryDocument.count({ where: { sourceType: "opening_balance" } });
+  await assert.rejects(inTx((tx) => postOpeningStockInTx(tx, { date: today, lines: [{ product_id: p.id, quantity: "10", unit_cost: "9" }] }, opener)),
+    (e: { status?: number; message?: string }) => e.status === 400 && /معيارية/.test(e.message ?? ""), "9 against a standard of 7 would drop 20 silently");
+  assert.equal(await prisma.inventoryDocument.count({ where: { sourceType: "opening_balance" } }), docsBefore, "nothing was written");
+  assert.equal(await prisma.stockLot.count({ where: { productId: p.id } }), 0);
+  const doc = await inTx((tx) => postOpeningStockInTx(tx, { date: today, lines: [{ product_id: p.id, quantity: "10", unit_cost: "7.0000" }] }, opener));
+  const layer = await prisma.stockValuationLayer.findFirstOrThrow({ where: { movement: { documentId: doc.id } } });
+  assert.equal(D(layer.value).toFixed(2), "70.00", "10 kg at the standard");
+  const lot = await prisma.stockLot.findFirstOrThrow({ where: { productId: p.id } });
+  assert.equal(D(lot.unitCost!).toFixed(4), D(layer.unitCost).toFixed(4), "the lot carries the cost the ledger posted");
 });

@@ -99,11 +99,15 @@ export async function commandCenter(viewer: Viewer, q: { from?: string | null; t
     tasks.push(prisma.openingBatch.count({ where: { kind: "initial", status: "posted" } }).then((n) => { out.openingBalancesComplete = n > 0; }));
   }
   if (stock) {
-    tasks.push(Promise.all([produce(p.from, p.to), produce(p.prevFrom, p.prevTo)]).then(([cur, prev]) => { out.produce = { current: cur, previous: prev }; }));
+    // Waste value is a cost figure: only with stock.valuation.view, as every stock response (redact.ts).
+    const costs = viewer.can("stock.valuation.view");
+    const strip = (x: Awaited<ReturnType<typeof produce>>) => (costs ? x : { ...x, wasteValue: null });
+    tasks.push(Promise.all([produce(p.from, p.to), produce(p.prevFrom, p.prevTo)]).then(([cur, prev]) => { out.produce = { current: strip(cur), previous: strip(prev) }; }));
+    // Expiring = within 3 days of today's business day (Cairo, not the database's UTC date), the day /reports/expiry counts from.
     tasks.push(Promise.all([
       viewer.can("stock.valuation.view") ? prisma.stockValuationLayer.aggregate({ _sum: { value: true } }).then((a) => D(a._sum.value).toFixed(2)) : Promise.resolve(null),
       prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*) n FROM "StockProduct" p WHERE p."active" AND p."reorderPointQty" IS NOT NULL AND coalesce((SELECT sum(m."quantity") FROM "StockMovement" m JOIN "StorageLocation" l ON l."id" = m."locationId" WHERE m."productId" = p."id" AND l."type" NOT IN ('waste', 'quarantine')), 0) - coalesce((SELECT sum(r."quantity") FROM "StockReservation" r WHERE r."productId" = p."id" AND r."status" = 'active'), 0) <= p."reorderPointQty"`,
-      prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*) n FROM (SELECT m."lotId" FROM "StockMovement" m JOIN "StockLot" lt ON lt."id" = m."lotId" JOIN "StorageLocation" l ON l."id" = m."locationId" WHERE l."type" <> 'waste' AND lt."expiryDate" IS NOT NULL AND lt."expiryDate"::date <= current_date + 3 GROUP BY m."lotId" HAVING sum(m."quantity") > 0) x`,
+      prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*) n FROM (SELECT m."lotId" FROM "StockMovement" m JOIN "StockLot" lt ON lt."id" = m."lotId" JOIN "StorageLocation" l ON l."id" = m."locationId" WHERE l."type" <> 'waste' AND lt."expiryDate" IS NOT NULL AND lt."expiryDate"::date <= ${p.today}::date + 3 GROUP BY m."lotId" HAVING sum(m."quantity") > 0) x`,
       prisma.stockIssueException.count({ where: { status: "open" } }),
     ]).then(([value, low, expiring, exceptions]) => { out.inventory = { value, lowStock: Number(low[0]?.n ?? 0), expiringLots: Number(expiring[0]?.n ?? 0), openExceptions: exceptions }; }));
   }

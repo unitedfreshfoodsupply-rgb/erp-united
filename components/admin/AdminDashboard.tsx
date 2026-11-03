@@ -20,6 +20,7 @@ import { StatTile } from "@/components/stock/StatTile";
 import { DataImportPanel } from "@/components/admin/DataImportPanel";
 import { useLocale } from "@/lib/locale";
 import { intlLocale } from "@/lib/format";
+import { changeArrow } from "@/lib/auditLabels";
 import { Tabs } from "@/components/stock/inventory/shared";
 
 type Tab = "users" | "matrix" | "overview" | "settings" | "master" | "integrations" | "import";
@@ -262,7 +263,7 @@ function SystemOverview({ data, canSeeAudit }: { data: AdminOverview; canSeeAudi
                     {l.oldValue && l.newValue && (
                       <>
                         {" "}
-                        · <bdi>{auditValue(l.oldValue, l.fieldChanged, locale)}</bdi> → <bdi>{auditValue(l.newValue, l.fieldChanged, locale)}</bdi>
+                        · <bdi>{auditValue(l.oldValue, l.fieldChanged, locale)}</bdi> {changeArrow(locale)} <bdi>{auditValue(l.newValue, l.fieldChanged, locale)}</bdi>
                       </>
                     )}
                     {!l.oldValue && l.newValue && (
@@ -288,7 +289,7 @@ const USER_FIELD: Record<string, { ar: string; en: string }> = {
   name: { ar: "الاسم", en: "Name" },
   username: { ar: "اسم الدخول", en: "Username" },
   password: { ar: "كلمة السر", en: "Password" },
-  mustChangePassword: { ar: "لازم يغيّر كلمة السر", en: "Must change password" },
+  mustChangePassword: { ar: "كلمة سر مؤقتة من الإدارة", en: "Temporary password set by administration" },
   active: { ar: "الحالة", en: "Status" },
   role: { ar: "الدور", en: "Role" },
   sessionEpoch: { ar: "الجلسات المفتوحة", en: "Open sessions" },

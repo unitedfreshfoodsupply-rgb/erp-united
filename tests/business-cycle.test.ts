@@ -113,8 +113,15 @@ async function main() {
   check("GL in the same step: Dr inventory 6000 / Cr GRNI 6000, nothing else", moved(s0, s1, { inventory: 6000, grni: -6000 }).length === 0, moved(s0, s1, { inventory: 6000, grni: -6000 }));
   const wasteBucket = ((await call("hossam", "GET", `/api/inventory/products/${tomato.id}`)).body.buckets ?? []).filter((b: any) => b.locationCode === "WASTE").reduce((s: number, b: any) => s + n(b.quantity), 0);
   check("waste sits in the WASTE location, not sellable stock", wasteBucket === 50, wasteBucket);
-  const vr = await call("hossam", "POST", `/api/stock/intakes/${intake.id}/void`, { reason: `${TAG} تجربة إلغاء` });
-  check("voiding a graded receipt in place is refused, not half-done (its stock went to three places) — books unchanged", vr.status >= 400 && vr.status < 500 && moved(s1, await snap(), {}).length === 0, [vr.status, vr.body]);
+  // ACC-18: a graded receipt entered in error voids in place — its three buckets, its grading-
+  // loss hold and its GL all come back. A second receipt, so this one goes on to be billed.
+  const sv = await snap();
+  const wrong = (await call("hossam", "POST", "/api/stock/intakes", { supplier_id: supplier.id, product_id: tomato.id, received_date: today, received_kg: 100, grade_b_qty: 15, waste_qty: 5, grade_b_product_id: tomatoB.id, unit_cost: "6" })).body.intake;
+  check("a role without stock.sort cannot void a receipt (403)", (await call("mona", "POST", `/api/stock/intakes/${wrong?.id}/void`, { reason: `${TAG} تجربة` })).status === 403);
+  const vr = await call("hossam", "POST", `/api/stock/intakes/${wrong?.id}/void`, { reason: `${TAG} استلام مكرر` });
+  const held = (await call("admin", "GET", "/api/approvals?status=pending")).body.approvals.some((x: any) => x.entityId === wrong?.id);
+  check("voiding a graded receipt in place: 200, voided, its hold no longer pending, books exactly as before it", vr.status === 200 && vr.body.intake?.status === "voided" && !held && moved(sv, await snap(), {}).length === 0, [vr.status, vr.body, held, moved(sv, await snap(), {})]);
+  check("…and the stock of both SKUs is as before it", (await onHand(tomato.id)) === 850 && (await onHand(tomatoB.id)) === 150, [await onHand(tomato.id), await onHand(tomatoB.id)]);
   // CTL-01: a grading loss holds the good and Grade B stock in quarantine until someone other
   // than the receiver approves the loss; the supervisor approves it — no ledger effect.
   const gl = await approveGradingLoss([intake.id]);

@@ -16,6 +16,7 @@ import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { formatNumber } from "@/lib/format";
 import { Field } from "@/components/ui/Field";
+import { lineMissingQuantity, linePriceDiffers, linePricingPayload } from "@/lib/orderEntry";
 
 /**
  * Order entry (remediation 2026-11). Each line shows what can be promised now — the
@@ -26,7 +27,7 @@ import { Field } from "@/components/ui/Field";
  * purchase request instead of an order line. The server enforces every rule again.
  */
 
-type Row = { key: number; stock_product_id: string; quantity: string; unit: string; unit_price: string; discount_pct: string; search: string; prNumber?: string; serverIssue?: string };
+type Row = { key: number; stock_product_id: string; quantity: string; unit: string; unit_price: string; discount_pct: string; search: string; prNumber?: string; serverIssue?: string; missingQty?: boolean };
 type EntryProduct = {
   id: string;
   name: string;
@@ -123,7 +124,9 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
       const price = r.unit_price !== "" ? Number(r.unit_price) : listPrice !== null ? Number(listPrice) : NaN;
       const disc = r.discount_pct !== "" ? Number(r.discount_pct) : 0;
       const total = Number.isFinite(price) && Number.isFinite(q) ? q * price * (1 - disc / 100) : NaN;
-      const priceChanged = r.unit_price !== "" && listPrice !== null && Number(r.unit_price) !== Number(listPrice);
+      // A typed discount differs from the list too (list prices carry none): the reason
+      // field must appear for it, or the server refuses a reason the user cannot type.
+      const priceChanged = linePriceDiffers(r, listPrice);
       return { p, q, prec, precisionOk, short, leftInUnit, listPrice, price, total, priceChanged, unitKnown: f !== null };
     });
   }, [rows, byId, prices.data]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -135,7 +138,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
   const anyUnpriced = rows.some((r, i) => r.stock_product_id && !Number.isFinite(lines[i].price));
 
   function updateRow(i: number, patch: Partial<Row>) {
-    setRows((r) => r.map((row, idx) => (idx === i ? { ...row, ...patch, serverIssue: undefined } : row)));
+    setRows((r) => r.map((row, idx) => (idx === i ? { ...row, ...patch, serverIssue: undefined, missingQty: undefined } : row)));
   }
 
   async function requestPurchase(i: number) {
@@ -175,6 +178,12 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
     e.preventDefault();
     if (busy) return;
     setError(null);
+    // A line with a product but no quantity used to be left out of the order without a
+    // word: refuse it and mark the line instead.
+    if (rows.some(lineMissingQuantity)) {
+      setRows((cur) => cur.map((row) => (lineMissingQuantity(row) ? { ...row, missingQty: true } : row)));
+      return setError(t("create.error-invalid"));
+    }
     const picked = rows.map((r, i) => ({ r, l: lines[i] })).filter(({ r }) => r.stock_product_id && Number(r.quantity) > 0);
     if (!accountId || !date || picked.length === 0 || picked.some(({ r }) => !r.unit)) {
       setError(t("create.error-invalid"));
@@ -192,12 +201,16 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
         delivery_date: date,
         delivery_time: time || undefined,
         notes: notes || undefined,
-        items: picked.map(({ r }) => ({
-          stock_product_id: r.stock_product_id,
-          quantity: Number(r.quantity),
-          unit: r.unit,
-          ...(canPrice && r.unit_price !== "" ? { unit_price: r.unit_price, discount_pct: r.discount_pct || "0", price_reason: priceReason || undefined } : {}),
-        })),
+        items: picked.map(({ r, l }) => {
+          // A discount typed without a price is sent against the list price it was shown on.
+          const pricing = canPrice ? linePricingPayload(r, l.listPrice, priceReason) : null;
+          return {
+            stock_product_id: r.stock_product_id,
+            quantity: Number(r.quantity),
+            unit: r.unit,
+            ...(pricing ?? {}),
+          };
+        }),
       });
       await invalidateOrderData(qc);
       await qc.invalidateQueries({ queryKey: ["orders", "entry-catalog"] });
@@ -260,7 +273,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
           const units = p ? [...new Set([p.unit, ...p.packagings.map((x) => x.uomCode)])] : [];
           const q = row.search.trim().toLowerCase();
           const options = q ? products.filter((x) => [x.name, x.nameAr ?? "", x.sku ?? ""].some((s) => s.toLowerCase().includes(q))) : products;
-          const bad = l.short || !l.precisionOk || !!row.serverIssue;
+          const bad = l.short || !l.precisionOk || !!row.serverIssue || !!row.missingQty;
           return (
             <div key={row.key} className={`rounded-xl border p-3 flex flex-col gap-2 ${bad ? "border-united-danger" : "border-united-border"}`}>
               <div className="flex gap-2 flex-wrap">
@@ -350,6 +363,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
                 </div>
               )}
 
+              {row.missingQty && <p className="text-sm text-united-danger" role="alert">{t("create.qty-missing")}</p>}
               {!l.precisionOk && <p className="text-sm text-united-danger">{l.prec === 0 ? t("create.whole-units-only", { unit: unitLabel(row.unit, locale) }) : t("create.too-many-decimals", { dp: String(l.prec) })}</p>}
               {(l.short || row.serverIssue) && (
                 <div className="text-sm text-united-danger flex flex-col gap-1" role="alert">

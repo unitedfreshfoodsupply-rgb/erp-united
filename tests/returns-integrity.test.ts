@@ -1,7 +1,8 @@
 /* Returns integrity: standalone customer returns are capped — a credit note can
    never exceed what physically came back on the linked return document, one
    return document authorizes at most one credit note, and cumulative credit
-   never exceeds the invoiced quantity. Uses its own products/customer so the
+   never exceeds the invoiced quantity. On the supplier side, debit notes on a
+   return never exceed what it moved out, and a return settled by a note stays. Uses its own products/customer so the
    tightly-coupled UAT totals are untouched. */
 import { call, login, makeChecker } from "./_harness";
 import { taxNo } from "./_stock";
@@ -141,6 +142,41 @@ async function main() {
   // in storage) stays legitimate and uncapped by the order/supplier invariants.
   const wOnly = await call("hossam", "POST", "/api/inventory/returns", { direction: "customer", reason: `${TAG}-warehouse-only`, lines: [{ product_id: p.id, quantity: 10 }] });
   check("warehouse-only return (no order) remains legitimate -> 201", wOnly.status === 201, wOnly.body);
+
+  section("6. SUPPLIER RETURN → DEBIT NOTE CAP, AND RETURNS SETTLED IN MONEY STAY");
+  // An existing supplier return backs one debit note, only for what it moved out, and only while
+  // it stands (the note credits GRNI with the whole return's value). A return that a debit or
+  // credit note settled cannot be reversed: the goods would come back while the note stands.
+  const docOf = (r: any) => r.body.document?.id ?? r.body.return?.id ?? r.body.id;
+  const supDoc = docOf(supOk); // 50 kg of p back to sup
+  let br = await call("karim", "POST", "/api/purchasing/bills", { supplier_id: sup.id, supplier_invoice_no: `${TAG}-B1`, bill_date: today, lines: [{ intake_id: intake.body.intake.id, unit_price: "5" }] });
+  const bill = br.body.bill;
+  br = await call("karim", "POST", `/api/purchasing/bills/${bill.id}/post`, {});
+  check("the 300 kg receipt billed at 5 and posted", br.status === 200 && br.body.bill.status === "posted", br.body);
+  const bl = bill.lines[0];
+  const debit = (qty: number, doc: string, why: string) => call("karim", "POST", `/api/purchasing/bills/${bill.id}/debit-notes`, { reason: `${TAG}-${why}`, return_document_id: doc, lines: [{ bill_line_id: bl.id, quantity: qty }] });
+  check("debit 55 > 50 returned -> 409", (await debit(55, supDoc, "over")).status === 409);
+  const part = await debit(30, supDoc, "part");
+  check("debit 30 of the 50 returned -> 409: the note clears the whole return from GRNI, so it covers all of it", part.status === 409 && /50\.000/.test(part.body?.error ?? ""), [part.status, part.body?.error]);
+  const dn1 = await debit(50, supDoc, "dn1");
+  check("debit the 50 returned -> 201", dn1.status === 201, dn1.body);
+  const again = await debit(1, supDoc, "dn2");
+  check("the same return again -> 409, naming the first note", again.status === 409 && again.body?.error?.includes(dn1.body?.debitNote?.number ?? "?"), [again.status, again.body?.error]);
+  const rev = await call("hossam", "POST", `/api/inventory/documents/${supDoc}/reverse`, { reason: `${TAG}-undo` });
+  check("the debit-noted supplier return cannot be reversed -> 409", rev.status === 409 && /DN-|إشعار/.test(rev.body?.error ?? ""), [rev.status, rev.body?.error]);
+  const ret4 = await call("hossam", "POST", "/api/inventory/returns", { direction: "supplier", supplier_id: sup.id, reason: `${TAG}-sup-2`, lines: [{ product_id: p.id, quantity: 10 }] });
+  const r4 = await call("hossam", "POST", `/api/inventory/documents/${docOf(ret4)}/reverse`, { reason: `${TAG}-rejected` });
+  check("a supplier return with no debit note can still be reversed", ret4.status === 201 && r4.status === 201, [ret4.status, r4.status, r4.body]);
+  check("…and the reversed return backs no debit note -> 409", (await debit(5, docOf(ret4), "reversed")).status === 409);
+  const crev = await call("hossam", "POST", `/api/inventory/documents/${docId}/reverse`, { reason: `${TAG}-undo` });
+  check("the credited customer return cannot be reversed -> 409", crev.status === 409, [crev.status, crev.body?.error]);
+  const en = await call("hossam", "POST", `/api/inventory/documents/${docId}/reverse`, { reason: `${TAG}-undo` }, { "Accept-Language": "en" });
+  check("…and the refusal reads in English when asked", en.status === 409 && /Credit note .* cannot be reversed/.test(en.body?.error ?? ""), en.body?.error);
+  const ret5 = await call("hossam", "POST", "/api/inventory/returns", { direction: "customer", order_id: o.id, reason: `${TAG}-r5`, lines: [{ product_id: p.id, quantity: 5 }] });
+  const r5 = await call("hossam", "POST", `/api/inventory/documents/${docOf(ret5)}/reverse`, { reason: `${TAG}-wrong` });
+  check("a customer return with no credit note can be reversed", ret5.status === 201 && r5.status === 201, [ret5.status, r5.status, r5.body?.error]);
+  const cnRev = await call("karim", "POST", `/api/sales/invoices/${inv.id}/credit-notes`, { reason: `${TAG}-rev`, return_document_id: docOf(ret5), lines: [{ invoice_line_id: il.id, quantity: 5 }] });
+  check("…and the reversed return backs no credit note -> 409", cnRev.status === 409, [cnRev.status, cnRev.body?.error]);
 }
 
 main().then(() => finish("RETURNS-INTEGRITY")).catch((e) => { console.error(e); process.exit(1); });

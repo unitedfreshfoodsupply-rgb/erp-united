@@ -49,7 +49,8 @@ function Kpi({ label, value, children }: { label: string; value: string; childre
   return (
     <div className="kpi-card min-w-0">
       <span className="kpi-label">{label}</span>
-      <span className="kpi-value truncate" dir="ltr">{value}</span>
+      {/* Never cut short ("1,612,4…" reads as another amount): smaller below sm, and free to wrap before the unit. */}
+      <span className="kpi-value break-words text-xl sm:text-2xl" dir="ltr">{value}</span>
       {children}
     </div>
   );

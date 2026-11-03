@@ -69,7 +69,19 @@ type RawLine = {
   source_line_id?: unknown;
 };
 
-type Product = { id: string; name: string; unit: string; removalStrategy: string; stockTracked: boolean; active: boolean };
+type Product = { id: string; name: string; unit: string; removalStrategy: string; stockTracked: boolean; active: boolean; costingMethod: string; standardCost: Prisma.Decimal | null };
+
+/**
+ * ACC-20: the stock ledger values a standard-cost product at its standard, so an opening line at
+ * another cost would post less (or more) than was entered, with the difference recorded nowhere.
+ * Where such a difference belongs is the accountant's decision (decision register), so the line
+ * is refused rather than posted; accepted lines post exactly as before.
+ */
+export function assertOpeningCostIsStandard(product: { name: string; costingMethod: string; standardCost: Prisma.Decimal | null }, cost: Prisma.Decimal) {
+  if (product.costingMethod !== "standard" || !product.standardCost) return;
+  const std = product.standardCost.toDecimalPlaces(4);
+  if (!cost.toDecimalPlaces(4).equals(std)) throw new ApiError(400, `"${product.name}": طريقة تكلفته معيارية (${std}) — التكلفة الافتتاحية لازم تساوي المعيارية. عدّل المعيارية قبل الافتتاح، أو سجّل السطر بالمعيارية وسجّل الفرق في سطر رأس مال أو أرباح محتجزة`);
+}
 
 async function loadProduct(db: Tx, id: unknown): Promise<Product> {
   if (typeof id !== "string" || !id) throw new ApiError(400, "اختار الصنف");
@@ -1030,6 +1042,18 @@ export async function reverseDocument(documentId: string, input: Record<string, 
   const reversalId = await inTx(async (tx) => {
     const doc = await tx.inventoryDocument.findUnique({ where: { id: documentId }, select: { type: true, sourceType: true } });
     if (doc?.type === "issue") throw new ApiError(400, "الصرف بيتلغي من الأوردر نفسه، مش من هنا");
+    // A return already settled in money stays: reversing it would put the goods back (or out)
+    // while the debit or credit note still stands — GRNI/AP or AR would no longer match the stock.
+    if (doc?.type === "supplier_return") {
+      await advisoryXactLock(tx, `purchasing:return-doc:${documentId}`); // the lock a debit note on it takes
+      const note = await tx.debitNote.findFirst({ where: { returnDocumentId: documentId }, select: { number: true } });
+      if (note) throw new ApiError(409, `المرتجع ده اتعمل عليه الإشعار المدين ${note.number} — مينفعش يتلغي`);
+    }
+    if (doc?.type === "customer_return") {
+      await advisoryXactLock(tx, `sales:return-doc:${documentId}`); // the lock a credit note on it takes
+      const note = await tx.creditNote.findFirst({ where: { returnDocumentId: documentId }, select: { number: true } });
+      if (note) throw new ApiError(409, `المرتجع ده اتعمل عليه الإشعار الدائن ${note.number} — مينفعش يتلغي`);
+    }
     // CTL-D13: undoing the opening stock changes opening equity — the decision of whoever
     // approves opening balances, not of any stock controller alone.
     if (doc?.sourceType === "opening_balance") assertPermission(actor, "accounting.opening.approve");
@@ -1141,11 +1165,11 @@ export async function postOpeningStock(input: Record<string, unknown>, actor: Se
  * opening batch): one posted adjustment document whose movements value the stock at the
  * given unit costs — Dr inventory / Cr opening equity through the stock ledger.
  */
-export async function postOpeningStockInTx(tx: Tx, input: { date: string; warehouseId?: string; lines: Record<string, unknown>[]; idempotencyKey?: string | null; requestHash?: string | null }, actor: ServiceActor) {
+export async function postOpeningStockInTx(tx: Tx, input: { date: string; warehouseId?: string; lines: Record<string, unknown>[]; idempotencyKey?: string | null; requestHash?: string | null; sourceId?: string | null }, actor: ServiceActor) {
   const date = input.date;
   const raw = input.lines;
   const wh = await resolveWarehouse(tx, input.warehouseId);
-  const doc = await createDoc(tx, "adjustment", { warehouseId: wh.id, businessDate: date, status: "posted", reason: "رصيد مخزون افتتاحي", sourceType: "opening_balance", idempotencyKey: input.idempotencyKey ?? null, requestHash: input.requestHash ?? undefined }, actor);
+  const doc = await createDoc(tx, "adjustment", { warehouseId: wh.id, businessDate: date, status: "posted", reason: "رصيد مخزون افتتاحي", sourceType: "opening_balance", sourceId: input.sourceId ?? null, idempotencyKey: input.idempotencyKey ?? null, requestHash: input.requestHash ?? undefined }, actor);
   const moves: MoveInput[] = [];
   for (const l of raw) {
     const product = await loadProduct(tx, l.product_id as string);
@@ -1153,6 +1177,7 @@ export async function postOpeningStockInTx(tx: Tx, input: { date: string; wareho
     const rawCost = l.unit_cost === undefined || l.unit_cost === null ? "" : String(l.unit_cost).trim();
     if (!/^\d+(\.\d{1,4})?$/.test(rawCost)) throw new ApiError(400, `"${product.name}": تكلفة الوحدة الافتتاحية مطلوبة (رقم موجب)`);
     const cost = D(rawCost);
+    assertOpeningCostIsStandard(product, cost);
     const expiry = typeof l.expiry_date === "string" && l.expiry_date ? l.expiry_date : null;
     if (expiry && !isValidISODate(expiry)) throw new ApiError(400, "تاريخ الانتهاء لازم يكون YYYY-MM-DD");
     // Stock already past its expiry at go-live is not opening stock: it is scrapped in

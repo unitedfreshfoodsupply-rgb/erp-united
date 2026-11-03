@@ -8,11 +8,12 @@ import { apiFetch, errorMessage } from "@/lib/api-client";
 import { useLocale } from "@/lib/locale";
 import { formatNumber } from "@/lib/format";
 import { todayLocalISO } from "@/lib/localDate";
+import { usePermissions } from "@/lib/use-session";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ErrorState, LoadingState } from "@/components/States";
 
 type Profit = { revenue: string; costOfSales: string; grossProfit: string; operatingExpenses: string; otherIncome: string; netProfit: string; grossMarginPct: string | null };
-type Produce = { receivedKg: string; goodKg: string; gradeBKg: string; wasteKg: string; wastePct: string | null; wasteValue: string };
+type Produce = { receivedKg: string; goodKg: string; gradeBKg: string; wasteKg: string; wastePct: string | null; wasteValue: string | null };
 type CC = {
   period: { from: string; to: string; prevFrom: string; prevTo: string };
   profit?: { current: Profit; previous: Profit };
@@ -39,6 +40,7 @@ const STAGES = ["new", "preparing", "ready_for_loading", "loading", "loaded"] as
  */
 export function CommandCenter() {
   const { t, locale } = useLocale();
+  const { can } = usePermissions();
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -59,7 +61,9 @@ export function CommandCenter() {
         {([[t("reports.preset.this-month"), `${today.slice(0, 7)}-01`, today], [t("reports.preset.last-month"), lastMonth[0], lastMonth[1]], [t("reports.preset.last-30"), new Date(Date.parse(`${today}T00:00:00Z`) - 29 * 86_400_000).toISOString().slice(0, 10), today], [t("reports.preset.this-year"), `${today.slice(0, 4)}-01-01`, today]] as const).map(([label, from, to]) => (
           <button key={label} type="button" className="chip !min-h-[36px] text-xs" aria-pressed={d?.period.from === from && d?.period.to === to} onClick={() => setPeriod(from, to)}>{label}</button>
         ))}
-        {d && <span className="ms-auto text-xs text-united-muted" dir="ltr">{d.period.from} → {d.period.to} · {t("cc.compared", { from: d.period.prevFrom, to: d.period.prevTo })}</span>}
+        {/* Each date range is its own left-to-right run (LRI…PDI), so in Arabic neither range is
+            reordered by the words around it; the line itself follows the page direction. */}
+        {d && <span className="ms-auto text-xs text-united-muted"><bdi dir="ltr">{d.period.from} → {d.period.to}</bdi> · {t("cc.compared", { range: `\u2066${d.period.prevFrom} → ${d.period.prevTo}\u2069` })}</span>}
       </section>
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
@@ -94,7 +98,9 @@ export function CommandCenter() {
           <div className="grid gap-4 lg:grid-cols-3">
             {d.orders && (
               <section className="card flex flex-col gap-3 p-4" aria-labelledby="cc-ops">
-                <Head id="cc-ops" title={t("cc.operations")} href="/supervisor" />
+                {/* The board and these reports are reports.view's: anyone else (an accountant, who reads
+                    orders) sees the counts without links that would only say "access denied". */}
+                <Head id="cc-ops" title={t("cc.operations")} href={can("reports.view") ? "/supervisor" : undefined} />
                 <ol className="grid grid-cols-5 gap-1 text-center">
                   {STAGES.map((s) => (
                     <li key={s} className="rounded-lg bg-united-subtle px-1 py-2">
@@ -104,9 +110,10 @@ export function CommandCenter() {
                   ))}
                 </ol>
                 <ul className="flex flex-col divide-y divide-united-border text-sm">
-                  <Row label={t("cc.dispatched")} value={d.orders.dispatchedInPeriod} href={`/reports/dispatch-activity?${per}`} />
-                  <Row label={t("cc.late")} value={d.orders.late} hot href={`/reports/delayed-orders?${per}`} />
-                  <Row label={t("cc.review")} value={d.orders.needsReview} hot href="/supervisor/exceptions" />
+                  <Row label={t("cc.dispatched")} value={d.orders.dispatchedInPeriod} href={can("reports.view") ? `/reports/dispatch-activity?${per}` : undefined} />
+                  {/* Late is "as of now" (any open order past its date), so the link covers every date up to today, not the period. */}
+                  <Row label={t("cc.late")} value={d.orders.late} hot href={can("reports.view") ? `/reports/delayed-orders?from=2000-01-01&to=${today}` : undefined} />
+                  <Row label={t("cc.review")} value={d.orders.needsReview} hot href={can("reports.view") ? "/supervisor/exceptions" : undefined} />
                 </ul>
               </section>
             )}
@@ -121,7 +128,7 @@ export function CommandCenter() {
                   {total > 0 && <div className="flex h-3 overflow-hidden rounded-full bg-united-subtle" role="img" aria-label={parts.map((p) => `${t(`home.produce.${p.k}`)} ${formatNumber(p.v, { maxDp: 1 })}`).join("، ")}>{parts.map((p) => p.v > 0 && <span key={p.k} className={p.cls} style={{ width: `${(p.v / total) * 100}%` }} />)}</div>}
                   <ul className="flex flex-col divide-y divide-united-border text-sm">
                     <Row label={t("cc.waste-rate")} value={c.wastePct === null ? "—" : `${c.wastePct}%`} hot={n(c.wastePct) > 5} sub={d.produce!.previous.wastePct ? t("cc.prev", { v: `${d.produce!.previous.wastePct}%` }) : undefined} href={`/reports/goods-received?${per}`} />
-                    <Row label={t("cc.waste-value")} value={money(c.wasteValue)} href={`/reports/supplier-performance?${per}`} />
+                    {c.wasteValue !== null && <Row label={t("cc.waste-value")} value={money(c.wasteValue)} href={`/reports/supplier-performance?${per}`} />}
                   </ul>
                 </section>
               );
@@ -129,11 +136,12 @@ export function CommandCenter() {
             {d.inventory && (
               <section className="card flex flex-col gap-3 p-4" aria-labelledby="cc-stock">
                 <Head id="cc-stock" title={t("cc.stock")} href="/reports/stock-by-product" />
-                {d.inventory.value !== null && <p className="num text-2xl font-bold" dir="ltr" style={{ textAlign: "start" }}>{money(d.inventory.value)}</p>}
+                {d.inventory.value !== null && <p className="num whitespace-normal break-words text-xl font-bold sm:text-2xl" dir="ltr" style={{ textAlign: "start" }}>{money(d.inventory.value)}</p>}
                 <ul className="flex flex-col divide-y divide-united-border text-sm">
                   <Row label={t("home.stock.low")} value={d.inventory.lowStock} hot href="/reports/low-stock" />
                   <Row label={t("cc.expiring")} value={d.inventory.expiringLots} hot href="/reports/expiry?days=3" />
-                  <Row label={t("home.stock.exceptions")} value={d.inventory.openExceptions} hot href={`/reports/exceptions?${per}`} />
+                  {/* Every open exception, whenever it was raised: the inventory screen's list of them. */}
+                  <Row label={t("home.stock.exceptions")} value={d.inventory.openExceptions} hot href="/stock/inventory?tab=exceptions" />
                 </ul>
               </section>
             )}
@@ -155,24 +163,30 @@ export function CommandCenter() {
   );
 }
 
-function Head({ id, title, href }: { id: string; title: string; href: string }) {
+function Head({ id, title, href }: { id: string; title: string; href?: string }) {
   const { t } = useLocale();
   return (
     <header className="flex items-center justify-between">
       <h2 id={id} className="section-title">{title}</h2>
-      <Link href={href} className="inline-flex items-center gap-1 text-xs font-semibold text-united-green hover:underline">{t("cc.details")} <ArrowLeft size={12} className="ltr:rotate-180" aria-hidden /></Link>
+      {href && <Link href={href} className="inline-flex items-center gap-1 text-xs font-semibold text-united-green hover:underline">{t("cc.details")} <ArrowLeft size={12} className="ltr:rotate-180" aria-hidden /></Link>}
     </header>
   );
 }
 
-function Row({ label, value, href, hot, sub }: { label: string; value: string | number; href: string; hot?: boolean; sub?: string }) {
+/** A count and what it is; a link to its records when the viewer can open them, plain otherwise. */
+function Row({ label, value, href, hot, sub }: { label: string; value: string | number; href?: string; hot?: boolean; sub?: string }) {
   const on = hot && typeof value === "number" ? value > 0 : !!hot;
+  const body = (
+    <>
+      <span className="text-united-muted">{label}{sub && <span className="block text-xs">{sub}</span>}</span>
+      <span className={`num rounded-full px-2.5 py-0.5 font-semibold ${on ? "bg-united-warn/10 text-united-warn" : "bg-united-subtle text-united-dark"}`} dir="ltr">{typeof value === "number" ? value.toLocaleString("en-US") : value}</span>
+    </>
+  );
   return (
     <li>
-      <Link href={href} className="flex min-h-[44px] items-center justify-between gap-2 py-2 hover:text-united-green">
-        <span className="text-united-muted">{label}{sub && <span className="block text-xs">{sub}</span>}</span>
-        <span className={`num rounded-full px-2.5 py-0.5 font-semibold ${on ? "bg-united-warn/10 text-united-warn" : "bg-united-subtle text-united-dark"}`} dir="ltr">{typeof value === "number" ? value.toLocaleString("en-US") : value}</span>
-      </Link>
+      {href
+        ? <Link href={href} className="flex min-h-[44px] items-center justify-between gap-2 py-2 hover:text-united-green">{body}</Link>
+        : <div className="flex min-h-[44px] items-center justify-between gap-2 py-2">{body}</div>}
     </li>
   );
 }
@@ -183,9 +197,10 @@ function Tile({ label, def, value, sub, cur, prev, href, upIsBad, strong, tone }
   const change = cur !== undefined && prev !== undefined && prev !== 0 ? ((cur - prev) / Math.abs(prev)) * 100 : null;
   const good = change === null ? null : upIsBad ? change <= 0 : change >= 0;
   return (
-    <Link href={href} title={def} className={`card-hoverable flex flex-col gap-1 p-4 ${strong ? "border-united-green/40" : ""}`}>
+    <Link href={href} title={def} className={`card-hoverable flex min-w-0 flex-col gap-1 p-4 ${strong ? "border-united-green/40" : ""}`}>
       <span className="text-xs font-medium text-united-muted">{label}{def && <span className="sr-only"> — {def}</span>}</span>
-      <span className={`num text-2xl font-bold ${tone === "danger" ? "text-united-danger" : tone === "warn" ? "text-united-warn" : "text-united-dark"}`} dir="ltr" style={{ textAlign: "start" }}>{value}</span>
+      {/* Smaller below sm and free to wrap between the amount and the currency, so a 7-digit figure stays inside a phone-width tile. */}
+      <span className={`num whitespace-normal break-words text-xl font-bold sm:text-2xl ${tone === "danger" ? "text-united-danger" : tone === "warn" ? "text-united-warn" : "text-united-dark"}`} dir="ltr" style={{ textAlign: "start" }}>{value}</span>
       {sub && <span className="text-xs text-united-muted">{sub}</span>}
       {change !== null && <span className={`text-xs font-semibold ${good ? "text-united-green" : "text-united-danger"}`} dir="ltr" style={{ textAlign: "start" }}>{`${change >= 0 ? "+" : ""}${change.toFixed(1)}%`} <span className="font-normal text-united-muted">{t("cc.vs-prev")}</span></span>}
     </Link>

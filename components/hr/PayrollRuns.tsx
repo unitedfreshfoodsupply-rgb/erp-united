@@ -274,32 +274,45 @@ function AdjustmentsDialog({ period, onClose }: { period: string; onClose: () =>
   const comps = useQuery({ queryKey: ["hr", "payroll", "components"], queryFn: () => apiFetch<{ components: { id: string; code: string; nameAr: string; nameEn: string | null; method: string; active: boolean; kind: string }[] }>("/api/hr/payroll/components").then((r) => r.components) });
   const emps = useQuery({ queryKey: ["hr", "employees"], queryFn: () => apiFetch<{ employees: { id: string; code: string; name: string; active: boolean }[] }>("/api/hr/employees") });
   const [f, setF] = useState({ employee_id: "", pay_component_id: "", amount: "", reason: "" });
+  // Errors show once Add was pressed; `busy` keeps a second tap from creating a second adjustment.
+  const [tried, setTried] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const amountError = !f.amount.trim() ? t("ui.required") : Number(f.amount) > 0 ? null : t("pay.amount_positive");
+  const invalid = { employee: !f.employee_id, component: !f.pay_component_id, amount: !!amountError, reason: !f.reason.trim() };
   const refresh = () => void qc.invalidateQueries({ queryKey: ["hr", "payroll"] });
   const add = async () => {
+    setBusy(true);
     try {
       await apiPost("/api/hr/payroll/adjustments", { ...f, target_period: period, amount: Number(f.amount) });
       setF({ employee_id: "", pay_component_id: "", amount: "", reason: "" });
+      setTried(false);
       toast.show(t("pay.saved_recalc"), "info");
       refresh();
     } catch (err) {
       toast.show(fail(t, err), "error");
+    } finally {
+      setBusy(false);
     }
   };
   const nm = (x: { nameAr: string; nameEn: string | null }) => (isEN ? x.nameEn || x.nameAr : x.nameAr);
   return (
     <Modal open onClose={onClose} size="lg" title={`${t("pay.adjustments")} · ${period}`} description={t("pay.adjustments_hint")} footer={<button type="button" className="btn-primary" onClick={onClose}>{t("ui.close")}</button>}>
-      <form className="grid gap-3 sm:grid-cols-5" onSubmit={(e) => { e.preventDefault(); if (f.employee_id && f.pay_component_id && Number(f.amount) > 0 && f.reason.trim()) void add(); }}>
-        <select className="field" value={f.employee_id} onChange={(e) => setF({ ...f, employee_id: e.target.value })} aria-label={t("pay.employee")}>
-          <option value="">{t("pay.employee")}</option>
-          {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{localName(e, locale)}</option>)}
-        </select>
-        <select className="field" value={f.pay_component_id} onChange={(e) => setF({ ...f, pay_component_id: e.target.value })} aria-label={t("pay.component")}>
-          <option value="">{t("pay.component")}</option>
-          {comps.data?.filter((c) => c.active && c.method === "input").map((c) => <option key={c.id} value={c.id}>{nm(c)}</option>)}
-        </select>
-        <Field label={t("pay.amount")} required><input type="number" min={0} step="0.01" className="field" dir="ltr" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
-        <Field label={t("pay.reason")}><input className="field" maxLength={500} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} /></Field>
-        <button type="submit" className="btn-primary">{t("pay.add")}</button>
+      <form className="grid gap-3 sm:grid-cols-5" noValidate onSubmit={(e) => { e.preventDefault(); if (busy) return; setTried(true); if (!Object.values(invalid).some(Boolean)) void add(); }}>
+        <Field label={t("pay.employee")} required error={tried && invalid.employee ? t("ui.required") : null}>
+          <select className="field" value={f.employee_id} onChange={(e) => setF({ ...f, employee_id: e.target.value })} aria-invalid={tried && invalid.employee}>
+            <option value="">{t("pay.employee")}</option>
+            {emps.data?.employees.filter((e) => e.active).map((e) => <option key={e.id} value={e.id}>{localName(e, locale)}</option>)}
+          </select>
+        </Field>
+        <Field label={t("pay.component")} required error={tried && invalid.component ? t("ui.required") : null}>
+          <select className="field" value={f.pay_component_id} onChange={(e) => setF({ ...f, pay_component_id: e.target.value })} aria-invalid={tried && invalid.component}>
+            <option value="">{t("pay.component")}</option>
+            {comps.data?.filter((c) => c.active && c.method === "input").map((c) => <option key={c.id} value={c.id}>{nm(c)}</option>)}
+          </select>
+        </Field>
+        <Field label={t("pay.amount")} required error={tried ? amountError : null}><input type="number" min={0} step="0.01" className="field" dir="ltr" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} aria-invalid={tried && invalid.amount} /></Field>
+        <Field label={t("pay.reason")} required error={tried && invalid.reason ? t("ui.required") : null}><input className="field" maxLength={500} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} aria-invalid={tried && invalid.reason} /></Field>
+        <button type="submit" className="btn-primary self-end" disabled={busy} aria-busy={busy}>{t("pay.add")}</button>
       </form>
       <ul className="mt-4 divide-y divide-united-border text-sm">
         {(list.data ?? []).map((a) => (

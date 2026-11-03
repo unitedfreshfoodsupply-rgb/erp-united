@@ -125,6 +125,17 @@ body {
   html[data-shell="grouped"] main:has(.u-shell-placeholder) .page-container {
     margin-inline-start: 0;
   }
+  /* A fixed bottom action bar (components/order/OrderDetail.tsx) would otherwise span the
+     viewport and slide under the sidebar: start it at the sidebar's edge (following the
+     rail width too) and line its content up with the page column. */
+  main:has(.u-shell-sidebar) .u-sticky-action,
+  html[data-shell="grouped"] main:has(.u-shell-placeholder) .u-sticky-action {
+    inset-inline-start: var(--u-sidebar);
+  }
+  main:has(.u-shell-sidebar) .u-sticky-action > *,
+  html[data-shell="grouped"] main:has(.u-shell-placeholder) .u-sticky-action > * {
+    margin-inline-start: 0;
+  }
 }
 
 /* Native modal dialogs (components/ui/Dialog.tsx): no scroll chaining to the page. */

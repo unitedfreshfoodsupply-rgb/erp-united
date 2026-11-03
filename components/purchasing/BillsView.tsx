@@ -375,6 +375,9 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
   };
   const debitLines = Object.entries(debit).filter(([, v]) => v.trim() !== "").map(([bill_line_id, quantity]) => ({ bill_line_id, quantity }));
   const allowanceLines = Object.entries(debit).filter(([, v]) => v.trim() !== "").map(([service_line_id, amount]) => ({ service_line_id, amount }));
+  // A debit note is limited by what is left to debit on the lines, as on the server — not by
+  // the open amount: a bill paid in full can still take one for goods returned afterwards.
+  const debitable = service ? b.serviceLines.some((l) => Number(l.debitedNet) < Number(l.net)) : b.lines.some((l) => Number(l.debitedQty) < Number(l.quantity));
   return (
     <div className="flex flex-col gap-3">
       <div className="flex justify-between items-center gap-2">
@@ -436,10 +439,10 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
           {b.status === "draft" && <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>{t("ui.edit")}</button>}
           <Field label={b.status === "posted" ? t("purchasing.bill.debit_reason_placeholder") : t("purchasing.bill.cancel_reason_placeholder")} className="flex-1 min-w-48"><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
           {b.status !== "posted" && <button type="button" className="btn-danger" onClick={() => act("cancel", { reason })}>{t("purchasing.bill.cancel_bill_btn")}</button>}
-          {b.status === "posted" && b.open !== "0.00" && service && (
+          {b.status === "posted" && debitable && service && (
             <button type="button" className="btn-secondary" disabled={allowanceLines.length === 0} onClick={() => act("debit-notes", { reason, lines: allowanceLines })}>{t("purchasing.bill.allowance_btn")}</button>
           )}
-          {b.status === "posted" && b.open !== "0.00" && !service && (
+          {b.status === "posted" && debitable && !service && (
             <>
               <label className="flex items-center gap-2 text-sm font-bold w-full"><input type="checkbox" className="w-5 h-5" checked={returnGoods} onChange={(e) => setReturnGoods(e.target.checked)} />{t("purchasing.bill.return_goods_checkbox")}</label>
               <button type="button" className="btn-secondary" disabled={debitLines.length === 0} onClick={() => act("debit-notes", { reason, lines: debitLines, return_goods: returnGoods })}>{t("purchasing.bill.debit_qty_btn")}</button>
@@ -507,17 +510,17 @@ function Statement({ supplier, onClose }: { supplier: { id: string; name: string
           <table className="w-full text-sm">
             <thead><tr className="text-xs text-united-muted"><th className="p-1 text-start">{t("purchasing.bill.col.date")}</th><th className="p-1 text-start">{t("purchasing.bill.col.document")}</th><th className="p-1 text-end">{t("purchasing.bill.col.credit")}</th><th className="p-1 text-end">{t("purchasing.bill.col.debit")}</th><th className="p-1 text-end">{t("purchasing.bill.col.balance")}</th></tr></thead>
             <tbody>
-              <tr className="font-bold text-united-muted"><td className="p-1" colSpan={4}>{t("purchasing.bill.opening_balance")}</td><td className="p-1 num" dir="ltr">{q.data.statement.opening}</td></tr>
+              <tr className="font-bold text-united-muted"><td className="p-1" colSpan={4}>{t("purchasing.bill.opening_balance")}</td><td className="p-1 num" dir="ltr">{formatNumber(q.data.statement.opening, { minDp: 2, maxDp: 2 })}</td></tr>
               {q.data.statement.rows.map((r) => (
                 <tr key={r.id} className="border-t border-united-dark/5 font-bold">
                   <td className="p-1">{r.date}</td>
                   <td className="p-1"><span dir="ltr">{statementLine(r, locale).number}</span><div className="text-xs text-united-muted">{statementLine(r, locale).ref}</div></td>
-                  <td className="p-1 num" dir="ltr">{Number(r.credit) ? r.credit : ""}</td>
-                  <td className="p-1 num" dir="ltr">{Number(r.debit) ? r.debit : ""}</td>
-                  <td className="p-1 num font-bold" dir="ltr">{r.balance}</td>
+                  <td className="p-1 num" dir="ltr">{Number(r.credit) ? formatNumber(r.credit, { minDp: 2, maxDp: 2 }) : ""}</td>
+                  <td className="p-1 num" dir="ltr">{Number(r.debit) ? formatNumber(r.debit, { minDp: 2, maxDp: 2 }) : ""}</td>
+                  <td className="p-1 num font-bold" dir="ltr">{formatNumber(r.balance, { minDp: 2, maxDp: 2 })}</td>
                 </tr>
               ))}
-              <tr className="border-t-2 border-united-dark/20 font-extrabold"><td className="p-1" colSpan={4}>{t("purchasing.bill.amount_due_to_supplier")}</td><td className="p-1 num" dir="ltr">{q.data.statement.closing}</td></tr>
+              <tr className="border-t-2 border-united-dark/20 font-extrabold"><td className="p-1" colSpan={4}>{t("purchasing.bill.amount_due_to_supplier")}</td><td className="p-1 num" dir="ltr">{formatNumber(q.data.statement.closing, { minDp: 2, maxDp: 2 })}</td></tr>
             </tbody>
           </table>
         </section>

@@ -219,9 +219,9 @@ export function PickingSheet() {
                     {unitLabel(line.unit)}
                   </span>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 min-w-0">
                   {/* Mini quantity summary */}
-                  <div className="flex gap-3 text-xs font-bold print:hidden">
+                  <div className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-xs font-bold print:hidden">
                     {line.totalPrepared > 0 && (
                       <span className="inline-flex items-center gap-1 text-united-green">
                         <Check size={13} aria-hidden /> {qty(line.totalPrepared)}
@@ -266,103 +266,110 @@ export function PickingSheet() {
                     </p>
                   )}
 
-                  {/* Column headers */}
-                  <div className="grid grid-cols-7 gap-1 text-[11px] font-bold text-united-muted px-2 print:text-gray-500">
-                    <span className="col-span-2">{t("picking.col.customer")}</span>
-                    <span>{t("picking.col.required")}</span>
-                    <span>{t("picking.prepared")}</span>
-                    <span>{t("picking.loaded")}</span>
-                    <span>{t("picking.remaining")}</span>
-                    <span>{t("picking.col.status")}</span>
-                  </div>
+                  {/* Seven columns do not fit a phone: the grid keeps a
+                      minimum width and scrolls sideways instead of
+                      running the figures into each other. */}
+                  <div className="overflow-x-auto">
+                    <div className="min-w-[34rem] space-y-2">
+                      {/* Column headers */}
+                      <div className="grid grid-cols-7 gap-1 text-[11px] font-bold text-united-muted px-2 print:text-gray-500">
+                        <span className="col-span-2">{t("picking.col.customer")}</span>
+                        <span>{t("picking.col.required")}</span>
+                        <span>{t("picking.prepared")}</span>
+                        <span>{t("picking.loaded")}</span>
+                        <span>{t("picking.remaining")}</span>
+                        <span>{t("picking.col.status")}</span>
+                      </div>
 
-                  {line.allocations.map((a) => {
-                    const allocatedRemaining = Math.max(
-                      0,
-                      a.requiredQuantity -
-                        (a.loadedQuantity ?? a.preparedQuantity ?? 0)
-                    );
-                    return (
-                      <div
-                        key={`${a.orderId}-${line.productKey}`}
-                        className={`rounded-xl p-2 ${
-                          a.rejected
-                            ? "bg-red-50 border border-red-200"
-                            : allocatedRemaining > 0
-                            ? "bg-amber-50/50"
-                            : "bg-emerald-50/50"
-                        }`}
-                      >
-                        {/* Compact row */}
-                        <div className="grid grid-cols-7 gap-1 text-sm items-center">
-                          <Link
-                            href={`/orders/${a.orderId}`}
-                            className="col-span-2 font-bold text-united-dark truncate hover:underline"
-                          >
-                            {a.customerName}
-                          </Link>
-                          <span
-                            dir="ltr"
-                            className="font-bold text-united-dark text-center"
-                          >
-                            {qty(a.requiredQuantity)}
-                          </span>
-                          <span
-                            dir="ltr"
-                            className={`font-bold text-center ${
-                              a.preparedQuantity != null
-                                ? a.rejected
-                                  ? "text-red-500 line-through"
-                                  : "text-emerald-600"
-                                : "text-united-dark/30"
+                      {line.allocations.map((a) => {
+                        const allocatedRemaining = Math.max(
+                          0,
+                          a.requiredQuantity -
+                            (a.loadedQuantity ?? a.preparedQuantity ?? 0)
+                        );
+                        return (
+                          <div
+                            key={`${a.orderId}-${line.productKey}`}
+                            className={`rounded-xl p-2 ${
+                              a.rejected
+                                ? "bg-red-50 border border-red-200"
+                                : allocatedRemaining > 0
+                                ? "bg-amber-50/50"
+                                : "bg-emerald-50/50"
                             }`}
                           >
-                            {a.preparedQuantity != null
-                              ? qty(a.preparedQuantity)
-                              : "—"}
-                          </span>
-                          <span
-                            dir="ltr"
-                            className={`font-bold text-center ${
-                              a.loadedQuantity != null
-                                ? "text-emerald-600"
-                                : "text-united-dark/30"
-                            }`}
-                          >
-                            {a.loadedQuantity != null
-                              ? qty(a.loadedQuantity)
-                              : "—"}
-                          </span>
-                          <span
-                            dir="ltr"
-                            className={`font-bold text-center ${
-                              allocatedRemaining > 0
-                                ? "text-amber-600"
-                                : "text-emerald-600"
-                            }`}
-                          >
-                            {qty(allocatedRemaining)}
-                          </span>
-                          <span className="text-center">
-                            {a.rejected ? (
-                              <span className="text-xs font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded">
-                                {t("picking.rejected-badge")}
-                              </span>
-                            ) : (
+                            {/* Compact row */}
+                            <div className="grid grid-cols-7 gap-1 text-sm items-center">
+                              <Link
+                                href={`/orders/${a.orderId}`}
+                                className="col-span-2 font-bold text-united-dark truncate hover:underline"
+                              >
+                                {a.customerName}
+                              </Link>
                               <span
-                                className={`text-xs font-bold px-1.5 py-0.5 rounded ${
-                                  STATUS_COLOR[a.status] ??
-                                  "text-gray-500 bg-gray-50"
+                                dir="ltr"
+                                className="font-bold text-united-dark text-center"
+                              >
+                                {qty(a.requiredQuantity)}
+                              </span>
+                              <span
+                                dir="ltr"
+                                className={`font-bold text-center ${
+                                  a.preparedQuantity != null
+                                    ? a.rejected
+                                      ? "text-red-500 line-through"
+                                      : "text-emerald-600"
+                                    : "text-united-dark/30"
                                 }`}
                               >
-                                {STATUS_LABEL[a.status] ? t(STATUS_LABEL[a.status]) : a.status}
+                                {a.preparedQuantity != null
+                                  ? qty(a.preparedQuantity)
+                                  : "—"}
                               </span>
-                            )}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                              <span
+                                dir="ltr"
+                                className={`font-bold text-center ${
+                                  a.loadedQuantity != null
+                                    ? "text-emerald-600"
+                                    : "text-united-dark/30"
+                                }`}
+                              >
+                                {a.loadedQuantity != null
+                                  ? qty(a.loadedQuantity)
+                                  : "—"}
+                              </span>
+                              <span
+                                dir="ltr"
+                                className={`font-bold text-center ${
+                                  allocatedRemaining > 0
+                                    ? "text-amber-600"
+                                    : "text-emerald-600"
+                                }`}
+                              >
+                                {qty(allocatedRemaining)}
+                              </span>
+                              <span className="text-center">
+                                {a.rejected ? (
+                                  <span className="text-xs font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded">
+                                    {t("picking.rejected-badge")}
+                                  </span>
+                                ) : (
+                                  <span
+                                    className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                                      STATUS_COLOR[a.status] ??
+                                      "text-gray-500 bg-gray-50"
+                                    }`}
+                                  >
+                                    {STATUS_LABEL[a.status] ? t(STATUS_LABEL[a.status]) : a.status}
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

@@ -87,9 +87,21 @@ async function main() {
     const pending = (await call("admin", "GET", "/api/approvals?status=pending")).body.approvals.find((x: any) => x.entityId === batch.id);
     check("in the approvals inbox", pending?.type === "accounting.opening_batch");
     check("the preparer cannot approve it -> 403", (await call("karim", "POST", `/api/approvals/${pending.id}/decide`, { decision: "approve" })).status === 403);
+    // OPN-D13: the cut-over report before and after the batch posts.
+    const ready = async () => Object.fromEntries(((await call("karim", "GET", "/api/accounting/cutover-readiness")).body.items ?? []).map((i: any) => [i.key, i]));
+    const r0 = await ready();
     r = await approve(batch.id);
     d = await detail(batch.id);
     check("the owner approves -> posted", r.status === 200 && d.status === "posted", [r.status, r.body, d.status]);
+    const r1 = await ready();
+    const batchDoc = await db.inventoryDocument.findFirst({ where: { sourceId: `${batch.id}:stock` }, select: { number: true } });
+    check("cut-over report: the batch's stock document is tagged with the batch", !!batchDoc);
+    check("cut-over report: the batch's own stock document is not counted as a direct entry", r1.direct_opening_stock?.count === r0.direct_opening_stock?.count && !(r1.direct_opening_stock?.detail ?? []).some((x: any) => x.number === batchDoc?.number), [r0.direct_opening_stock?.count, r1.direct_opening_stock?.count]);
+    check("cut-over report: the batch's customer and supplier lines are not counted as direct entries", r1.direct_party_opening?.count === r0.direct_party_opening?.count, [r0.direct_party_opening, r1.direct_party_opening]);
+    check("cut-over report: opening equity is the ledger's 3300 balance, unchanged by a balanced batch", r1.opening_equity_zero?.value === r0.opening_equity_zero?.value && Math.abs(Number(r1.opening_equity_zero?.value) - (await glKey("opening_equity"))) < 0.005, [r0.opening_equity_zero?.value, r1.opening_equity_zero?.value]);
+    const [atCut] = await db.$queryRaw<{ b: Prisma.Decimal | null }[]>`SELECT sum(l."debit" - l."credit") AS b FROM "JournalLine" l JOIN "Account" a ON a."id" = l."accountId" JOIN "JournalEntry" e ON e."id" = l."entryId" WHERE a."systemKey" = 'opening_equity' AND e."date" <= ${today}`;
+    check("cut-over report: 3300 as at the cut-over date is shown once a batch is posted", !!r1.opening_equity_at_cutover && Math.abs(Number(r1.opening_equity_at_cutover.value) - n(atCut?.b)) < 0.005, r1.opening_equity_at_cutover);
+    check("cut-over report: sales cannot read it -> 403", (await call("mona", "GET", "/api/accounting/cutover-readiness")).status === 403);
 
     section("4. EVERYTHING LANDED, AND RECONCILES");
     check("opening equity nets to zero across the batch", Math.abs((await glKey("opening_equity")) - eqBefore) < 0.005, [eqBefore, await glKey("opening_equity")]);

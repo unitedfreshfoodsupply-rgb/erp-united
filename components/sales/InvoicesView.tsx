@@ -28,6 +28,8 @@ type InvDetail = InvRow & {
   order: { id: string; orderNumber: string; deliveryDate: string } | null;
   lines: { id: string; lineNo: number; description: string; uomCode: string; quantity: string; unitPrice: string; discountPct: string; taxRate: string; net: string; tax: string; total: string; creditedQty: string }[];
   creditNotes: { id: string; number: string; issueDate: string; reason: string; total: string; createdBy: string }[];
+  paid: string;
+  payments: { receiptId: string; number: string; date: string; amount: string }[];
 };
 
 export const INVOICE_TABS = ["todo", "draft", "issued", "aging"] as const;
@@ -139,6 +141,9 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   const inv = q.data.invoice;
   const manage = can("sales.invoices.manage");
+  // A credit note is limited by the quantity left to credit, as on the server — not by the
+  // open amount: an invoice paid in full can still be credited for goods returned afterwards.
+  const creditable = inv.lines.some((l) => Number(l.quantity) > Number(l.creditedQty));
   const refresh = () => void qc.invalidateQueries({ queryKey: ["sales"] });
   // Localized STATUS labels (inside component so t() is available)
   const statusLabels: Record<string, { label: string; cls: string }> = {
@@ -179,7 +184,7 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <span>{t("sales.invoice.net")}</span><span dir="ltr" className="num">{fmtMoney(inv.net)}</span>
           <span>{t("sales.invoice.tax")}</span><span dir="ltr" className="num">{fmtMoney(inv.taxTotal)}</span>
           <span className="font-extrabold">{t("sales.invoice.gross")}</span><span dir="ltr" className="num font-bold">{fmtMoney(inv.total)}</span>
-          {inv.status === "issued" && <><span>{t("sales.invoice.credited_notifications")}</span><span dir="ltr" className="num">−{fmtMoney(inv.credited)}</span><span className="font-extrabold">{t("sales.invoice.open_amount_label")}</span><span dir="ltr" className="num font-bold">{fmtMoney(inv.open)}</span></>}
+          {inv.status === "issued" && <><span>{t("sales.invoice.credited_notifications")}</span><span dir="ltr" className="num">−{fmtMoney(inv.credited)}</span><span>{t("sales.invoice.paid_label")}</span><span dir="ltr" className="num">−{fmtMoney(inv.paid)}</span><span className="font-extrabold">{t("sales.invoice.open_amount_label")}</span><span dir="ltr" className="num font-bold">{fmtMoney(inv.open)}</span></>}
         </div>
       </section>
       {inv.creditNotes.length > 0 && (
@@ -187,6 +192,14 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <h3 className="font-extrabold">{t("sales.invoice.credited_notifications")}</h3>
           {inv.creditNotes.map((c) => (
             <div key={c.id} className="flex justify-between text-sm font-bold"><span><span dir="ltr">{c.number}</span> · {c.issueDate} · {c.reason}</span><span dir="ltr">−{fmtMoney(c.total)}</span></div>
+          ))}
+        </section>
+      )}
+      {inv.payments.length > 0 && (
+        <section className="card p-4 flex flex-col gap-1">
+          <h3 className="font-extrabold">{t("sales.invoice.paid_label")}</h3>
+          {inv.payments.map((p) => (
+            <div key={p.receiptId} className="flex justify-between text-sm font-bold"><span><span dir="ltr">{p.number}</span> · {p.date}</span><span dir="ltr">−{fmtMoney(p.amount)}</span></div>
           ))}
         </section>
       )}
@@ -200,7 +213,7 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
           </div>
         </section>
       )}
-      {manage && inv.status === "issued" && inv.open !== "0.00" && (
+      {manage && inv.status === "issued" && creditable && (
         <section className="card p-4 flex flex-col gap-2">
           <h3 className="font-extrabold">{t("sales.invoice.credit_note_heading")}</h3>
           <Field label={t("sales.invoice.reason_label")}><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
@@ -269,14 +282,14 @@ export function CustomerStatement({ customerId }: { customerId: string }) {
           <table className="w-full text-sm">
             <thead><tr className="text-xs text-united-muted"><th className="p-1 text-start">{t("sales.invoice.stmt.date")}</th><th className="p-1 text-start">{t("sales.invoice.stmt.document")}</th><th className="p-1">{t("sales.invoice.stmt.debit")}</th><th className="p-1">{t("sales.invoice.stmt.credit")}</th><th className="p-1">{t("sales.invoice.stmt.balance")}</th></tr></thead>
             <tbody>
-              <tr className="font-bold text-united-muted"><td className="p-1" colSpan={4}>{t("sales.invoice.stmt.opening_balance")}</td><td dir="ltr" className="p-1 text-center">{q.data.opening}</td></tr>
+              <tr className="font-bold text-united-muted"><td className="p-1" colSpan={4}>{t("sales.invoice.stmt.opening_balance")}</td><td dir="ltr" className="p-1 text-center">{formatNumber(q.data.opening, { minDp: 2, maxDp: 2 })}</td></tr>
               {q.data.rows.map((r) => (
                 <tr key={r.id} className="border-t border-united-dark/5 font-bold">
                   <td className="p-1">{r.date}</td><td className="p-1"><span dir="ltr">{statementLine(r, locale).number}</span> <span className="text-xs text-united-muted">{statementLine(r, locale).ref}</span></td>
-                  <td dir="ltr" className="p-1 text-center">{Number(r.debit) ? r.debit : ""}</td><td dir="ltr" className="p-1 text-center">{Number(r.credit) ? r.credit : ""}</td><td dir="ltr" className="p-1 text-center">{r.balance}</td>
+                  <td dir="ltr" className="p-1 text-center">{Number(r.debit) ? formatNumber(r.debit, { minDp: 2, maxDp: 2 }) : ""}</td><td dir="ltr" className="p-1 text-center">{Number(r.credit) ? formatNumber(r.credit, { minDp: 2, maxDp: 2 }) : ""}</td><td dir="ltr" className="p-1 text-center">{formatNumber(r.balance, { minDp: 2, maxDp: 2 })}</td>
                 </tr>
               ))}
-              <tr className="border-t-2 border-united-dark/20 font-extrabold"><td className="p-1" colSpan={4}>{t("sales.invoice.stmt.closing_balance")}</td><td dir="ltr" className="p-1 text-center">{q.data.closing}</td></tr>
+              <tr className="border-t-2 border-united-dark/20 font-extrabold"><td className="p-1" colSpan={4}>{t("sales.invoice.stmt.closing_balance")}</td><td dir="ltr" className="p-1 text-center">{formatNumber(q.data.closing, { minDp: 2, maxDp: 2 })}</td></tr>
             </tbody>
           </table>
         </div>

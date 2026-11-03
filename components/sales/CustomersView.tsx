@@ -16,6 +16,7 @@ import { CustomerStatement, INVOICE_TABS, InvoicesView, type InvoiceTab } from "
 import { Landmark, Star } from "lucide-react";
 import { useLocale } from "@/lib/locale";
 import { intlLocale } from "@/lib/format";
+import { changeText } from "@/lib/auditLabels";
 import { localName, otherLocalName } from "@/lib/locale/names";
 import { useDialogs } from "@/components/ui/Dialog";
 import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
@@ -51,13 +52,13 @@ export function CustomersView() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [invoiceTab, setInvoiceTab] = useState<InvoiceTab | undefined>(undefined);
   const { can } = usePermissions();
-  // Deep links (reports, statements): ?customer=<id> opens a customer, ?tab=invoices&itab=aging a tab.
+  // Deep links (reports, statements, home shortcuts): ?customer=<id> opens a customer, ?tab=invoices&itab=aging a tab.
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     const id = sp.get("customer");
     if (id) setOpenId(id);
     const tb = sp.get("tab");
-    if (tb && ["list", "unmapped", "quotations", "invoices", "prices"].includes(tb)) setTab(tb as typeof tab);
+    if (tb && ["list", "unmapped", "new", "order", "quotations", "invoices", "prices"].includes(tb)) setTab(tb as typeof tab);
     const it = sp.get("itab");
     if (it && (INVOICE_TABS as readonly string[]).includes(it)) setInvoiceTab(it as InvoiceTab);
   }, []);
@@ -343,7 +344,7 @@ function CustomerPanel({ id, onClose }: { id: string; onClose: () => void }) {
         <ul className="text-sm flex flex-col gap-1">
           {history.data?.logs.map((l) => (
             <li key={l.id} className="border-b border-united-dark/5 py-1">
-              <span className="font-bold">{l.userName}</span> · {actionLabel(l.action)}{l.fieldChanged && FIELD_LABEL[l.fieldChanged] ? ` · ${t(FIELD_LABEL[l.fieldChanged])}` : ""}{l.newValue ? `: ${l.oldValue ?? "—"} ← ${l.newValue}` : ""}
+              <span className="font-bold">{l.userName}</span> · {actionLabel(l.action)}{l.fieldChanged && FIELD_LABEL[l.fieldChanged] ? ` · ${t(FIELD_LABEL[l.fieldChanged])}` : ""}{l.newValue ? `: ${changeText(l.oldValue ?? "—", l.newValue, locale)}` : ""}
               {l.reason ? <span className="text-united-muted"> ({systemText(l.reason, locale)})</span> : null}
               <span className="text-xs text-united-muted"> · {new Date(l.timestamp).toLocaleString(intlLocale(locale), { dateStyle: "short", timeStyle: "short" })}</span>
             </li>

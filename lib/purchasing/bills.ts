@@ -7,6 +7,7 @@ import { assertEgpCurrency } from "@/lib/core/currency";
 import { writeAudit } from "@/lib/audit";
 import { assertPermission } from "@/lib/authz-core";
 import { advisoryXactLock } from "@/lib/dbLock";
+import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { inTx, type Tx } from "@/lib/tx";
 import { todayLocalISO } from "@/lib/localDate";
 import { isValidISODate } from "@/lib/dates";
@@ -679,10 +680,22 @@ export async function createDebitNote(billId: string, input: unknown, actor: Ser
     const bill = await tx.supplierBill.findUnique({ where: { id: billId }, include: { lines: { orderBy: { lineNo: "asc" } } } });
     if (!bill) throw new ApiError(404, "الفاتورة مش موجودة");
     if (bill.status !== "posted") throw new ApiError(409, "الإشعار المدين بيتعمل على فاتورة مترحّلة بس");
+    // An existing return document backs one debit note, while it stands, and only for the goods
+    // it moved out — the same rule as a credit note's return (sales/invoicing.ts). The note
+    // credits GRNI with the whole return's value (accounting/ledger.ts), so a second note on the
+    // same return would credit it twice, and a reversed return would credit it for goods that
+    // are back in stock.
+    let returnedByProduct: Map<string, Prisma.Decimal> | null = null;
     if (v.return_document_id) {
+      await advisoryXactLock(tx, `purchasing:return-doc:${v.return_document_id}`);
       const doc = await tx.inventoryDocument.findUnique({ where: { id: v.return_document_id } });
       if (!doc || doc.type !== "supplier_return") throw new ApiError(400, "مستند المرتجع مش موجود");
       if (doc.supplierId !== bill.supplierId) throw new ApiError(400, "المرتجع ده لمورد تاني");
+      if (doc.status !== "posted" || doc.reversalOfId) throw new ApiError(409, "مستند المرتجع ده ملغي — مينفعش يتعمل عليه إشعار مدين");
+      const used = await tx.debitNote.findFirst({ where: { returnDocumentId: v.return_document_id }, select: { number: true } });
+      if (used) throw new ApiError(409, `مستند المرتجع ده اتستخدم في الإشعار ${used.number} بالفعل`);
+      const returned = await tx.stockMovement.groupBy({ by: ["productId"], where: { documentId: v.return_document_id, kind: "supplier_return" }, _sum: { quantity: true } });
+      returnedByProduct = new Map(returned.map((r) => [r.productId, D(r._sum.quantity ?? 0).negated()]));
     }
     const debited = await tx.debitNoteLine.groupBy({ by: ["billLineId"], where: { billLineId: { in: bill.lines.map((l) => l.id) } }, _sum: { quantity: true } });
     const already = new Map(debited.map((c) => [c.billLineId, D(c._sum.quantity ?? 0)]));
@@ -696,6 +709,24 @@ export async function createDebitNote(billId: string, input: unknown, actor: Ser
     if (wanted.length === 0) throw new ApiError(409, "الفاتورة متخصومة بالكامل بالفعل");
     const perLine = new Map<string, Prisma.Decimal>();
     for (const w of wanted) perLine.set(w.line.id, (perLine.get(w.line.id) ?? D(0)).plus(w.qty));
+    if (returnedByProduct) {
+      // Compared in the product's base unit, as the return's movements are.
+      const byProduct = new Map<string, Prisma.Decimal>();
+      const lines = [...perLine].map(([lineId, quantity]) => { const l = bill.lines.find((x) => x.id === lineId)!; return { productId: l.productId, uomCode: l.uomCode, quantity }; });
+      const products = new Map((await tx.stockProduct.findMany({ where: { id: { in: [...new Set(lines.map((l) => l.productId))] } }, select: { id: true, name: true, unit: true } })).map((p) => [p.id, p]));
+      for (const line of lines) {
+        const p = products.get(line.productId);
+        const base = p && line.uomCode && line.uomCode !== p.unit ? await toBaseQuantity(tx, p, line.quantity, line.uomCode) : line.quantity;
+        byProduct.set(line.productId, (byProduct.get(line.productId) ?? D(0)).plus(base));
+      }
+      // The note clears the whole return from GRNI, so it debits exactly what the return moved
+      // out, product by product: no more, and no less (the rest could never be noted).
+      for (const pid of new Set([...byProduct.keys(), ...returnedByProduct.keys()])) {
+        const qty = byProduct.get(pid) ?? D(0), returned = returnedByProduct.get(pid) ?? D(0);
+        if (qty.greaterThan(returned)) throw new ApiError(409, `الكمية المتخصمة ${qty.toFixed(3)} أكتر من اللي رجع فعلاً (${returned.toFixed(3)}) في مستند المرتجع`);
+        if (qty.lessThan(returned)) throw new ApiError(409, `الإشعار على مستند مرتجع لازم يغطي كل اللي رجع: ${qty.toFixed(3)} من ${returned.toFixed(3)} — اعمل الإشعار بكل الكمية، أو مرتجع منفصل لكل فاتورة`);
+      }
+    }
     const amounts: { lineId: string; qty: Prisma.Decimal; a: LineAmounts }[] = [];
     for (const [lineId, q] of perLine) {
       const line = bill.lines.find((l) => l.id === lineId)!;

@@ -13,7 +13,9 @@ export function ReasonAction({
   label: string;
   confirmLabel?: string;
   className?: string;
-  onConfirm: (reason: string) => Promise<void>;
+  /** Resolve false (or reject) when the action was refused: the prompt then stays open
+   *  with the reason still typed, so the user can correct and retry. */
+  onConfirm: (reason: string) => Promise<boolean | void>;
 }) {
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
@@ -48,7 +50,8 @@ export function ReasonAction({
             if (busy) return;
             setBusy(true);
             try {
-              await onConfirm(reason);
+              const ok = await onConfirm(reason);
+              if (ok === false) return;
               setOpen(false);
               setReason("");
             } finally {

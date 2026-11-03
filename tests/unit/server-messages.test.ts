@@ -73,10 +73,12 @@ function collect(): Found[] {
         if (LABEL_BUILDERS.test(callee) && n.arguments[0]) take(n.arguments[0]);
         if (/errors\.push$/.test(callee) && n.arguments[0]) take(n.arguments[0]);
         if (/^(versionConflict|assertVersion)$/.test(callee)) n.arguments.forEach(take);
+        if (callee === "assertAny" && n.arguments[2]) take(n.arguments[2]);
         if (/\.(refine|min|max|regex|int|positive|nonnegative|length|email)$/.test(callee)) n.arguments.slice(-1).forEach(take);
       }
-      // zod messages reach the user through parse() → ApiError.
-      if (ts.isPropertyAssignment(n) && /^(message|required_error|invalid_type_error)$/.test(n.name.getText(sf))) take(n.initializer);
+      // zod messages reach the user through parse() → ApiError; an `error:` property is a
+      // refusal returned as a value and thrown (or sent) by the caller.
+      if (ts.isPropertyAssignment(n) && /^(message|required_error|invalid_type_error|error)$/.test(n.name.getText(sf))) take(n.initializer);
       ts.forEachChild(n, visit);
     };
     visit(sf);

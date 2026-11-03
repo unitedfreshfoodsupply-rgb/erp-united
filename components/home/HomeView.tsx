@@ -21,12 +21,14 @@ const ACTION_ICON: Record<string, LucideIcon> = {
   "draft-invoices": Receipt, "draft-bills": FileText, "eta-pending": FileText,
 };
 
-const SHORTCUTS: { key: string; href: string; icon: LucideIcon; permission: Permission | Permission[] }[] = [
-  { key: "new-order", href: "/supervisor", icon: ShoppingCart, permission: "orders.create" },
+// `href` may depend on what the person can open: the supervisor board needs reports.view,
+// so a salesperson creates the order from the sales screen instead.
+const SHORTCUTS: { key: string; href: string | ((can: (p: Permission) => boolean) => string); icon: LucideIcon; permission: Permission | Permission[] }[] = [
+  { key: "new-order", href: (can) => (can("reports.view") ? "/supervisor" : "/sales?tab=order"), icon: ShoppingCart, permission: "orders.create" },
   { key: "receive", href: "/stock", icon: PackagePlus, permission: "stock.receive" },
   { key: "collect", href: "/accounting", icon: Banknote, permission: "accounting.receipts.manage" },
   { key: "pay", href: "/accounting", icon: Wallet, permission: "accounting.payments.manage" },
-  { key: "new-customer", href: "/sales", icon: UserPlus, permission: "sales.customers.manage" },
+  { key: "new-customer", href: "/sales?tab=new", icon: UserPlus, permission: "sales.customers.manage" },
   { key: "purchase", href: "/purchasing", icon: PackageCheck, permission: "purchasing.orders.manage" },
   { key: "dispatch", href: "/operations", icon: Truck, permission: "operations.trips.manage" },
 ];
@@ -136,7 +138,7 @@ export function HomeView({ name }: { name: string }) {
               <ul className="grid grid-cols-2 gap-2">
                 {shortcuts.map((s) => (
                   <li key={s.key}>
-                    <Link href={s.href} className="flex min-h-[72px] flex-col justify-between gap-2 rounded-xl border border-united-border p-3 text-sm font-medium text-united-dark hover:border-united-border-strong hover:bg-united-subtle">
+                    <Link href={typeof s.href === "function" ? s.href(can) : s.href} className="flex min-h-[72px] flex-col justify-between gap-2 rounded-xl border border-united-border p-3 text-sm font-medium text-united-dark hover:border-united-border-strong hover:bg-united-subtle">
                       <s.icon size={18} className="text-united-green" aria-hidden />
                       {t(`home.shortcut.${s.key}`)}
                     </Link>
@@ -153,7 +155,8 @@ export function HomeView({ name }: { name: string }) {
                 <h2 id="home-flow" className="section-title">{t("home.flow.title")}</h2>
                 <span className="flex items-center gap-3 text-xs text-united-muted">
                   {q.data.operations.late > 0 && <span className="pill-danger"><span className="pill-dot" />{t("home.flow.late", { count: num(q.data.operations.late) })}</span>}
-                  <Link href="/supervisor" className="font-semibold text-united-green hover:underline">{t("home.open")}</Link>
+                  {/* The board needs reports.view; order viewers without it (accountant, sales) get today's production. */}
+                  <Link href={can("reports.view") ? "/supervisor" : "/production"} className="font-semibold text-united-green hover:underline">{t("home.open")}</Link>
                 </span>
               </header>
               <ol className="grid grid-cols-3 gap-2 sm:grid-cols-6">
@@ -224,7 +227,7 @@ export function HomeView({ name }: { name: string }) {
                   </div>
                   <ul className="flex flex-col divide-y divide-united-border text-sm">
                     <AttentionRow href="/stock/inventory" label={t("home.stock.low")} def={t("home.def.low")} count={q.data.stock!.lowStock} />
-                    <AttentionRow href="/supervisor/exceptions" label={t("home.stock.exceptions")} def={t("home.def.exceptions")} count={q.data.stock!.openExceptions} />
+                    <AttentionRow href="/stock/inventory?tab=exceptions" label={t("home.stock.exceptions")} def={t("home.def.exceptions")} count={q.data.stock!.openExceptions} />
                     {q.data.purchaseRequests && <AttentionRow href="/purchasing/requests" label={t("home.stock.prs")} def={t("home.def.prs")} count={q.data.purchaseRequests.open} />}
                     <AttentionRow href="/stock/setup" label={t("home.stock.products")} count={q.data.stock!.activeProducts} neutral />
                   </ul>

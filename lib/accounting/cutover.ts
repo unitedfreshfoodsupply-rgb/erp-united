@@ -24,10 +24,37 @@ type Item = {
 
 const D = (v: Prisma.Decimal.Value | null | undefined) => new Prisma.Decimal(v ?? 0);
 
-async function glBalance(systemKey: string) {
+async function glBalance(systemKey: string, asOf: string | null = null) {
   const r = await prisma.$queryRaw<{ v: Prisma.Decimal | null }[]>`
-    SELECT sum(l."debit" - l."credit") AS v FROM "JournalLine" l JOIN "Account" a ON a."id" = l."accountId" WHERE a."systemKey" = ${systemKey}`;
+    SELECT sum(l."debit" - l."credit") AS v FROM "JournalLine" l JOIN "Account" a ON a."id" = l."accountId" JOIN "JournalEntry" e ON e."id" = l."entryId"
+    WHERE a."systemKey" = ${systemKey} AND (${asOf}::text IS NULL OR e."date" <= ${asOf})`;
   return D(r[0]?.v);
+}
+
+/**
+ * The opening-balance items (OPN-D13), from facts read by cutoverReadiness. Opening equity
+ * (3300) is a clearing account: an approved batch nets it to zero (opening-batches.ts), so a
+ * balance left in it — overall, or as at the cut-over date — means opening figures are missing
+ * or counted twice. An opening entry is "direct" when it did not come from a batch.
+ */
+export function openingItems(f: {
+  initial: { number: string; cutoverDate: string } | null;
+  batches: unknown[];
+  equity: Prisma.Decimal;
+  equityAtCutover: Prisma.Decimal | null;
+  directStock: { number: string; businessDate: string }[];
+  partyRows: number;
+  batchPartyLines: number;
+}): Item[] {
+  const directParty = Math.max(0, f.partyRows - f.batchPartyLines);
+  const items: Item[] = [
+    { key: "opening_batch", ok: !!f.initial, severity: "blocker", label: "دفعة الأرصدة الافتتاحية اتعتمدت واترحّلت", labelEn: "The initial opening batch is approved and posted", detail: f.batches },
+    { key: "opening_equity_zero", ok: f.equity.isZero(), severity: "blocker", label: "حساب الأرصدة الافتتاحية (3300) رصيده صفر", labelEn: "Opening equity (3300) nets to zero", value: f.equity.toFixed(2) },
+    { key: "direct_opening_stock", ok: f.directStock.length === 0, severity: "warning", label: "مخزون افتتاحي اتسجل مباشرة من غير دفعة (من غير موافقة شخص تاني) — راجعه", labelEn: "Opening stock posted directly, outside a batch (no second person) — review it", count: f.directStock.length, detail: f.directStock },
+    { key: "direct_party_opening", ok: directParty === 0, severity: "warning", label: "أرصدة افتتاحية للعملاء/الموردين اتسجلت مباشرة من غير دفعة", labelEn: "Customer/supplier opening balances posted directly, outside a batch", count: directParty, value: `${f.partyRows} / ${f.batchPartyLines}` },
+  ];
+  if (f.initial) items.splice(2, 0, { key: "opening_equity_at_cutover", ok: !!f.equityAtCutover?.isZero(), severity: "blocker", label: `حساب الأرصدة الافتتاحية (3300) صفر في تاريخ الافتتاح ${f.initial.cutoverDate}`, labelEn: `Opening equity (3300) is zero as at the cut-over date ${f.initial.cutoverDate}`, value: f.equityAtCutover?.toFixed(2) });
+  return items;
 }
 
 export async function cutoverReadiness() {
@@ -38,16 +65,17 @@ export async function cutoverReadiness() {
     label: "رقم التسجيل الضريبي للشركة متسجل", labelEn: "Company tax registration number is recorded",
   });
 
-  // Opening balances: one approved batch is the target state.
-  const [batches, partyDirect, openingStockDocs] = await Promise.all([
-    prisma.openingBatch.findMany({ select: { number: true, kind: true, status: true } }),
+  // Opening balances: one approved batch is the target state, and opening equity nets to zero.
+  const [batches, partyRows, batchPartyLines, directStock] = await Promise.all([
+    prisma.openingBatch.findMany({ select: { number: true, kind: true, status: true, cutoverDate: true } }),
     prisma.partyOpeningBalance.count(),
-    prisma.inventoryDocument.count({ where: { type: "adjustment", sourceType: "opening_balance", status: "posted", reversalOfId: null } }),
+    prisma.openingBatchLine.count({ where: { kind: { in: ["customer", "supplier"] }, batch: { status: "posted" } } }),
+    // Posted, not reversed, and not from a batch (a batch tags its document "<batch id>:stock").
+    prisma.inventoryDocument.findMany({ where: { type: "adjustment", sourceType: "opening_balance", status: "posted", reversalOfId: null, sourceId: null }, select: { number: true, businessDate: true }, orderBy: { number: "asc" } }),
   ]);
-  const initialPosted = batches.some((b) => b.kind === "initial" && b.status === "posted");
-  items.push({ key: "opening_batch", ok: initialPosted, severity: "blocker", label: "دفعة الأرصدة الافتتاحية اتعتمدت واترحّلت", labelEn: "The initial opening batch is approved and posted", detail: batches });
-  items.push({ key: "direct_opening_stock", ok: openingStockDocs === 0 || !initialPosted, severity: "warning", label: "المخزون الافتتاحي اتسجل مباشرة (من غير موافقة شخص تاني) — راجعه", labelEn: "Opening stock was posted directly (without a second person) — review it", count: openingStockDocs });
-  items.push({ key: "direct_party_opening", ok: partyDirect === 0, severity: "warning", label: "أرصدة افتتاحية للعملاء/الموردين اتسجلت مباشرة", labelEn: "Customer/supplier opening balances posted directly", count: partyDirect });
+  const initial = batches.find((b) => b.kind === "initial" && b.status === "posted") ?? null;
+  const [equity, equityAtCutover] = await Promise.all([glBalance("opening_equity"), initial ? glBalance("opening_equity", initial.cutoverDate) : Promise.resolve(null)]);
+  items.push(...openingItems({ initial, batches, equity, equityAtCutover, directStock, partyRows, batchPartyLines }));
 
   // Sub-ledgers against the GL (UNITED's side of the Odoo reconciliation).
   const [ar, ap, inv, grni, cash] = await Promise.all([glBalance("ar"), glBalance("ap"), glBalance("inventory"), glBalance("grni"), prisma.$queryRaw<{ code: string; v: Prisma.Decimal | null }[]>`

@@ -35,7 +35,11 @@ function provider() {
   try {
     return storageProvider();
   } catch (err) {
-    if (err instanceof StorageUnavailableError) throw new ApiError(503, err.message);
+    if (err instanceof StorageUnavailableError) {
+      // What is missing (setting names) is for the operator's log; staff are told whom to tell.
+      console.error("[storage]", err.message);
+      throw new ApiError(503, "تخزين الملفات مش متاح — بلّغ المسؤول");
+    }
     throw err;
   }
 }

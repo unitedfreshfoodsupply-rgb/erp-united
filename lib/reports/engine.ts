@@ -3,6 +3,7 @@ import { ApiError } from "@/lib/rbac";
 import { isValidISODate } from "@/lib/dates";
 import { todayLocalISO } from "@/lib/localDate";
 import { REPORTS, reportByKey } from "@/lib/reports/definitions";
+import { mayOpenLink } from "@/lib/reports/page-access";
 import type { ReportColumn, ReportDef, ReportParams, ReportResult } from "@/lib/reports/types";
 import type { Permission } from "@/lib/permissions";
 import { systemText } from "@/lib/locale/system-text";
@@ -11,9 +12,17 @@ type Viewer = { can: (p: Permission) => boolean };
 
 const mayRun = (def: ReportDef, viewer: Viewer) => def.permissions.some((p) => viewer.can(p));
 
-/** The catalogue a user sees: only reports they may open. */
+/** A link the viewer can follow: its page's gate (page-access.ts) and, for another report, that report's own permissions. */
+function mayFollow(href: string, viewer: Viewer) {
+  if (!mayOpenLink(href, (p) => viewer.can(p))) return false;
+  const key = /^\/reports\/([^/?#]+)/.exec(href)?.[1];
+  const target = key ? reportByKey(key) : null;
+  return !key || (!!target && mayRun(target, viewer));
+}
+
+/** The catalogue a user sees: only reports they may open — a linked one only when they can open its screen too. */
 export function reportCatalogue(viewer: Viewer) {
-  return REPORTS.filter((r) => mayRun(r, viewer)).map((r) => ({ key: r.key, category: r.category, title: r.title, description: r.description, href: r.href ?? null }));
+  return REPORTS.filter((r) => mayRun(r, viewer) && (!r.href || mayFollow(r.href, viewer))).map((r) => ({ key: r.key, category: r.category, title: r.title, description: r.description, href: r.href ?? null }));
 }
 
 /** Filters from a URL, validated, with defaults: this month to date, monthly, 7 days. */
@@ -43,7 +52,16 @@ export async function runReport(key: string, p: ReportParams, viewer: Viewer) {
   if (!def || !def.run) throw new ApiError(404, "التقرير مش موجود");
   if (!mayRun(def, viewer)) throw new ApiError(403, "مالكش صلاحية تشوف التقرير ده");
   const result: ReportResult = await def.run(p);
-  const columns = columnsOf(def, p);
+  // Cost columns follow the stock-valuation permission, as every stock response does (redact.ts).
+  const all = columnsOf(def, p);
+  const hidden = viewer.can("stock.valuation.view") ? [] : all.filter((c) => c.cost).map((c) => c.key);
+  const columns = all.filter((c) => !hidden.includes(c.key));
+  if (hidden.length) {
+    for (const row of result.rows) for (const k of hidden) delete row[k];
+    for (const k of hidden) delete result.totals?.[k];
+  }
+  // A drill-down the viewer cannot open is dropped: the row stays, without the link.
+  for (const row of result.rows) if (row._href && !mayFollow(row._href, viewer)) row._href = null;
   const totals: Record<string, string | number | null> = {};
   for (const c of columns.filter((c) => c.total)) {
     const sum = result.rows.reduce((s, r) => s.plus(new Prisma.Decimal(r[c.key] ?? 0)), new Prisma.Decimal(0));
@@ -51,7 +69,7 @@ export async function runReport(key: string, p: ReportParams, viewer: Viewer) {
   }
   return {
     key: def.key, category: def.category, title: def.title, description: def.description, notes: def.notes ?? null, filters: def.filters,
-    params: p, columns, rows: result.rows, totals: { ...totals, ...(result.totals ?? {}) }, warnings: result.warnings ?? [],
+    params: p, columns, rows: result.rows, totals: { ...totals, ...(result.totals ?? {}) }, warnings: result.warnings ?? [], scope: result.scope ?? null,
   };
 }
 
@@ -80,6 +98,7 @@ export function reportXls(r: Ran, lang: "ar" | "en") {
   const rows = [
     `<Row><Cell ss:StyleID="t"><Data ss:Type="String">${x(r.title[lang])}</Data></Cell></Row>`,
     `<Row><Cell><Data ss:Type="String">${x(`${r.params.from} → ${r.params.to}`)}</Data></Cell></Row>`,
+    ...(r.scope ? [`<Row><Cell><Data ss:Type="String">${x(r.scope[lang])}</Data></Cell></Row>`] : []),
     `<Row>${r.columns.map((c) => `<Cell ss:StyleID="h"><Data ss:Type="String">${x(c.label[lang])}</Data></Cell>`).join("")}</Row>`,
     ...localRows(r, lang).map((row) => `<Row>${r.columns.map((c) => data(c, row[c.key])).join("")}</Row>`),
     ...(Object.keys(r.totals).length ? [`<Row>${r.columns.map((c, i) => (i === 0 ? `<Cell ss:StyleID="h"><Data ss:Type="String">${lang === "ar" ? "الإجمالي" : "Total"}</Data></Cell>` : data(c, r.totals[c.key]))).join("")}</Row>`] : []),

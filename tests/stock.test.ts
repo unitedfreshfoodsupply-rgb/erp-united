@@ -139,7 +139,10 @@ async function main() {
   led = await call("hossam","GET",`/api/stock/ledger?product_id=${prodA.id}&limit=500`);
   const voidMove = led.body.movements.find((m: any)=>m.kind==="intake_void"&&m.intakeId===in1.id);
   check("void wrote a reversing entry", !!voidMove);
-  check("reversal equals NET contribution (87.5-7.5=80)", near(voidMove?.quantityKg, -80), voidMove?.quantityKg);
+  // ACC-18: each movement of the receipt is reversed on its own (the receipt, then its
+  // correction), so together they take out exactly its NET contribution (87.5-7.5=80).
+  const undone = led.body.movements.filter((m: any)=>m.intakeId===in1.id&&(m.kind==="intake_void"||(m.kind==="intake_correction"&&m.quantityKg>0)));
+  check("reversals equal the NET contribution (87.5-7.5=80): −87.5 and +7.5", near(voidMove?.quantityKg, -87.5) && undone.length === 2 && near(undone.reduce((s: number, m: any)=>s+m.quantityKg,0), -80), undone.map((m: any)=>[m.kind, m.quantityKg]));
   check("balance returns to pre-receipt level", near(await ledgerSum(prodA.id), beforeVoid-80));
   check("voided receipt is not deleted", (await call("hossam","GET",`/api/stock/intakes/${in1.id}`)).status === 200);
   check("re-voiding -> 400", (await call("hossam","POST",`/api/stock/intakes/${in1.id}/void`,{reason:"تاني"})).status === 400);
