@@ -1,5 +1,7 @@
 # Cutover from Odoo — what must be verified
 
+> **Opening balances: superseded (3 November 2026).** Customer, supplier, stock and GL opening balances go through one opening batch that a second person approves, not through the CSV import or a manual journal described below (the direct path is off by default and closes once the batch posts). See `OPENING_BALANCES_READINESS_2026-11.md` for the method, the template and the workflow.
+
 *2026-10-09. Data-integrity and cutover readiness audit. CSV/XLSX import tooling is
 available for core masters, dated prices, opening balances and opening stock. Direct
 Odoo workbook mapping, full product configuration import, and reconciliation on the

@@ -17,6 +17,8 @@ import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { isServiceBillAccount } from "@/lib/purchasing/service-accounts";
 import { DataTable, FilterBar, useListQuery, useListState, type Column } from "@/components/ui/DataTable";
+import { href as profileHref } from "@/lib/profiles/links";
+import { DocLink, PartyLink } from "@/components/profiles/EntityLink";
 import { formatNumber } from "@/lib/format";
 
 /**
@@ -383,7 +385,7 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
       <div className="flex justify-between items-center gap-2">
         <div>
           <h2 className="text-xl font-extrabold" dir="ltr">{b.number}</h2>
-          <p className="text-sm font-bold text-united-muted">{localName(b.supplier, locale)} · {t("purchasing.bill.supplier_invoice_label")} <span dir="ltr">{b.supplierInvoiceNo}</span> · {b.billDate} · {t("purchasing.bill.due_date")} {b.dueDate}</p>
+          <p className="text-sm font-bold text-united-muted"><PartyLink kind="supplier" id={b.supplier.id} name={localName(b.supplier, locale)} /> · {t("purchasing.bill.supplier_invoice_label")} <span dir="ltr">{b.supplierInvoiceNo}</span> · {b.billDate} · {t("purchasing.bill.due_date")} {b.dueDate}</p>
         </div>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button>
       </div>
@@ -409,7 +411,7 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <div key={l.id} className="py-2 flex flex-col gap-1">
             <div className="flex justify-between text-sm font-extrabold gap-2"><span>{l.description}</span><span dir="ltr">{fmtMoney(l.total)}</span></div>
             <div className="flex flex-wrap justify-between gap-2 text-xs font-bold text-united-muted">
-              <span>{t("purchasing.bill.received_label")} <span dir="ltr">{fmtQty(l.receivedQty, l.uomCode)}</span> · {t("purchasing.bill.invoiced_label")} <span dir="ltr">{fmtQty(l.quantity, l.uomCode)} × {l.unitPrice}</span> · {t("purchasing.bill.agreed_price")} <span dir="ltr">{l.expectedUnitPrice ?? "—"}</span></span>
+              <span><DocLink href={profileHref.intake(l.receiptNumber)}>{l.receiptNumber}</DocLink> · {t("purchasing.bill.received_label")} <span dir="ltr">{fmtQty(l.receivedQty, l.uomCode)}</span> · {t("purchasing.bill.invoiced_label")} <span dir="ltr">{fmtQty(l.quantity, l.uomCode)} × {l.unitPrice}</span> · {t("purchasing.bill.agreed_price")} <span dir="ltr">{l.expectedUnitPrice ?? "—"}</span></span>
               {l.lineVariance !== null && Number(l.lineVariance) !== 0 && <span className={Number(l.lineVariance) > 0 ? "text-united-danger" : "text-united-green"}>{t("purchasing.bill.variance")} <span dir="ltr">{fmtMoney(l.lineVariance)}</span></span>}
               {Number(l.debitedQty) > 0 && <span>{t("purchasing.bill.debited_label")} <span dir="ltr">{fmtQty(l.debitedQty, l.uomCode)}</span></span>}
             </div>
@@ -491,17 +493,27 @@ function Payables() {
   );
 }
 
-function Statement({ supplier, onClose }: { supplier: { id: string; name: string; nameAr?: string | null }; onClose: () => void }) {
+/** A supplier's statement for a period (payables aging, and the supplier profile's statement tab). */
+export function Statement({ supplier, onClose }: { supplier: { id: string; name: string; nameAr?: string | null }; onClose?: () => void }) {
   const { t, locale } = useLocale();
   const [from, setFrom] = useState(`${todayLocalISO().slice(0, 4)}-01-01`);
   const [to, setTo] = useState(todayLocalISO());
   const q = useQuery({
     queryKey: ["purchasing", "statement", supplier.id, from, to],
-    queryFn: () => apiFetch<{ payable: string; statement: { opening: string; closing: string; rows: { date: string; kind: string; id: string; number: string; ref: string; credit: string; debit: string; balance: string }[] } }>(`/api/purchasing/suppliers/${supplier.id}/statement?from=${from}&to=${to}`),
+    queryFn: () => apiFetch<{ payable: string; statement: { opening: string; closing: string; rows: { date: string; kind: string; id: string; number: string; ref: string; credit: string; debit: string; balance: string; linkId?: string }[] } }>(`/api/purchasing/suppliers/${supplier.id}/statement?from=${from}&to=${to}`),
   });
+  // Each line opens the document it is: the bill (a debit note opens its bill), the payment.
+  const lineHref = (r: { kind: string; id: string; number: string; linkId?: string }) =>
+    r.kind === "bill" ? profileHref.bill(r.id) : r.kind === "debit_note" && r.linkId ? profileHref.bill(r.linkId) : r.kind === "payment" || r.kind === "payment_reversal" ? profileHref.payment(r.number) : r.kind === "opening_balance" ? profileHref.opening() : null;
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex justify-between items-center"><h2 className="text-xl font-extrabold">{t("purchasing.bill.statement_title", { name: localName(supplier, locale) })}</h2><button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button></div>
+      <div className="flex flex-wrap justify-between items-center gap-2">
+        <h2 className="text-xl font-extrabold">{t("purchasing.bill.statement_title", { name: localName(supplier, locale) })}</h2>
+        <div className="flex gap-2">
+          <a className="btn-secondary text-sm" href={`/api/purchasing/suppliers/${supplier.id}/statement/export?from=${from}&to=${to}&lang=${locale}`} download>{t("profile.export-csv")}</a>
+          {onClose && <button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button>}
+        </div>
+      </div>
       <div className="flex gap-2"><Field label={t("list.from")}><input type="date" className="field" value={from} onChange={(e) => setFrom(e.target.value)} /></Field><Field label={t("list.to")}><input type="date" className="field" value={to} onChange={(e) => setTo(e.target.value)} /></Field></div>
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
@@ -514,7 +526,7 @@ function Statement({ supplier, onClose }: { supplier: { id: string; name: string
               {q.data.statement.rows.map((r) => (
                 <tr key={r.id} className="border-t border-united-dark/5 font-bold">
                   <td className="p-1">{r.date}</td>
-                  <td className="p-1"><span dir="ltr">{statementLine(r, locale).number}</span><div className="text-xs text-united-muted">{statementLine(r, locale).ref}</div></td>
+                  <td className="p-1"><DocLink href={lineHref(r)}>{statementLine(r, locale).number}</DocLink><div className="text-xs text-united-muted">{statementLine(r, locale).ref}</div></td>
                   <td className="p-1 num" dir="ltr">{Number(r.credit) ? formatNumber(r.credit, { minDp: 2, maxDp: 2 }) : ""}</td>
                   <td className="p-1 num" dir="ltr">{Number(r.debit) ? formatNumber(r.debit, { minDp: 2, maxDp: 2 }) : ""}</td>
                   <td className="p-1 num font-bold" dir="ltr">{formatNumber(r.balance, { minDp: 2, maxDp: 2 })}</td>

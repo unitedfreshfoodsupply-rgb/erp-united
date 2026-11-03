@@ -960,13 +960,14 @@ export async function supplierStatement(supplierId: string, from: string, to: st
     prisma.supplierPayment.aggregate({ where: { supplierId, date: { lt: from } }, _sum: { amount: true } }),
     prisma.supplierPayment.findMany({ where: { supplierId, date: { gte: from, lte: to } }, select: { id: true, number: true, date: true, amount: true, reference: true, createdAt: true } }),
     prisma.supplierBill.findMany({ where: { supplierId, status: "posted", billDate: { gte: from, lte: to } }, select: { id: true, number: true, supplierInvoiceNo: true, billDate: true, dueDate: true, total: true, postedAt: true } }),
-    prisma.debitNote.findMany({ where: { supplierId, issueDate: { gte: from, lte: to } }, select: { id: true, number: true, issueDate: true, total: true, reason: true, createdAt: true, bill: { select: { number: true } } } }),
+    prisma.debitNote.findMany({ where: { supplierId, issueDate: { gte: from, lte: to } }, select: { id: true, number: true, issueDate: true, total: true, reason: true, createdAt: true, bill: { select: { id: true, number: true } } } }),
   ]);
   const opening = D(billsBefore._sum.total ?? 0).minus(dnBefore._sum.total ?? 0).minus(payBefore._sum.amount ?? 0).plus(obBefore._sum.amount ?? 0).plus(revBefore._sum.amount ?? 0).plus(refBefore._sum.amount ?? 0);
   const entries = [
     ...refs.map((f) => ({ date: f.date, at: f.createdAt.getTime(), kind: "refund" as const, id: f.id, number: f.number, ref: `استرداد · ${f.reason}`, credit: f.amount, debit: D(0) })),
     ...bills.map((b) => ({ date: b.billDate, at: b.postedAt!.getTime(), kind: "bill" as const, id: b.id, number: b.number, ref: `${b.supplierInvoiceNo} · استحقاق ${b.dueDate}`, credit: b.total, debit: D(0) })),
-    ...dns.map((n) => ({ date: n.issueDate, at: n.createdAt.getTime(), kind: "debit_note" as const, id: n.id, number: n.number, ref: `${n.bill.number} · ${n.reason}`, credit: D(0), debit: n.total })),
+    // linkId: the bill a debit note belongs to (the statement links the line to it).
+    ...dns.map((n) => ({ date: n.issueDate, at: n.createdAt.getTime(), kind: "debit_note" as const, id: n.id, number: n.number, ref: `${n.bill.number} · ${n.reason}`, credit: D(0), debit: n.total, linkId: n.bill.id })),
     ...obs.map((o) => ({ date: o.date, at: o.createdAt.getTime(), kind: "opening_balance" as const, id: o.id, number: "رصيد افتتاحي", ref: o.reference ?? "", credit: o.amount.gt(0) ? o.amount : D(0), debit: o.amount.lt(0) ? o.amount.negated() : D(0) })),
     ...pays.map((p) => ({ date: p.date, at: p.createdAt.getTime(), kind: "payment" as const, id: p.id, number: p.number, ref: `سداد${p.reference ? ` · ${p.reference}` : ""}`, credit: D(0), debit: p.amount })),
     ...revs.map((r) => ({ date: r.date, at: r.createdAt.getTime(), kind: "payment_reversal" as const, id: r.id, number: r.payment.number, ref: `عكس سداد · ${r.reason}`, credit: r.payment.amount, debit: D(0) })),
@@ -974,7 +975,7 @@ export async function supplierStatement(supplierId: string, from: string, to: st
   let bal = opening;
   const rows = entries.map((e) => {
     bal = bal.plus(e.credit).minus(e.debit);
-    return { date: e.date, kind: e.kind, id: e.id, number: e.number, ref: e.ref, credit: e.credit.toFixed(2), debit: e.debit.toFixed(2), balance: bal.toFixed(2) };
+    return { date: e.date, kind: e.kind, id: e.id, number: e.number, ref: e.ref, credit: e.credit.toFixed(2), debit: e.debit.toFixed(2), balance: bal.toFixed(2), ...("linkId" in e ? { linkId: e.linkId } : {}) };
   });
   return { supplier: { id: s.id, code: s.code, name: s.name, nameAr: s.nameAr }, from, to, opening: opening.toFixed(2), closing: bal.toFixed(2), rows };
 }

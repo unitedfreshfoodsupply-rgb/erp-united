@@ -112,7 +112,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `/supervisor/audit` سجل المراجعة (`audit.view`) | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | `/approvals` الموافقات (`orders.approve` / `stock.approve_adjustments` / `sales.credit.manage` / `purchasing.orders.approve` / `purchasing.bills.approve` / `hr.expenses.approve` / `hr.attendance.approve` / `hr.leave.approve` / `hr.payroll.approve` / `accounting.manage` / `accounting.journals.approve` / `accounting.periods.reopen` / `accounting.opening.approve` / `purchasing.requests.approve` / `sales.pricing.approve`; page open to all, filters itself) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `/sales` العملاء والفواتير (`sales.customers.view`) | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
-| `/purchasing` المشتريات (`purchasing.orders.view`) | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |
+| `/purchasing` المشتريات (`purchasing.orders.view` / `purchasing.suppliers.view` / `purchasing.bills.view`) | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |
 | `/purchasing/requests` طلبات الشراء (`purchasing.requests.view`) | ✓ |  |  |  |  | ✓ |  | ✓ |  |
 | `/accounting` الحسابات (`accounting.view` / `accounting.receipts.manage` / `accounting.payments.manage`) | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | `/assets` الأصول الثابتة (`accounting.assets.view`) | ✓ |  |  |  |  |  | ✓ |  |  |
@@ -456,6 +456,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/orders` | integration key, or `orders.create` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | GET | `/api/production/daily` | `orders.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
 | GET | `/api/production/daily/sheet` | `orders.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
+| GET | `/api/profiles/[kind]/[id]/[section]` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | POST | `/api/purchasing/bills/[id]/cancel` | `purchasing.bills.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/purchasing/bills/[id]/debit-notes` | `purchasing.bills.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/purchasing/bills/[id]/post` | `purchasing.bills.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
@@ -509,7 +510,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | PATCH | `/api/sales/customers/[id]/contacts/[contactId]` | `sales.customers.manage` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | POST | `/api/sales/customers/[id]/contacts` | `sales.customers.manage` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | PATCH | `/api/sales/customers/[id]/credit` | `sales.credit.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
-| GET | `/api/sales/customers/[id]/exposure` | `sales.customers.view` | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
+| GET | `/api/sales/customers/[id]/exposure` | any of `sales.invoices.view`, `sales.credit.manage` | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
 | GET | `/api/sales/customers/[id]/history` | `sales.customers.view` | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | PATCH | `/api/sales/customers/[id]/price-list` | `sales.pricing.manage` | ✓ |  |  |  |  | ✓ |  |  |  |
 | GET | `/api/sales/customers/[id]` | `sales.customers.view` | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |

@@ -125,7 +125,7 @@ export const REPORTS: ReportDef[] = [
         LEFT JOIN (SELECT "productId", sum("cogsDelta") d FROM "StockRevaluation" WHERE "date" BETWEEN ${p.from} AND ${p.to} GROUP BY 1) r ON r."productId" = pr."id"
         WHERE (x.qty IS NOT NULL OR r.d IS NOT NULL) AND (${p.category ?? null}::text IS NULL OR pr."category" = ${p.category ?? null})
         ORDER BY 5 DESC`;
-      return { rows: rows.map((r) => ({ ...name(r.nameAr, r.name), qty: q3(r.qty), cogs: m2(r.cogs), _href: `/stock/inventory?product=${r.id}` })) };
+      return { rows: rows.map((r) => ({ ...name(r.nameAr, r.name), qty: q3(r.qty), cogs: m2(r.cogs), _href: `/stock/products/${r.id}` })) };
     },
   },
   {
@@ -181,7 +181,7 @@ export const REPORTS: ReportDef[] = [
           (SELECT -coalesce(sum(v."value"), 0) FROM "StockMovement" m JOIN "StockValuationLayer" v ON v."movementId" = m."id" JOIN "InventoryDocument" d ON d."id" = m."documentId" JOIN "Order" o ON o."id" = d."sourceId"
              WHERE d."sourceType" = 'order' AND o."customerAccountId" = c."id" AND m."kind" IN ('issue', 'customer_return') AND m."effectiveDate" BETWEEN ${p.from} AND ${p.to}) cost
         FROM "Customer" c ORDER BY 5 DESC NULLS LAST`;
-      return { rows: rows.filter((r) => !D(r.net).isZero() || !D(r.cost).isZero()).map((r) => ({ ...name(r.nameAr, r.name), code: r.code, net: m2(r.net), cost: m2(r.cost), margin: m2(D(r.net).minus(D(r.cost))), margin_pct: pct(D(r.net).minus(D(r.cost)), r.net), _href: `/sales?customer=${r.id}` })) };
+      return { rows: rows.filter((r) => !D(r.net).isZero() || !D(r.cost).isZero()).map((r) => ({ ...name(r.nameAr, r.name), code: r.code, net: m2(r.net), cost: m2(r.cost), margin: m2(D(r.net).minus(D(r.cost))), margin_pct: pct(D(r.net).minus(D(r.cost)), r.net), _href: `/sales/customers/${r.id}` })) };
     },
   },
   {
@@ -235,7 +235,7 @@ export const REPORTS: ReportDef[] = [
     columns: [{ key: "date", label: { ar: "التاريخ", en: "Date" }, type: "date" }, { key: "number", label: { ar: "الإشعار", en: "Credit note" }, type: "code" }, ...PARTY_COLS, { key: "reason", label: { ar: "السبب", en: "Reason" }, type: "text" }, { key: "goods", label: { ar: "بضاعة رجعت", en: "Goods back" }, type: "text" }, { key: "net", label: { ar: "الصافي", en: "Net" }, type: "money", total: true }, { key: "total", label: { ar: "الإجمالي", en: "Total" }, type: "money", total: true }],
     run: async (p) => {
       const rows = await prisma.creditNote.findMany({ where: { issueDate: { gte: p.from, lte: p.to }, ...(p.customerId ? { customerId: p.customerId } : {}) }, include: { customer: { select: { id: true, name: true, nameAr: true } } }, orderBy: { issueDate: "desc" }, take: 5000 });
-      return { rows: rows.map((r) => ({ date: r.issueDate, number: r.number, ...name(r.customer.nameAr, r.customer.name), reason: r.reason, goods: r.returnDocumentId ? "✓" : "", net: m2(r.net), total: m2(r.total), _href: `/sales?customer=${r.customer.id}` })) };
+      return { rows: rows.map((r) => ({ date: r.issueDate, number: r.number, ...name(r.customer.nameAr, r.customer.name), reason: r.reason, goods: r.returnDocumentId ? "✓" : "", net: m2(r.net), total: m2(r.total), _href: `/sales/customers/${r.customer.id}` })) };
     },
   },
   {
@@ -253,7 +253,7 @@ export const REPORTS: ReportDef[] = [
         FROM "SalesInvoice" i JOIN "Customer" c ON c."id" = i."customerId" WHERE i."status" = 'issued' AND (${p.customerId ?? null}::text IS NULL OR c."id" = ${p.customerId ?? null}) ORDER BY i."dueDate"`;
       const today = todayLocalISO();
       const day = (s: string) => Date.parse(`${s}T00:00:00Z`) / 86_400_000;
-      return { rows: rows.map((r) => ({ open: D(r.total).minus(r.paid).minus(r.credited), r })).filter((x) => x.open.gt(0)).map(({ open, r }) => { const late = Math.max(0, Math.round(day(today) - day(r.dueDate))); return { number: r.number, ...name(r.nameAr, r.name), issued: r.issueDate, due: r.dueDate, days: late, total: m2(r.total), open: m2(open), _tone: late > 30 ? "danger" : late > 0 ? "warn" : null, _href: `/sales?customer=${r.cid}` }; }) };
+      return { rows: rows.map((r) => ({ open: D(r.total).minus(r.paid).minus(r.credited), r })).filter((x) => x.open.gt(0)).map(({ open, r }) => { const late = Math.max(0, Math.round(day(today) - day(r.dueDate))); return { number: r.number, ...name(r.nameAr, r.name), issued: r.issueDate, due: r.dueDate, days: late, total: m2(r.total), open: m2(open), _tone: late > 30 ? "danger" : late > 0 ? "warn" : null, _href: `/sales/customers/${r.cid}` }; }) };
     },
   },
 
@@ -271,7 +271,7 @@ export const REPORTS: ReportDef[] = [
           (SELECT sum(b."net") FROM "SupplierBill" b WHERE b."supplierId" = s."id" AND b."status" = 'posted' AND b."billDate" BETWEEN ${p.from} AND ${p.to}) net,
           (SELECT sum(d."net") FROM "DebitNote" d WHERE d."supplierId" = s."id" AND d."issueDate" BETWEEN ${p.from} AND ${p.to}) debits
         FROM "Supplier" s ORDER BY 6 DESC NULLS LAST`;
-      return { rows: rows.filter((r) => Number(r.bills) > 0 || !D(r.debits).isZero()).map((r) => ({ ...name(r.nameAr, r.name), code: r.code, bills: Number(r.bills), net: m2(r.net), debits: m2(r.debits), netnet: m2(D(r.net).minus(D(r.debits))), _href: `/purchasing?supplier=${r.id}` })) };
+      return { rows: rows.filter((r) => Number(r.bills) > 0 || !D(r.debits).isZero()).map((r) => ({ ...name(r.nameAr, r.name), code: r.code, bills: Number(r.bills), net: m2(r.net), debits: m2(r.debits), netnet: m2(D(r.net).minus(D(r.debits))), _href: `/purchasing/suppliers/${r.id}` })) };
     },
   },
   {
@@ -286,7 +286,7 @@ export const REPORTS: ReportDef[] = [
         FROM "SupplierBillLine" l JOIN "SupplierBill" b ON b."id" = l."billId" JOIN "StockProduct" pr ON pr."id" = l."productId"
         WHERE b."status" = 'posted' AND NOT l."released" AND b."billDate" BETWEEN ${p.from} AND ${p.to} AND (${p.category ?? null}::text IS NULL OR pr."category" = ${p.category ?? null})
         GROUP BY pr."id", pr."name", pr."nameAr" ORDER BY 5 DESC`;
-      return { rows: rows.map((r) => ({ ...name(r.nameAr, r.name), qty: q3(r.qty), net: m2(r.net), avg: D(r.qty).isZero() ? null : m2(D(r.net).div(D(r.qty))), min: m2(r.mn), max: m2(r.mx), _href: `/stock/inventory?product=${r.id}` })) };
+      return { rows: rows.map((r) => ({ ...name(r.nameAr, r.name), qty: q3(r.qty), net: m2(r.net), avg: D(r.qty).isZero() ? null : m2(D(r.net).div(D(r.qty))), min: m2(r.mn), max: m2(r.mx), _href: `/stock/products/${r.id}` })) };
     },
   },
   {
@@ -331,7 +331,7 @@ export const REPORTS: ReportDef[] = [
         SELECT s."id", s."name", s."nameAr", count(*) n, sum(i."receivedQty") rec, sum(i."gradeBQty") b, sum(i."wasteQty") w, sum(i."rejectedQty") r
         FROM "StockIntake" i JOIN "Supplier" s ON s."id" = i."supplierId" JOIN "StockProduct" pr ON pr."id" = i."productId"
         WHERE i."status" = 'posted' AND pr."unit" = 'KG' AND i."receivedDate" BETWEEN ${p.from} AND ${p.to} GROUP BY s."id", s."name", s."nameAr" ORDER BY 5 DESC`;
-      return { rows: rows.map((r) => { const w = pct(r.w, r.rec); return { _href: `/purchasing?supplier=${r.id}`, ...name(r.nameAr, r.name), receipts: Number(r.n), received: q3(r.rec), gradeb_pct: pct(r.b, r.rec), waste_pct: w, rejected_pct: pct(r.r, r.rec), _tone: (w ?? 0) > 5 ? "warn" : null }; }) };
+      return { rows: rows.map((r) => { const w = pct(r.w, r.rec); return { _href: `/purchasing/suppliers/${r.id}`, ...name(r.nameAr, r.name), receipts: Number(r.n), received: q3(r.rec), gradeb_pct: pct(r.b, r.rec), waste_pct: w, rejected_pct: pct(r.r, r.rec), _tone: (w ?? 0) > 5 ? "warn" : null }; }) };
     },
   },
 
@@ -355,7 +355,7 @@ export const REPORTS: ReportDef[] = [
         WHERE ((pr."active" AND pr."stockTracked") OR EXISTS (SELECT 1 FROM "StockValuationLayer" hv WHERE hv."productId" = pr."id" HAVING sum(hv."value") <> 0) OR EXISTS (SELECT 1 FROM "StockMovement" hm WHERE hm."productId" = pr."id" HAVING sum(hm."quantity") <> 0)) AND (${p.category ?? null}::text IS NULL OR pr."category" = ${p.category ?? null})
         GROUP BY pr."id", pr."name", pr."nameAr", pr."category", pr."unit", pr."reorderPointQty" ORDER BY pr."name"`;
       return {
-        rows: rows.map((r) => { const avail = D(r.sellable).minus(D(r.reserved)); return { ...name(r.nameAr, r.name), category: r.category ?? "", unit: r.unit, sellable: q3(r.sellable), reserved: q3(r.reserved), available: q3(avail), held: q3(r.held), waste: q3(r.waste), value: m2(r.value), _tone: r.reorder != null && avail.lte(D(r.reorder)) ? "warn" : null, _href: `/stock/inventory?product=${r.id}` }; }),
+        rows: rows.map((r) => { const avail = D(r.sellable).minus(D(r.reserved)); return { ...name(r.nameAr, r.name), category: r.category ?? "", unit: r.unit, sellable: q3(r.sellable), reserved: q3(r.reserved), available: q3(avail), held: q3(r.held), waste: q3(r.waste), value: m2(r.value), _tone: r.reorder != null && avail.lte(D(r.reorder)) ? "warn" : null, _href: `/stock/products/${r.id}` }; }),
         // Layers carry 4 decimals: the total is their exact sum rounded once, not the sum of rounded rows.
         totals: { value: m2(rows.reduce((t, r) => t.plus(D(r.value)), D(0))) },
       };
@@ -387,7 +387,7 @@ export const REPORTS: ReportDef[] = [
         WHERE (${p.productId ?? null}::text IS NULL OR pr."id" = ${p.productId ?? null}) AND (${p.category ?? null}::text IS NULL OR pr."category" = ${p.category ?? null})
         GROUP BY pr."id", pr."name", pr."nameAr", lt."lotNumber", l."code", lt."receivedDate", lt."expiryDate" HAVING sum(m."quantity") <> 0 ORDER BY pr."name", lt."expiryDate" NULLS LAST`;
       const today = todayLocalISO();
-      return { rows: rows.map((r) => ({ ...name(r.nameAr, r.name), lot: r.lot ?? "—", location: r.loc, received: r.received, expiry: r.expiry, qty: q3(r.qty), _tone: r.expiry && r.expiry < today ? "danger" : null, _href: `/stock/inventory?product=${r.id}` })) };
+      return { rows: rows.map((r) => ({ ...name(r.nameAr, r.name), lot: r.lot ?? "—", location: r.loc, received: r.received, expiry: r.expiry, qty: q3(r.qty), _tone: r.expiry && r.expiry < today ? "danger" : null, _href: `/stock/products/${r.id}` })) };
     },
   },
   linked("stock-movements", "inventory", { ar: "سجل حركات المخزون", en: "Stock movement history" }, { ar: "كل حركة دخول وخروج وتحويل لكل صنف", en: "Every in, out and transfer per product" }, "/stock/ledger", STOCK),
@@ -406,7 +406,7 @@ export const REPORTS: ReportDef[] = [
         GROUP BY pr."id", pr."name", pr."nameAr", 4 HAVING sum(m."quantity") > 0`;
       const by = new Map<string, ReportRow>();
       for (const r of rows) {
-        const row = by.get(r.id) ?? { ...name(r.nameAr, r.name), d0_2: 0, d3_5: 0, d6_10: 0, d11: 0, _href: `/stock/inventory?product=${r.id}` };
+        const row = by.get(r.id) ?? { ...name(r.nameAr, r.name), d0_2: 0, d3_5: 0, d6_10: 0, d11: 0, _href: `/stock/products/${r.id}` };
         const k = r.age == null || r.age > 10 ? "d11" : r.age <= 2 ? "d0_2" : r.age <= 5 ? "d3_5" : "d6_10";
         row[k] = Number(((row[k] as number) + q3(r.qty)).toFixed(3));
         if (k === "d11") row._tone = "warn";
@@ -466,7 +466,7 @@ export const REPORTS: ReportDef[] = [
         FROM "StockMovement" m JOIN "StockLot" lt ON lt."id" = m."lotId" JOIN "StockProduct" pr ON pr."id" = m."productId" JOIN "StorageLocation" l ON l."id" = m."locationId"
         WHERE lt."expiryDate" IS NOT NULL AND l."type" <> 'waste' AND lt."expiryDate"::date <= ${todayLocalISO()}::date + ${p.days}::int AND (${p.category ?? null}::text IS NULL OR pr."category" = ${p.category ?? null})
         GROUP BY pr."id", pr."name", pr."nameAr", lt."lotNumber", lt."expiryDate" HAVING sum(m."quantity") > 0 ORDER BY lt."expiryDate"`;
-      return { rows: rows.map((r) => ({ ...name(r.nameAr, r.name), lot: r.lot, expiry: r.expiry, days_left: r.left, qty: q3(r.qty), _tone: r.left < 0 ? "danger" : "warn", _href: `/stock/inventory?product=${r.id}` })) };
+      return { rows: rows.map((r) => ({ ...name(r.nameAr, r.name), lot: r.lot, expiry: r.expiry, days_left: r.left, qty: q3(r.qty), _tone: r.left < 0 ? "danger" : "warn", _href: `/stock/products/${r.id}` })) };
     },
   },
   {
@@ -481,7 +481,7 @@ export const REPORTS: ReportDef[] = [
           coalesce((SELECT sum(m."quantity") FROM "StockMovement" m JOIN "StorageLocation" l ON l."id" = m."locationId" WHERE m."productId" = pr."id" AND l."type" NOT IN ('waste', 'quarantine')), 0) sellable,
           coalesce((SELECT sum(r."quantity") FROM "StockReservation" r WHERE r."productId" = pr."id" AND r."status" = 'active'), 0) reserved
         FROM "StockProduct" pr WHERE pr."active" AND pr."reorderPointQty" IS NOT NULL AND (${p.category ?? null}::text IS NULL OR pr."category" = ${p.category ?? null})`;
-      return { rows: rows.map((r) => ({ r, avail: D(r.sellable).minus(D(r.reserved)) })).filter((x) => x.avail.lte(D(x.r.reorder))).map(({ r, avail }) => ({ ...name(r.nameAr, r.name), available: q3(avail), reorder: q3(r.reorder), max: r.max == null ? null : q3(r.max), suggest: r.max == null ? null : q3(Prisma.Decimal.max(0, D(r.max).minus(avail))), _tone: avail.lte(0) ? "danger" : "warn", _href: `/stock/inventory?product=${r.id}` })) };
+      return { rows: rows.map((r) => ({ r, avail: D(r.sellable).minus(D(r.reserved)) })).filter((x) => x.avail.lte(D(x.r.reorder))).map(({ r, avail }) => ({ ...name(r.nameAr, r.name), available: q3(avail), reorder: q3(r.reorder), max: r.max == null ? null : q3(r.max), suggest: r.max == null ? null : q3(Prisma.Decimal.max(0, D(r.max).minus(avail))), _tone: avail.lte(0) ? "danger" : "warn", _href: `/stock/products/${r.id}` })) };
     },
   },
   {
@@ -598,7 +598,7 @@ async function salesByProduct(p: ReportParams, byCategory: boolean): Promise<Rep
     FROM "StockProduct" pr WHERE (${p.category ?? null}::text IS NULL OR pr."category" = ${p.category ?? null})`;
   const active = rows.filter((r) => !D(r.net).isZero() || !D(r.cost).isZero());
   if (!byCategory) {
-    return { rows: active.sort((a, b) => D(b.net).comparedTo(D(a.net))).map((r) => ({ ...name(r.nameAr, r.name), category: r.category ?? "", qty: q3(r.qty), net: m2(r.net), cost: m2(r.cost), margin: m2(D(r.net).minus(D(r.cost))), margin_pct: pct(D(r.net).minus(D(r.cost)), r.net), _href: `/stock/inventory?product=${r.id}` })) };
+    return { rows: active.sort((a, b) => D(b.net).comparedTo(D(a.net))).map((r) => ({ ...name(r.nameAr, r.name), category: r.category ?? "", qty: q3(r.qty), net: m2(r.net), cost: m2(r.cost), margin: m2(D(r.net).minus(D(r.cost))), margin_pct: pct(D(r.net).minus(D(r.cost)), r.net), _href: `/stock/products/${r.id}` })) };
   }
   const by = new Map<string, { net: Prisma.Decimal; cost: Prisma.Decimal }>();
   for (const r of active) { const k = r.category ?? "—"; const g = by.get(k) ?? { net: D(0), cost: D(0) }; g.net = g.net.plus(D(r.net)); g.cost = g.cost.plus(D(r.cost)); by.set(k, g); }

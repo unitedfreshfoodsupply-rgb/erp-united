@@ -20,7 +20,9 @@ const PERIOD = "from=2000-01-01&to=2099-12-31";
 const BASE = process.env.BASE ?? "http://localhost:3111";
 /** The reports each role's default permissions open, pinned: widening a report's permissions must fail here first.
  *  ACCOUNTING_CLERK 16 → 14 (UI/UX findings 20, 34): "ap-aging" and "supplier-statement" open /purchasing, whose page
- *  needs purchasing.orders.view, which the clerk does not hold — they were listed and opened "access denied".
+ *  needed purchasing.orders.view, which the clerk does not hold — they were listed and opened "access denied".
+ *  14 → 16 (Nov 2026 profiles): /purchasing now opens for any of its tabs, and the clerk holds bills and suppliers,
+ *  so both reports open where they point (the bills tab and its payables aging) and are listed again.
  *  No other role's list changes: "balance-sheet" now opens /accounting?tab=analysis under accounting.view instead of
  *  /management under reports.finance, and every default role holds both of those or neither. */
 const PINNED: Record<string, string[] | "ALL"> = {
@@ -32,7 +34,7 @@ const PINNED: Record<string, string[] | "ALL"> = {
   SALES: ["ar-aging","customer-statement","sales-by-period","sales-by-customer","sales-by-product","sales-by-category","sales-by-salesperson","price-exceptions","credit-notes","outstanding-invoices"],
   ACCOUNTANT: ["trial-balance","profit-loss","balance-sheet","cash-flow","general-ledger","journal-entries","cash-movements","cogs-by-product","ppv","ar-aging","ap-aging","customer-statement","supplier-statement","bank-reconciliation","tax-summary","integrity","sales-by-period","sales-by-customer","sales-by-product","sales-by-category","sales-by-salesperson","price-exceptions","credit-notes","outstanding-invoices","purchases-by-supplier","purchases-by-product","purchase-price-trend","po-outstanding","supplier-performance","stock-by-product","stock-by-category","stock-by-lot","stock-movements","inventory-valuation","stock-aging","goods-received","waste-trend","adjustments","expiry","low-stock","reservations","inventory-reconciliation","floor-activity","exceptions"],
   PURCHASER: ["ap-aging","supplier-statement","purchases-by-supplier","purchases-by-product","purchase-price-trend","po-outstanding","supplier-performance","stock-by-product","stock-by-lot","stock-movements","stock-aging","goods-received","waste-trend","expiry","low-stock","reservations","exceptions"],
-  ACCOUNTING_CLERK: ["ar-aging","customer-statement","sales-by-period","sales-by-customer","sales-by-product","sales-by-category","sales-by-salesperson","price-exceptions","credit-notes","outstanding-invoices","purchases-by-supplier","purchases-by-product","purchase-price-trend","supplier-performance"],
+  ACCOUNTING_CLERK: ["ar-aging","ap-aging","customer-statement","supplier-statement","sales-by-period","sales-by-customer","sales-by-product","sales-by-category","sales-by-salesperson","price-exceptions","credit-notes","outstanding-invoices","purchases-by-supplier","purchases-by-product","purchase-price-trend","supplier-performance"],
 };
 
 async function main() {

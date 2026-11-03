@@ -11,11 +11,12 @@ import { Field, fmtMoney } from "./shared";
 type Change = { id: string; effectiveDate: string; oldStandardCost: string | null; newStandardCost: string; onHandQty: string; revaluation: string; reason: string; createdBy: string };
 
 /**
- * Finance's side of a product (accounting.manage): costing method and standard cost.
- * A new standard on a product holding stock needs a reason — the server revalues that
- * stock and records the change (DEFECT-SC-01); the history below is that record.
+ * Finance's side of a product: costing method and standard cost, changed by accounting.manage
+ * and read by whoever sees stock value. A new standard on a product holding stock needs a
+ * reason — the server revalues that stock and records the change (DEFECT-SC-01); the history
+ * below is that record.
  */
-export function ProductCosting({ p, onHand }: { p: { id: string; version: number; costingMethod: string; standardCost: string | null }; onHand: string }) {
+export function ProductCosting({ p, onHand, canEdit = true }: { p: { id: string; version: number; costingMethod: string; standardCost: string | null }; onHand: string; canEdit?: boolean }) {
   const qc = useQueryClient();
   const toast = useToast();
   const { t } = useLocale();
@@ -50,7 +51,13 @@ export function ProductCosting({ p, onHand }: { p: { id: string; version: number
   return (
     <section className="card p-4 flex flex-col gap-3" aria-labelledby={`costing-${p.id}`}>
       <h3 id={`costing-${p.id}`} className="font-extrabold text-united-dark">{t("stock.costing-heading")}</h3>
-      <form onSubmit={save} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      {!canEdit && (
+        <dl className="grid grid-cols-2 gap-2 text-sm">
+          <div><dt className="text-xs font-extrabold text-united-muted">{t("stock.costing-method-field")}</dt><dd className="font-bold">{t(`stock.costing.${p.costingMethod}`)}</dd></div>
+          {p.costingMethod === "standard" && <div><dt className="text-xs font-extrabold text-united-muted">{t("stock.costing-standard-field")}</dt><dd className="font-bold tabular-nums" dir="ltr">{p.standardCost ? fmtMoney(p.standardCost) : "—"}</dd></div>}
+        </dl>
+      )}
+      {canEdit && <form onSubmit={save} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Field label={t("stock.costing-method-field")} hint={holding ? t("stock.costing-method-locked") : undefined}>
           <select className="field font-bold" value={method} disabled={holding} onChange={(e) => setMethod(e.target.value)}>
             {(["avco", "fifo", "standard"] as const).map((m) => (
@@ -70,7 +77,7 @@ export function ProductCosting({ p, onHand }: { p: { id: string; version: number
           </>
         )}
         <button className="btn-primary col-span-full" disabled={busy}>{t("stock.costing-save")}</button>
-      </form>
+      </form>}
       <h4 className="font-extrabold text-united-dark text-sm">{t("stock.costing-history")}</h4>
       {history.data && history.data.changes.length === 0 && <p className="text-sm text-united-dark/60">{t("stock.costing-history-empty")}</p>}
       <ul className="flex flex-col divide-y divide-united-dark/5 text-sm">

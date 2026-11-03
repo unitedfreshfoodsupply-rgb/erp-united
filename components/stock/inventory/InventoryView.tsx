@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { href as profileHref } from "@/lib/profiles/links";
 import { systemText } from "@/lib/locale/system-text";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FilterBar, useListState } from "@/components/ui/DataTable";
@@ -15,7 +17,7 @@ import { MoveForms } from "./MoveForms";
 import { ProductCosting } from "./ProductCosting";
 import { Pagination } from "@/components/ui/Pagination";
 import { useLocale } from "@/lib/locale";
-import { formatNumber, intlLocale, unitLabel } from "@/lib/format";
+import { formatNumber, unitLabel } from "@/lib/format";
 import { localName } from "@/lib/locale/names";
 import { SortHeader, useSorted } from "@/components/ui/SortableTable";
 
@@ -28,14 +30,6 @@ import { SortHeader, useSorted } from "@/components/ui/SortableTable";
 
 type Tab = "stock" | "move" | "expiring" | "exceptions" | "documents" | "valuation";
 
-// Dictionary keys, translated at render with the active locale (resolving `.ar` here
-// left these labels Arabic in English mode).
-const KIND_LABEL: Record<string, string> = {
-  intake: "stock.kind-intake", intake_correction: "stock.kind-intake-correction", intake_void: "stock.kind-intake-void", adjustment: "stock.kind-adjustment",
-  transfer_out: "stock.kind-transfer-out", transfer_in: "stock.kind-transfer-in", issue: "stock.kind-issue", customer_return: "stock.kind-customer-return",
-  supplier_return: "stock.kind-supplier-return", scrap: "stock.kind-scrap",
-};
-
 const EXCEPTION_REASON: Record<ExceptionDTO["reason"], string> = {
   unmapped: "stock.exception-unmapped",
   unit_mismatch: "stock.exception-unit-mismatch",
@@ -46,16 +40,18 @@ export function InventoryView() {
   const { can, isLoading } = usePermissions();
   const { t } = useLocale();
   const [tab, setTab] = useState<Tab>("stock");
-  const [productId, setProductId] = useState<string | null>(null);
+  const router = useRouter();
+  const openProduct = (id: string) => router.push(profileHref.product(id));
 
-  // Deep links: /stock/inventory?tab=exceptions, ?doc=<id> (from the approvals inbox).
+  // Deep links: /stock/inventory?tab=exceptions, ?doc=<id> (from the approvals inbox);
+  // ?product=<id> (older links) goes to the product's profile.
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
+    if (sp.get("product")) { router.replace(profileHref.product(sp.get("product")!)); return; }
     const t2 = sp.get("tab") as Tab | null;
     if (t2) setTab(t2);
     if (sp.get("doc")) setTab("documents");
-    if (sp.get("product")) setProductId(sp.get("product"));
-  }, []);
+  }, [router]);
 
   const exceptions = useQuery({
     queryKey: ["stock", "inventory", "exceptions", "open"],
@@ -77,18 +73,12 @@ export function InventoryView() {
     <div className="page-container">
       <h1 className="page-title">{t("stock.inventory")}</h1>
       <Tabs value={tab} onChange={setTab} items={tabs} />
-      {productId ? (
-        <ProductPanel productId={productId} onClose={() => setProductId(null)} />
-      ) : (
-        <>
-          {tab === "stock" && <StockList onOpen={setProductId} />}
-          {tab === "move" && <MoveForms />}
-          {tab === "expiring" && <Expiring onOpen={setProductId} />}
-          {tab === "exceptions" && <Exceptions />}
-          {tab === "documents" && <Documents />}
-          {tab === "valuation" && <Valuation />}
-        </>
-      )}
+      {tab === "stock" && <StockList onOpen={openProduct} />}
+      {tab === "move" && <MoveForms />}
+      {tab === "expiring" && <Expiring onOpen={openProduct} />}
+      {tab === "exceptions" && <Exceptions />}
+      {tab === "documents" && <Documents />}
+      {tab === "valuation" && <Valuation />}
     </div>
   );
 }
@@ -176,9 +166,10 @@ type ProductDetail = {
   valuation: { averageCost: string | null; value: string } | null;
 };
 
-function ProductPanel({ productId, onClose }: { productId: string; onClose: () => void }) {
+/** What is where of one product, and what holds it (the product profile's overview). */
+export function ProductStock({ productId }: { productId: string }) {
   const { can } = usePermissions();
-  const { t, locale } = useLocale();
+  const { t } = useLocale();
   const q = useQuery({
     queryKey: ["stock", "inventory", "product", productId],
     queryFn: () => apiFetch<ProductDetail>(`/api/inventory/products/${productId}`),
@@ -190,10 +181,6 @@ function ProductPanel({ productId, onClose }: { productId: string; onClose: () =
   const u = d.product.unit;
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-xl font-extrabold text-united-dark">{localName(d.product, locale)}</h2>
-        <button type="button" className="btn-secondary" onClick={onClose}>{t("stock.btn-back")}</button>
-      </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
         <Stat label={t("stock.stat.on-hand")} value={fmtQty(d.onHand, u)} />
         <Stat label={t("stock.stat.quarantined")} value={fmtQty(d.quarantined, u)} />
@@ -228,22 +215,7 @@ function ProductPanel({ productId, onClose }: { productId: string; onClose: () =
       )}
 
       {can("stock.manage_products") && <ProductSettings d={d} />}
-      {can("accounting.manage") && <ProductCosting p={d.product} onHand={d.onHand} />}
-
-      <section className="card p-4 flex flex-col gap-2">
-        <h3 className="font-extrabold text-united-dark">{t("stock.heading-movements")}</h3>
-        <ul className="flex flex-col divide-y divide-united-dark/5 text-sm">
-          {d.movements.map((m) => (
-            <li key={m.id} className="py-2 flex items-center justify-between gap-2">
-              <div className="flex flex-col">
-                <span className="font-extrabold">{KIND_LABEL[m.kind] ? t(KIND_LABEL[m.kind]) : m.kind} · {m.document?.number ?? m.intake?.receiptNumber ?? ""}</span>
-                <span className="text-xs font-bold text-united-muted">{m.location.code}{m.lot ? ` · ${m.lot.lotNumber}` : ""} · {m.actorName} · {new Date(m.occurredAt).toLocaleString(intlLocale(locale), { dateStyle: "short", timeStyle: "short" })}</span>
-              </div>
-              <span dir="ltr" className={`font-extrabold ${Number(m.quantity) < 0 ? "text-united-danger" : "text-united-green"}`}>{Number(m.quantity) > 0 ? "+" : ""}{fmtQty(m.quantity)}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {(can("accounting.manage") || can("stock.valuation.view")) && <ProductCosting p={d.product} onHand={d.onHand} canEdit={can("accounting.manage")} />}
     </div>
   );
 }

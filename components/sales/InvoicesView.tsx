@@ -16,6 +16,8 @@ import { localName } from "@/lib/locale/names";
 import { statementLine } from "@/lib/locale/statement-text";
 import { formatNumber } from "@/lib/format";
 import { DataTable, FilterBar, useListQuery, useListState, type Column } from "@/components/ui/DataTable";
+import { href as profileHref } from "@/lib/profiles/links";
+import { DocLink, PartyLink } from "@/components/profiles/EntityLink";
 
 /**
  * Invoicing for the accountant: orders that left and are not invoiced yet, drafts to
@@ -23,7 +25,8 @@ import { DataTable, FilterBar, useListQuery, useListState, type Column } from "@
  */
 
 type InvRow = { id: string; number: string | null; status: string; issueDate: string | null; dueDate: string | null; total: string; credited: string; open: string | null; customer: { code: string; name: string; nameAr: string | null }; order: { orderNumber: string } | null };
-type InvDetail = InvRow & {
+type InvDetail = Omit<InvRow, "customer"> & {
+  customer: { id: string; code: string; name: string; nameAr: string | null };
   version: number; currencyCode: string; buyerName: string | null; buyerTaxId: string | null; net: string; taxTotal: string; discountTotal: string; gross: string; voidReason: string | null;
   order: { id: string; orderNumber: string; deliveryDate: string } | null;
   lines: { id: string; lineNo: number; description: string; uomCode: string; quantity: string; unitPrice: string; discountPct: string; taxRate: string; net: string; tax: string; total: string; creditedQty: string }[];
@@ -35,10 +38,10 @@ type InvDetail = InvRow & {
 export const INVOICE_TABS = ["todo", "draft", "issued", "aging"] as const;
 export type InvoiceTab = (typeof INVOICE_TABS)[number];
 
-export function InvoicesView({ initialTab }: { initialTab?: InvoiceTab } = {}) {
+export function InvoicesView({ initialTab, initialInvoiceId }: { initialTab?: InvoiceTab; initialInvoiceId?: string | null } = {}) {
   const { t } = useLocale();
   const [tab, setTab] = useState<InvoiceTab>(initialTab ?? "todo");
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(initialInvoiceId ?? null);
   if (open) return <InvoiceDetail id={open} onClose={() => setOpen(null)} />;
   return (
     <div className="flex flex-col gap-3">
@@ -156,7 +159,7 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
       <div className="flex justify-between items-center gap-2">
         <div>
           <h2 className="text-xl font-extrabold" dir="ltr">{inv.number ?? t("sales.invoice.draft_number")}</h2>
-          <p className="text-sm font-bold text-united-muted">{inv.buyerName ?? localName(inv.customer, locale)}{inv.buyerTaxId ? ` · ${t("sales.invoice.tax_id_prefix")}${inv.buyerTaxId}` : ""}{inv.order ? ` · ${inv.order.orderNumber}` : ""}</p>
+          <p className="text-sm font-bold text-united-muted"><PartyLink kind="customer" id={inv.customer.id} name={inv.buyerName ?? localName(inv.customer, locale)} />{inv.buyerTaxId ? ` · ${t("sales.invoice.tax_id_prefix")}${inv.buyerTaxId}` : ""}{inv.order ? <> · <DocLink href={profileHref.order(inv.order.id)}>{inv.order.orderNumber}</DocLink></> : ""}</p>
         </div>
         <div className="flex gap-2">
           {inv.status === "issued" && <Link href={`/sales/invoices/${inv.id}/print${locale === "en" ? "?lang=en" : ""}`} target="_blank" className="btn-secondary">{t("sales.invoice.print")}</Link>}
@@ -199,7 +202,7 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
         <section className="card p-4 flex flex-col gap-1">
           <h3 className="font-extrabold">{t("sales.invoice.paid_label")}</h3>
           {inv.payments.map((p) => (
-            <div key={p.receiptId} className="flex justify-between text-sm font-bold"><span><span dir="ltr">{p.number}</span> · {p.date}</span><span dir="ltr">−{fmtMoney(p.amount)}</span></div>
+            <div key={p.receiptId} className="flex justify-between text-sm font-bold"><span><DocLink href={profileHref.receipt(p.number)}>{p.number}</DocLink> · {p.date}</span><span dir="ltr">−{fmtMoney(p.amount)}</span></div>
           ))}
         </section>
       )}
@@ -250,7 +253,7 @@ function Aging() {
             <tbody>
               {q.data.rows.map((r) => (
                 <tr key={r.customer.id} className="border-t border-united-dark/5 font-bold">
-                  <td className="p-2"><Link href={`/sales?customer=${r.customer.id}`}>{localName(r.customer, locale)}</Link></td>
+                  <td className="p-2"><PartyLink kind="customer" id={r.customer.id} name={localName(r.customer, locale)} /></td>
                   {cols.map(([k]) => <td key={k} dir="ltr" className={`p-2 text-center ${k === "d90_plus" && Number(r[k as keyof typeof r]) > 0 ? "text-united-danger" : ""}`}>{Number(r[k as keyof typeof r]) ? formatNumber(r[k as keyof typeof r] as string, { minDp: 2, maxDp: 2 }) : "—"}</td>)}
                 </tr>
               ))}
@@ -269,10 +272,16 @@ export function CustomerStatement({ customerId }: { customerId: string }) {
   const today = todayLocalISO();
   const [from, setFrom] = useState(`${today.slice(0, 4)}-01-01`);
   const [to, setTo] = useState(today);
-  const q = useQuery({ queryKey: ["sales", "statement", customerId, from, to], queryFn: () => apiFetch<{ opening: string; closing: string; rows: { id: string; date: string; kind: string; number: string; ref: string; debit: string; credit: string; balance: string }[] }>(`/api/sales/customers/${customerId}/statement?from=${from}&to=${to}`) });
+  const q = useQuery({ queryKey: ["sales", "statement", customerId, from, to], queryFn: () => apiFetch<{ opening: string; closing: string; rows: { id: string; date: string; kind: string; number: string; ref: string; debit: string; credit: string; balance: string; linkId?: string }[] }>(`/api/sales/customers/${customerId}/statement?from=${from}&to=${to}`) });
+  // Each line opens the document it is: the invoice (a credit note opens its invoice), the receipt.
+  const statementHref = (r: { kind: string; id: string; number: string; linkId?: string }) =>
+    r.kind === "invoice" ? profileHref.invoice(r.id) : r.kind === "credit_note" && r.linkId ? profileHref.invoice(r.linkId) : r.kind === "receipt" || r.kind === "receipt_reversal" ? profileHref.receipt(r.number) : r.kind === "opening_balance" ? profileHref.opening() : null;
   return (
     <section className="card p-4 flex flex-col gap-2">
-      <h3 className="font-extrabold">{t("sales.invoice.statement_title")}</h3>
+      <div className="flex flex-wrap justify-between items-center gap-2">
+        <h3 className="font-extrabold">{t("sales.invoice.statement_title")}</h3>
+        <a className="btn-secondary text-sm" href={`/api/sales/customers/${customerId}/statement/export?from=${from}&to=${to}&lang=${locale}`} download>{t("profile.export-csv")}</a>
+      </div>
       <div className="grid grid-cols-2 gap-2">
         <input type="date" className="field" aria-label={t("accounting.date-from")} value={from} onChange={(e) => setFrom(e.target.value)} />
         <input type="date" className="field" aria-label={t("accounting.date-to")} value={to} onChange={(e) => setTo(e.target.value)} />
@@ -285,7 +294,7 @@ export function CustomerStatement({ customerId }: { customerId: string }) {
               <tr className="font-bold text-united-muted"><td className="p-1" colSpan={4}>{t("sales.invoice.stmt.opening_balance")}</td><td dir="ltr" className="p-1 text-center">{formatNumber(q.data.opening, { minDp: 2, maxDp: 2 })}</td></tr>
               {q.data.rows.map((r) => (
                 <tr key={r.id} className="border-t border-united-dark/5 font-bold">
-                  <td className="p-1">{r.date}</td><td className="p-1"><span dir="ltr">{statementLine(r, locale).number}</span> <span className="text-xs text-united-muted">{statementLine(r, locale).ref}</span></td>
+                  <td className="p-1">{r.date}</td><td className="p-1"><DocLink href={statementHref(r)}>{statementLine(r, locale).number}</DocLink> <span className="text-xs text-united-muted">{statementLine(r, locale).ref}</span></td>
                   <td dir="ltr" className="p-1 text-center">{Number(r.debit) ? formatNumber(r.debit, { minDp: 2, maxDp: 2 }) : ""}</td><td dir="ltr" className="p-1 text-center">{Number(r.credit) ? formatNumber(r.credit, { minDp: 2, maxDp: 2 }) : ""}</td><td dir="ltr" className="p-1 text-center">{formatNumber(r.balance, { minDp: 2, maxDp: 2 })}</td>
                 </tr>
               ))}

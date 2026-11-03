@@ -6,6 +6,18 @@
  * message has no entry here.
  */
 export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
+  // Nov 2026: opening balances named by code; customer, supplier and product profiles.
+  ["كود الحساب", "Account code"],
+  ["كود العميل", "Customer code"],
+  ["كود المورد", "Supplier code"],
+  ["كود الصنف", "Product code (SKU)"],
+  ["مفيش حساب بالكود {}", "No account has the code {0}"],
+  ["مفيش عميل بالكود {}", "No customer has the code {0}"],
+  ["مفيش مورد بالكود {}", "No supplier has the code {0}"],
+  ["مفيش صنف بالكود {}", "No product has the code {0}"],
+  ["مش موجود", "Not found"],
+  ["مش مسموحلك تشوف الجزء ده", "You are not allowed to see this part"],
+  ["سطور متكررة ({}) — امسح المكرر", "Duplicate lines ({0}) — delete the repeat"],
   // Maturity 2026-11: standard costing, posting locks, reversals, supplier payment approval.
   ["رصيد {} {} مش كفاية للسداد {} — الخزينة/البنك مينفعش يبقى بالسالب", "{0} holds {1}, not enough to pay {2} — a cash box or bank account never goes below zero"],
   ["نفس مفتاح الطلب اتبعت قبل كده بسداد مختلف", "This request key was already used for a different payment"],

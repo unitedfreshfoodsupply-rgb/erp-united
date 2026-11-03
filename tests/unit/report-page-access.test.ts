@@ -34,12 +34,12 @@ test("every link the reports build points at a page the table knows", () => {
   assert.equal(mayOpenLink("/supervisor", () => true), false, "a page the table does not know is not linked");
 });
 
-test("ACCOUNTING_CLERK: the payables aging, supplier statement and stock, order and purchasing drill-downs are not offered", () => {
+test("ACCOUNTING_CLERK: payables (bills, aging, statements) and the customer and supplier profiles open; stock, order and purchase-order drill-downs are not offered", () => {
   const clerk = can("ACCOUNTING_CLERK");
-  for (const href of ["/purchasing?tab=bills&btab=payables", "/purchasing", "/purchasing?supplier=s1", "/stock/inventory?product=p1", "/orders/o1", "/stock/entries?in_q=RC-1", "/accounting?tab=journals&j_q=JE-1", "/accounting?tab=analysis"]) {
+  for (const href of ["/purchasing?po=po1", "/purchasing?tab=orders", "/stock/inventory?product=p1", "/stock/products/p1", "/orders/o1", "/stock/entries?in_q=RC-1", "/accounting?tab=journals&j_q=JE-1", "/accounting?tab=analysis"]) {
     assert.equal(mayOpenLink(href, clerk), false, href);
   }
-  for (const href of ["/sales", "/sales?customer=c1", "/sales?tab=invoices&itab=aging", "/accounting?tab=payments", "/accounting?tab=receipts", "/reports/sales-by-product?category=x"]) {
+  for (const href of ["/purchasing", "/purchasing?tab=bills&btab=payables", "/purchasing?bill=b1", "/purchasing/suppliers/s1", "/sales", "/sales/customers/c1", "/sales?tab=invoices&invoice=i1", "/sales?tab=invoices&itab=aging", "/accounting?tab=payments", "/accounting?tab=receipts", "/reports/sales-by-product?category=x"]) {
     assert.equal(mayOpenLink(href, clerk), true, href);
   }
 });
@@ -47,10 +47,14 @@ test("ACCOUNTING_CLERK: the payables aging, supplier statement and stock, order 
 test("each role's drill-downs follow its page permissions", () => {
   const sales = can("SALES");
   assert.equal(mayOpenLink("/stock/inventory?product=p1", sales), false, "SALES: no stock.view");
+  assert.equal(mayOpenLink("/stock/products/p1", sales), false, "SALES: no product profile");
+  assert.equal(mayOpenLink("/sales/customers/c1", sales), true);
   assert.equal(mayOpenLink("/orders/o1", sales), true);
   const stock = can("STOCK_CONTROLLER");
   assert.equal(mayOpenLink("/purchasing?po=po1", stock), true, "STOCK_CONTROLLER sees purchase orders");
   assert.equal(mayOpenLink("/purchasing?supplier=s1", stock), false, "but not the suppliers tab");
+  assert.equal(mayOpenLink("/purchasing/suppliers/s1", stock), false, "nor a supplier's profile");
+  assert.equal(mayOpenLink("/stock/products/p1", stock), true);
   assert.equal(mayOpenLink("/orders/o1", stock), false);
   const buyer = can("PURCHASER");
   assert.equal(mayOpenLink("/purchasing?supplier=s1", buyer), true);
@@ -63,5 +67,7 @@ test("each role's drill-downs follow its page permissions", () => {
   assert.equal(mayOpenLink("/stock/inventory?tab=valuation", supervisor), true);
   assert.equal(mayOpenLink("/accounting?tab=health", supervisor), false);
   assert.equal(mayOpenLink("/sales?tab=invoices&itab=aging", supervisor), false, "SUPERVISOR: customers but no invoices tab");
+  assert.equal(mayOpenLink("/sales?tab=invoices&invoice=i1", supervisor), false, "…nor an invoice");
+  assert.equal(mayOpenLink("/sales/customers/c1", supervisor), true);
   for (const route of Object.keys(PAGE_GATES)) assert.equal(mayOpenLink(route.replace(/\[[^\]]+\]/g, "x"), can("SUPER_ADMIN")), true, `SUPER_ADMIN opens ${route}`);
 });

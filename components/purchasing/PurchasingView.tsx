@@ -2,6 +2,7 @@
 
 import { unitLabel } from "@/lib/format";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPatch, apiPost, ApiClientError } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
@@ -14,6 +15,8 @@ import { BillsView } from "@/components/purchasing/BillsView";
 import { useLocale, type Locale } from "@/lib/locale/useLocale";
 import { localName, otherLocalName } from "@/lib/locale/names";
 import { DataTable, FilterBar, useListQuery, useListState, type Column } from "@/components/ui/DataTable";
+import { href as profileHref } from "@/lib/profiles/links";
+import { PartyLink } from "@/components/profiles/EntityLink";
 
 /**
  * Purchasing: suppliers and what they charge, requests for quotation, purchase orders
@@ -34,11 +37,11 @@ function errorMsg(err: unknown): string {
 
 export function PurchasingView() {
   const { can } = usePermissions();
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("orders");
   const [poId, setPoId] = useState<string | null>(null);
   const [billId, setBillId] = useState<string | null>(null);
   const [billView, setBillView] = useState<"bills" | "payables" | undefined>(undefined);
-  const [supplierId, setSupplierId] = useState<string | null>(null);
   const [rfqSeed, setRfqSeed] = useState<{ product_id: string; quantity: string; uom: string; unit_price: string }[] | null>(null);
 
   // Build localized status/type maps and tab labels inside component body
@@ -70,10 +73,10 @@ export function PurchasingView() {
     if (sp.get("bill")) { setBillId(sp.get("bill")); setTab("bills"); }
     const tb = sp.get("tab");
     if (tb && (["orders", "replenishment", "rfqs", "suppliers", "bills"] as const).includes(tb as Tab)) setTab(tb as Tab);
-    // Deep links from reports: ?supplier=<id> opens the supplier, ?tab=bills&btab=payables the aging.
-    if (sp.get("supplier")) { setSupplierId(sp.get("supplier")); setTab("suppliers"); }
+    // Deep links: ?supplier=<id> (older links) goes to the supplier's profile, ?tab=bills&btab=payables the aging.
+    if (sp.get("supplier")) { router.replace(profileHref.supplier(sp.get("supplier")!)); return; }
     if (sp.get("btab") === "payables") setBillView("payables");
-  }, []);
+  }, [router]);
   const tabs: { key: Tab; label: string }[] = [
     ...(can("purchasing.orders.view") ? [
       { key: "orders" as Tab, label: t("purchasing.orders") },
@@ -83,22 +86,24 @@ export function PurchasingView() {
     ...(can("purchasing.suppliers.view") ? [{ key: "suppliers" as Tab, label: t("purchasing.suppliers") }] : []),
     ...(can("purchasing.bills.view") ? [{ key: "bills" as Tab, label: t("purchasing.bills") }] : []),
   ];
+  // The module opens for any one of its tabs: show the first the viewer has when theirs is not one.
+  const current: Tab = tabs.some((x) => x.key === tab) ? tab : tabs[0]?.key ?? tab;
   return (
     <div className="page-container">
       <h1 className="page-title">{t("purchasing.title")}</h1>
-      <Tabs value={tab} onChange={(tVal) => { setTab(tVal); setPoId(null); setBillId(null); }} items={tabs} />
+      <Tabs value={current} onChange={(tVal) => { setTab(tVal); setPoId(null); setBillId(null); }} items={tabs} />
       {poId ? (
         <PoDetail id={poId} onClose={() => setPoId(null)} locale={locale} t={t} poStatus={PO_STATUS} />
-      ) : tab === "orders" ? (
+      ) : current === "orders" ? (
         <Orders onOpen={setPoId} locale={locale} t={t} poStatus={PO_STATUS} />
-      ) : tab === "replenishment" ? (
+      ) : current === "replenishment" ? (
         <Replenishment onCreateRfq={(lines) => { setRfqSeed(lines); setTab("rfqs"); }} locale={locale} t={t} />
-      ) : tab === "rfqs" ? (
+      ) : current === "rfqs" ? (
         <Rfqs onOpenPo={setPoId} seedLines={rfqSeed ?? undefined} onSeedUsed={() => setRfqSeed(null)} locale={locale} t={t} />
-      ) : tab === "bills" ? (
+      ) : current === "bills" ? (
         <BillsView key={`${billId ?? "list"}-${billView ?? ""}`} initialBillId={billId} initialView={billView} />
       ) : (
-        <Suppliers key={supplierId ?? "list"} locale={locale} t={t} sup_type={sup_type} initialOpen={supplierId} />
+        <Suppliers locale={locale} t={t} sup_type={sup_type} />
       )}
     </div>
   );
@@ -251,7 +256,7 @@ function PoDetail({ id, onClose, locale, t, poStatus }: { id: string; onClose: (
       <div className="flex justify-between items-center gap-2">
         <div>
           <h2 className="text-xl font-extrabold" dir="ltr">{po.number}</h2>
-          <p className="text-sm font-bold text-united-muted">{localName(po.supplier, locale)} · {po.orderDate}{po.expectedDate ? ` · ${t("purchasing.po_detail.expected")} ${po.expectedDate}` : ""}</p>
+          <p className="text-sm font-bold text-united-muted"><PartyLink kind="supplier" id={po.supplier.id} name={localName(po.supplier, locale)} /> · {po.orderDate}{po.expectedDate ? ` · ${t("purchasing.po_detail.expected")} ${po.expectedDate}` : ""}</p>
         </div>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("purchasing.common.back")}</button>
       </div>
@@ -464,11 +469,11 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
 // Suppliers
 // ---------------------------------------------------------------------------
 
-function Suppliers({ locale, t, sup_type, initialOpen }: { locale: Locale; t: (key: string) => string; sup_type: Record<string, string>; initialOpen?: string | null }) {
+function Suppliers({ locale, t, sup_type }: { locale: Locale; t: (key: string) => string; sup_type: Record<string, string> }) {
+  const router = useRouter();
   const { can } = usePermissions();
   const toast = useToast();
   const qc = useQueryClient();
-  const [open, setOpen] = useState<string | null>(initialOpen ?? null);
   const [form, setForm] = useState({ name: "", name_ar: "", type: "farm", payment_terms_days: "0", tax_registration_no: "" });
   // The shared list experience (maturity 2026-11): server search on either name, code, phone
   // and tax number; type and status filters in the URL; a sortable table.
@@ -479,7 +484,6 @@ function Suppliers({ locale, t, sup_type, initialOpen }: { locale: Locale; t: (k
   if (list.filters.status === "all" || list.filters.status === "inactive") params.set("include_inactive", "1");
   const query = useListQuery<{ suppliers: SupplierRow[] }>(["purchasing", "suppliers", "directory"], `/api/purchasing/suppliers?${params}`);
   const rows = (query.data?.suppliers ?? []).filter((s) => list.filters.status !== "inactive" || !s.active);
-  if (open) return <SupplierDetail id={open} onClose={() => setOpen(null)} locale={locale} t={t} />;
   const columns: Column<SupplierRow>[] = [
     { key: "name", label: t("purchasing.col.supplier"), sortValue: (s) => localName(s, locale), render: (s) => <span className={s.active ? "" : "text-united-muted line-through"}>{localName(s, locale)}</span> },
     { key: "code", label: t("sales.col.code"), sortValue: (s) => s.code, render: (s) => <span dir="ltr" className="whitespace-nowrap text-united-muted">{s.code}</span> },
@@ -525,7 +529,7 @@ function Suppliers({ locale, t, sup_type, initialOpen }: { locale: Locale; t: (k
         rows={query.data ? rows : undefined}
         columns={columns}
         rowKey={(s) => s.id}
-        onRowOpen={(s) => setOpen(s.id)}
+        onRowOpen={(s) => router.push(profileHref.supplier(s.id))}
         loading={query.isFetching}
         error={query.error}
         onRetry={() => query.refetch()}
@@ -536,50 +540,56 @@ function Suppliers({ locale, t, sup_type, initialOpen }: { locale: Locale; t: (k
   );
 }
 
-function SupplierDetail({ id, onClose, locale, t }: { id: string; onClose: () => void; locale: Locale; t: (key: string) => string }) {
+type SupplierContact = { id: string; name: string; role: string | null; phone: string | null; email: string | null; isPrimary: boolean; active: boolean; version: number };
+type SupplierFull = SupplierRow & { commercialRegNo: string | null; notes: string | null; currencyCode: string; contacts: SupplierContact[]; _count: { intakes: number } };
+
+/** The supplier's own record (the profile's overview): who they are, their terms, whom to call, and agreed prices. */
+export function SupplierOverview({ id }: { id: string }) {
   const { can } = usePermissions();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["purchasing", "supplier", id], queryFn: () => apiFetch<{ supplier: SupplierRow & { contacts: { id: string; name: string; phone: string | null; isPrimary: boolean }[] } }>(`/api/purchasing/suppliers/${id}`) });
-  const prices = useQuery({ queryKey: ["purchasing", "supplier", id, "prices"], queryFn: () => apiFetch<{ prices: { id: string; uomCode: string; unitPrice: string; validFrom: string; createdBy: string; product: { name: string; nameAr: string | null } }[] }>(`/api/purchasing/suppliers/${id}/prices`), enabled: can("purchasing.prices.view") });
+  const q = useQuery({ queryKey: ["purchasing", "supplier", id], queryFn: () => apiFetch<{ supplier: SupplierFull }>(`/api/purchasing/suppliers/${id}`) });
+  const prices = useQuery({ queryKey: ["purchasing", "supplier", id, "prices"], queryFn: () => apiFetch<{ prices: { id: string; uomCode: string; unitPrice: string; validFrom: string; createdBy: string; product: { id?: string; name: string; nameAr: string | null } }[] }>(`/api/purchasing/suppliers/${id}/prices`), enabled: can("purchasing.prices.view") });
   const catalog = useCatalog();
-  const [nameAr, setNameAr] = useState<string | null>(null);
-  const [savingNameAr, setSavingNameAr] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [price, setPrice] = useState({ product_id: "", unit_price: "", valid_from: todayLocalISO() });
-  if (!q.data) return <LoadingState />;
+  if (q.isLoading) return <LoadingState />;
+  if (q.isError || !q.data) return <ErrorState message={errorMsg(q.error)} onRetry={() => q.refetch()} />;
   const s = q.data.supplier;
   const refresh = () => void qc.invalidateQueries({ queryKey: ["purchasing"] });
+  const manage = can("purchasing.suppliers.manage");
+  const typeLabel = ((k) => (t(k) === k ? s.type : t(k)))(`purchasing.supplier.type.${s.type}`);
+  const facts: [string, React.ReactNode][] = [
+    [t("purchasing.col.supplier-type"), typeLabel],
+    [t("sales.customer.nameAr"), otherLocalName(s, locale) || null],
+    [t("sales.customer.tax"), s.taxRegistrationNo ? <span dir="ltr">{s.taxRegistrationNo}</span> : null],
+    [t("sales.customer.commercial-reg"), s.commercialRegNo ? <span dir="ltr">{s.commercialRegNo}</span> : null],
+    [t("sales.customer.phone"), s.phone ? <a dir="ltr" href={`tel:${s.phone}`} className="text-united-green">{s.phone}</a> : null],
+    [t("sales.customer.email"), s.email ? <span dir="ltr">{s.email}</span> : null],
+    [t("sales.customer.address"), [s.address, s.city].filter(Boolean).join(locale === "en" ? ", " : "، ") || null],
+    [t("sales.col.terms"), s.paymentTermsDays ? t("purchasing.supplier.term_due").replace("%s", String(s.paymentTermsDays)) : t("purchasing.supplier.cash")],
+    [t("purchasing.col.lead-time"), s.leadTimeDays != null ? t("purchasing.supplier.detail.delivery_in").replace("%s", String(s.leadTimeDays)) : t("purchasing.supplier.detail.not_logged")],
+    [t("profile.currency"), <span key="c" dir="ltr">{s.currencyCode}</span>],
+    [t("list.status"), s.active ? t("sales.col.active") : t("sales.label.inactive")],
+    [t("profile.notes"), s.notes],
+  ];
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex justify-between items-center"><div><h2 className="text-xl font-extrabold">{localName(s, locale)}</h2><p className="text-xs font-bold text-united-muted" dir="ltr">{s.code}{s.taxRegistrationNo ? ` · ${t("purchasing.supplier.detail.tax").replace("%s", s.taxRegistrationNo!)}` : ""}</p></div><button type="button" className="btn-secondary" onClick={onClose}>{t("purchasing.common.back")}</button></div>
-      <section className="card p-4 flex flex-col gap-2 text-sm font-bold">
-        {otherLocalName(s, locale) && <div dir="auto" className="text-united-muted">{otherLocalName(s, locale)}</div>}
-        <div>
-          <span className="text-united-muted">{((k) => (t(k) === k ? s.type : t(k)))(`purchasing.supplier.type.${s.type}`)}</span>
-          {s.phone && <span className="ms-2 text-united-green">· {s.phone}</span>}
-          {s.city && <span className="ms-2">· {s.city}</span>}
-          {s.address && <span className="ms-2">· {s.address}</span>}
+      <section className="card p-4 flex flex-col gap-3">
+        <div className="flex justify-between items-center">
+          <h3 className="font-extrabold">{t("sales.section.data")}</h3>
+          {manage && <button type="button" className="text-sm font-extrabold text-united-green underline" onClick={() => setEditing(!editing)}>{editing ? t("ui.cancel") : t("ui.edit")}</button>}
         </div>
-        {can("purchasing.suppliers.manage") && (
-          <form className="flex gap-2 items-center" onSubmit={async (e) => {
-            e.preventDefault();
-            if (nameAr === null || savingNameAr) return;
-            setSavingNameAr(true);
-            try {
-              await apiPatch(`/api/purchasing/suppliers/${id}`, { name_ar: nameAr, expected_version: s.version });
-              setNameAr(null);
-              toast.show(t("purchasing.supplier.name_ar.saved"), "success");
-              refresh();
-            } catch (err) { toast.show(errorMsg(err), "error"); }
-            finally { setSavingNameAr(false); }
-          }}>
-            <Field label={t("purchasing.supplier.form.name_ar")} className="flex-1"><input className="field" dir="rtl" lang="ar" value={nameAr ?? s.nameAr ?? ""} onChange={(e) => setNameAr(e.target.value)} /></Field>
-            <button type="submit" className="btn-secondary text-sm" disabled={nameAr === null || savingNameAr}>{t("purchasing.supplier.name_ar.save")}</button>
-          </form>
+        {editing ? (
+          <SupplierTermsForm s={s} onSaved={() => { setEditing(false); refresh(); }} />
+        ) : (
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+            {facts.map(([k, v]) => <div key={k}><dt className="text-xs font-extrabold text-united-muted">{k}</dt><dd className="font-bold">{v || "—"}</dd></div>)}
+          </dl>
         )}
-        {s.leadTimeDays != null && <div>{t("purchasing.supplier.detail.delivery_in").replace("%s", String(s.leadTimeDays))}</div>}
-        {!s.leadTimeDays && <div className="text-united-muted">{t("purchasing.supplier.detail.not_logged")}</div>}
       </section>
+      <SupplierContacts supplierId={id} contacts={s.contacts} canEdit={manage} onSaved={refresh} />
       {can("purchasing.prices.view") && prices.data && (
         <section className="card p-4 flex flex-col gap-2">
           <h3 className="font-extrabold">{t("purchasing.supplier.prices_title")}</h3>
@@ -604,8 +614,9 @@ function SupplierDetail({ id, onClose, locale, t }: { id: string; onClose: () =>
               <button type="submit" className="btn-secondary col-span-full" disabled={!price.product_id || !price.unit_price.trim()}>{t("purchasing.supplier.price_register")}</button>
             </form>
           )}
+          {prices.data.prices.length === 0 && <p className="text-sm font-bold text-united-muted">—</p>}
           {prices.data.prices.map((p) => (
-            <div key={p.id} className="flex justify-between text-xs font-bold">
+            <div key={p.id} className="flex justify-between gap-2 text-xs font-bold">
               <span>{localName(p.product, locale)} · {p.uomCode}</span>
               <span dir="ltr">{p.unitPrice} · {p.validFrom} · {p.createdBy}</span>
             </div>
@@ -613,5 +624,84 @@ function SupplierDetail({ id, onClose, locale, t }: { id: string; onClose: () =>
         </section>
       )}
     </div>
+  );
+}
+
+function SupplierTermsForm({ s, onSaved }: { s: SupplierFull; onSaved: () => void }) {
+  const { t } = useLocale();
+  const toast = useToast();
+  const [f, setF] = useState({ name_ar: s.nameAr ?? "", tax_registration_no: s.taxRegistrationNo ?? "", commercial_reg_no: s.commercialRegNo ?? "", email: s.email ?? "", city: s.city ?? "", address: s.address ?? "", payment_terms_days: String(s.paymentTermsDays), lead_time_days: s.leadTimeDays == null ? "" : String(s.leadTimeDays) });
+  const [busy, setBusy] = useState(false);
+  const text: [keyof typeof f, string, string?][] = [["name_ar", "purchasing.supplier.form.name_ar"], ["tax_registration_no", "sales.customer.tax", "ltr"], ["commercial_reg_no", "sales.customer.commercial-reg", "ltr"], ["email", "sales.customer.email", "ltr"], ["city", "sales.customer.city"], ["address", "sales.customer.address"], ["payment_terms_days", "sales.credit-terms-field", "ltr"], ["lead_time_days", "purchasing.col.lead-time", "ltr"]];
+  return (
+    <form className="grid grid-cols-1 sm:grid-cols-2 gap-3" onSubmit={async (e) => {
+      e.preventDefault();
+      if (busy) return;
+      setBusy(true);
+      try {
+        await apiPatch(`/api/purchasing/suppliers/${s.id}`, {
+          name_ar: f.name_ar.trim() || null, tax_registration_no: f.tax_registration_no.trim() || null, commercial_reg_no: f.commercial_reg_no.trim() || null, email: f.email.trim() || null,
+          city: f.city.trim() || null, address: f.address.trim() || null, payment_terms_days: Number(f.payment_terms_days || 0), lead_time_days: f.lead_time_days.trim() === "" ? null : Number(f.lead_time_days), expected_version: s.version,
+        });
+        toast.show(t("sales.toast.saved"), "success");
+        onSaved();
+      } catch (err) { toast.show(errorMsg(err), "error"); }
+      finally { setBusy(false); }
+    }}>
+      {text.map(([k, label, dir]) => (
+        <Field key={k} label={t(label)}><input className="field" dir={dir ?? (k === "name_ar" ? "rtl" : undefined)} inputMode={k.endsWith("_days") ? "numeric" : undefined} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></Field>
+      ))}
+      <button className="btn-primary sm:col-span-2" disabled={busy}>{busy ? t("sales.form.saving") : t("ui.save")}</button>
+    </form>
+  );
+}
+
+function SupplierContacts({ supplierId, contacts, canEdit, onSaved }: { supplierId: string; contacts: SupplierContact[]; canEdit: boolean; onSaved: () => void }) {
+  const { t } = useLocale();
+  const toast = useToast();
+  const empty = { name: "", role: "", phone: "", email: "", primary: false };
+  const [f, setF] = useState(empty);
+  const [edit, setEdit] = useState<SupplierContact | null>(null);
+  const save = async (body: Record<string, unknown>, contactId?: string) => {
+    try {
+      if (contactId) await apiPatch(`/api/purchasing/suppliers/${supplierId}/contacts/${contactId}`, body);
+      else await apiPost(`/api/purchasing/suppliers/${supplierId}/contacts`, body);
+      setF(empty); setEdit(null); onSaved();
+    } catch (err) { toast.show(errorMsg(err), "error"); }
+  };
+  const shown = contacts.filter((c) => c.active || canEdit);
+  return (
+    <section className="card p-4 flex flex-col gap-2">
+      <h3 className="font-extrabold">{t("contacts-heading")}</h3>
+      {shown.length === 0 && <p className="text-sm font-bold text-united-muted">—</p>}
+      {shown.map((c) => (
+        <div key={c.id} className={`flex flex-wrap justify-between gap-2 text-sm font-bold border-b border-united-dark/5 py-1 ${c.active ? "" : "text-united-muted line-through"}`}>
+          <span>{c.name}{c.role ? ` · ${c.role}` : ""}{c.isPrimary && <span className="ms-1 pill-success">{t("label-primary")}</span>}</span>
+          <span className="flex items-center gap-3">
+            {c.phone && <a dir="ltr" href={`tel:${c.phone}`} className="text-united-green">{c.phone}</a>}
+            {c.email && <span dir="ltr" className="text-united-muted">{c.email}</span>}
+            {canEdit && <button type="button" className="text-xs font-extrabold text-united-green underline" onClick={() => { setEdit(c); setF({ name: c.name, role: c.role ?? "", phone: c.phone ?? "", email: c.email ?? "", primary: c.isPrimary }); }}>{t("ui.edit")}</button>}
+            {canEdit && <button type="button" className="text-xs font-extrabold text-united-muted underline" onClick={() => save({ name: c.name, role: c.role, phone: c.phone, email: c.email, is_primary: c.isPrimary, active: !c.active, expected_version: c.version }, c.id)}>{c.active ? t("profile.contact.deactivate") : t("profile.contact.activate")}</button>}
+          </span>
+        </div>
+      ))}
+      {canEdit && (
+        <form className="grid grid-cols-1 sm:grid-cols-2 gap-2" onSubmit={(e) => {
+          e.preventDefault();
+          const body = { name: f.name, role: f.role || null, phone: f.phone || null, email: f.email || null, is_primary: f.primary };
+          void save(edit ? { ...body, active: edit.active, expected_version: edit.version } : body, edit?.id);
+        }}>
+          <Field label={t("placeholder-contact-name")}><input className="field" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+          <Field label={t("placeholder-contact-role")}><input className="field" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} /></Field>
+          <Field label={t("placeholder-contact-phone")}><input className="field" dir="ltr" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
+          <Field label={t("sales.customer.email")}><input className="field" dir="ltr" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
+          <label className="tap-target flex items-center gap-2 font-bold"><input type="checkbox" className="w-6 h-6" checked={f.primary} onChange={(e) => setF({ ...f, primary: e.target.checked })} />{t("label-primary")}</label>
+          <div className="flex gap-2 sm:col-span-2">
+            <button className="btn-secondary" disabled={!f.name.trim()}>{edit ? t("ui.save") : t("button-add-contact")}</button>
+            {edit && <button type="button" className="btn-secondary" onClick={() => { setEdit(null); setF(empty); }}>{t("ui.cancel")}</button>}
+          </div>
+        </form>
+      )}
+    </section>
   );
 }

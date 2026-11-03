@@ -35,15 +35,42 @@ const COLUMNS: Record<Kind, string[]> = {
   stock: ["product_id", "quantity", "unit_cost", "expiry_date"],
   asset: ["category_id", "name", "cost", "accumulated", "acquisition_date", "in_service_date", "useful_life_months", "months_used", "plate_number", "serial_number", "location"],
 };
+/** The columns a pasted sheet uses: records by the code people know (ids are accepted too). */
+const PASTE_COLUMNS: Record<Kind, string[]> = {
+  gl: ["account_code", "debit", "credit", "description"],
+  customer: ["party_code", "amount", "due_date", "reference"],
+  supplier: ["party_code", "amount", "due_date", "reference"],
+  stock: ["sku", "quantity", "unit_cost", "expiry_date"],
+  asset: COLUMNS.asset,
+};
 const INT_FIELDS = new Set(["useful_life_months", "months_used"]);
+
+/** One CSV row, honouring quotes ("1,250.00" stays one cell; "" is a quote). */
+function splitRow(row: string, sep: string): string[] {
+  if (sep === "\t" || !row.includes('"')) return row.split(sep);
+  const cells: string[] = [];
+  let cur = "", quoted = false;
+  for (let i = 0; i < row.length; i++) {
+    const ch = row[i];
+    if (quoted) {
+      if (ch === '"' && row[i + 1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else cur += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === sep) { cells.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  cells.push(cur);
+  return cells;
+}
 
 function parsePasted(kind: Kind, text: string): Record<string, unknown>[] {
   const rows = text.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
   if (rows.length < 2) return [];
   const sep = rows[0].includes("\t") ? "\t" : ",";
-  const head = rows[0].split(sep).map((h) => h.trim());
+  const head = splitRow(rows[0], sep).map((h) => h.trim());
   return rows.slice(1).map((r) => {
-    const cells = r.split(sep);
+    const cells = splitRow(r, sep);
     const o: Record<string, unknown> = { kind };
     head.forEach((h, i) => { const v = (cells[i] ?? "").trim(); if (v !== "") o[h] = INT_FIELDS.has(h) ? Number(v) : v; });
     return o;
@@ -171,7 +198,7 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
               ))}
             </div>
             <div><button type="button" className="btn-secondary" onClick={() => send([Object.fromEntries([["kind", kind], ...Object.entries(form).filter(([, x]) => x !== "").map(([k, x]) => [k, INT_FIELDS.has(k) ? Number(x) : x])])])}>{t("opening.add-line")}</button></div>
-            <Field label={t("opening.paste")} hint={t("opening.paste-hint", { cols: COLUMNS[kind].join(", ") })}><textarea className="field font-mono" dir="ltr" rows={4} value={paste} onChange={(e) => setPaste(e.target.value)} /></Field>
+            <Field label={t("opening.paste")} hint={t("opening.paste-hint", { cols: PASTE_COLUMNS[kind].join(", ") })}><textarea className="field font-mono" dir="ltr" rows={4} value={paste} onChange={(e) => setPaste(e.target.value)} /></Field>
             <div><button type="button" className="btn-secondary" disabled={!paste.trim()} onClick={() => { const rows = parsePasted(kind, paste); if (!rows.length) { toast.show(t("opening.paste-empty"), "error"); return; } void send(rows); }}>{t("opening.import")}</button></div>
           </div>
         )}

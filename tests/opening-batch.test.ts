@@ -74,7 +74,39 @@ async function main() {
     await add([{ kind: "gl", account_id: "acc_3200", credit: "10251.33", description: "أرباح محتجزة" }]);
     d = await detail(batch.id);
     check("with retained earnings stated it balances (difference 0)", d.validation.totals.residual === "0.00" && d.validation.problems.length === 0, d.validation);
+    check("…the three identical fractional stock lines are allowed (two lots alike can be real) and shown for review", d.validation.warnings.some((w: any) => w.code === "identical_lines" && w.params.lines === "8=9, 8=10"), d.validation.warnings);
     check("…subledgers shown: customers 12000, suppliers 8000, stock 1251.33, assets 120000 / 30000", d.validation.subledgers.customers === "12000.00" && d.validation.subledgers.suppliers === "8000.00" && d.validation.subledgers.stock === "1251.33" && d.validation.subledgers.assetsCost === "120000.00" && d.validation.subledgers.assetsAccumulated === "30000.00", d.validation.subledgers);
+
+    // How UNITED brings balances in: one total per customer and per supplier, named by its code.
+    // A credit balance (a customer's advance, our advance to a supplier) is a negative total.
+    const customer2 = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} فندق` })).body.customer;
+    const supplier2 = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} تاجر جملة` })).body.supplier;
+    check("an unknown customer code -> 404, nothing added", (await add([{ kind: "customer", party_code: `NOPE${SUF}`, amount: "1" }])).status === 404 && (await detail(batch.id)).lines.length === 12);
+    const totals = [
+      { kind: "customer", party_code: customer2.code, amount: "-1500", reference: "رصيد دائن" },
+      { kind: "supplier", party_code: supplier2.code, amount: "-700", reference: "دفعة مقدمة" },
+      { kind: "gl", account_code: "1100", debit: "800", description: "الخزينة" },
+    ];
+    r = await add(totals);
+    check("one total per party, by code: customer credit −1500, supplier advance −700, cash 800 -> 3 lines", r.status === 201 && r.body.added === 3, r.body);
+    d = await detail(batch.id);
+    const lineOf = (pid: string) => d.lines.find((l: any) => l.data.party_id === pid);
+    check("…each code resolved to its record and kept on the line", lineOf(customer2.id)?.data.party_code === customer2.code && lineOf(supplier2.id)?.data.party_code === supplier2.code && d.lines.some((l: any) => l.data.account_id === "acc_1100" && l.data.account_code === "1100"), d.lines.slice(-3));
+    const tbRow = (code: string) => d.validation.trialBalance.find((x: any) => x.account.code === code);
+    check("…balanced; customers 10500 and suppliers 7300 net; AR 10500 debit, AP 7300 credit", d.validation.problems.length === 0 && d.validation.subledgers.customers === "10500.00" && d.validation.subledgers.suppliers === "7300.00" && tbRow("1300")?.debit === "10500.00" && tbRow("2100")?.credit === "7300.00", [d.validation.problems, d.validation.subledgers, tbRow("1300"), tbRow("2100")]);
+    r = await add([totals[0]]);
+    d = await detail(batch.id);
+    check("the same total pasted twice is refused: the duplicate blocks the batch", r.status === 201 && d.validation.problems.some((p: any) => p.code === "duplicate_lines" && p.params.lines === "13=16"), d.validation.problems);
+    check("…it cannot be sent while the duplicate is there -> 409", (await call("karim", "POST", `/api/accounting/opening-batches/${batch.id}/submit`, {})).status === 409);
+    const dupLine = d.lines.find((l: any) => l.lineNo === 16);
+    check("…removed, the batch is clean again", (await call("karim", "DELETE", `/api/accounting/opening-batches/${batch.id}/lines/${dupLine.id}`)).status === 200 && (await detail(batch.id)).validation.problems.length === 0);
+    r = await add([{ kind: "customer", party_code: customer2.code, amount: "250" }, { kind: "gl", account_code: "1100", credit: "250", description: "x" }]);
+    d = await detail(batch.id);
+    check("a party on a second line (different figures) is allowed but flagged for review", r.status === 201 && d.validation.problems.length === 0 && d.validation.warnings.some((w: any) => w.code === "party_repeated" && w.params.n === "1"), d.validation);
+    for (const l of d.lines.filter((x: any) => x.lineNo > 15)) await call("karim", "DELETE", `/api/accounting/opening-batches/${batch.id}/lines/${l.id}`);
+    check("…removed again: 15 lines, no warning about repeats", (await detail(batch.id)).lines.length === 15 && !(await detail(batch.id)).validation.warnings.some((w: any) => w.code === "party_repeated"));
+    const bsLine = (bs: any, section: string, code: string) => n(bs.sections[section].lines.find((x: any) => x.code === code)?.amount);
+    const bsBefore = (await call("karim", "GET", `/api/accounting/balance-sheet?as_of=${today}`)).body;
 
     section("3. SUBMIT, FREEZE, APPROVE BY SOMEONE ELSE");
     r = await call("karim", "POST", `/api/accounting/opening-batches/${batch.id}/submit`, {});
@@ -105,7 +137,13 @@ async function main() {
 
     section("4. EVERYTHING LANDED, AND RECONCILES");
     check("opening equity nets to zero across the batch", Math.abs((await glKey("opening_equity")) - eqBefore) < 0.005, [eqBefore, await glKey("opening_equity")]);
-    check("AR +12000, AP −8000, inventory +1251.33 (the rounded total the stock ledger posts)", Math.abs((await glKey("ar")) - arBefore - 12000) < 0.005 && Math.abs((await glKey("ap")) - apBefore + 8000) < 0.005 && Math.abs((await glKey("inventory")) - invBefore - 1251.33) < 0.005, [await glKey("inventory"), invBefore]);
+    check("AR +10500 (12000 − 1500), AP −7300 (8000 − 700), inventory +1251.33 (the rounded total the stock ledger posts)", Math.abs((await glKey("ar")) - arBefore - 10500) < 0.005 && Math.abs((await glKey("ap")) - apBefore + 7300) < 0.005 && Math.abs((await glKey("inventory")) - invBefore - 1251.33) < 0.005, [await glKey("ar") - arBefore, await glKey("ap") - apBefore, await glKey("inventory") - invBefore]);
+    const stmtClose = async (path: string) => (await call("karim", "GET", `${path}/statement?from=2000-01-01&to=2099-12-31`)).body;
+    const c2 = await stmtClose(`/api/sales/customers/${customer2.id}`), s2 = await stmtClose(`/api/purchasing/suppliers/${supplier2.id}`);
+    check("the customer's credit balance: one opening row, closing −1500 (we owe them)", c2.closing === "-1500.00" && c2.rows.length === 1 && c2.rows[0].kind === "opening_balance" && c2.rows[0].credit === "1500.00", c2);
+    check("the supplier's advance: one opening row, closing −700 (they owe us)", s2.statement.closing === "-700.00" && s2.statement.rows.length === 1 && s2.statement.rows[0].debit === "700.00", s2.statement);
+    const bsAfter = (await call("karim", "GET", `/api/accounting/balance-sheet?as_of=${today}`)).body;
+    check("balance sheet: receivables +10500, payables +7300, and it still balances", Math.abs(bsLine(bsAfter, "assets", "1300") - bsLine(bsBefore, "assets", "1300") - 10500) < 0.005 && Math.abs(bsLine(bsAfter, "liabilities", "2100") - bsLine(bsBefore, "liabilities", "2100") - 7300) < 0.005 && bsAfter._balanced === true, [bsLine(bsBefore, "assets", "1300"), bsLine(bsAfter, "assets", "1300"), bsLine(bsBefore, "liabilities", "2100"), bsLine(bsAfter, "liabilities", "2100"), bsAfter._balanced]);
     const open = (await call("karim", "GET", `/api/accounting/customers/${customer.id}/open-invoices`)).body.invoices ?? [];
     check("the customer's opening item is open for collection (12000, its due date)", open.some((i: any) => n(i.open) === 12000), open);
     const st = (await call("karim", "GET", `/api/purchasing/suppliers/${supplier.id}/statement?from=2000-01-01&to=2099-12-31`)).body;

@@ -33,6 +33,7 @@ import { useOperationalSettings } from "@/lib/use-operational-settings";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { orderCustomerName } from "@/lib/locale/names";
+import { PartyLink } from "@/components/profiles/EntityLink";
 import { OrderStepper } from "@/components/order/OrderStepper";
 import { Field } from "@/components/ui/Field";
 
@@ -392,7 +393,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       {/* Header / operational record */}
       <div className="card p-5">
         <div className="flex items-start justify-between gap-2 mb-1">
-          <h1 className="text-2xl font-extrabold text-united-dark">{orderCustomerName(order, locale === "en" ? "en" : "ar")}</h1>
+          <h1 className="text-2xl font-extrabold text-united-dark"><PartyLink kind="customer" id={order.customerAccountId} name={orderCustomerName(order, locale === "en" ? "en" : "ar")} /></h1>
           <StatusBadge status={order.status} />
         </div>
         {/* What the stage actually means, not just its name. */}

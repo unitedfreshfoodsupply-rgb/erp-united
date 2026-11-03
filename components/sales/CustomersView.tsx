@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { systemText } from "@/lib/locale/system-text";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -12,7 +12,7 @@ import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { CreateOrderForm } from "@/components/supervisor/CreateOrderForm";
 import { PriceListsView } from "@/components/sales/PriceListsView";
 import { QuotationsView } from "@/components/sales/QuotationsView";
-import { CustomerStatement, INVOICE_TABS, InvoicesView, type InvoiceTab } from "@/components/sales/InvoicesView";
+import { INVOICE_TABS, InvoicesView, type InvoiceTab } from "@/components/sales/InvoicesView";
 import { Landmark, Star } from "lucide-react";
 import { useLocale } from "@/lib/locale";
 import { intlLocale } from "@/lib/format";
@@ -21,6 +21,7 @@ import { localName, otherLocalName } from "@/lib/locale/names";
 import { useDialogs } from "@/components/ui/Dialog";
 import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
 import { DataTable, FilterBar, useListQuery, useListState, type Column } from "@/components/ui/DataTable";
+import { href as profileHref } from "@/lib/profiles/links";
 
 /**
  * Customer accounts for sales and finance: find a customer, see and edit who they
@@ -48,20 +49,25 @@ const fail = (toast: ReturnType<typeof useToast>, err: unknown) => toast.show(er
 
 export function CustomersView() {
   const { t } = useLocale();
+  const router = useRouter();
   const [tab, setTab] = useState<"list" | "unmapped" | "new" | "order" | "prices" | "quotations" | "invoices">("list");
-  const [openId, setOpenId] = useState<string | null>(null);
   const [invoiceTab, setInvoiceTab] = useState<InvoiceTab | undefined>(undefined);
+  const [invoiceId, setInvoiceId] = useState<string | null>(null);
   const { can } = usePermissions();
-  // Deep links (reports, statements, home shortcuts): ?customer=<id> opens a customer, ?tab=invoices&itab=aging a tab.
+  const openCustomer = (id: string) => router.push(profileHref.customer(id));
+  // Deep links (reports, statements, home shortcuts): ?customer=<id> (older links) goes to the
+  // customer's profile, ?invoice=<id> opens an invoice, ?tab=invoices&itab=aging a tab.
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     const id = sp.get("customer");
-    if (id) setOpenId(id);
+    if (id) { router.replace(profileHref.customer(id)); return; }
+    const inv = sp.get("invoice");
+    if (inv) { setInvoiceId(inv); setTab("invoices"); }
     const tb = sp.get("tab");
     if (tb && ["list", "unmapped", "new", "order", "quotations", "invoices", "prices"].includes(tb)) setTab(tb as typeof tab);
     const it = sp.get("itab");
     if (it && (INVOICE_TABS as readonly string[]).includes(it)) setInvoiceTab(it as InvoiceTab);
-  }, []);
+  }, [router]);
   const unmapped = useQuery({
     queryKey: ["sales", "unmapped"],
     queryFn: () => apiFetch<{ names: { customerName: string; orders: number; lastDeliveryDate: string | null }[] }>("/api/sales/customers/unmapped"),
@@ -72,7 +78,7 @@ export function CustomersView() {
       <h1 className="page-title">{t("sales.title")}</h1>
       <Tabs
         value={tab}
-        onChange={(t) => { setTab(t as typeof tab); setOpenId(null); }}
+        onChange={(t) => { setTab(t as typeof tab); setInvoiceId(null); }}
         items={[
           { key: "list", label: t("sales.tab.all") },
           { key: "unmapped", label: t("sales.tab.unmapped"), badge: unmapped.data?.names.length },
@@ -83,12 +89,10 @@ export function CustomersView() {
           ...(can("orders.create") ? [{ key: "order" as const, label: "+" + t("sales.tab.order") }] : []),
         ]}
       />
-      {openId ? (
-        <CustomerPanel id={openId} onClose={() => setOpenId(null)} />
-      ) : tab === "list" ? (
-        <CustomerList onOpen={setOpenId} />
+      {tab === "list" ? (
+        <CustomerList onOpen={openCustomer} />
       ) : tab === "invoices" ? (
-        <InvoicesView key={invoiceTab ?? "todo"} initialTab={invoiceTab} />
+        <InvoicesView key={`${invoiceTab ?? "todo"}:${invoiceId ?? ""}`} initialTab={invoiceTab} initialInvoiceId={invoiceId} />
       ) : tab === "quotations" ? (
         <QuotationsView />
       ) : tab === "prices" ? (
@@ -98,7 +102,7 @@ export function CustomersView() {
       ) : tab === "unmapped" ? (
         <Unmapped names={unmapped.data?.names ?? []} loading={unmapped.isLoading} />
       ) : (
-        <NewCustomer onCreated={(id) => { setTab("list"); setOpenId(id); }} />
+        <NewCustomer onCreated={openCustomer} />
       )}
     </div>
   );
@@ -228,22 +232,17 @@ function NewCustomer({ onCreated }: { onCreated: (id: string) => void }) {
   );
 }
 
-function CustomerPanel({ id, onClose }: { id: string; onClose: () => void }) {
+type CustomerLog = { id: string; action: string; userName: string; timestamp: string; fieldChanged: string | null; oldValue: string | null; newValue: string | null; reason: string | null };
+
+/** The customer's own record (the profile's overview): who they are, credit, prices, names, contacts. */
+export function CustomerOverview({ id }: { id: string }) {
   const { can } = usePermissions();
   const { locale, t } = useLocale();
   const dialogs = useDialogs();
-  // t() returns the key itself when it is missing, so fall back to the raw action
-  // explicitly instead of with ??, which never fired.
-  const actionLabel = (action: string) => {
-    const key = `sales.action.${action.replace("-", "_")}`;
-    const label = t(key);
-    return label === key ? action : label;
-  };
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState(false);
   const q = useQuery({ queryKey: ["sales", "customer", id], queryFn: () => apiFetch<{ customer: CustomerDetail }>(`/api/sales/customers/${id}`) });
-  const history = useQuery({ queryKey: ["sales", "customer", id, "history"], queryFn: () => apiFetch<{ logs: { id: string; action: string; userName: string; timestamp: string; fieldChanged: string | null; oldValue: string | null; newValue: string | null; reason: string | null }[] }>(`/api/sales/customers/${id}/history`) });
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   const c = q.data.customer;
@@ -251,14 +250,6 @@ function CustomerPanel({ id, onClose }: { id: string; onClose: () => void }) {
   const canManage = can("sales.customers.manage");
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <h2 className="text-xl font-extrabold">{localName(c, locale)}</h2>
-          <p className="text-xs font-bold text-united-muted" dir="ltr">{c.code}{c.taxRegistrationNo ? ` · TAX ${c.taxRegistrationNo}` : ""}</p>
-        </div>
-        <button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button>
-      </div>
-
       <section className="card p-4 flex flex-col gap-3">
         <div className="flex justify-between items-center">
           <h3 className="font-extrabold">{t("sales.section.data")}</h3>
@@ -282,8 +273,8 @@ function CustomerPanel({ id, onClose }: { id: string; onClose: () => void }) {
             }}
           />
         ) : (
-          <dl className="grid grid-cols-2 gap-2 text-sm">
-            {[[t("sales.customer.type"), (customerTypeLabels(t))[c.type] || c.type], [t("sales.customer.legal-name"), c.legalName], [t("sales.customer.nameAr"), c.legalNameAr], [t("sales.customer.phone"), c.phone], [t("sales.customer.email"), c.email], [t("sales.customer.address"), [c.address, c.area, c.city].filter(Boolean).join(locale === "en" ? ", " : "، ")], [t("sales.customer.delivery-notes"), c.deliveryNotes], [t("sales.customer.ext-ref"), c.externalRef]].map(([k, v]) => (
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+            {[[t("sales.customer.type"), (customerTypeLabels(t))[c.type] || c.type], [t("sales.customer.legal-name"), c.legalName], [t("sales.customer.nameAr"), c.legalNameAr], [t("sales.customer.phone"), c.phone], [t("sales.customer.email"), c.email], [t("sales.customer.address"), [c.address, c.area, c.city].filter(Boolean).join(locale === "en" ? ", " : "، ")], [t("sales.customer.commercial-reg"), c.commercialRegNo], [t("sales.customer.delivery-notes"), c.deliveryNotes], [t("sales.customer.ext-ref"), c.externalRef]].map(([k, v]) => (
               <div key={String(k)}><dt className="text-xs font-extrabold text-united-muted">{k}</dt><dd className="font-bold">{v || "—"}</dd></div>
             ))}
           </dl>
@@ -303,9 +294,8 @@ function CustomerPanel({ id, onClose }: { id: string; onClose: () => void }) {
 
       <GroupLegalSection c={c} canEdit={canManage} onSaved={refresh} />
 
-      <CreditSection c={c} canEdit={can("sales.credit.manage")} onSaved={refresh} />
-
-      {can("sales.invoices.view") && <CustomerStatement customerId={c.id} />}
+      {/* Credit limit, hold reason and what the customer owes are finance information. */}
+      {(can("sales.invoices.view") || can("sales.credit.manage")) && <CreditSection c={c} canEdit={can("sales.credit.manage")} onSaved={refresh} />}
 
       {can("sales.pricing.view") && <CustomerPriceList c={c} canEdit={can("sales.pricing.manage")} onSaved={refresh} />}
 
@@ -328,30 +318,37 @@ function CustomerPanel({ id, onClose }: { id: string; onClose: () => void }) {
       </section>
 
       <Contacts c={c} canEdit={canManage} onSaved={refresh} />
-
-      <section className="card p-4 flex flex-col gap-2">
-        <h3 className="font-extrabold">{t("heading-recent-orders")}</h3>
-        {c.recentOrders.length === 0 && <p className="text-sm font-bold text-united-muted">{t("empty-recent-orders")}</p>}
-        {c.recentOrders.map((o) => (
-          <Link key={o.id} href={`/orders/${o.id}`} className="flex justify-between text-sm font-bold py-1 border-b border-united-dark/5">
-            <span dir="ltr">{o.orderNumber}</span><span>{o.deliveryDate}</span>
-          </Link>
-        ))}
-      </section>
-
-      <section className="card p-4 flex flex-col gap-2">
-        <h3 className="font-extrabold">{t("heading-audit-log")}</h3>
-        <ul className="text-sm flex flex-col gap-1">
-          {history.data?.logs.map((l) => (
-            <li key={l.id} className="border-b border-united-dark/5 py-1">
-              <span className="font-bold">{l.userName}</span> · {actionLabel(l.action)}{l.fieldChanged && FIELD_LABEL[l.fieldChanged] ? ` · ${t(FIELD_LABEL[l.fieldChanged])}` : ""}{l.newValue ? `: ${changeText(l.oldValue ?? "—", l.newValue, locale)}` : ""}
-              {l.reason ? <span className="text-united-muted"> ({systemText(l.reason, locale)})</span> : null}
-              <span className="text-xs text-united-muted"> · {new Date(l.timestamp).toLocaleString(intlLocale(locale), { dateStyle: "short", timeStyle: "short" })}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
     </div>
+  );
+}
+
+/** Every recorded change to the customer: its own edits and credit changes, aliases, contacts, mappings. */
+export function CustomerHistory({ id }: { id: string }) {
+  const { locale, t } = useLocale();
+  // t() returns the key itself when it is missing, so fall back to the raw action
+  // explicitly instead of with ??, which never fired.
+  const actionLabel = (action: string) => {
+    const key = `sales.action.${action.replace("-", "_")}`;
+    const label = t(key);
+    return label === key ? action : label;
+  };
+  const history = useQuery({ queryKey: ["sales", "customer", id, "history"], queryFn: () => apiFetch<{ logs: CustomerLog[] }>(`/api/sales/customers/${id}/history`) });
+  if (history.isLoading) return <LoadingState />;
+  if (history.isError) return <ErrorState message={errorMessage(history.error)} onRetry={() => history.refetch()} />;
+  if (!history.data?.logs.length) return <EmptyState icon="🗂️" title={t("profile.empty")} />;
+  return (
+    <section className="card p-4 flex flex-col gap-2">
+      <h3 className="font-extrabold">{t("heading-audit-log")}</h3>
+      <ul className="text-sm flex flex-col gap-1">
+        {history.data.logs.map((l) => (
+          <li key={l.id} className="border-b border-united-dark/5 py-1">
+            <span className="font-bold">{l.userName}</span> · {actionLabel(l.action)}{l.fieldChanged && FIELD_LABEL[l.fieldChanged] ? ` · ${t(FIELD_LABEL[l.fieldChanged])}` : ""}{l.newValue ? `: ${changeText(l.oldValue ?? "—", l.newValue, locale)}` : ""}
+            {l.reason ? <span className="text-united-muted"> ({systemText(l.reason, locale)})</span> : null}
+            <span className="text-xs text-united-muted"> · {new Date(l.timestamp).toLocaleString(intlLocale(locale), { dateStyle: "short", timeStyle: "short" })}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

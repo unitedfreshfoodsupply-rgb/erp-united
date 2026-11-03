@@ -27,6 +27,7 @@ import { localName, type LocalizedNameSource } from "@/lib/locale/names";
 import { useDialogs } from "@/components/ui/Dialog";
 import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
 import { FilterBar, useListState } from "@/components/ui/DataTable";
+import { PartyLink } from "@/components/profiles/EntityLink";
 
 /**
  * Finance: cash position, customer receipts, supplier payments, journals, trial
@@ -91,8 +92,8 @@ type SettlementRow = {
   amount: string;
   cashAmount: string;
   unallocated: string;
-  customer?: LocalizedNameSource | null;
-  supplier?: LocalizedNameSource | null;
+  customer?: (LocalizedNameSource & { id: string }) | null;
+  supplier?: (LocalizedNameSource & { id: string }) | null;
   deductions?: { kind: string; amount: string; reference: string | null }[];
   reversal?: { date: string; reason: string; by: string } | null;
 };
@@ -246,7 +247,7 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
         {list.data?.items.map((r) => (
           <li key={r.id} className={`card p-3 flex justify-between gap-2 text-sm font-bold ${r.reversal ? "opacity-70" : ""}`}>
             <div>
-              <div className="font-extrabold"><span dir="ltr">{r.number}</span> · {getPartyName(r.customer, locale) || getPartyName(r.supplier, locale)}</div>
+              <div className="font-extrabold"><span dir="ltr">{r.number}</span> · {r.customer ? <PartyLink kind="customer" id={r.customer.id} name={getPartyName(r.customer, locale)} /> : r.supplier ? <PartyLink kind="supplier" id={r.supplier.id} name={getPartyName(r.supplier, locale)} /> : null}</div>
               <div className="text-xs text-united-muted">{r.date} · {METHOD_LABELS[r.method] ? t(METHOD_LABELS[r.method]) : r.method} · {localName({ name: r.cashAccount, nameAr: r.cashAccountAr }, locale)}{r.reference ? <> · <span dir="ltr">{r.reference}</span></> : null}{Number(r.unallocated) > 0 ? ` · ${t("accounting.unallocated")} ${fmtMoney(r.unallocated)}` : ""}</div>
               {(r.deductions?.length ?? 0) > 0 && (
                 <div className="text-xs text-united-muted">

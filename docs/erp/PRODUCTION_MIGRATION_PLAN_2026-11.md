@@ -36,7 +36,7 @@ The 18 migrations, in order:
 
 No migration drops a table or column, changes a column type, deletes rows or adds NOT NULL to an existing nullable column. Each file is one transaction: a failure rolls that file back and stops the run.
 
-**Data migration or backfill needed:** none beyond what the files do themselves (#1: 0 rows; #3: 1 order; #9: 12 system and cash accounts classified). After deploy, the accountant classifies the remaining 20 accounts as current or non-current; until then the balance sheet shows them as unclassified.
+**Data migration or backfill needed:** none beyond what the files do themselves (#1: 0 rows; #3: 1 order; #9: 12 system and cash accounts classified). That covers every postable asset and liability account on the production chart. The 20 accounts left without a class are 18 equity, revenue and expense accounts (the database refuses a class on those) and the header accounts 1000 and 2000, which carry no balance, so the balance sheet shows nothing unclassified. Only an asset or liability account created later needs a class.
 
 ## 2. Rehearsal evidence (3 Nov 2026, local PostgreSQL 17, production untouched)
 
@@ -49,10 +49,11 @@ Source: the verified production dump of 2 Nov (`~/UNITED_FINAL_BACKUP_20261102/d
 | New values | `pricingStatus` 'ok' on the 1 order; `allowOverdraft` false on both cash accounts; `priceVariance` 0 everywhere; `resolutionKind` NULL; liquidity on 12 accounts, 20 left for the accountant |
 | Trial balance and inventory valuation | identical before and after (inventory 418,281.23; opening equity −418,281.23) |
 | Privileges | RLS on all 149 tables; no anon/authenticated grants; `united_norm('إسكندرية')` = 'اسكندريه' as the runtime owner |
-| Old build `7991d66` against a fresh database migrated to all 95 (old fixtures) | Green: core 107, orders 180, stock 148, workflow 64, sales 193, inventory 119, purchasing 125, ledger-audit 39, security 69, ETA 28 (after the sales suite, which issues the invoice it needs), fiscal-year 42 (close and reopen under the new posting-lock function), lot-adjustment 13, cost-reconciliation 21. Refused: accounting, business-cycle and hr-payroll stop at a payment from an unfunded bank or cash account: the database rule `cash_account_negative` refuses it and the old code answers 500. Same root cause as the 2 Nov rehearsal |
+| Old build `7991d66` against a fresh database migrated to all 95 (old fixtures) | Green: core 107, orders 180, stock 148, workflow 64, sales 193, inventory 119, purchasing 125, ledger-audit 39, security 69, ETA 28 (after the sales suite, which issues the invoice it needs), fiscal-year 42 (close and reopen under the new posting-lock function), lot-adjustment 13, cost-reconciliation 21. Refused: accounting and business-cycle stop at a bank payment from an unfunded account: the database rule `cash_account_negative` refuses it and the old code answers 500 (same root cause as on 2 Nov). hr-payroll hits the same cash refusal, then stops at payroll posting: the new `PayrollRun_segregation` rule (#13) refuses both posts with 422, because the old fixtures post a run as its own preparer |
 | Failure injection: a system account retyped as equity | #9 aborts atomically (85 applied, the column absent). Recovery: correct the account, `prisma migrate resolve --rolled-back 20261102122000_account_liquidity`, rerun: 95 applied, `migrate diff` empty |
-| Privilege trap found | If the migrating role cannot CREATE in schema `public`, #2 fails with 42501. On Supabase `postgres` owns the database, so it can; precondition P0 now checks it |
-| Restore drill | `pg_dump -Fc` of the migrated copy, sha256 recorded and verified, restored into a new database: 149 of 149 tables identical row by row, same objects (56 functions, 92 triggers, 774 constraints, 528 indexes), schema dump identical, 95 migrations recorded |
+| Privileges and role model | Tables and database owned by the non-superuser `postgres` (bypassrls); RLS on all 149 tables; no grants to anon/authenticated on tables or functions; `united_norm('إسكندرية')` = 'اسكندريه' as `postgres` (`production-copy/privileges.txt`) |
+| Privilege trap found | If the migrating role cannot CREATE in schema `public`, #2 fails with 42501 (observed on a copy restored without database ownership; the output was not kept). On Supabase `postgres` owns the database, so it can; precondition P0 now checks it |
+| Restore drill | `pg_dump -Fc` of the migrated copy, sha256 recorded (`restore-drill/rehearsal-95.dump.sha256`) and checked before the restore (the dump was then deleted: it held production data), restored into a new database with no errors (empty `restore.log`): 149 of 149 tables identical row by row, same objects (56 functions, 92 triggers, 774 constraints, 528 indexes), schema dump identical, 95 migrations recorded |
 | New build (final commit) on the migrated copy | See the release-readiness report, §Migration |
 
 ## 3. Preconditions (read-only, on production, immediately before the window)
@@ -62,7 +63,7 @@ Every result must match. Any deviation stops the window.
 - **P0** `SELECT migration_name FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL;` → 0 rows. `SELECT count(*) FROM "_prisma_migrations";` → 77.
 - **P0** On both the DATABASE_URL and DIRECT_URL connections: `SELECT current_user, has_schema_privilege('public','CREATE'), (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database());` → the same user on both, `true`, and that user.
 - **P0** `SELECT DISTINCT tableowner FROM pg_tables WHERE schemaname='public';` → one row, that user.
-- **P0** `SELECT proname FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname IN ('united_norm','united_cash_line_lock','united_cash_never_negative','hr_payslip_signed','hr_payroll_payment_segregation','hr_settlement_frozen','hr_advance_plan_guard','supplier_payment_request_guard');` → 0 rows.
+- **P0** `SELECT proname FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname IN ('united_norm','united_cash_line_lock','united_cash_never_negative','eta_document_uuid_guard','hr_payslip_signed','hr_payroll_payment_segregation','hr_settlement_frozen','hr_advance_plan_guard','supplier_payment_request_guard');` → 0 rows. (These are the 9 functions the release creates; the 2 it replaces, `stock_valuation_append_only` and `accounting_period_open`, must exist.)
 - **#1** `SELECT status, count(*) FROM "StockIssueException" GROUP BY 1;` → open 1, no resolved rows.
 - **#5** `SELECT c."code", coalesce(sum(l."debit"-l."credit"),0), count(l."id") FROM "CashAccount" c LEFT JOIN "JournalLine" l ON l."accountId"=c."accountId" GROUP BY 1;` → 2 rows, balance ≥ 0.
 - **#7/#15** `SELECT kind, count(*) FROM "StockMovement" GROUP BY 1;` → adjustment 47. `SELECT count(*) FROM "StockIntake";` → 0. `SELECT "costingMethod", count(*) FROM "StockProduct" GROUP BY 1;` → avco only.
@@ -92,7 +93,7 @@ Every result must match. Any deviation stops the window.
 |---|---|---|
 | New app misbehaves | Start the old build again (`pm2`). Rehearsed on all 95 migrations (§2) | Data-safe, but the database keeps enforcing cash-never-negative, payroll segregation and the posting locks; the old screens show a generic error for those refusals. The old app does not enforce MFA, payment approval, purchase requests or price exceptions |
 | Schema must go back | Restore the G3 dump | Everything written after the dump must be re-entered |
-| Single migration, emergency only | Down SQL in the assessment (D1–D18), in reverse order, then delete the `_prisma_migrations` row | Not rehearsed; #7, #8, #10, #13 and #15 cannot be reversed once the new app has written their rows |
+| Single migration, emergency only | No down SQL ships for this release's set. `release-review/remediation-2026-11-DOWN.sql` covers only #1–#14 (77 → 91) and was written for the earlier set; nothing covers #15–#18. The supported schema rollback is restoring the G3 dump | #7, #8, #10, #13 and #15 cannot be reversed once the new app has written their rows |
 
 ## 6. Decisions this plan needs
 
@@ -101,4 +102,4 @@ Every result must match. Any deviation stops the window.
 | Apply all 18 migrations in one window with the old app stopped | Yes | Owner (the SUPER_ADMIN holder with production authority); the operator executes |
 | Accept that the database-enforced controls (cash never negative, payroll segregation, posting locks) apply at migrate time | Yes; they are approved controls | Owner |
 | Which bank accounts, if any, may go into overdraft (with the bank's written facility) | None until the accountant says otherwise | Chief accountant, countersigned by the owner |
-| Liquidity classification of the 20 unclassified accounts | After deploy | Chief accountant |
+| Liquidity class of any asset or liability account created after deploy | At creation | Chief accountant |

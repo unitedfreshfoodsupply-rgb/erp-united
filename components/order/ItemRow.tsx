@@ -8,6 +8,7 @@ import { qty as qtyLabel, unitLabel } from "@/lib/format";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { Field } from "@/components/ui/Field";
+import { PartyLink } from "@/components/profiles/EntityLink";
 
 type Mode = "display" | "prepare" | "load";
 
@@ -130,7 +131,7 @@ export function ItemRow({
   return (
     <div className={`card p-4 sm:p-5 ${short ? "!border-united-danger/40 border-s-4 !border-s-united-danger" : ""}`}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-lg sm:text-xl font-semibold text-united-dark">{item.stockProduct ? localName(item.stockProduct, locale === "en" ? "en" : "ar") : item.productName}</span>
+        <span className="text-lg sm:text-xl font-semibold text-united-dark"><PartyLink kind="product" id={item.stockProductId} name={item.stockProduct ? localName(item.stockProduct, locale === "en" ? "en" : "ar") : item.productName} /></span>
         {done && (
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-united-green text-white" aria-label={t("ui.done")}>
             <Check size={18} strokeWidth={2.5} aria-hidden />

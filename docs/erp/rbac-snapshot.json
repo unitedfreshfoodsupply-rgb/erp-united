@@ -3479,6 +3479,13 @@
       }
     },
     {
+      "method": "GET",
+      "path": "/api/profiles/[kind]/[id]/[section]",
+      "gate": {
+        "kind": "authenticated"
+      }
+    },
+    {
       "method": "POST",
       "path": "/api/purchasing/bills/[id]/cancel",
       "gate": {
@@ -4009,9 +4016,10 @@
       "method": "GET",
       "path": "/api/sales/customers/[id]/exposure",
       "gate": {
-        "kind": "all",
+        "kind": "any",
         "permissions": [
-          "sales.customers.view"
+          "sales.invoices.view",
+          "sales.credit.manage"
         ]
       }
     },
@@ -4723,7 +4731,11 @@
     },
     {
       "href": "/purchasing",
-      "permission": "purchasing.orders.view",
+      "permission": [
+        "purchasing.orders.view",
+        "purchasing.suppliers.view",
+        "purchasing.bills.view"
+      ],
       "pageOpenToAll": false
     },
     {

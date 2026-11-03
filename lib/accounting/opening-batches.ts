@@ -55,10 +55,12 @@ const num = (label: string, opts: { signed?: boolean; allowZero?: boolean; dp?: 
   });
 
 const lineInput = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("gl"), account_id: z.string().min(1, "الحساب مطلوب"), debit: num("مدين", { allowZero: true }).optional(), credit: num("دائن", { allowZero: true }).optional(), description: optText("البيان", 200).optional() }),
-  z.object({ kind: z.literal("customer"), party_id: z.string().min(1, "العميل مطلوب"), amount: num("المبلغ", { signed: true }), due_date: isoDate("تاريخ الاستحقاق").optional(), reference: optText("المرجع", 100).optional() }),
-  z.object({ kind: z.literal("supplier"), party_id: z.string().min(1, "المورد مطلوب"), amount: num("المبلغ", { signed: true }), due_date: isoDate("تاريخ الاستحقاق").optional(), reference: optText("المرجع", 100).optional() }),
-  z.object({ kind: z.literal("stock"), product_id: z.string().min(1, "الصنف مطلوب"), quantity: num("الكمية", { dp: 3 }), unit_cost: num("تكلفة الوحدة", { dp: 4 }), location_id: z.string().optional(), expiry_date: isoDate("تاريخ الانتهاء").optional() }),
+  // Each record can be named by its id or by the code people know it by (account code,
+  // customer/supplier code, SKU) — addLines resolves a code to the id that is stored.
+  z.object({ kind: z.literal("gl"), account_id: z.string().min(1).optional(), account_code: optText("كود الحساب", 50).optional(), debit: num("مدين", { allowZero: true }).optional(), credit: num("دائن", { allowZero: true }).optional(), description: optText("البيان", 200).optional() }),
+  z.object({ kind: z.literal("customer"), party_id: z.string().min(1).optional(), party_code: optText("كود العميل", 50).optional(), amount: num("المبلغ", { signed: true }), due_date: isoDate("تاريخ الاستحقاق").optional(), reference: optText("المرجع", 100).optional() }),
+  z.object({ kind: z.literal("supplier"), party_id: z.string().min(1).optional(), party_code: optText("كود المورد", 50).optional(), amount: num("المبلغ", { signed: true }), due_date: isoDate("تاريخ الاستحقاق").optional(), reference: optText("المرجع", 100).optional() }),
+  z.object({ kind: z.literal("stock"), product_id: z.string().min(1).optional(), sku: optText("كود الصنف", 50).optional(), quantity: num("الكمية", { dp: 3 }), unit_cost: num("تكلفة الوحدة", { dp: 4 }), location_id: z.string().optional(), expiry_date: isoDate("تاريخ الانتهاء").optional() }),
   z.object({
     kind: z.literal("asset"), category_id: z.string().min(1, "فئة الأصل مطلوبة"), name: z.string().min(1, "اسم الأصل مطلوب").max(200), cost: num("التكلفة الأصلية"), accumulated: num("مجمع الإهلاك", { allowZero: true }),
     acquisition_date: isoDate("تاريخ الشراء"), in_service_date: isoDate("تاريخ التشغيل"), useful_life_months: z.number().int().min(1).max(1200).optional(), residual_value: num("القيمة المتبقية", { allowZero: true }).optional(),
@@ -75,6 +77,7 @@ async function lineEffect(db: Tx | typeof prisma, l: LineInput, batch: { kind: s
   if (l.kind === "gl") {
     const debit = l.debit ?? D(0), credit = l.credit ?? D(0);
     if (debit.gt(0) === credit.gt(0)) throw new ApiError(400, "سطر الحساب يا مدين يا دائن (مش الاتنين ولا صفر)");
+    if (!l.account_id) throw new ApiError(400, "الحساب مطلوب");
     const a = await db.account.findUnique({ where: { id: l.account_id } });
     if (!a) throw new ApiError(404, "الحساب مش موجود");
     if (!a.postable || !a.active) throw new ApiError(400, `الحساب ${a.code} رئيسي أو موقوف`);
@@ -84,6 +87,7 @@ async function lineEffect(db: Tx | typeof prisma, l: LineInput, batch: { kind: s
     return { debit, credit, accounts: [{ accountId: a.id, amount: debit.minus(credit) }] };
   }
   if (l.kind === "customer" || l.kind === "supplier") {
+    if (!l.party_id) throw new ApiError(400, l.kind === "customer" ? "العميل مطلوب" : "المورد مطلوب");
     const party = l.kind === "customer" ? await db.customer.findUnique({ where: { id: l.party_id }, select: { id: true } }) : await db.supplier.findUnique({ where: { id: l.party_id }, select: { id: true } });
     if (!party) throw new ApiError(404, l.kind === "customer" ? "العميل مش موجود" : "المورد مش موجود");
     const key = l.kind === "customer" ? "ar" : "ap";
@@ -93,6 +97,7 @@ async function lineEffect(db: Tx | typeof prisma, l: LineInput, batch: { kind: s
     return { debit: signed.gt(0) ? signed : D(0), credit: signed.lt(0) ? signed.negated() : D(0), accounts: [{ accountId: acc.id, amount: signed }] };
   }
   if (l.kind === "stock") {
+    if (!l.product_id) throw new ApiError(400, "الصنف مطلوب");
     const p = await db.stockProduct.findUnique({ where: { id: l.product_id }, select: { id: true, active: true, name: true, costingMethod: true, standardCost: true } });
     if (!p?.active) throw new ApiError(404, "الصنف مش موجود أو موقوف");
     // ACC-20: what the approver signs must be what posts (a standard product posts at its standard).
@@ -116,6 +121,35 @@ async function lineEffect(db: Tx | typeof prisma, l: LineInput, batch: { kind: s
     debit: l.cost, credit: l.accumulated,
     accounts: [{ accountId: c.assetAccountId, amount: l.cost }, ...(l.accumulated.gt(0) ? [{ accountId: c.accumulatedAccountId!, amount: l.accumulated.negated() }] : [])],
   };
+}
+
+/** A line named by code gets the id it stands for; an unknown code refuses the line. */
+async function resolveCodes(db: Tx, l: LineInput): Promise<LineInput> {
+  if (l.kind === "gl" && !l.account_id && l.account_code) {
+    const a = await db.account.findUnique({ where: { code: l.account_code }, select: { id: true } });
+    if (!a) throw new ApiError(404, `مفيش حساب بالكود ${l.account_code}`);
+    return { ...l, account_id: a.id };
+  }
+  if ((l.kind === "customer" || l.kind === "supplier") && !l.party_id && l.party_code) {
+    const p = l.kind === "customer" ? await db.customer.findUnique({ where: { code: l.party_code }, select: { id: true } }) : await db.supplier.findUnique({ where: { code: l.party_code }, select: { id: true } });
+    if (!p) throw new ApiError(404, l.kind === "customer" ? `مفيش عميل بالكود ${l.party_code}` : `مفيش مورد بالكود ${l.party_code}`);
+    return { ...l, party_id: p.id };
+  }
+  if (l.kind === "stock" && !l.product_id && l.sku) {
+    const p = await db.stockProduct.findUnique({ where: { sku: l.sku }, select: { id: true } });
+    if (!p) throw new ApiError(404, `مفيش صنف بالكود ${l.sku}`);
+    return { ...l, product_id: p.id };
+  }
+  return l;
+}
+
+/** What makes two lines the same entry: the same record and the same figures. */
+function lineIdentity(l: LineInput): { party: string | null; same: string } {
+  const s = (v: unknown) => (v == null ? "" : String(v));
+  if (l.kind === "customer" || l.kind === "supplier") return { party: `${l.kind}:${l.party_id}`, same: [l.kind, l.party_id, s(l.amount), s(l.due_date), s(l.reference)].join("|") };
+  if (l.kind === "gl") return { party: null, same: ["gl", l.account_id, s(l.debit), s(l.credit), s(l.description)].join("|") };
+  if (l.kind === "stock") return { party: null, same: ["stock", l.product_id, s(l.quantity), s(l.unit_cost), s(l.location_id), s(l.expiry_date)].join("|") };
+  return { party: null, same: ["asset", l.category_id, l.name, s(l.cost), s(l.accumulated), s(l.serial_number), s(l.plate_number)].join("|") };
 }
 
 async function initialPosted(db: Tx | typeof prisma) {
@@ -172,9 +206,9 @@ export async function addLines(batchId: string, input: unknown, actor: ServiceAc
     let lineNo = last._max.lineNo ?? 0;
     const rows: Prisma.OpeningBatchLineCreateManyInput[] = [];
     for (const [i, l] of v.lines.entries()) {
-      let e: Effect;
-      try { e = await lineEffect(tx, l, b); } catch (err) { if (err instanceof ApiError) throw new ApiError(err.status, `سطر ${i + 1}: ${err.message}`); throw err; }
-      rows.push({ batchId, lineNo: ++lineNo, kind: l.kind, data: JSON.parse(JSON.stringify(l)) as Prisma.InputJsonValue, debit: e.debit, credit: e.credit });
+      let e: Effect, line: LineInput;
+      try { line = await resolveCodes(tx, l); e = await lineEffect(tx, line, b); } catch (err) { if (err instanceof ApiError) throw new ApiError(err.status, `سطر ${i + 1}: ${err.message}`); throw err; }
+      rows.push({ batchId, lineNo: ++lineNo, kind: line.kind, data: JSON.parse(JSON.stringify(line)) as Prisma.InputJsonValue, debit: e.debit, credit: e.credit });
     }
     await tx.openingBatchLine.createMany({ data: rows });
     await audit(tx, actor, b.id, "opening_batch_lines_added", `${b.number} · ${rows.length} سطر`);
@@ -201,9 +235,22 @@ export async function validateBatch(id: string, db: Tx | typeof prisma = prisma)
   const byAccount = new Map<string, Prisma.Decimal>();
   const lineProblems: { lineNo: number; message: string }[] = [];
   const subledgers = { customers: D(0), suppliers: D(0), stock: D(0), assetsCost: D(0), assetsAccumulated: D(0), gl: D(0) };
+  // A customer or supplier line entered twice (a paste repeated, a row copied) would count the
+  // balance twice, and two such lines cannot be told apart: refused. Identical account, stock or
+  // asset lines can be real (two lots alike) and are only shown. A party on more than one line
+  // with different figures is allowed (open items) but shown, since one total per party is the
+  // usual way.
+  const seen = new Map<string, number>();
+  const duplicates: string[] = [];
+  const alike: string[] = [];
+  const partyLines = new Map<string, number>();
   for (const l of b.lines) {
     try {
       const input = lineInput.parse(l.data);
+      const id = lineIdentity(input);
+      const first = seen.get(id.same);
+      if (first !== undefined) (id.party ? duplicates : alike).push(`${first}=${l.lineNo}`); else seen.set(id.same, l.lineNo);
+      if (id.party) partyLines.set(id.party, (partyLines.get(id.party) ?? 0) + 1);
       const e = await lineEffect(db, input, b);
       for (const a of e.accounts) byAccount.set(a.accountId, (byAccount.get(a.accountId) ?? D(0)).plus(a.amount));
       if (input.kind === "customer") subledgers.customers = subledgers.customers.plus(input.amount);
@@ -224,6 +271,7 @@ export async function validateBatch(id: string, db: Tx | typeof prisma = prisma)
   if (!b.lines.length) problems.push({ code: "empty" });
   if (lineProblems.length) problems.push({ code: "bad_lines", params: { n: String(lineProblems.length) } });
   if (!residual.isZero()) problems.push({ code: "unbalanced", params: { difference: residual.toFixed(2) } });
+  if (duplicates.length) problems.push({ code: "duplicate_lines", params: { n: String(duplicates.length), lines: duplicates.join(", ") } });
   const period = await db.accountingPeriod.findUnique({ where: { code: b.cutoverDate.slice(0, 7) }, select: { status: true } });
   if (period?.status === "closed") problems.push({ code: "period_closed", params: { period: b.cutoverDate.slice(0, 7) } });
   if (b.kind === "initial" && (await initialPosted(db))) problems.push({ code: "initial_posted" });
@@ -236,6 +284,9 @@ export async function validateBatch(id: string, db: Tx | typeof prisma = prisma)
   const warnings: { code: string; params?: Record<string, string> }[] = [];
   const direct = await db.partyOpeningBalance.count();
   if (b.kind === "initial" && direct) warnings.push({ code: "direct_openings_exist", params: { n: String(direct) } });
+  const repeated = [...partyLines.values()].filter((k) => k > 1).length;
+  if (repeated) warnings.push({ code: "party_repeated", params: { n: String(repeated) } });
+  if (alike.length) warnings.push({ code: "identical_lines", params: { n: String(alike.length), lines: alike.join(", ") } });
   return {
     id: b.id, number: b.number, kind: b.kind, cutoverDate: b.cutoverDate, status: b.status,
     trialBalance: tb, totals: { debit: debit.toFixed(2), credit: credit.toFixed(2), residual: residual.toFixed(2) },
@@ -243,6 +294,15 @@ export async function validateBatch(id: string, db: Tx | typeof prisma = prisma)
     lineProblems, problems, warnings, lineCount: b.lines.length,
   };
 }
+
+const problemText = (p: { code: string; params?: Record<string, string> }) =>
+  p.code === "unbalanced" ? `الميزان مش متوازن (فرق ${p.params!.difference})`
+  : p.code === "bad_lines" ? `${p.params!.n} سطر فيه خطأ`
+  : p.code === "empty" ? "مفيش سطور"
+  : p.code === "period_closed" ? `الفترة ${p.params!.period} مقفولة`
+  : p.code === "duplicate_lines" ? `سطور متكررة (${p.params!.lines}) — امسح المكرر`
+  : p.code === "direct_opening_stock_exists" ? `رصيد المخزون الافتتاحي اترحّل مباشرة قبل كده (${p.params!.n} مستند)`
+  : "الأرصدة الافتتاحية اترحّلت بالفعل";
 
 export async function submitBatch(id: string, actor: ServiceActor) {
   assertPermission(actor, "accounting.manage");
@@ -252,7 +312,7 @@ export async function submitBatch(id: string, actor: ServiceActor) {
     if (!b) throw new ApiError(404, "الدفعة مش موجودة");
     if (b.status !== "draft") throw new ApiError(409, "الدفعة مش مسودة");
     const v = await validateBatch(id, tx);
-    if (v.problems.length) throw new ApiError(409, `الدفعة مش جاهزة: ${v.problems.map((p) => p.code === "unbalanced" ? `الميزان مش متوازن (فرق ${p.params!.difference})` : p.code === "bad_lines" ? `${p.params!.n} سطر فيه خطأ` : p.code === "empty" ? "مفيش سطور" : p.code === "period_closed" ? `الفترة ${p.params!.period} مقفولة` : "الأرصدة الافتتاحية اترحّلت بالفعل").join("، ")}`);
+    if (v.problems.length) throw new ApiError(409, `الدفعة مش جاهزة: ${v.problems.map(problemText).join("، ")}`);
     await tx.openingBatch.update({ where: { id, version: b.version }, data: { status: "pending_approval", submittedById: actor.id, submittedBy: actor.name, submittedAt: new Date(), version: { increment: 1 } } });
     await requestApproval(tx, { type: "accounting.opening_batch", entityId: id, title: `أرصدة افتتاحية ${b.number} (${b.cutoverDate})`, summary: `${v.lineCount} سطر · مدين ${v.totals.debit} = دائن ${v.totals.credit}`, amount: v.totals.debit, requester: actor });
     await audit(tx, actor, id, "opening_batch_submitted", `${b.number} · ${v.lineCount} سطر · ${v.totals.debit}`);
@@ -294,7 +354,7 @@ export async function applyOpeningBatchDecision(tx: Tx, id: string, approved: bo
   const parsed = b.lines.map((l) => ({ line: l, input: lineInput.parse(l.data) }));
   // 1. GL balances: one entry against opening equity.
   const glLines: PostLine[] = [];
-  for (const { input } of parsed) if (input.kind === "gl") glLines.push({ accountId: input.account_id, amount: (input.debit ?? D(0)).minus(input.credit ?? D(0)), description: input.description ?? undefined });
+  for (const { input } of parsed) if (input.kind === "gl") glLines.push({ accountId: input.account_id!, amount: (input.debit ?? D(0)).minus(input.credit ?? D(0)), description: input.description ?? undefined });
   if (glLines.length) {
     const net = glLines.reduce((s, l) => s.plus(l.amount), D(0));
     const e = await postJournal(tx, { date, description: `أرصدة افتتاحية ${b.number} — الحسابات`, sourceType: "opening_batch", sourceId: `${b.id}:gl`, lines: [...glLines, { key: "opening_equity", amount: net.negated() }] }, actor);
@@ -304,14 +364,14 @@ export async function applyOpeningBatchDecision(tx: Tx, id: string, approved: bo
   const { postPartyOpeningInTx } = await import("@/lib/accounting/integrity");
   for (const { input, line } of parsed) {
     if (input.kind !== "customer" && input.kind !== "supplier") continue;
-    await postPartyOpeningInTx(tx, { partyType: input.kind, partyId: input.party_id, date, dueDate: input.due_date ?? date, amount: input.amount, reference: input.reference ?? `${b.number}#${line.lineNo}` }, actor);
+    await postPartyOpeningInTx(tx, { partyType: input.kind, partyId: input.party_id!, date, dueDate: input.due_date ?? date, amount: input.amount, reference: input.reference ?? `${b.number}#${line.lineNo}` }, actor);
   }
   // 3. Stock, through the stock ledger (lots at the given cost; valued against opening equity).
   const stock = parsed.filter((p) => p.input.kind === "stock").map((p) => p.input as Extract<LineInput, { kind: "stock" }>);
   if (stock.length) {
     const { postOpeningStockInTx } = await import("@/lib/inventory/documents");
     // Tagged with its batch (metadata only), so the cut-over report can tell it from a direct entry.
-    await postOpeningStockInTx(tx, { date, sourceId: `${b.id}:stock`, lines: stock.map((s) => ({ product_id: s.product_id, quantity: s.quantity.toString(), unit_cost: s.unit_cost.toString(), ...(s.location_id ? { location_id: s.location_id } : {}), ...(s.expiry_date ? { expiry_date: s.expiry_date } : {}) })) }, actor);
+    await postOpeningStockInTx(tx, { date, sourceId: `${b.id}:stock`, lines: stock.map((s) => ({ product_id: s.product_id!, quantity: s.quantity.toString(), unit_cost: s.unit_cost.toString(), ...(s.location_id ? { location_id: s.location_id } : {}), ...(s.expiry_date ? { expiry_date: s.expiry_date } : {}) })) }, actor);
   }
   // 4. Fixed assets with their history; one entry for the batch.
   const assets = parsed.filter((p) => p.input.kind === "asset");

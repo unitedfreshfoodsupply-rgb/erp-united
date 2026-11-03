@@ -175,7 +175,7 @@ test("drill-down: a row's link is dropped for a viewer who cannot open its page 
   }
   assert.ok((await links("goods-received", only("stock.view", "stock.receive"), { supplier_id: supplier.id })).some((h) => h !== null), "not vacuous: the receipt links for who can open it");
   const stock = await links("stock-by-product", only("stock.view"), { category: `${tag}-cat` });
-  assert.ok(stock.length > 0 && stock.every((h) => h?.startsWith("/stock/inventory?product=")), "a stock viewer keeps the stock link");
+  assert.ok(stock.length > 0 && stock.every((h) => h?.startsWith("/stock/products/")), "a stock viewer keeps the stock link");
   // A link to another report follows that report's permissions too.
   const byPeriod = await links("sales-by-period", only("sales.invoices.view"), { group_by: "month" });
   assert.ok(byPeriod.every((h) => h?.startsWith("/reports/sales-by-customer?")), "sales viewers keep the link to the next sales report");

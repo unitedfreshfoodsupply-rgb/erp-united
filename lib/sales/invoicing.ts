@@ -626,7 +626,7 @@ export async function customerStatement(customerId: string, from: string, to: st
     prisma.customerReceipt.aggregate({ where: { customerId, date: { lt: from } }, _sum: { amount: true } }),
     prisma.customerReceipt.findMany({ where: { customerId, date: { gte: from, lte: to } }, select: { id: true, number: true, date: true, amount: true, method: true, reference: true, createdAt: true } }),
     prisma.salesInvoice.findMany({ where: { customerId, status: "issued", issueDate: { gte: from, lte: to } }, select: { id: true, number: true, issueDate: true, dueDate: true, total: true, issuedAt: true } }),
-    prisma.creditNote.findMany({ where: { customerId, issueDate: { gte: from, lte: to } }, select: { id: true, number: true, issueDate: true, total: true, reason: true, createdAt: true, invoice: { select: { number: true } } } }),
+    prisma.creditNote.findMany({ where: { customerId, issueDate: { gte: from, lte: to } }, select: { id: true, number: true, issueDate: true, total: true, reason: true, createdAt: true, invoice: { select: { id: true, number: true } } } }),
     // WS3 G1: other receivables (a fixed asset sold on credit).
     prisma.customerCharge.aggregate({ where: { customerId, date: { lt: from } }, _sum: { total: true } }),
     prisma.customerCharge.findMany({ where: { customerId, date: { gte: from, lte: to } }, select: { id: true, reference: true, description: true, date: true, dueDate: true, total: true, createdAt: true } }),
@@ -637,7 +637,8 @@ export async function customerStatement(customerId: string, from: string, to: st
     ...refs.map((f) => ({ date: f.date, at: f.createdAt.getTime(), kind: "refund" as const, id: f.id, number: f.number, ref: `رد مبلغ · ${f.reason}`, debit: f.amount, credit: D(0) })),
     ...revs.map((r) => ({ date: r.date, at: r.createdAt.getTime(), kind: "receipt_reversal" as const, id: r.id, number: r.receipt.number, ref: `عكس تحصيل · ${r.reason}`, debit: r.receipt.amount, credit: D(0) })),
     ...invs.map((i) => ({ date: i.issueDate!, at: i.issuedAt!.getTime(), kind: "invoice" as const, id: i.id, number: i.number!, ref: `استحقاق ${i.dueDate}`, debit: i.total, credit: D(0) })),
-    ...cns.map((n) => ({ date: n.issueDate, at: n.createdAt.getTime(), kind: "credit_note" as const, id: n.id, number: n.number, ref: `${n.invoice.number} · ${n.reason}`, debit: D(0), credit: n.total })),
+    // linkId: the invoice a credit note belongs to (the statement links the line to it).
+    ...cns.map((n) => ({ date: n.issueDate, at: n.createdAt.getTime(), kind: "credit_note" as const, id: n.id, number: n.number, ref: `${n.invoice.number} · ${n.reason}`, debit: D(0), credit: n.total, linkId: n.invoice.id })),
     ...obs.map((o) => ({ date: o.date, at: o.createdAt.getTime(), kind: "opening_balance" as const, id: o.id, number: "رصيد افتتاحي", ref: o.reference ?? "", debit: o.amount.gt(0) ? o.amount : D(0), credit: o.amount.lt(0) ? o.amount.negated() : D(0) })),
     ...rcs.map((r) => ({ date: r.date, at: r.createdAt.getTime(), kind: "receipt" as const, id: r.id, number: r.number, ref: `تحصيل${r.reference ? ` · ${r.reference}` : ""}`, debit: D(0), credit: r.amount })),
     // Same day: in the order they were made (a credit note always follows its invoice).
@@ -645,7 +646,7 @@ export async function customerStatement(customerId: string, from: string, to: st
   let bal = opening;
   const rows = entries.map((e) => {
     bal = bal.plus(e.debit).minus(e.credit);
-    return { date: e.date, kind: e.kind, id: e.id, number: e.number, ref: e.ref, debit: e.debit.toFixed(2), credit: e.credit.toFixed(2), balance: bal.toFixed(2) };
+    return { date: e.date, kind: e.kind, id: e.id, number: e.number, ref: e.ref, debit: e.debit.toFixed(2), credit: e.credit.toFixed(2), balance: bal.toFixed(2), ...("linkId" in e ? { linkId: e.linkId } : {}) };
   });
   return { customer: { id: c.id, code: c.code, name: c.nameAr ?? c.name, nameAr: c.nameAr, nameEn: c.name }, from, to, opening: opening.toFixed(2), closing: bal.toFixed(2), rows };
 }
