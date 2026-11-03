@@ -81,7 +81,7 @@ export function ProfileView({ user }: { user: ProfileUser }) {
           <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
             <div className="flex flex-col gap-0.5"><dt className="text-xs text-united-muted">{t("ui.profile.name")}</dt><dd className="font-medium text-united-dark">{user.name}</dd></div>
             <div className="flex flex-col gap-0.5"><dt className="text-xs text-united-muted">{t("ui.profile.username")}</dt><dd className="font-medium text-united-dark"><span dir="ltr">{user.username}</span></dd></div>
-            <div className="flex flex-col gap-0.5"><dt className="text-xs text-united-muted">{t("role.admin")}</dt><dd className="font-medium text-united-dark">{displayRoleLabel}</dd></div>
+            <div className="flex flex-col gap-0.5"><dt className="text-xs text-united-muted">{t("form.role")}</dt><dd className="font-medium text-united-dark">{displayRoleLabel}</dd></div>
             <div className="flex flex-col gap-0.5"><dt className="text-xs text-united-muted">{t("ui.profile.status")}</dt><dd className={`font-medium ${user.active ? "text-united-green" : "text-united-danger"}`}>{user.active ? t("ui.profile.active") : t("ui.profile.inactive")}</dd></div>
             <div className="flex flex-col gap-0.5 sm:col-span-2"><dt className="text-xs text-united-muted">{t("ui.profile.role-desc")}</dt><dd className="text-united-dark">{displayRoleDesc}</dd></div>
           </dl>

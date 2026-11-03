@@ -4,7 +4,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { prisma } from "./_db";
-import { searchIds, type SearchEntity } from "@/lib/core/search";
+import { searchIds, searchText, type SearchEntity } from "@/lib/core/search";
 import { createIntake } from "@/lib/stock-service";
 import { createTransfer } from "@/lib/inventory/documents";
 import { todayLocalISO } from "@/lib/localDate";
@@ -16,6 +16,9 @@ after(() => prisma.$disconnect());
 test("every searchable module answers (valid SQL), and a text that matches nothing returns nothing", async () => {
   const all: SearchEntity[] = ["customer", "supplier", "product", "order", "salesInvoice", "supplierBill", "supplierPayment", "customerReceipt", "purchaseRequest", "purchaseOrder", "intake", "journal", "document", "lot", "trip"];
   for (const e of all) assert.deepEqual(await searchIds(e, `${TAG}-no-such-thing`), [], e);
+  // A NUL character is a bad request (PostgreSQL text cannot hold it), never a server error.
+  assert.throws(() => searchText("a\u0000b"), (e: { status?: number }) => e.status === 400);
+  await assert.rejects(searchIds("customer", "a\u0000b"), (e: { status?: number }) => e.status === 400);
 });
 
 test("customers: Arabic letter variants, diacritics and Arabic-Indic digits match; phone and tax number find the card", async () => {

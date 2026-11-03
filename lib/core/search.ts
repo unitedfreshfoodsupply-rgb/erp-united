@@ -51,6 +51,8 @@ export type SearchEntity = keyof typeof SOURCES;
 
 /** A search text, trimmed; at most 100 characters; "" when absent. */
 export function searchText(raw: string | null | undefined): string {
+  // PostgreSQL text cannot hold NUL: refuse it as a bad request (as every other text input is).
+  if (raw?.includes("\u0000")) throw new ApiError(400, "النص فيه حرف غير مسموح (NUL)");
   return (raw ?? "").trim().slice(0, 100);
 }
 
