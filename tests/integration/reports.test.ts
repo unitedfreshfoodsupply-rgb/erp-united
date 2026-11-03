@@ -141,7 +141,9 @@ test("catalogue: a report that opens another screen is listed only to who can op
   const as = (role: keyof typeof ROLE_PERMISSIONS) => ({ can: (p: string) => (ROLE_PERMISSIONS[role] as readonly string[]).includes(p) });
   const keys = (role: keyof typeof ROLE_PERMISSIONS) => reportCatalogue(as(role)).map((r) => r.key);
   const clerk = keys("ACCOUNTING_CLERK");
-  assert.ok(!clerk.includes("ap-aging") && !clerk.includes("supplier-statement"), "the clerk cannot open /purchasing (purchasing.orders.view)");
+  // Nov 2026: /purchasing opens for any of its tabs, so the clerk (bills and suppliers, no orders) reaches the payables aging.
+  assert.ok(clerk.includes("ap-aging") && clerk.includes("supplier-statement"), "the clerk opens /purchasing on its bills tab (purchasing.bills.view)");
+  assert.ok(!keys("STOCK_CONTROLLER").includes("ap-aging"), "a stock controller (purchase orders, no bills) does not");
   assert.ok(clerk.includes("ar-aging") && clerk.includes("customer-statement"), "but opens /sales with its invoices");
   assert.ok(!keys("SUPERVISOR").includes("customer-statement"), "the statement needs sales.invoices.view, which the supervisor lacks");
   assert.equal(reportCatalogue(as("ACCOUNTANT")).find((r) => r.key === "balance-sheet")?.href, "/accounting?tab=analysis", "the balance sheet opens the screen that has it");
