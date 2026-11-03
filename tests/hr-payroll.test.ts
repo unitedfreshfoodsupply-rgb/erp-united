@@ -278,7 +278,9 @@ async function main() {
   check("the supervisor cannot post (403)", (await call("sara", "POST", `/api/hr/payroll/runs/${run.id}/post`, {})).status === 403);
   check("the supervisor cannot read the preview (403)", (await call("sara", "GET", `/api/hr/payroll/runs/${run.id}/journal`)).status === 403);
 
-  const code = () => `9${String(Date.now() + Math.floor(Math.random() * 1000)).slice(-6)}`;
+  // Unique within the run: a clock-plus-random code can repeat (it did once in the chain) and the account then comes back 409.
+  let codeSeq = 0;
+  const code = () => `9${String(Date.now()).slice(-4)}${String(++codeSeq).padStart(2, "0")}`;
   const account = async (parent_id: string, name: string) => (await call("karim", "POST", "/api/accounting/accounts", { code: code(), name: `${TAG} ${name}`, name_ar: `${TAG} ${name}`, parent_id })).body.account;
   const EXP = await account("acc_6000", "salaries test");
   const LIAB = await account("acc_2000", "withholdings test");
