@@ -68,7 +68,7 @@ async function main() {
   const tomatoB = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} طماطم درجة تانية`, unit: "KG" })).body.product;
   // MIG-01: invoices issued below need the buyer's 9-digit tax number (on the card).
   const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} سلسلة مطاعم`, tax_registration_no: taxNo() })).body.customer;
-  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مزرعة الطماطم`, payment_terms_days: 30 })).body.supplier;
+  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} مزرعة الطماطم`, payment_terms_days: 30 })).body.supplier;
   const bankCharges = (await call("karim", "POST", "/api/accounting/accounts", { code: `6${SUF.slice(-3)}1`, name: `${TAG} Bank charges`, name_ar: `${TAG} مصاريف بنكية`, parent_id: "acc_6000" })).body.account;
   const whtPayable = (await call("karim", "POST", "/api/accounting/accounts", { code: `2${SUF.slice(-3)}1`, name: `${TAG} WHT payable`, name_ar: `${TAG} ضريبة خصم وإضافة مستحقة`, parent_id: "acc_2000" })).body.account;
   check("products (good + Grade B SKU), customer, supplier, bank-charges and WHT accounts", [tomato, tomatoB, customer, supplier, bankCharges, whtPayable].every((x) => !!x?.id), [tomato, tomatoB, customer, supplier, bankCharges, whtPayable]);

@@ -1,7 +1,7 @@
 /* Purchasing end to end: supplier master and prices, RFQ → quotes → award → PO,
    PO approval, receiving against the PO (with sorting, lots and cost), supplier bills
    with three-way matching, debit notes and payables. */
-import { call, login, makeChecker } from "./_harness";
+import { call, login, makeChecker, page } from "./_harness";
 import { todayBiz } from "./_days";
 
 const { check, section, finish } = makeChecker();
@@ -18,18 +18,30 @@ async function main() {
   };
 
   section("1. SUPPLIER MASTER");
-  r = await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مزرعة الدلتا`, type: "farm", tax_registration_no: taxId, payment_terms_days: 15, lead_time_days: 1, city: "البحيرة" });
+  r = await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} مزرعة الدلتا`, type: "farm", tax_registration_no: taxId, payment_terms_days: 15, lead_time_days: 1, city: "البحيرة" });
   check("buyer creates a supplier with terms -> 201", r.status === 201 && /^SUP-\d{5,}$/.test(r.body.supplier.code) && r.body.supplier.paymentTermsDays === 15, r.body);
   const farm = r.body.supplier;
-  const market = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} تاجر العبور`, type: "market_trader" })).body.supplier;
-  check("duplicate tax id -> 409", (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} x`, tax_registration_no: taxId })).status === 409);
-  check("unknown supplier type -> 400", (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} y`, type: "pirate" })).status === 400);
+  const market = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} تاجر العبور`, type: "market_trader" })).body.supplier;
+  check("duplicate tax id -> 409", (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} x`, tax_registration_no: taxId })).status === 409);
+  check("unknown supplier type -> 400", (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} y`, type: "pirate" })).status === 400);
   check("a supplier created from the stock gate also gets a code", /^SUP-\d{5,}$/.test((await call("hossam", "POST", "/api/stock/suppliers", { name: `${TAG} فلاح على الباب` })).body.supplier?.code ?? ""));
   check("stock controller cannot change commercial terms -> 403", (await call("hossam", "PATCH", `/api/purchasing/suppliers/${farm.id}`, { payment_terms_days: 90 })).status === 403);
+  // D-2 (Nov 2026): the stock controller reads supplier profiles — never their money, never their terms.
+  check("stock controller reads the supplier directory -> 200", (await call("hossam", "GET", "/api/purchasing/suppliers")).status === 200);
+  check("…and a supplier's record -> 200", (await call("hossam", "GET", `/api/purchasing/suppliers/${farm.id}`)).status === 200);
+  check("…and opens the supplier profile page", (await page("hossam", `/purchasing/suppliers/${farm.id}`)).status === 200);
+  check("…its summary and receipts sections -> 200", (await call("hossam", "GET", `/api/profiles/supplier/${farm.id}/summary`)).status === 200 && (await call("hossam", "GET", `/api/profiles/supplier/${farm.id}/receipts`)).status === 200);
+  check("…but not its bills or payments -> 403", (await call("hossam", "GET", `/api/profiles/supplier/${farm.id}/bills`)).status === 403 && (await call("hossam", "GET", `/api/profiles/supplier/${farm.id}/payments`)).status === 403);
+  check("…nor its statement -> 403", (await call("hossam", "GET", `/api/purchasing/suppliers/${farm.id}/statement?from=2026-01-01&to=2026-12-31`)).status === 403);
+  check("…nor create a supplier with terms -> 403", (await call("hossam", "POST", "/api/purchasing/suppliers", { name: `${TAG} z`, category: "vegetable" })).status === 403);
+  check("…nor classify one -> 403", (await call("hossam", "PATCH", `/api/purchasing/suppliers/${farm.id}`, { category: "fruit" })).status === 403);
   check("sales cannot see suppliers -> 403", (await call("mona", "GET", "/api/purchasing/suppliers")).status === 403);
   r = await call("karim", "PATCH", `/api/purchasing/suppliers/${farm.id}`, { payment_terms_days: 30, expected_version: farm.version });
   check("finance changes payment terms", r.status === 200 && r.body.supplier.paymentTermsDays === 30, r.body);
   check("stale version -> 409", (await call("karim", "PATCH", `/api/purchasing/suppliers/${farm.id}`, { payment_terms_days: 20, expected_version: farm.version })).status === 409);
+  // D-2: the stock controller's identity edit (its stock permission) still works on the same record.
+  const farmNow = (await call("omar", "GET", `/api/purchasing/suppliers/${farm.id}`)).body.supplier;
+  check("stock controller's identity edit still works -> 200", (await call("hossam", "PATCH", `/api/purchasing/suppliers/${farm.id}`, { phone: "01001234567", expected_version: farmNow.version })).status === 200);
   check("primary contact", (await call("omar", "POST", `/api/purchasing/suppliers/${farm.id}/contacts`, { name: "الحاج سعيد", phone: "0100", is_primary: true })).status === 201);
 
   section("2. SUPPLIER PRICES (DATED)");

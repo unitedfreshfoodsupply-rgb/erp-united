@@ -26,7 +26,7 @@ async function main() {
   const approve = async (entityId: string, decision = "approve") => { const a = (await call("admin", "GET", "/api/approvals?status=pending")).body.approvals.find((x: any) => x.entityId === entityId); return call("admin", "POST", `/api/approvals/${a.id}/decide`, { decision, ...(decision === "reject" ? { comment: "راجع الأرقام" } : {}), expected_version: a.version }); };
   const detail = async (id: string) => (await call("karim", "GET", `/api/accounting/opening-batches/${id}`)).body.batch;
   const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} سلسلة مطاعم` })).body.customer;
-  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مزرعة` })).body.supplier;
+  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} مزرعة` })).body.supplier;
 
   section("1. ACCESS");
   check("sales cannot see opening batches -> 403", (await call("mona", "GET", "/api/accounting/opening-batches")).status === 403);
@@ -80,7 +80,7 @@ async function main() {
     // How UNITED brings balances in: one total per customer and per supplier, named by its code.
     // A credit balance (a customer's advance, our advance to a supplier) is a negative total.
     const customer2 = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} فندق` })).body.customer;
-    const supplier2 = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} تاجر جملة` })).body.supplier;
+    const supplier2 = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} تاجر جملة` })).body.supplier;
     check("an unknown customer code -> 404, nothing added", (await add([{ kind: "customer", party_code: `NOPE${SUF}`, amount: "1" }])).status === 404 && (await detail(batch.id)).lines.length === 12);
     const totals = [
       { kind: "customer", party_code: customer2.code, amount: "-1500", reference: "رصيد دائن" },

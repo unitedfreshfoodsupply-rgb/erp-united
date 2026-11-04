@@ -27,9 +27,16 @@ import { searchIds } from "@/lib/core/search";
  */
 
 export const SUPPLIER_TYPES = ["farm", "grower", "wholesaler", "market_trader", "importer", "packaging", "services", "other"] as const;
-/** The business's two supplier categories (Nov 2026); NULL on a supplier = not classified yet. */
+/**
+ * The business's two supplier categories (Nov 2026). Every supplier created or edited here is
+ * classified; NULL exists only for a supplier the stock gate added on the spot (createSupplier in
+ * lib/stock-service.ts), which stays visibly "unclassified" until purchasing classifies it, and a
+ * classified supplier cannot be made unclassified again (decision D-1).
+ */
 export const SUPPLIER_CATEGORIES = ["vegetable", "fruit"] as const;
-const category = z.enum(SUPPLIER_CATEGORIES, { errorMap: () => ({ message: "فئة المورد لازم خضار أو فاكهة" }) }).nullable();
+const category = z.enum(SUPPLIER_CATEGORIES, {
+  errorMap: (issue) => ({ message: issue.code === "invalid_type" ? "فئة المورد مطلوبة — اختار خضار أو فاكهة" : "فئة المورد لازم خضار أو فاكهة" }),
+});
 
 const audit = (actor: ServiceActor, a: Omit<AuditInput, "userId" | "userName" | "role" | "source" | "deviceId">): AuditInput => ({
   userId: actor.id,
@@ -105,7 +112,7 @@ export async function listSuppliersFull(opts: { q?: string; includeInactive?: bo
  * their quick name-only creation for a farmer arriving unannounced). */
 export async function createSupplierFull(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "purchasing.suppliers.manage");
-  const v = parse(termsInput.extend({ code: partyCode.optional(), name: text("اسم المورد"), phone: optText("التليفون", 40).optional(), notes: optText("ملاحظات", 1000).optional() }), input);
+  const v = parse(termsInput.extend({ code: partyCode.optional(), name: text("اسم المورد"), phone: optText("التليفون", 40).optional(), notes: optText("ملاحظات", 1000).optional(), category }), input);
   try {
     return await inTx(async (tx) => {
       if (v.code && /^(CUS|SUP)-\d+$/.test(v.code)) throw new ApiError(400, "أكواد CUS-/SUP- برقم محجوزة للترقيم التلقائي — استخدم كودكم أو سيب العمود فاضي");
@@ -118,7 +125,7 @@ export async function createSupplierFull(input: unknown, actor: ServiceActor) {
           phone: v.phone ?? null,
           notes: v.notes ?? null,
           type: v.type ?? "other",
-          category: v.category ?? null,
+          category: v.category,
           taxRegistrationNo: v.tax_registration_no ?? null,
           commercialRegNo: v.commercial_reg_no ?? null,
           email: v.email ?? null,

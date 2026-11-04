@@ -49,7 +49,7 @@ async function main() {
   const integrity = async () => (await call("karim", "GET", "/api/accounting/integrity")).body.integrity;
   const tbBalanced = async () => { const [x] = await db.$queryRaw<{ dr: Prisma.Decimal; cr: Prisma.Decimal }[]>`SELECT sum("debit") AS dr, sum("credit") AS cr FROM "JournalLine"`; return eq(n(x.dr), n(x.cr)); };
 
-  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مزرعة بسعر مؤقت` })).body.supplier;
+  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} مزرعة بسعر مؤقت` })).body.supplier;
   // A buyer tax identity is needed to issue the invoice (MIG-01).
   const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل`, tax_registration_no: taxNo() })).body.customer;
   const product = async (label: string) => (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} ${label}`, unit: "KG" })).body.product;

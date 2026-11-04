@@ -198,7 +198,9 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   SUPER_ADMIN: ALL_PERMISSIONS,
   SUPERVISOR: [...ORDER_OPERATIONS, ...STOCK_OPERATIONS, ...STOCK_OVERSIGHT, ...CUSTOMER_MASTER, "operations.trips.manage", "hr.expenses.submit", "hr.attendance.record", "accounting.eta.view", "sales.pricing.view", "sales.quotations.view", "purchasing.suppliers.view", "purchasing.orders.view", "purchasing.prices.view", "reports.view", "audit.view"],
   // Receives against purchase orders, so sees them — quantities only (no prices).
-  STOCK_CONTROLLER: [...STOCK_OPERATIONS, "purchasing.orders.view"],
+  // Reads supplier profiles (decision D-2, Nov 2026): identity, contacts, terms, receipts and
+  // history. No purchase prices, bills, payments or balances — those keep their own permissions.
+  STOCK_CONTROLLER: [...STOCK_OPERATIONS, "purchasing.orders.view", "purchasing.suppliers.view"],
   PREPARER: ["orders.view", "orders.prepare"],
   LOADER: ["orders.view", "orders.load", "orders.dispatch"],
   // New in Phase 3. Sales staff take and follow orders and own the customer master;

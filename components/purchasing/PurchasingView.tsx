@@ -487,6 +487,8 @@ function Suppliers({ locale, t, sup_type }: { locale: Locale; t: (key: string) =
   if (list.filters.status === "all" || list.filters.status === "inactive") params.set("include_inactive", "1");
   const query = useListQuery<{ suppliers: SupplierRow[] }>(["purchasing", "suppliers", "directory"], `/api/purchasing/suppliers?${params}`);
   const rows = (query.data?.suppliers ?? []).filter((s) => list.filters.status !== "inactive" || !s.active);
+  // Active suppliers still waiting for a category (added at the stock gate): always in view.
+  const unclassified = useQuery({ queryKey: ["purchasing", "suppliers", "unclassified"], queryFn: () => apiFetch<{ suppliers: SupplierRow[] }>("/api/purchasing/suppliers?category=none") });
   const columns: Column<SupplierRow>[] = [
     { key: "name", label: t("purchasing.col.supplier"), sortValue: (s) => localName(s, locale), render: (s) => <span className={s.active ? "" : "text-united-muted line-through"}>{localName(s, locale)}</span> },
     { key: "code", label: t("sales.col.code"), sortValue: (s) => s.code, render: (s) => <span dir="ltr" className="whitespace-nowrap text-united-muted">{s.code}</span> },
@@ -516,15 +518,21 @@ function Suppliers({ locale, t, sup_type }: { locale: Locale; t: (key: string) =
               {Object.entries(sup_type).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </Field>
-          <Field label={t("purchasing.supplier.category")}>
-            <select className="field" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-              <option value="">{categoryLabel(t, null)}</option>
+          <Field label={t("purchasing.supplier.category")} required>
+            <select className="field" required value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+              <option value="" disabled>{t("purchasing.supplier.category.choose")}</option>
               {SUPPLIER_CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(t, c)}</option>)}
             </select>
           </Field>
           <Field label={t("purchasing.supplier.form.payment_terms")}><input className="field" inputMode="numeric" dir="ltr" value={form.payment_terms_days} onChange={(e) => setForm({ ...form, payment_terms_days: e.target.value })} /></Field>
-          <button className="btn-secondary">{t("purchasing.supplier.form.add_btn")}</button>
+          <button className="btn-secondary" disabled={!form.name.trim() || !form.category}>{t("purchasing.supplier.form.add_btn")}</button>
         </form>
+      )}
+      {(unclassified.data?.suppliers.length ?? 0) > 0 && list.filters.category !== "none" && (
+        <div className="card p-3 flex flex-wrap items-center justify-between gap-2 bg-united-warn/10 text-sm font-bold" role="status">
+          <span>{t("purchasing.supplier.unclassified-banner").replace("%s", String(unclassified.data!.suppliers.length))}</span>
+          <button type="button" className="btn-secondary" onClick={() => list.set({ category: "none" })}>{t("purchasing.supplier.unclassified-show")}</button>
+        </div>
       )}
       <FilterBar
         list={list}
@@ -595,6 +603,7 @@ export function SupplierOverview({ id }: { id: string }) {
           <h3 className="font-extrabold">{t("sales.section.data")}</h3>
           {editable && <button type="button" className="text-sm font-extrabold text-united-green underline" onClick={() => setEditing(!editing)}>{editing ? t("ui.cancel") : t("ui.edit")}</button>}
         </div>
+        {!s.category && <p className="text-sm font-bold text-united-warn" role="status">{t("purchasing.supplier.unclassified-callout")}</p>}
         {editing ? (
           <SupplierMasterForm s={s} full={manage} onSaved={() => { setEditing(false); refresh(); }} />
         ) : (
@@ -671,7 +680,7 @@ function SupplierMasterForm({ s, full, onSaved }: { s: SupplierFull; full: boole
       try {
         const body: Record<string, unknown> = { name: f.name.trim(), phone: f.phone.trim() || null, notes: f.notes.trim() || null, active: f.active, expected_version: s.version };
         if (full) Object.assign(body, {
-          name_ar: f.name_ar.trim() || null, type: f.type, category: f.category || null, tax_registration_no: f.tax_registration_no.trim() || null, commercial_reg_no: f.commercial_reg_no.trim() || null,
+          name_ar: f.name_ar.trim() || null, type: f.type, ...(f.category ? { category: f.category } : {}), tax_registration_no: f.tax_registration_no.trim() || null, commercial_reg_no: f.commercial_reg_no.trim() || null,
           email: f.email.trim() || null, city: f.city.trim() || null, address: f.address.trim() || null, payment_terms_days: Number(f.payment_terms_days || 0), lead_time_days: f.lead_time_days.trim() === "" ? null : Number(f.lead_time_days),
         });
         await apiPatch(`/api/purchasing/suppliers/${s.id}`, body);
@@ -688,7 +697,8 @@ function SupplierMasterForm({ s, full, onSaved }: { s: SupplierFull; full: boole
       </Field>
       <Field label={t("purchasing.supplier.category")}>
         <select className="field" value={f.category} disabled={!full} onChange={(e) => setF({ ...f, category: e.target.value })}>
-          <option value="">{categoryLabel(t, null)}</option>
+          {/* Unclassified is shown only while it is the current state; it cannot be chosen again. */}
+          {!s.category && <option value="" disabled>{categoryLabel(t, null)}</option>}
           {SUPPLIER_CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(t, c)}</option>)}
         </select>
       </Field>

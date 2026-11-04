@@ -61,7 +61,7 @@ test("a customer rename reaches lists, search, statement and aging; the issued i
 });
 
 test("a supplier rename reaches the supplier lists and its purchase orders; the PO stores only the id", async () => {
-  const s = await createSupplierFull({ name: `${TAG} Farm`, name_ar: `${TAG} مزرعة الخير` }, buyer);
+  const s = await createSupplierFull({ name: `${TAG} Farm`, name_ar: `${TAG} مزرعة الخير`, category: "vegetable" }, buyer);
   const warehouse = await prisma.warehouse.findFirstOrThrow({ where: { active: true } });
   const po = await prisma.purchaseOrder.create({
     data: { number: `PO-2099-${String(Date.now()).slice(-7)}`, status: "draft", supplierId: s.id, warehouseId: warehouse.id, orderDate: todayLocalISO(), currencyCode: "EGP", paymentTermsDays: 0, net: D(0), taxTotal: D(0), total: D(0), createdBy: "test" },

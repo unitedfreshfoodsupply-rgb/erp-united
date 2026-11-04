@@ -31,8 +31,10 @@ async function main() {
   const hossamPerms = (await call("hossam","GET","/api/auth/me")).body.user.permissions;
   // Still walled off from orders. Phase 2 adds stock.transfer and stock.reserve — but NOT
   // approving their own adjustments, nor seeing stock value.
-  // stock.* plus reading purchase orders (quantities) to receive against them.
-  check("STOCK_CONTROLLER holds only stock.* (+ reading POs)", hossamPerms.every((p: string) => p.startsWith("stock.") || p === "purchasing.orders.view") && hossamPerms.length === 9, hossamPerms);
+  // stock.* plus reading purchase orders (quantities) to receive against them, and reading
+  // supplier profiles (D-2, Nov 2026) — no purchasing or financial editing permission.
+  check("STOCK_CONTROLLER holds only stock.* (+ reading POs and supplier profiles)", hossamPerms.every((p: string) => p.startsWith("stock.") || p === "purchasing.orders.view" || p === "purchasing.suppliers.view") && hossamPerms.length === 10, hossamPerms);
+  check("STOCK_CONTROLLER holds no purchasing or financial editing permission", !hossamPerms.some((p: string) => /^(purchasing|accounting|sales)\./.test(p) && !["purchasing.orders.view", "purchasing.suppliers.view"].includes(p)));
   check("STOCK_CONTROLLER cannot approve adjustments or see valuation", !hossamPerms.includes("stock.approve_adjustments") && !hossamPerms.includes("stock.valuation.view"));
   const saraPerms = (await call("sara","GET","/api/auth/me")).body.user.permissions;
   // 19 + the customer master (view/manage), reading prices and quotations from

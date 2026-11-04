@@ -40,7 +40,8 @@ export function SuppliersPanel({ canManage }: { canManage: boolean }) {
     try {
       await apiPost("/api/stock/suppliers", { name, name_ar: nameAr || undefined, phone: phone || undefined });
       await invalidateStockData(qc);
-      toast.show(t("suppliers.toast-added"), "success");
+      // The gate's quick add is never classified: say so, and who finishes it (decision D-1).
+      toast.show(t("suppliers.toast-added-unclassified"), "info");
       setName("");
       setNameAr("");
       setPhone("");
@@ -70,6 +71,7 @@ export function SuppliersPanel({ canManage }: { canManage: boolean }) {
     <>
       {canManage && <form onSubmit={add} className="card p-4 flex flex-col gap-3">
         <h2 className="font-extrabold text-united-dark">{t("suppliers.form-title")}</h2>
+        <p className="text-xs font-bold text-united-warn">{t("suppliers.unclassified-note")}</p>
         {error && <p className="text-united-danger font-bold text-sm">{error}</p>}
         <Field label={t("suppliers.name-field")} required><input value={name} onChange={(e) => setName(e.target.value)} className="field" dir="auto" required /></Field>
         <Field label={t("suppliers.name-ar-field")}><input value={nameAr} onChange={(e) => setNameAr(e.target.value)} className="field" dir="rtl" lang="ar" /></Field>
@@ -91,6 +93,7 @@ export function SuppliersPanel({ canManage }: { canManage: boolean }) {
                   ? <a href={profileHref.supplier(s.id)} className="block font-bold text-united-dark truncate underline decoration-united-border">{localName(s, locale)}</a>
                   : <div className="font-bold text-united-dark truncate">{localName(s, locale)}</div>}
                 {s.phone && <div dir="ltr" className="text-xs font-bold text-united-muted">{s.phone}</div>}
+                {s.category ? null : <span className="pill-neutral text-united-warn">{t("purchasing.supplier.category.unclassified")}</span>}
               </div>
               {canManage && <button
                 onClick={() => toggle(s)}

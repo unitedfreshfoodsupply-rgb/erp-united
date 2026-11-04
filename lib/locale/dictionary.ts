@@ -1223,6 +1223,10 @@ const purchasing = {
   "purchasing.supplier.category.vegetable": { ar: "خضار", en: "Vegetables" },
   "purchasing.supplier.category.fruit": { ar: "فاكهة", en: "Fruit" },
   "purchasing.supplier.category.unclassified": { ar: "غير مصنّف", en: "Unclassified" },
+  "purchasing.supplier.category.choose": { ar: "اختار الفئة", en: "Choose a category" },
+  "purchasing.supplier.unclassified-banner": { ar: "موردين غير مصنّفين: %s — حدّد فئة كل واحد (خضار أو فاكهة). لحد ما يتصنّف، المورد مش بيدخل في أي تقرير أو مطابقة بالفئة.", en: "Unclassified suppliers: %s — set each one's category (vegetables or fruit). Until then a supplier is left out of every category report and reconciliation." },
+  "purchasing.supplier.unclassified-show": { ar: "اعرضهم", en: "Show them" },
+  "purchasing.supplier.unclassified-callout": { ar: "المورد ده غير مصنّف — حدّد فئته: خضار أو فاكهة.", en: "This supplier is unclassified — set its category: vegetables or fruit." },
   "purchasing.supplier.edit.purchasing-only": { ar: "الفئة والنوع والبيانات الضريبية والشروط بيعدّلها المشتريات (صلاحية إدارة الموردين في المشتريات).", en: "Category, type, tax data and terms are edited by purchasing (purchasing supplier management permission)." },
 
   // Orders page elements
@@ -4235,6 +4239,8 @@ export const DICTIONARY = {
   "suppliers.status-active": { ar: "شغّال", en: "Active" },
   "suppliers.status-inactive": { ar: "موقوف", en: "Inactive" },
   "suppliers.toast-added": { ar: "اتضاف المورد", en: "Supplier added" },
+  "suppliers.toast-added-unclassified": { ar: "اتضاف المورد غير مصنّف — المشتريات لازم تحدد فئته (خضار أو فاكهة).", en: "Supplier added as unclassified — purchasing must set its category (vegetables or fruit)." },
+  "suppliers.unclassified-note": { ar: "المورد اللي بيتضاف من هنا بيبقى غير مصنّف لحد ما المشتريات تحدد فئته.", en: "A supplier added here stays unclassified until purchasing sets its category." },
   "ui.attachment-delete-btn": { ar: "حذف", en: "Delete" },
   "ui.attachment-duplicate": { ar: "الملف مرفوع بالفعل", en: "File already uploaded" },
   "ui.attachment-empty": { ar: "مفيش مرفقات", en: "No attachments" },

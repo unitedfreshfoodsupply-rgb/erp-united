@@ -38,7 +38,7 @@ async function main() {
   const hotel = (await call("mona", "POST", "/api/sales/customers", { name: `${T} Hotel`, tax_registration_no: reg9(1), type: "hotel" })).body.customer;
   // MIG-01: every customer this suite invoices carries a 9-digit tax number.
   const cafe = (await call("mona", "POST", "/api/sales/customers", { name: `${T} Cafe`, type: "cafe", tax_registration_no: reg9(2) })).body.customer;
-  const farm = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${T} Farm`, payment_terms_days: 30 })).body.supplier;
+  const farm = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${T} Farm`, payment_terms_days: 30 })).body.supplier;
   const statement = async (id: string) => n((await call("karim", "GET", `/api/sales/customers/${id}/statement?from=2000-01-01&to=2099-12-31`)).body.closing);
 
   /** An order taken through preparation; `dispatch` sends it out directly. */
@@ -201,7 +201,7 @@ async function main() {
   // card, not an error; a number that is not a tax registration number is still refused.
   check("repeated customer tax number -> 201 (another branch card)", (await call("mona", "POST", "/api/sales/customers", { name: `${T} Other`, tax_registration_no: hotel.taxRegistrationNo, type: "hotel" })).status === 201);
   check("malformed customer tax number -> 400", (await call("mona", "POST", "/api/sales/customers", { name: `${T} BadTax`, tax_registration_no: "12AB", type: "hotel" })).status === 400);
-  check("duplicate supplier name -> 409", (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${T} Farm` })).status === 409);
+  check("duplicate supplier name -> 409", (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${T} Farm` })).status === 409);
   check("receiving into an unknown location -> 400; into an unknown cash account -> 400", (await call("hossam", "POST", "/api/stock/intakes", { supplier_id: farm.id, product_id: tomato.id, received_kg: 1, unit_cost: "1", location_id: "nope" })).status === 400 && (await call("karim", "POST", "/api/accounting/receipts", { party_id: hotel.id, cash_account_id: "nope", amount: 1, method: "cash" })).status === 400);
   r = await call("karim", "POST", `/api/sales/invoices/${ip.id}/credit-notes`, { lines: [{ invoice_line_id: ip.lines[0].id, quantity: 1 }] });
   check("a missing required field is named in Arabic, never zod's English 'Required'", r.status === 400 && r.body.error !== "Required" && /[؀-ۿ]/.test(r.body.error), r.body);
@@ -245,7 +245,7 @@ async function main() {
   } else check("a negative opening balance (customer advance) is accepted", false, r);
 
   // Supplier side: we paid a bill in full, then returned goods → the supplier owes us; they pay it back.
-  const grower = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${T} Grower`, payment_terms_days: 0 })).body.supplier;
+  const grower = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${T} Grower`, payment_terms_days: 0 })).body.supplier;
   const rcg = (await call("hossam", "POST", "/api/stock/intakes", { supplier_id: grower.id, product_id: tomato.id, received_kg: 20, unit_cost: "5", location_id: "loc_cold_1", expiry_date: local(5) })).body.intake;
   const bg = (await call("karim", "POST", "/api/purchasing/bills", { supplier_id: grower.id, supplier_invoice_no: `${T}-G1`, bill_date: today, lines: [{ intake_id: rcg.id, unit_price: "5" }] })).body.bill;
   await call("karim", "POST", `/api/purchasing/bills/${bg.id}/post`, {});

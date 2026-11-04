@@ -47,7 +47,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `sales.invoices.manage` — إصدار الفواتير | ✓ |  |  |  |  |  | ✓ |  |  |
 | `sales.tax.manage` — إدارة التصنيف الضريبي | ✓ |  |  |  |  |  | ✓ |  |  |
 | `sales.credit.manage` — إدارة الائتمان | ✓ |  |  |  |  |  | ✓ |  |  |
-| `purchasing.suppliers.view` — عرض الموردين | ✓ | ✓ |  |  |  |  | ✓ | ✓ | ✓ |
+| `purchasing.suppliers.view` — عرض الموردين | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |
 | `purchasing.suppliers.manage` — إدارة الموردين (التجاري) | ✓ |  |  |  |  |  | ✓ | ✓ |  |
 | `purchasing.prices.view` — عرض أسعار الشراء | ✓ | ✓ |  |  |  |  | ✓ | ✓ |  |
 | `purchasing.prices.manage` — إدارة أسعار الموردين | ✓ |  |  |  |  |  |  | ✓ |  |
@@ -493,11 +493,11 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/purchasing/suppliers/[id]/contacts` | `purchasing.suppliers.manage` | ✓ |  |  |  |  |  | ✓ | ✓ |  |
 | GET | `/api/purchasing/suppliers/[id]/prices` | `purchasing.prices.view` | ✓ | ✓ |  |  |  |  | ✓ | ✓ |  |
 | POST | `/api/purchasing/suppliers/[id]/prices` | `purchasing.prices.manage` | ✓ |  |  |  |  |  |  | ✓ |  |
-| GET | `/api/purchasing/suppliers/[id]` | `purchasing.suppliers.view` | ✓ | ✓ |  |  |  |  | ✓ | ✓ | ✓ |
+| GET | `/api/purchasing/suppliers/[id]` | `purchasing.suppliers.view` | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |
 | PATCH | `/api/purchasing/suppliers/[id]` | any of `purchasing.suppliers.manage`, `stock.manage_suppliers` | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |
 | GET | `/api/purchasing/suppliers/[id]/statement/export` | `purchasing.bills.view` | ✓ |  |  |  |  |  | ✓ | ✓ | ✓ |
 | GET | `/api/purchasing/suppliers/[id]/statement` | `purchasing.bills.view` | ✓ |  |  |  |  |  | ✓ | ✓ | ✓ |
-| GET | `/api/purchasing/suppliers` | `purchasing.suppliers.view` | ✓ | ✓ |  |  |  |  | ✓ | ✓ | ✓ |
+| GET | `/api/purchasing/suppliers` | `purchasing.suppliers.view` | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |
 | POST | `/api/purchasing/suppliers` | `purchasing.suppliers.manage` | ✓ |  |  |  |  |  | ✓ | ✓ |  |
 | GET | `/api/reports/[key]/export` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | GET | `/api/reports/[key]` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

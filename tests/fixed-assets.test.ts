@@ -62,7 +62,7 @@ async function main() {
   check("a manual journal on a category account -> 400", (await call("karim", "POST", "/api/accounting/journals", { date: today, description: `${TAG} x`, lines: [{ account_id: tCost.id, debit: 1 }, { account_id: "acc_1100", credit: 1 }] })).status === 400);
 
   section("3. BOUGHT ON A SUPPLIER BILL (capital line)");
-  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} توكيل سيارات` })).body.supplier;
+  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} توكيل سيارات` })).body.supplier;
   check("an ordinary bill line straight onto the cost account -> 400", (await call("karim", "POST", "/api/purchasing/bills", { kind: "service", supplier_id: supplier.id, supplier_invoice_no: `${TAG}-X`, bill_date: M0 + "-10", lines: [{ account_id: tCost.id, description: "x", amount: "100", tax_code: "VAT14" }] })).status === 400);
   check("a capital line below the category threshold -> 400", (await call("karim", "POST", "/api/purchasing/bills", { kind: "service", supplier_id: supplier.id, supplier_invoice_no: `${TAG}-S`, bill_date: M0 + "-10", lines: [{ asset_category_id: trucks.id, asset_name: "عربية صغيرة", description: "x", amount: "4000", tax_code: "VAT14" }] })).status === 400);
   r = await call("karim", "POST", "/api/purchasing/bills", { kind: "service", supplier_id: supplier.id, supplier_invoice_no: `${TAG}-T1`, bill_date: `${M0}-10`, lines: [{ asset_category_id: trucks.id, asset_name: `${TAG} ميتسوبيشي مبرد`, description: "عربية نقل مبردة", amount: "300000", tax_code: "VAT14" }] });

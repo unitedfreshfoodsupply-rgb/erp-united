@@ -56,7 +56,7 @@ async function main() {
   const p: Record<string, any> = {};
   for (const x of PRODUCTS) p[x.key] = ok(`product ${x.name}`, await call("hossam", "POST", "/api/stock/products", { name: x.name, name_ar: x.name_ar, unit: x.unit })).product;
   const s: Record<string, any> = {};
-  for (const x of SUPPLIERS) s[x.key] = ok(`supplier ${x.name}`, await call("omar", "POST", "/api/purchasing/suppliers", { name: x.name, name_ar: x.name_ar, payment_terms_days: x.payment_terms_days })).supplier;
+  for (const x of SUPPLIERS) s[x.key] = ok(`supplier ${x.name}`, await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: x.name, name_ar: x.name_ar, payment_terms_days: x.payment_terms_days })).supplier;
   const c: Record<string, any> = {};
   for (const x of CUSTOMERS) c[x.key] = ok(`customer ${x.name}`, await call("admin", "POST", "/api/sales/customers", { name: x.name, name_ar: x.name_ar, legal_name: x.legal_name, legal_name_ar: x.legal_name_ar, type: x.type, tax_registration_no: taxNo(), payment_terms_days: x.payment_terms_days, credit_limit: x.credit_limit, credit_reason: "حد ائتمان حسب التعاقد السنوي" })).customer;
 

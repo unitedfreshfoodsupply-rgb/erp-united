@@ -18,16 +18,22 @@ const status = (code: number) => (e: any) => e?.status === code;
 
 after(async () => { await prisma.$disconnect(); });
 
-test("category: set on creation, edited, filtered; only vegetable or fruit, in the service and in the database", async () => {
+test("category (D-1): required on every normal creation and edit; only the stock gate's quick add starts unclassified; closed in the database", async () => {
   const veg = await createSupplierFull({ name: `${TAG} Veg Farm`, name_ar: `${TAG} مزرعة خضار`, category: "vegetable" }, buyer);
   const fruit = await createSupplierFull({ name: `${TAG} Fruit Farm`, category: "fruit" }, buyer);
-  const none = await createSupplierFull({ name: `${TAG} Packaging`, type: "packaging" }, buyer);
+  // Normal creation without a category is refused, with nothing written.
+  await assert.rejects(createSupplierFull({ name: `${TAG} No Category` }, buyer), (e: any) => e.status === 400 && e.message === "فئة المورد مطلوبة — اختار خضار أو فاكهة");
+  await assert.rejects(createSupplierFull({ name: `${TAG} Null Category`, category: null }, buyer), status(400));
+  assert.equal(await prisma.supplier.count({ where: { name: { in: [`${TAG} No Category`, `${TAG} Null Category`] } } }), 0);
+  assert.equal(localizeServerMessage("فئة المورد مطلوبة — اختار خضار أو فاكهة", "en"), "The supplier category is required — choose vegetables or fruit");
+  // The stock gate may add a farmer on the spot: unclassified, visibly so, until purchasing classifies it.
+  const none = await createSupplier({ name: `${TAG} مزارع على الباب` }, stock as any);
   assert.deepEqual([veg.category, fruit.category, none.category], ["vegetable", "fruit", null]);
 
   const ids = (rows: { id: string }[]) => rows.map((r) => r.id).filter((id) => [veg.id, fruit.id, none.id].includes(id)).sort();
   assert.deepEqual(ids(await listSuppliersFull({ q: TAG, category: "vegetable" })), [veg.id]);
   assert.deepEqual(ids(await listSuppliersFull({ q: TAG, category: "fruit" })), [fruit.id]);
-  assert.deepEqual(ids(await listSuppliersFull({ q: TAG, category: "none" })), [none.id]);
+  assert.deepEqual(ids(await listSuppliersFull({ q: TAG, category: "none" })), [none.id], "the unclassified are listed on their own, never inside a category");
   assert.deepEqual(ids(await listSuppliersFull({ q: TAG, category: "bogus" })), [veg.id, fruit.id, none.id].sort(), "an unknown filter value filters nothing");
 
   await assert.rejects(createSupplierFull({ name: `${TAG} X`, category: "herbs" }, buyer), (e: any) => e.status === 400 && e.message === "فئة المورد لازم خضار أو فاكهة");
@@ -35,14 +41,19 @@ test("category: set on creation, edited, filtered; only vegetable or fruit, in t
   await assert.rejects(updateSupplierMaster(none.id, { category: "herbs" }, buyer), status(400));
   // The database refuses an unknown category whatever writes it.
   await assert.rejects(prisma.$executeRaw`UPDATE "Supplier" SET "category" = 'herbs' WHERE "id" = ${none.id}`, /Supplier_category_known/);
+  // Classifying is purchasing's: the stock permission cannot do it.
+  await assert.rejects(updateSupplierMaster(none.id, { category: "fruit", expected_version: none.version }, stock), status(403));
 
   const moved = await updateSupplierMaster(none.id, { category: "fruit", expected_version: none.version }, buyer);
   assert.equal(moved.category, "fruit");
   const a = await prisma.auditLog.findFirst({ where: { entityId: none.id, fieldChanged: "category" } });
   assert.deepEqual([a?.action, a?.oldValue, a?.newValue, a?.userName], ["supplier_terms_changed", null, "fruit", "مشتريات"]);
-  // Back to unclassified is an explicit, audited change too.
-  const cleared = await updateSupplierMaster(none.id, { category: null, expected_version: moved.version }, buyer);
-  assert.equal(cleared.category, null);
+  // A classified supplier cannot be made unclassified again; a re-classification is audited.
+  await assert.rejects(updateSupplierMaster(none.id, { category: null, expected_version: moved.version }, buyer), status(400));
+  const vegNow = await updateSupplierMaster(none.id, { category: "vegetable", expected_version: moved.version }, buyer);
+  assert.equal(vegNow.category, "vegetable");
+  const trail = await prisma.auditLog.findMany({ where: { entityId: none.id, fieldChanged: "category" }, orderBy: { timestamp: "asc" }, select: { oldValue: true, newValue: true } });
+  assert.deepEqual(trail.map((x) => [x.oldValue, x.newValue]), [[null, "fruit"], ["fruit", "vegetable"]]);
 });
 
 test("the stock permission edits identity fields only; the rule holds in the service, whichever route calls it", async () => {

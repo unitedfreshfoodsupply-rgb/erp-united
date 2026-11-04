@@ -29,7 +29,7 @@ async function main() {
   const potato = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Potato`, unit: "KG" })).body.product;
   // MIG-01: the chain is invoiced below, so its card carries a 9-digit tax number.
   const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} سلسلة مطاعم`, tax_registration_no: taxNo() })).body.customer;
-  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مزرعة البطاطس`, payment_terms_days: 30 })).body.supplier;
+  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} مزرعة البطاطس`, payment_terms_days: 30 })).body.supplier;
   check("only accounting brings balances over -> 403 for the floor and sales", (await call("hossam", "POST", "/api/accounting/opening-stock", { lines: [] })).status === 403 && (await call("mona", "POST", "/api/accounting/opening-balances", {})).status === 403);
   // CTL-01: direct opening entries are closed by default (an approved opening batch is the
   // path). This go-live scenario exercises the direct path itself, so it switches it on by

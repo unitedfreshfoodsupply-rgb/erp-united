@@ -127,6 +127,7 @@
     ],
     "STOCK_CONTROLLER": [
       "purchasing.orders.view",
+      "purchasing.suppliers.view",
       "stock.adjust",
       "stock.manage_products",
       "stock.manage_suppliers",

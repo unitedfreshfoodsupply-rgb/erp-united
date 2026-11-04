@@ -16,7 +16,7 @@ async function main() {
 
   section("1. FIXTURES");
   const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل` })).body.customer;
-  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مورد` })).body.supplier;
+  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} مورد` })).body.supplier;
   check("fixtures ready", !!customer?.id && !!supplier?.id);
 
   section("2. EXPORTS REQUIRE THE VIEW PERMISSION");
@@ -75,7 +75,7 @@ async function main() {
   check("default statement export keeps the line kind as its code", legacyRows.split("\r\n").some((l) => l.split(",")[1] === "receipt"));
   // Names come from the card in the export's language (customers and suppliers with both names).
   const cust2 = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} Nile Hotel`, name_ar: `${TAG} فندق النيل` })).body.customer;
-  const sup2 = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} Delta Farms`, name_ar: `${TAG} مزارع الدلتا` })).body.supplier;
+  const sup2 = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} Delta Farms`, name_ar: `${TAG} مزارع الدلتا` })).body.supplier;
   const firstRow = async (path: string) => (await (await fetch(url(path), { headers: { cookie } })).text()).replace(/^\uFEFF/, "").split("\r\n")[1] ?? "";
   const stmt = (kind: "customers" | "suppliers", id: string, l: string) => `/api/${kind === "customers" ? "sales" : "purchasing"}/${kind}/${id}/statement/export?from=2000-01-01&to=2099-12-31&lang=${l}`;
   check("English customer statement: the English name", (await firstRow(stmt("customers", cust2.id, "en"))).includes(`${TAG} Nile Hotel`));
