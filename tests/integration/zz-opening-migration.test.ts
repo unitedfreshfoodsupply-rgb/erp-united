@@ -153,8 +153,19 @@ test("phased opening migration: suppliers, customers, the rest, then a second pe
   // Stock at cost through the stock ledger: valued against 3300 by the ledger, then moved to the clearing account.
   const potato = await prisma.stockProduct.create({ data: { name: `${TAG} Potato`, unit: "KG" } });
   await addLines(ob.id, { lines: [{ kind: "stock", product_id: potato.id, quantity: "100", unit_cost: "12.5" }] }, prep);
+  // Where opening stock was already posted directly (as in production), stock lines are refused —
+  // the same stock would count twice; the batch then carries everything else.
+  const direct = await prisma.inventoryDocument.count({ where: { type: "adjustment", sourceType: "opening_balance", status: "posted", reversalOfId: null, sourceId: null } });
+  let stockValue = 1250;
+  if (direct) {
+    assert.ok((await validateBatch(ob.id)).problems.some((p) => p.code === "direct_opening_stock_exists"));
+    const { removeLine } = await import("@/lib/accounting/opening-batches");
+    const stockLine = await prisma.openingBatchLine.findFirstOrThrow({ where: { batchId: ob.id, kind: "stock" } });
+    await removeLine(ob.id, stockLine.id, prep);
+    stockValue = 0;
+  }
   const after3300 = equity.negated(); // what the transfer moves onto the clearing account (debit positive on 3300)
-  const remaining = (await balance("opening_clearing")).minus(after3300).minus(1250);
+  const remaining = (await balance("opening_clearing")).minus(after3300).minus(stockValue);
   // Synthetic legacy figures: the cash (or capital) that makes the opening position balance.
   if (remaining.gt(0)) await addLines(ob.id, { lines: [{ kind: "gl", account_code: "1100", debit: remaining.toFixed(2), description: "الخزينة في تاريخ القطع" }] }, prep);
   else if (remaining.lt(0)) await addLines(ob.id, { lines: [{ kind: "gl", account_code: "3100", credit: remaining.negated().toFixed(2), description: "رأس المال" }] }, prep);
@@ -165,7 +176,7 @@ test("phased opening migration: suppliers, customers, the rest, then a second pe
   assert.equal((await balance("opening_clearing")).toFixed(2), "0.00", "the clearing account is back to zero");
   assert.equal((await balance("opening_equity")).toFixed(2), "0.00");
   const layers = await prisma.stockValuationLayer.aggregate({ where: { productId: potato.id }, _sum: { value: true } });
-  assert.equal(D(layers._sum.value).toFixed(2), "1250.00", "the stock ledger carries the opening stock at its cost");
+  assert.equal(D(layers._sum.value).toFixed(2), stockValue ? "1250.00" : "0.00", "the stock ledger carries the opening stock at its cost");
 
   // 7. Closure: refused until people confirm what the data cannot show; then approved by someone else.
   o = await migrationOverview();
