@@ -191,7 +191,7 @@ export async function listIssueExceptions(filters: { status?: string; orderId?: 
     where: { status: filters.status ?? "open", ...(filters.orderId ? { orderId: filters.orderId } : {}) },
     orderBy: { createdAt: "desc" },
     take: 200,
-    include: { order: { select: { orderNumber: true, customerName: true, deliveryDate: true } }, document: { select: { number: true } } },
+    include: { order: { select: { orderNumber: true, customerName: true, customerAccount: { select: { name: true, nameAr: true } }, deliveryDate: true } }, document: { select: { number: true } } },
   });
 }
 

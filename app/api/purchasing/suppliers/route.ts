@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   try {
     await requirePermission(req, "purchasing.suppliers.view");
     const sp = new URL(req.url).searchParams;
-    return NextResponse.json({ suppliers: await listSuppliersFull({ q: sp.get("q") ?? undefined, includeInactive: sp.get("include_inactive") === "1", type: sp.get("type") || undefined }) });
+    return NextResponse.json({ suppliers: await listSuppliersFull({ q: sp.get("q") ?? undefined, includeInactive: sp.get("include_inactive") === "1", type: sp.get("type") || undefined, category: sp.get("category") || undefined }) });
   } catch (err) {
     return handleApiError(err, req);
   }

@@ -10,6 +10,7 @@ import { getBaseUrl } from "@/lib/absoluteUrl";
 import { orderQrSvg } from "@/lib/orderQr";
 import { PrintBar } from "@/components/print/PrintBar";
 import { PrintHeader } from "@/components/print/PrintHeader";
+import { orderDocumentCustomerName } from "@/lib/locale/names";
 import { qty, unitLabel } from "@/lib/format";
 import type { OrderStatus } from "@/lib/types";
 
@@ -53,7 +54,7 @@ export default async function DeliverySheetPage({ params, searchParams }: { para
           titleAr="مستند التسليم"
           titleEn="Delivery note"
           orderNumber={order.orderNumber}
-          customerName={order.customerName}
+          customerName={orderDocumentCustomerName(order, locale)}
           externalId={order.externalId}
           deliveryDate={order.deliveryDate}
           deliveryTime={order.deliveryTime}

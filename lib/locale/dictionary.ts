@@ -1219,6 +1219,11 @@ const purchasing = {
   "purchasing.supplier.type.packaging": { ar: "تغليف", en: "Packaging" },
   "purchasing.supplier.type.services": { ar: "خدمات", en: "Services" },
   "purchasing.supplier.type.other": { ar: "أخرى", en: "Other" },
+  "purchasing.supplier.category": { ar: "الفئة", en: "Category" },
+  "purchasing.supplier.category.vegetable": { ar: "خضار", en: "Vegetables" },
+  "purchasing.supplier.category.fruit": { ar: "فاكهة", en: "Fruit" },
+  "purchasing.supplier.category.unclassified": { ar: "غير مصنّف", en: "Unclassified" },
+  "purchasing.supplier.edit.purchasing-only": { ar: "الفئة والنوع والبيانات الضريبية والشروط بيعدّلها المشتريات (صلاحية إدارة الموردين في المشتريات).", en: "Category, type, tax data and terms are edited by purchasing (purchasing supplier management permission)." },
 
   // Orders page elements
   "purchasing.orders.filter.open": { ar: "مفتوحة", en: "Open" },
@@ -1493,6 +1498,7 @@ const accounting = {
   "accounting.integrity.trial_balance": { ar: "ميزان المراجعة متوازن", en: "Trial balance balances" },
   "accounting.integrity.unposted": { ar: "كل المستندات وحركات المخزون مترحّلة للحسابات", en: "Every document and stock movement is posted" },
   "accounting.integrity.traceable": { ar: "كل قيد له مستند مصدر", en: "Every journal entry has a source document" },
+  "accounting.integrity.party_references": { ar: "كل قيد ورصيد افتتاحي بيشاور على عميل أو مورد أو موظف موجود", en: "Every ledger line and opening balance points to an existing customer, supplier or employee" },
   "accounting.integrity.ar": { ar: "أرصدة العملاء = حساب العملاء في الأستاذ", en: "Customer balances = receivables account" },
   "accounting.integrity.ap": { ar: "أرصدة الموردين = حساب الموردين في الأستاذ", en: "Supplier balances = payables account" },
   "accounting.integrity.inventory": { ar: "قيمة المخزون = حساب المخزون في الأستاذ", en: "Stock value = inventory account" },

@@ -1036,6 +1036,7 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["المورد \"{}\" موجود بالفعل", "Supplier \"{0}\" already exists"],
   ["العملة مش معروفة", "Unknown currency"],
   ["بيانات المورد اتغيرت، حدّث الشاشة", "The supplier changed — refresh the screen"],
+  ["فئة المورد لازم خضار أو فاكهة", "The supplier category must be vegetables or fruit"],
   ["اسم جهة الاتصال", "Contact name"],
   ["جهة الاتصال مش موجودة", "Contact not found"],
   ["جهة الاتصال اتغيرت، حدّث الشاشة", "The contact changed — refresh the screen"],

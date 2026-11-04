@@ -1,7 +1,7 @@
 /* Picking sheet — consolidated daily production sheet end to end. Tests the
    server-side aggregation, authorization, date filtering, status filtering,
    and total reconciliation against the underlying order lines. */
-import { call, login, makeChecker } from "./_harness";
+import { call, login, makeChecker, page } from "./_harness";
 
 const { check, section, finish } = makeChecker();
 const TAG = `ZZSHEET${Date.now()}`;
@@ -97,6 +97,20 @@ async function main() {
   check("summary prepared=190", s1.summary.totalPrepared === 190, s1.summary.totalPrepared);
 
   // -----------------------------------------------------------------------
+  section("5b. CUSTOMER RENAMED: the sheet shows the card as it is now (master data, Nov 2026)");
+  const rename = async (name: string) => {
+    const cur = (await call("mona", "GET", `/api/sales/customers/${hotel.id}`)).body.customer;
+    return call("mona", "PATCH", `/api/sales/customers/${hotel.id}`, { name, expected_version: cur.version });
+  };
+  const nameAtDispatch = `${TAG} فندق النيل`;
+  r = await rename(nameAtDispatch);
+  check("rename 200", r.status === 200, r.status);
+  r = await call("sara", "GET", `/api/production/daily/sheet?date=${today}`);
+  const s1b = r.body.lines.find((l: any) => l.productName === `${TAG} طماطم`);
+  check("open order under the new name", s1b?.allocations.some((a: any) => a.orderId === ho.id && a.customerName === nameAtDispatch && a.customerAccount?.name === nameAtDispatch), s1b?.allocations.map((a: any) => a.customerName));
+  check("old name gone from the sheet", !s1b?.allocations.some((a: any) => a.customerName === hotel.name));
+
+  // -----------------------------------------------------------------------
   section("6. CANCELLED excluded");
   const xo = (await call("mona", "POST", "/api/orders", {
     customer_account_id: hotel.id, customer_name: hotel.name, delivery_date: today,
@@ -133,6 +147,20 @@ async function main() {
   check("cafe only: 50", t3?.totalRequired === 50, t3?.totalRequired);
   check("summary=50", s3.summary.totalRequired === 50, s3.summary);
 
+  section("7b. DISPATCH FREEZES THE NAME: a later rename does not reach the delivery note");
+  r = await call("sara", "GET", `/api/orders/${ho.id}`);
+  check("the order stores the name it left with", r.body.order?.customerName === nameAtDispatch, r.body.order?.customerName);
+  r = await call("admin", "GET", `/api/audit?orderId=${ho.id}&limit=200`);
+  const frozen = (r.body.logs ?? r.body.entries ?? r.body.items ?? []).find((x: any) => x.fieldChanged === "customerName");
+  check("the freeze is audited (old → new)", frozen?.oldValue === hotel.name && frozen?.newValue === nameAtDispatch, frozen ?? r.status);
+  const renamedLater = `${TAG} فندق النيل الكبير`;
+  r = await rename(renamedLater);
+  check("rename after dispatch 200", r.status === 200, r.status);
+  const note = await page("mostafa", `/orders/${ho.id}/print/delivery`);
+  check("delivery note reprint keeps the dispatch-time name", note.status === 200 && note.html.includes(nameAtDispatch) && !note.html.includes(renamedLater), note.status);
+  r = await call("sara", "GET", `/api/orders/${ho.id}`);
+  check("the dispatched order is not rewritten by the rename", r.body.order?.customerName === nameAtDispatch, r.body.order?.customerName);
+
   // -----------------------------------------------------------------------
   section("8. DIFFERENT product = separate line");
   const crate = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} كراتين`, unit: "KG" })).body.product;
@@ -150,6 +178,11 @@ async function main() {
   check("crate line exists", !!crateLine, !!crateLine);
   check("crate=5", crateLine?.totalRequired === 5, crateLine?.totalRequired);
   check("orderCount=2 (cafe+crate)", s4.summary.orderCount === 2, s4.summary.orderCount);
+  // An open order's document names the customer card as it is now.
+  const openNote = await page("mostafa", `/orders/${crateOrder.id}/print/delivery`);
+  check("open order's delivery note: current name", openNote.status === 200 && openNote.html.includes(renamedLater), openNote.status);
+  const openNoteEn = await page("mostafa", `/orders/${crateOrder.id}/print/delivery?lang=en`);
+  check("open order's delivery note in English: the card's name", openNoteEn.status === 200 && openNoteEn.html.includes(renamedLater), openNoteEn.status);
 
   finish("PICKING-SHEET");
 }

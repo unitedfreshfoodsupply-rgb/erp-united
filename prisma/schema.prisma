@@ -281,6 +281,8 @@ model Supplier {
 
   /// farm | grower | wholesaler | market_trader | importer | packaging | services | other
   type              String  @default("other")
+  /// vegetable | fruit — the business's two supplier categories (Nov 2026). NULL = not classified yet.
+  category          String?
   taxRegistrationNo String? @unique
   commercialRegNo   String?
   email             String?
@@ -310,6 +312,7 @@ model Supplier {
   paymentRequests SupplierPaymentRequest[]
 
   @@index([active])
+  @@index([category])
 }
 
 model SupplierContact {

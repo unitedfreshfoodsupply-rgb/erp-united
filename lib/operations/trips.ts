@@ -453,7 +453,7 @@ export async function getTrip(id: string) {
       stops: {
         where: { active: true },
         orderBy: { sequence: "asc" },
-        include: { lines: true, order: { select: { id: true, orderNumber: true, customerName: true, status: true, deliveryTime: true, crateCount: true, items: { select: { id: true, productName: true, unit: true, requiredQuantity: true, preparedQuantity: true, loadedQuantity: true, stockProductId: true } } } } },
+        include: { lines: true, order: { select: { id: true, orderNumber: true, customerName: true, customerAccount: { select: { name: true, nameAr: true } }, status: true, deliveryTime: true, crateCount: true, items: { select: { id: true, productName: true, unit: true, requiredQuantity: true, preparedQuantity: true, loadedQuantity: true, stockProductId: true } } } } },
       },
     },
   });
@@ -474,7 +474,8 @@ export async function plannableOrders(date?: string) {
   return prisma.order.findMany({
     where: { status: { in: ["new", "preparing", "ready_for_loading", "loading", "loaded"] }, tripStops: { none: { active: true } }, ...(date ? { deliveryDate: date } : {}) },
     orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
-    select: { id: true, orderNumber: true, customerName: true, status: true, deliveryDate: true, deliveryTime: true },
+    // The linked card travels with the order: the planner sees the customer as it is now.
+    select: { id: true, orderNumber: true, customerName: true, customerAccount: { select: { name: true, nameAr: true } }, status: true, deliveryDate: true, deliveryTime: true },
     take: 300,
   });
 }

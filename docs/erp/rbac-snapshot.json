@@ -3861,9 +3861,10 @@
       "method": "PATCH",
       "path": "/api/purchasing/suppliers/[id]",
       "gate": {
-        "kind": "all",
+        "kind": "any",
         "permissions": [
-          "purchasing.suppliers.manage"
+          "purchasing.suppliers.manage",
+          "stock.manage_suppliers"
         ]
       }
     },

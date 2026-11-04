@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { storedOrderCustomerName } from "@/lib/locale/names";
 
 
 /**
@@ -35,7 +36,10 @@ export interface ConsolidatedLine {
   allocations: {
     orderId: string;
     orderNumber: string;
+    /** The customer as of now, Arabic-first: the linked card, else the name as received. */
     customerName: string;
+    /** The linked card's names, for the reader's language (null for an unmapped order). */
+    customerAccount: { name: string; nameAr: string | null } | null;
     deliveryTime: string | null;
     requiredQuantity: number;
     preparedQuantity: number | null;
@@ -77,6 +81,7 @@ export async function dailyConsolidatedSheet(date: string): Promise<DailySheetDT
         orderBy: { id: "asc" },
         include: { stockProduct: { select: { id: true, name: true, nameAr: true } } },
       },
+      customerAccount: { select: { name: true, nameAr: true } },
     },
     orderBy: [{ deliveryTime: "asc" }, { customerName: "asc" }],
   });
@@ -131,7 +136,9 @@ export async function dailyConsolidatedSheet(date: string): Promise<DailySheetDT
       group.allocations.push({
         orderId: order.id,
         orderNumber: order.orderNumber,
-        customerName: order.customerName,
+        // An open order shows the customer card as it is now (a rename reaches the floor at once).
+        customerName: order.customerAccount ? storedOrderCustomerName(order.customerAccount) : order.customerName,
+        customerAccount: order.customerAccount,
         deliveryTime: order.deliveryTime,
         requiredQuantity: item.requiredQuantity,
         preparedQuantity: item.preparedQuantity,

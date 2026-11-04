@@ -494,7 +494,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | GET | `/api/purchasing/suppliers/[id]/prices` | `purchasing.prices.view` | ✓ | ✓ |  |  |  |  | ✓ | ✓ |  |
 | POST | `/api/purchasing/suppliers/[id]/prices` | `purchasing.prices.manage` | ✓ |  |  |  |  |  |  | ✓ |  |
 | GET | `/api/purchasing/suppliers/[id]` | `purchasing.suppliers.view` | ✓ | ✓ |  |  |  |  | ✓ | ✓ | ✓ |
-| PATCH | `/api/purchasing/suppliers/[id]` | `purchasing.suppliers.manage` | ✓ |  |  |  |  |  | ✓ | ✓ |  |
+| PATCH | `/api/purchasing/suppliers/[id]` | any of `purchasing.suppliers.manage`, `stock.manage_suppliers` | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |
 | GET | `/api/purchasing/suppliers/[id]/statement/export` | `purchasing.bills.view` | ✓ |  |  |  |  |  | ✓ | ✓ | ✓ |
 | GET | `/api/purchasing/suppliers/[id]/statement` | `purchasing.bills.view` | ✓ |  |  |  |  |  | ✓ | ✓ | ✓ |
 | GET | `/api/purchasing/suppliers` | `purchasing.suppliers.view` | ✓ | ✓ |  |  |  |  | ✓ | ✓ | ✓ |

@@ -11,7 +11,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { qty, unitLabel } from "@/lib/format";
 import type { DailySheetDTO } from "@/lib/picking-sheet";
 import { useLocale } from "@/lib/locale";
-import { localName } from "@/lib/locale/names";
+import { localName, orderCustomerName } from "@/lib/locale/names";
 
 // Dictionary keys, translated at render.
 const STATUS_LABEL: Record<string, string> = {
@@ -304,7 +304,7 @@ export function PickingSheet() {
                                 href={`/orders/${a.orderId}`}
                                 className="col-span-2 font-bold text-united-dark truncate hover:underline"
                               >
-                                {a.customerName}
+                                {orderCustomerName(a, locale)}
                               </Link>
                               <span
                                 dir="ltr"

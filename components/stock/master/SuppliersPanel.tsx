@@ -10,13 +10,16 @@ import { invalidateStockData } from "@/lib/stockInvalidation";
 import type { SupplierDTO } from "@/lib/stock-client-types";
 import { localName } from "@/lib/locale/names";
 import { Field } from "@/components/stock/inventory/shared";
+import { usePermissions } from "@/lib/use-session";
+import { href as profileHref } from "@/lib/profiles/links";
 
-/** Suppliers. Unchanged behaviour, moved here so the Product Master screen owns all
- * three reference lists in one place. */
+/** Suppliers: quick add and activate/deactivate. The full record is edited in one place, the
+ * supplier's profile (same service, same audit); each name links there for those who can open it. */
 export function SuppliersPanel({ canManage }: { canManage: boolean }) {
   const qc = useQueryClient();
   const toast = useToast();
   const { t, locale } = useLocale();
+  const { can } = usePermissions();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [nameAr, setNameAr] = useState("");
@@ -84,7 +87,9 @@ export function SuppliersPanel({ canManage }: { canManage: boolean }) {
           {data?.suppliers.map((s) => (
             <li key={s.id} className="flex items-center justify-between py-3 gap-2">
               <div className="min-w-0">
-                <div className="font-bold text-united-dark truncate">{localName(s, locale)}</div>
+                {can("purchasing.suppliers.view")
+                  ? <a href={profileHref.supplier(s.id)} className="block font-bold text-united-dark truncate underline decoration-united-border">{localName(s, locale)}</a>
+                  : <div className="font-bold text-united-dark truncate">{localName(s, locale)}</div>}
                 {s.phone && <div dir="ltr" className="text-xs font-bold text-united-muted">{s.phone}</div>}
               </div>
               {canManage && <button

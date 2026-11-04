@@ -14,6 +14,7 @@ import { Field, Tabs, fmtQty } from "@/components/stock/inventory/shared";
 import { Segmented } from "@/components/ui/Segmented";
 import { Snowflake } from "lucide-react";
 import { useLocale } from "@/lib/locale";
+import { orderCustomerName } from "@/lib/locale/names";
 
 /**
  * Distribution: trips (plan → load → dispatch → deliver), delivery results, the
@@ -43,7 +44,7 @@ const EX_TYPE: Record<string, string> = { shortage: fallbackKey("ops.exception.s
 type Fleet = { vehicles: { id: string; code: string; plate: string; type: string; capacityKg: string | null; refrigerated: boolean; active: boolean; version: number }[]; drivers: { id: string; name: string; phone: string | null; active: boolean; version: number }[] };
 type TripRow = { id: string; number: string; status: string; tripDate: string; vehicle: { code: string; plate: string; refrigerated: boolean }; driver: { name: string }; stops: number; delivered: number };
 type Item = { id: string; productName: string; unit: string; requiredQuantity: number; preparedQuantity: number | null; loadedQuantity: number | null; shippedQty: string };
-type Stop = { id: string; sequence: number; orderId: string; status: string; crateCount: number | null; receiverName: string | null; failureReason: string | null; recordedBy: string | null; lines: { orderItemId: string; deliveredQty: string; shortageQty: string; damagedQty: string; rejectedQty: string }[]; order: { id: string; orderNumber: string; customerName: string; status: string; crateCount: number | null; items: Item[] } };
+type Stop = { id: string; sequence: number; orderId: string; status: string; crateCount: number | null; receiverName: string | null; failureReason: string | null; recordedBy: string | null; lines: { orderItemId: string; deliveredQty: string; shortageQty: string; damagedQty: string; rejectedQty: string }[]; order: { id: string; orderNumber: string; customerName: string; customerAccount?: { name: string; nameAr: string | null } | null; status: string; crateCount: number | null; items: Item[] } };
 type TripDetail = { id: string; number: string; status: string; tripDate: string; notes: string | null; cancelReason: string | null; version: number; vehicle: Fleet["vehicles"][number]; driver: Fleet["drivers"][number]; stops: Stop[] };
 
 export function OperationsView() {
@@ -133,12 +134,12 @@ function NewTrip({ onDone }: { onDone: (id?: string) => void }) {
   const toast = useToast();
   const qc = useQueryClient();
   const fleet = useFleet();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [date, setDate] = useState(todayLocalISO());
   const [vehicleId, setVehicleId] = useState("");
   const [driverId, setDriverId] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
-  const orders = useQuery({ queryKey: ["ops", "plannable", date], queryFn: () => apiFetch<{ orders: { id: string; orderNumber: string; customerName: string; status: string; deliveryTime: string | null }[] }>(`/api/operations/trips/plannable?date=${date}`) });
+  const orders = useQuery({ queryKey: ["ops", "plannable", date], queryFn: () => apiFetch<{ orders: { id: string; orderNumber: string; customerName: string; customerAccount?: { name: string; nameAr: string | null } | null; status: string; deliveryTime: string | null }[] }>(`/api/operations/trips/plannable?date=${date}`) });
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   return (
     <div className="flex flex-col gap-3">
@@ -165,7 +166,7 @@ function NewTrip({ onDone }: { onDone: (id?: string) => void }) {
           const n = picked.indexOf(o.id);
           return (
             <button key={o.id} type="button" onClick={() => toggle(o.id)} aria-pressed={n >= 0} className={`tap-target rounded-xl px-3 text-start font-bold flex justify-between ${n >= 0 ? "bg-united-green text-white" : "bg-united-dark/5"}`}>
-              <span>{n >= 0 ? `${n + 1}. ` : ""}<span dir="ltr">{o.orderNumber}</span> · {o.customerName}{o.deliveryTime ? ` · ${o.deliveryTime}` : ""}</span>
+              <span>{n >= 0 ? `${n + 1}. ` : ""}<span dir="ltr">{o.orderNumber}</span> · {orderCustomerName(o, locale)}{o.deliveryTime ? ` · ${o.deliveryTime}` : ""}</span>
               <span className="text-xs">{o.status}</span>
             </button>
           );
@@ -187,7 +188,7 @@ function TripView({ id, onClose }: { id: string; onClose: () => void }) {
   const { can } = usePermissions();
   const toast = useToast();
   const qc = useQueryClient();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [crates, setCrates] = useState<Record<string, string>>({});
   const [reason, setReason] = useState("");
   const [pod, setPod] = useState<string | null>(null);
@@ -214,7 +215,7 @@ function TripView({ id, onClose }: { id: string; onClose: () => void }) {
         {trip.stops.map((s) => (
           <li key={s.id} className="card p-3 flex flex-col gap-2">
             <div className="flex justify-between gap-2">
-              <div className="font-extrabold">{s.sequence}. <span dir="ltr">{s.order.orderNumber}</span> · {s.order.customerName}</div>
+              <div className="font-extrabold">{s.sequence}. <span dir="ltr">{s.order.orderNumber}</span> · {orderCustomerName(s.order, locale)}</div>
               <span className="text-xs font-extrabold text-united-muted">{s.order.status} · {STOP_STATUS[s.status] ? t(STOP_STATUS[s.status]) : s.status}</span>
             </div>
             <ul className="text-sm font-bold text-united-muted">
@@ -261,7 +262,7 @@ function TripView({ id, onClose }: { id: string; onClose: () => void }) {
 function DeliveryForm({ stop, onDone }: { stop: Stop; onDone: () => void }) {
   const toast = useToast();
   const qc = useQueryClient();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [failed, setFailed] = useState(false);
   const [receiver, setReceiver] = useState("");
   const [notes, setNotes] = useState("");
@@ -271,7 +272,7 @@ function DeliveryForm({ stop, onDone }: { stop: Stop; onDone: () => void }) {
   const set = (id: string, k: "shortage_qty" | "damaged_qty" | "rejected_qty" | "reason", v: string) => setLines({ ...lines, [id]: { ...(lines[id] ?? { shortage_qty: "", damaged_qty: "", rejected_qty: "", reason: "" }), [k]: v } });
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex justify-between items-center"><h2 className="text-xl font-extrabold">{t("ops.dlv.title-format", { orderNumber: stop.order.orderNumber, customerName: stop.order.customerName })}</h2><button type="button" className="btn-secondary" onClick={() => onDone()}>{t("ops.new.back")}</button></div>
+      <div className="flex justify-between items-center"><h2 className="text-xl font-extrabold">{t("ops.dlv.title-format", { orderNumber: stop.order.orderNumber, customerName: orderCustomerName(stop.order, locale) })}</h2><button type="button" className="btn-secondary" onClick={() => onDone()}>{t("ops.new.back")}</button></div>
       <Segmented value={failed ? "failed" : "ok"} onChange={(v) => setFailed(v === "failed")} items={[{ key: "ok", label: t("ops.dlv.delivered-tab") }, { key: "failed", label: t("ops.dlv.failed-tab") }]} />
       {failed ? (
         <section className="card p-4"><Field label={t("ops.dlv.failure-reason-label")}><input className="field" value={failure} onChange={(e) => setFailure(e.target.value)} /></Field></section>
@@ -321,7 +322,7 @@ function DeliveryForm({ stop, onDone }: { stop: Stop; onDone: () => void }) {
 // Exceptions
 // ---------------------------------------------------------------------------
 
-type Ex = { id: string; type: string; status: string; description: string; productName: string | null; quantity: string | null; ownerName: string | null; resolution: string | null; resolvedBy: string | null; createdBy: string; createdAt: string; version: number; order: { orderNumber: string; customerName: string } | null };
+type Ex = { id: string; type: string; status: string; description: string; productName: string | null; quantity: string | null; ownerName: string | null; resolution: string | null; resolvedBy: string | null; createdBy: string; createdAt: string; version: number; order: { orderNumber: string; customerName: string; customerAccount?: { name: string; nameAr: string | null } | null } | null };
 
 function Exceptions() {
   const { can } = usePermissions();
@@ -344,7 +345,7 @@ function Exceptions() {
               <span className={`text-xs font-extrabold ${e.status === "open" ? "text-united-warn" : "text-united-green"}`}>{e.status === "open" ? t("ops.exc.open-status") : t("ops.exc.closed-status")}</span>
             </div>
             <p className="text-sm font-bold">{systemText(e.description, locale)}</p>
-            <p className="text-xs font-bold text-united-muted">{e.order ? <><span dir="ltr">{e.order.orderNumber}</span> · {e.order.customerName} · </> : null}{t("ops.exc.logged-by-prefix")} {e.createdBy}{e.ownerName ? ` · ${t("ops.exc.responsible-label")} ${e.ownerName}` : ""}{e.resolution ? ` · ${t("ops.exc.resolution-label")}: ${e.resolution} (${e.resolvedBy})` : ""}</p>
+            <p className="text-xs font-bold text-united-muted">{e.order ? <><span dir="ltr">{e.order.orderNumber}</span> · {orderCustomerName(e.order, locale)} · </> : null}{t("ops.exc.logged-by-prefix")} {e.createdBy}{e.ownerName ? ` · ${t("ops.exc.responsible-label")} ${e.ownerName}` : ""}{e.resolution ? ` · ${t("ops.exc.resolution-label")}: ${e.resolution} (${e.resolvedBy})` : ""}</p>
             {e.status === "open" && can("orders.approve") && (
               <div className="flex items-end gap-2">
                 <Field label={t("ops.exc.resolution-label")} className="flex-1"><input className="field" value={text[e.id] ?? ""} onChange={(ev) => setText({ ...text, [e.id]: ev.target.value })} /></Field>

@@ -3,7 +3,6 @@ import { asText } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { writeAudit, writeAuditMany } from "@/lib/audit";
 import { ApiError } from "@/lib/rbac";
-import { assertPermission } from "@/lib/authz-core";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { inTx, type Tx } from "@/lib/tx";
 import { todayLocalISO } from "@/lib/localDate";
@@ -20,7 +19,7 @@ import { computeGradingCosts, type GradingCostPolicy, type WasteLossPolicy } fro
 import { gradingPrices } from "@/lib/sales/pricing";
 import { getSetting } from "@/lib/core/settings-service";
 import { afterPoReceipt, guardPoReceipt, loadPoLine, poLineUnitCost, lockPoForReceipt } from "@/lib/purchasing/receiving";
-import { effectiveSupplierPrice } from "@/lib/purchasing/suppliers";
+import { effectiveSupplierPrice, updateSupplierMaster } from "@/lib/purchasing/suppliers";
 import { assertReceiptNotBilled } from "@/lib/purchasing/bills";
 import { postingDate, postJournal } from "@/lib/accounting/ledger";
 import { searchWhere } from "@/lib/core/search";
@@ -145,74 +144,15 @@ export async function createSupplier(
   });
 }
 
+/** The stock setup panel's supplier edit: the single supplier editor (lib/purchasing/suppliers.ts),
+ * which checks the permission and audits each field. */
 export async function updateSupplier(
   id: string,
   fields: Partial<{ name: string; phone: string; notes: string; active: boolean }>,
   actor: StockActor,
   expectedVersion?: number
 ) {
-  // The rule holds in the service, whichever route or script reaches it (as for customers).
-  assertPermission(actor, "stock.manage_suppliers");
-  const existing = await prisma.supplier.findUnique({ where: { id } });
-  if (!existing) throw new ApiError(404, "المورد مش موجود");
-  assertVersion(existing.version, expectedVersion, "المورد");
-
-  const data: Prisma.SupplierUpdateInput = {};
-  const changes: [string, string | null, string | null][] = [];
-  if (fields.name !== undefined) {
-    const name = fields.name.trim();
-    if (!name) throw new ApiError(400, "اسم المورد مطلوب");
-    if (name !== existing.name) {
-      data.name = name;
-      changes.push(["name", existing.name, name]);
-    }
-  }
-  for (const key of ["phone", "notes"] as const) {
-    if (fields[key] !== undefined) {
-      const next = fields[key]!.trim() || null;
-      if (next !== existing[key]) {
-        (data as Record<string, unknown>)[key] = next;
-        changes.push([key, existing[key], next]);
-      }
-    }
-  }
-  if (fields.active !== undefined && fields.active !== existing.active) {
-    data.active = fields.active;
-    changes.push(["active", String(existing.active), String(fields.active)]);
-  }
-  if (changes.length === 0) return existing;
-
-  return inTx(async (tx) => {
-    let updated;
-    try {
-      updated = await tx.supplier.update({
-        where: { id, version: existing.version },
-        data: { ...data, version: { increment: 1 } },
-      });
-    } catch (err) {
-      if (isNoRowMatched(err)) versionConflict("المورد", existing.version);
-      if ((err as { code?: string })?.code === "P2002") throw new ApiError(409, "فيه مورد بنفس الاسم");
-      throw err;
-    }
-
-    await writeAuditMany(
-      changes.map(([field, oldValue, newValue]) => ({
-        userId: actor.id,
-        userName: actor.name,
-        role: actor.role,
-        action: "supplier_updated",
-        entityType: "supplier" as const,
-        entityId: id,
-        fieldChanged: field,
-        oldValue,
-        newValue,
-        source: "user" as const,
-        deviceId: actor.deviceId,
-      })),
-      tx
-    );
-    return updated;
-  });
+  return updateSupplierMaster(id, { name: fields.name, phone: fields.phone, notes: fields.notes, active: fields.active, expected_version: expectedVersion }, actor);
 }
 
 // ---------------------------------------------------------------------------

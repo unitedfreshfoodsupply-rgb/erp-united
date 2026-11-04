@@ -58,6 +58,23 @@ test("ETA identifiers print only when they are facts — never an error or a ret
 });
 
 test("cash customer, fully paid, no discount", () => {
-  const d = invoiceDocument({ ...base, invoice: { ...base.invoice, discountTotal: "0", open: "0", customer: { code: "C", paymentTermsDays: 0 } } });
+  // Issued for cash: issue set the due date to the issue date.
+  const d = invoiceDocument({ ...base, invoice: { ...base.invoice, dueDate: "2026-10-08", discountTotal: "0", open: "0", customer: { code: "C", paymentTermsDays: 0 } } });
   assert.deepEqual([d.payment.terms, d.payment.paidInFull, d.totals.hasDiscount], ["نقدي عند التسليم", true, false]);
+});
+
+test("an issued invoice prints the terms it was issued with, not the customer's terms of today", () => {
+  // Issued at 14 days; the customer has since moved to cash, then to 30 days.
+  for (const today of [0, 30]) {
+    const d = invoiceDocument({ ...base, invoice: { ...base.invoice, customer: { code: "C", paymentTermsDays: today } } });
+    assert.deepEqual([d.payment.terms, d.meta.dueDate], ["آجل 14 يوم", "2026-10-22"]);
+  }
+  const en = invoiceDocument({ ...base, lang: "en", invoice: { ...base.invoice, customer: { code: "C", paymentTermsDays: 0 } } });
+  assert.equal(en.payment.terms, "Net 14 days");
+});
+
+test("a draft shows the customer's current terms (the ones issue will apply)", () => {
+  const draft = { ...base.invoice, status: "draft", number: null, issueDate: null, dueDate: null, issuedAt: null };
+  assert.equal(invoiceDocument({ ...base, invoice: { ...draft, customer: { code: "C", paymentTermsDays: 30 } } }).payment.terms, "آجل 30 يوم");
+  assert.equal(invoiceDocument({ ...base, lang: "en", invoice: { ...draft, customer: { code: "C", paymentTermsDays: 0 } } }).payment.terms, "Cash on delivery");
 });

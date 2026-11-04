@@ -138,6 +138,21 @@ async function partyMismatches(kind: "customer" | "supplier") {
   return rows.map((r) => ({ id: r.id, subledger: D(r.sub).toFixed(2), ledger: D(r.gl).toFixed(2) }));
 }
 
+/**
+ * Ledger lines and opening balances name their customer, supplier or employee by id with no
+ * database foreign key (the reference is polymorphic). An id that points at no record — or a
+ * party type nothing knows — is listed here, so it is found rather than assumed away.
+ */
+export async function danglingPartyReferences(db: Pick<Prisma.TransactionClient, "$queryRaw"> = prisma) {
+  const known = (alias: "l" | "o") => Prisma.raw(`(${alias}."partyType" = 'customer' AND EXISTS (SELECT 1 FROM "Customer" p WHERE p."id" = ${alias}."partyId"))
+    OR (${alias}."partyType" = 'supplier' AND EXISTS (SELECT 1 FROM "Supplier" p WHERE p."id" = ${alias}."partyId"))
+    OR (${alias}."partyType" = 'employee' AND EXISTS (SELECT 1 FROM "Employee" p WHERE p."id" = ${alias}."partyId"))`);
+  const rows = await db.$queryRaw<{ source: string; partyType: string | null; partyId: string; n: bigint }[]>`
+    SELECT 'journal_line' AS source, l."partyType", l."partyId", count(*) AS n FROM "JournalLine" l WHERE l."partyId" IS NOT NULL AND NOT (${known("l")}) GROUP BY 2, 3
+    UNION ALL SELECT 'opening_balance', o."partyType", o."partyId", count(*) FROM "PartyOpeningBalance" o WHERE NOT (${known("o")}) GROUP BY 2, 3`;
+  return rows.map((r) => ({ source: r.source, partyType: r.partyType, partyId: r.partyId, count: Number(r.n) }));
+}
+
 export async function integrityReport() {
   // The checks are independent read-only queries: run them together (the pool caps the
   // concurrency) instead of one after another. The result keeps the same order.
@@ -199,6 +214,12 @@ export async function integrityReport() {
         OR (e."sourceType" = 'cash_transfer_reversal' AND NOT EXISTS (SELECT 1 FROM "CashTransfer" d WHERE d."id" = e."sourceId" AND d."reversalEntryId" = e."id"))
         OR (e."sourceType" = 'stock_valuation' AND NOT EXISTS (SELECT 1 FROM "StockValuationPosting" p WHERE p."entryId" = e."id") AND e."sourceId" NOT LIKE '%|%')`;
     return { key: "traceable", label: "كل قيد له مستند مصدر", ok: Number(orphans?.n ?? 0) === 0, count: Number(orphans?.n ?? 0) };
+  })(),
+  // Party references (Nov 2026): see danglingPartyReferences.
+  (async (): Promise<Check> => {
+    const rows = await danglingPartyReferences();
+    const count = rows.reduce((n, r) => n + r.count, 0);
+    return { key: "party_references", label: "كل قيد ورصيد افتتاحي بيشاور على عميل أو مورد أو موظف موجود", ok: count === 0, count, detail: rows.slice(0, 20) };
   })(),
   // Receivables: customer documents vs the AR account, in total and per customer.
   (async (): Promise<Check> => {

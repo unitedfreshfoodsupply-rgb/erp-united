@@ -73,7 +73,13 @@ export function invoiceDocument(input: InvoiceDocInput) {
     t.tax += Number(l.tax.toString());
     taxes.set(l.taxCode, t);
   }
-  const terms = inv.customer ? (inv.customer.paymentTermsDays > 0 ? L.days(inv.customer.paymentTermsDays) : L.cash) : null;
+  // An issued invoice prints the terms it was issued with — its frozen due date less its issue
+  // date (issue sets one from the other) — never the customer's terms of today. A draft shows the
+  // customer's current terms, which issue will apply.
+  const termDays = inv.issueDate && inv.dueDate
+    ? Math.round((Date.parse(`${inv.dueDate}T00:00:00Z`) - Date.parse(`${inv.issueDate}T00:00:00Z`)) / 86_400_000)
+    : inv.customer?.paymentTermsDays ?? null;
+  const terms = termDays === null || Number.isNaN(termDays) ? null : termDays > 0 ? L.days(termDays) : L.cash;
   const open = inv.open === null ? null : Number(inv.open.toString());
   return {
     lang,

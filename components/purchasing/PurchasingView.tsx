@@ -26,7 +26,9 @@ import { PartyLink } from "@/components/profiles/EntityLink";
 
 type Tab = "orders" | "replenishment" | "rfqs" | "suppliers" | "bills";
 type Catalog = { products: { id: string; name: string; nameAr: string | null; unit: string; packagings: { uomCode: string }[] }[] };
-type SupplierRow = { id: string; code: string; name: string; nameAr?: string | null; type: string; phone: string | null; city: string | null; paymentTermsDays: number; leadTimeDays: number | null; active: boolean; version: number; taxRegistrationNo: string | null; email: string | null; address: string | null };
+type SupplierRow = { id: string; code: string; name: string; nameAr?: string | null; type: string; phone: string | null; city: string | null; paymentTermsDays: number; leadTimeDays: number | null; active: boolean; version: number; taxRegistrationNo: string | null; email: string | null; address: string | null; category: string | null };
+const SUPPLIER_CATEGORIES = ["vegetable", "fruit"] as const;
+const categoryLabel = (t: (key: string) => string, c: string | null) => t(c ? `purchasing.supplier.category.${c}` : "purchasing.supplier.category.unclassified");
 
 function errorMsg(err: unknown): string {
   if (err instanceof ApiClientError && err.message) return err.message;
@@ -474,13 +476,14 @@ function Suppliers({ locale, t, sup_type }: { locale: Locale; t: (key: string) =
   const { can } = usePermissions();
   const toast = useToast();
   const qc = useQueryClient();
-  const [form, setForm] = useState({ name: "", name_ar: "", type: "farm", payment_terms_days: "0", tax_registration_no: "" });
+  const [form, setForm] = useState({ name: "", name_ar: "", type: "farm", category: "", payment_terms_days: "0", tax_registration_no: "" });
   // The shared list experience (maturity 2026-11): server search on either name, code, phone
   // and tax number; type and status filters in the URL; a sortable table.
-  const list = useListState(["type", "status"], { prefix: "s_" });
+  const list = useListState(["type", "category", "status"], { prefix: "s_" });
   const params = new URLSearchParams();
   if (list.q) params.set("q", list.q);
   if (list.filters.type) params.set("type", list.filters.type);
+  if (list.filters.category) params.set("category", list.filters.category);
   if (list.filters.status === "all" || list.filters.status === "inactive") params.set("include_inactive", "1");
   const query = useListQuery<{ suppliers: SupplierRow[] }>(["purchasing", "suppliers", "directory"], `/api/purchasing/suppliers?${params}`);
   const rows = (query.data?.suppliers ?? []).filter((s) => list.filters.status !== "inactive" || !s.active);
@@ -488,6 +491,7 @@ function Suppliers({ locale, t, sup_type }: { locale: Locale; t: (key: string) =
     { key: "name", label: t("purchasing.col.supplier"), sortValue: (s) => localName(s, locale), render: (s) => <span className={s.active ? "" : "text-united-muted line-through"}>{localName(s, locale)}</span> },
     { key: "code", label: t("sales.col.code"), sortValue: (s) => s.code, render: (s) => <span dir="ltr" className="whitespace-nowrap text-united-muted">{s.code}</span> },
     { key: "type", label: t("purchasing.col.supplier-type"), sortValue: (s) => sup_type[s.type] ?? s.type, render: (s) => sup_type[s.type] ?? s.type, secondary: true },
+    { key: "category", label: t("purchasing.supplier.category"), sortValue: (s) => s.category ?? "~", render: (s) => (s.category ? categoryLabel(t, s.category) : <span className="text-united-muted">{categoryLabel(t, null)}</span>) },
     { key: "phone", label: t("sales.col.phone"), render: (s) => <span dir="ltr">{s.phone ?? "—"}</span>, secondary: true },
     { key: "city", label: t("sales.col.area"), sortValue: (s) => s.city ?? "", render: (s) => s.city ?? "—", secondary: true },
     { key: "terms", label: t("sales.col.terms"), sortValue: (s) => s.paymentTermsDays, render: (s) => (s.paymentTermsDays ? t("purchasing.supplier.term_due").replace("%s", String(s.paymentTermsDays)) : t("purchasing.supplier.cash")) },
@@ -497,11 +501,11 @@ function Suppliers({ locale, t, sup_type }: { locale: Locale; t: (key: string) =
   return (
     <div className="flex flex-col gap-3">
       {can("purchasing.suppliers.manage") && (
-        <form className="card p-3 grid grid-cols-2 sm:grid-cols-5 items-end gap-2" onSubmit={async (e) => {
+        <form className="card p-3 grid grid-cols-2 sm:grid-cols-6 items-end gap-2" onSubmit={async (e) => {
           e.preventDefault();
           try {
-            await apiPost("/api/purchasing/suppliers", { name: form.name, name_ar: form.name_ar || null, type: form.type, payment_terms_days: Number(form.payment_terms_days || 0), tax_registration_no: form.tax_registration_no || undefined });
-            setForm({ name: "", name_ar: "", type: "farm", payment_terms_days: "0", tax_registration_no: "" });
+            await apiPost("/api/purchasing/suppliers", { name: form.name, name_ar: form.name_ar || null, type: form.type, category: form.category || null, payment_terms_days: Number(form.payment_terms_days || 0), tax_registration_no: form.tax_registration_no || undefined });
+            setForm({ name: "", name_ar: "", type: "farm", category: "", payment_terms_days: "0", tax_registration_no: "" });
             void qc.invalidateQueries({ queryKey: ["purchasing", "suppliers"] });
           } catch (err) { toast.show(errorMsg(err), "error"); }
         }}>
@@ -510,6 +514,12 @@ function Suppliers({ locale, t, sup_type }: { locale: Locale; t: (key: string) =
           <Field label={t("purchasing.col.supplier-type")}>
             <select className="field" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
               {Object.entries(sup_type).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </Field>
+          <Field label={t("purchasing.supplier.category")}>
+            <select className="field" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+              <option value="">{categoryLabel(t, null)}</option>
+              {SUPPLIER_CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(t, c)}</option>)}
             </select>
           </Field>
           <Field label={t("purchasing.supplier.form.payment_terms")}><input className="field" inputMode="numeric" dir="ltr" value={form.payment_terms_days} onChange={(e) => setForm({ ...form, payment_terms_days: e.target.value })} /></Field>
@@ -522,6 +532,7 @@ function Suppliers({ locale, t, sup_type }: { locale: Locale; t: (key: string) =
         searchHint={t("purchasing.search.suppliers-hint")}
         filters={[
           { key: "type", label: t("purchasing.col.supplier-type"), kind: "select", options: Object.entries(sup_type).map(([value, label]) => ({ value, label })) },
+          { key: "category", label: t("purchasing.supplier.category"), kind: "select", options: [...SUPPLIER_CATEGORIES.map((c) => ({ value: c, label: categoryLabel(t, c) })), { value: "none", label: categoryLabel(t, null) }] },
           { key: "status", label: t("list.status"), kind: "select", options: [{ value: "all", label: t("sales.filter.with-inactive") }, { value: "inactive", label: t("sales.label.inactive") }] },
         ]}
       />
@@ -559,9 +570,12 @@ export function SupplierOverview({ id }: { id: string }) {
   const s = q.data.supplier;
   const refresh = () => void qc.invalidateQueries({ queryKey: ["purchasing"] });
   const manage = can("purchasing.suppliers.manage");
+  // One editor for the whole record; the stock permission reaches its identity fields only.
+  const editable = manage || can("stock.manage_suppliers");
   const typeLabel = ((k) => (t(k) === k ? s.type : t(k)))(`purchasing.supplier.type.${s.type}`);
   const facts: [string, React.ReactNode][] = [
     [t("purchasing.col.supplier-type"), typeLabel],
+    [t("purchasing.supplier.category"), categoryLabel(t, s.category)],
     [t("sales.customer.nameAr"), otherLocalName(s, locale) || null],
     [t("sales.customer.tax"), s.taxRegistrationNo ? <span dir="ltr">{s.taxRegistrationNo}</span> : null],
     [t("sales.customer.commercial-reg"), s.commercialRegNo ? <span dir="ltr">{s.commercialRegNo}</span> : null],
@@ -579,10 +593,10 @@ export function SupplierOverview({ id }: { id: string }) {
       <section className="card p-4 flex flex-col gap-3">
         <div className="flex justify-between items-center">
           <h3 className="font-extrabold">{t("sales.section.data")}</h3>
-          {manage && <button type="button" className="text-sm font-extrabold text-united-green underline" onClick={() => setEditing(!editing)}>{editing ? t("ui.cancel") : t("ui.edit")}</button>}
+          {editable && <button type="button" className="text-sm font-extrabold text-united-green underline" onClick={() => setEditing(!editing)}>{editing ? t("ui.cancel") : t("ui.edit")}</button>}
         </div>
         {editing ? (
-          <SupplierTermsForm s={s} onSaved={() => { setEditing(false); refresh(); }} />
+          <SupplierMasterForm s={s} full={manage} onSaved={() => { setEditing(false); refresh(); }} />
         ) : (
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
             {facts.map(([k, v]) => <div key={k}><dt className="text-xs font-extrabold text-united-muted">{k}</dt><dd className="font-bold">{v || "—"}</dd></div>)}
@@ -627,31 +641,62 @@ export function SupplierOverview({ id }: { id: string }) {
   );
 }
 
-function SupplierTermsForm({ s, onSaved }: { s: SupplierFull; onSaved: () => void }) {
+/**
+ * The supplier's single editor (Nov 2026): every master field in one form, saved through one
+ * versioned, field-audited service. Without purchasing.suppliers.manage only the identity fields
+ * (name, phone, notes, active) are editable and only those are sent; the server checks the same rule.
+ */
+function SupplierMasterForm({ s, full, onSaved }: { s: SupplierFull; full: boolean; onSaved: () => void }) {
   const { t } = useLocale();
   const toast = useToast();
-  const [f, setF] = useState({ name_ar: s.nameAr ?? "", tax_registration_no: s.taxRegistrationNo ?? "", commercial_reg_no: s.commercialRegNo ?? "", email: s.email ?? "", city: s.city ?? "", address: s.address ?? "", payment_terms_days: String(s.paymentTermsDays), lead_time_days: s.leadTimeDays == null ? "" : String(s.leadTimeDays) });
+  const [f, setF] = useState({
+    name: s.name, name_ar: s.nameAr ?? "", phone: s.phone ?? "", notes: s.notes ?? "", active: s.active,
+    type: s.type, category: s.category ?? "", tax_registration_no: s.taxRegistrationNo ?? "", commercial_reg_no: s.commercialRegNo ?? "", email: s.email ?? "",
+    city: s.city ?? "", address: s.address ?? "", payment_terms_days: String(s.paymentTermsDays), lead_time_days: s.leadTimeDays == null ? "" : String(s.leadTimeDays),
+  });
   const [busy, setBusy] = useState(false);
-  const text: [keyof typeof f, string, string?][] = [["name_ar", "purchasing.supplier.form.name_ar"], ["tax_registration_no", "sales.customer.tax", "ltr"], ["commercial_reg_no", "sales.customer.commercial-reg", "ltr"], ["email", "sales.customer.email", "ltr"], ["city", "sales.customer.city"], ["address", "sales.customer.address"], ["payment_terms_days", "sales.credit-terms-field", "ltr"], ["lead_time_days", "purchasing.col.lead-time", "ltr"]];
+  type TextKey = "name" | "name_ar" | "phone" | "tax_registration_no" | "commercial_reg_no" | "email" | "city" | "address" | "payment_terms_days" | "lead_time_days";
+  const identity: [TextKey, string, string?][] = [["name", "purchasing.supplier.form.name", "auto"], ["name_ar", "purchasing.supplier.form.name_ar", "rtl"], ["phone", "sales.customer.phone", "ltr"]];
+  const commercial: [TextKey, string, string?][] = [["tax_registration_no", "sales.customer.tax", "ltr"], ["commercial_reg_no", "sales.customer.commercial-reg", "ltr"], ["email", "sales.customer.email", "ltr"], ["city", "sales.customer.city"], ["address", "sales.customer.address"], ["payment_terms_days", "sales.credit-terms-field", "ltr"], ["lead_time_days", "purchasing.col.lead-time", "ltr"]];
+  const input = ([k, label, dir]: [TextKey, string, string?]) => {
+    // The Arabic name is a commercial field on the server (purchasing's), like the rest below.
+    const enabled = full || k === "name" || k === "phone";
+    return <Field key={k} label={t(label)}><input className="field" dir={dir} lang={k === "name_ar" ? "ar" : undefined} inputMode={k.endsWith("_days") ? "numeric" : undefined} value={f[k]} disabled={!enabled} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></Field>;
+  };
   return (
     <form className="grid grid-cols-1 sm:grid-cols-2 gap-3" onSubmit={async (e) => {
       e.preventDefault();
       if (busy) return;
       setBusy(true);
       try {
-        await apiPatch(`/api/purchasing/suppliers/${s.id}`, {
-          name_ar: f.name_ar.trim() || null, tax_registration_no: f.tax_registration_no.trim() || null, commercial_reg_no: f.commercial_reg_no.trim() || null, email: f.email.trim() || null,
-          city: f.city.trim() || null, address: f.address.trim() || null, payment_terms_days: Number(f.payment_terms_days || 0), lead_time_days: f.lead_time_days.trim() === "" ? null : Number(f.lead_time_days), expected_version: s.version,
+        const body: Record<string, unknown> = { name: f.name.trim(), phone: f.phone.trim() || null, notes: f.notes.trim() || null, active: f.active, expected_version: s.version };
+        if (full) Object.assign(body, {
+          name_ar: f.name_ar.trim() || null, type: f.type, category: f.category || null, tax_registration_no: f.tax_registration_no.trim() || null, commercial_reg_no: f.commercial_reg_no.trim() || null,
+          email: f.email.trim() || null, city: f.city.trim() || null, address: f.address.trim() || null, payment_terms_days: Number(f.payment_terms_days || 0), lead_time_days: f.lead_time_days.trim() === "" ? null : Number(f.lead_time_days),
         });
+        await apiPatch(`/api/purchasing/suppliers/${s.id}`, body);
         toast.show(t("sales.toast.saved"), "success");
         onSaved();
       } catch (err) { toast.show(errorMsg(err), "error"); }
       finally { setBusy(false); }
     }}>
-      {text.map(([k, label, dir]) => (
-        <Field key={k} label={t(label)}><input className="field" dir={dir ?? (k === "name_ar" ? "rtl" : undefined)} inputMode={k.endsWith("_days") ? "numeric" : undefined} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></Field>
-      ))}
-      <button className="btn-primary sm:col-span-2" disabled={busy}>{busy ? t("sales.form.saving") : t("ui.save")}</button>
+      {identity.map(input)}
+      <Field label={t("purchasing.col.supplier-type")}>
+        <select className="field" value={f.type} disabled={!full} onChange={(e) => setF({ ...f, type: e.target.value })}>
+          {["farm", "grower", "wholesaler", "market_trader", "importer", "packaging", "services", "other"].map((k) => <option key={k} value={k}>{t(`purchasing.supplier.type.${k}`)}</option>)}
+        </select>
+      </Field>
+      <Field label={t("purchasing.supplier.category")}>
+        <select className="field" value={f.category} disabled={!full} onChange={(e) => setF({ ...f, category: e.target.value })}>
+          <option value="">{categoryLabel(t, null)}</option>
+          {SUPPLIER_CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(t, c)}</option>)}
+        </select>
+      </Field>
+      {commercial.map(input)}
+      <Field label={t("profile.notes")} className="sm:col-span-2"><textarea className="field" rows={2} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></Field>
+      <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} />{t("sales.col.active")}</label>
+      {!full && <p className="text-xs font-bold text-united-muted sm:col-span-2">{t("purchasing.supplier.edit.purchasing-only")}</p>}
+      <button className="btn-primary sm:col-span-2" disabled={busy || !f.name.trim()}>{busy ? t("sales.form.saving") : t("ui.save")}</button>
     </form>
   );
 }

@@ -37,6 +37,7 @@ import { assertQuantityFitsUnit, commitOrderStock } from "@/lib/sales/stock-comm
 import { assertPricingCleared, evaluateOrderPricing } from "@/lib/sales/price-exceptions";
 import { releaseOrderInvoiceForReopen } from "@/lib/sales/invoicing";
 import { searchWhere } from "@/lib/core/search";
+import { storedOrderCustomerName } from "@/lib/locale/names";
 
 function assertValidQuantity(quantity: unknown, label: string): asserts quantity is number {
   if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity < 0 || quantity > 999_999_999_999 || !Number.isInteger(quantity * 1000)) {
@@ -539,12 +540,21 @@ export async function moveOrderStatus(
 
 
   return inTx(async (tx) => {
+    // Dispatch freezes the customer's name on the order (Nov 2026): the delivery note and manifest
+    // that leave now name the customer card as it is now, and a reprint keeps that name after any
+    // later rename. Open orders show the card live; only a mapped order's name is touched.
+    const card = to === "dispatched" && order.customerAccountId
+      ? await tx.customer.findUnique({ where: { id: order.customerAccountId }, select: { name: true, nameAr: true } })
+      : null;
+    const frozenName = card ? storedOrderCustomerName(card) : null;
+    const nameChanges: [string, string | null, string][] = frozenName && frozenName !== order.customerName ? [["customerName", order.customerName, frozenName]] : [];
     const updated = await casOrderUpdate(orderId, order.version, (where) =>
       tx.order.update({
         where,
         data: {
           status: to,
           version: { increment: 1 },
+          ...(nameChanges.length ? { customerName: frozenName! } : {}),
           // Whoever starts preparing an unassigned order owns it.
           ...(to === "preparing" && !order.assignedToId && actor.id ? { assignedToId: actor.id, assignedToName: actor.name } : {}),
           ...(vehicle ? { vehicle } : {}),
@@ -574,7 +584,7 @@ export async function moveOrderStatus(
           source: actor.source,
           deviceId: actor.deviceId,
         },
-        ...dispatchFieldChanges.map(([fieldChanged, oldValue, newValue]) => ({
+        ...[...dispatchFieldChanges, ...nameChanges].map(([fieldChanged, oldValue, newValue]) => ({
           userId: actor.id,
           userName: actor.name,
           role: actor.role,
@@ -916,7 +926,7 @@ export async function editOrder(
     if (resolution.status !== "matched") throw new ApiError(400, "اختار عميلًا نشطًا من دليل العملاء");
     const customerCard = await prisma.customer.findUnique({ where: { id: resolution.customerId }, select: { name: true, nameAr: true } });
     if (!customerCard) throw new ApiError(400, "حساب العميل مش موجود");
-    fields = { ...fields, customerAccountId: resolution.customerId, customerName: customerCard.nameAr ?? customerCard.name };
+    fields = { ...fields, customerAccountId: resolution.customerId, customerName: storedOrderCustomerName(customerCard) };
   }
 
   const changes: [string, unknown, unknown][] = [];

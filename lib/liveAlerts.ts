@@ -6,14 +6,15 @@ import { playChime } from "@/lib/sound";
 import type { OrderDTO } from "@/lib/client-types";
 import { isStalledInProgress } from "@/lib/orderPresentation";
 import { useLocale } from "@/lib/locale";
+import { orderCustomerName } from "@/lib/locale/names";
 
 /** The toast text in the operator's language; read through a ref so the polling effects
  * below keep their [orders] dependency and still use the current locale. */
 function useAlertText() {
-  const { t } = useLocale();
-  const ref = useRef(t);
-  ref.current = t;
-  return (key: string, o: OrderDTO) => ref.current(key, { customer: o.customerName, number: o.orderNumber });
+  const { t, locale } = useLocale();
+  const ref = useRef({ t, locale });
+  ref.current = { t, locale };
+  return (key: string, o: OrderDTO) => ref.current.t(key, { customer: orderCustomerName(o, ref.current.locale), number: o.orderNumber });
 }
 
 /** Notify (toast + chime) when an order this board didn't know about shows up —

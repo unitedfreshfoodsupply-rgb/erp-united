@@ -22,6 +22,7 @@ const PARTY_COLS = [{ key: "name_ar", label: { ar: "الاسم", en: "Name (Arab
 /** A supplier named in both languages (the screen shows the reader's; exports carry both, like PARTY_COLS). */
 const SUPPLIER_COLS = [{ key: "supplier_ar", label: { ar: "المورد", en: "Supplier (Arabic)" }, type: "text" as const }, { key: "supplier_en", label: { ar: "المورد بالإنجليزي", en: "Supplier" }, type: "text" as const }];
 const supplierName = (ar: string | null | undefined, en: string | null | undefined) => ({ supplier_ar: ar || en || "", supplier_en: en || ar || "" });
+const customerCols = (ar: string | null | undefined, en: string | null | undefined) => ({ customer_ar: ar || en || "", customer_en: en || ar || "" });
 /** The dates a grouped period row covers (day / week / month / year), inside the report's own range. */
 const periodSpan = (start: string, groupBy: string, p: { from: string; to: string }) => {
   const d = new Date(`${start}T00:00:00Z`);
@@ -518,15 +519,16 @@ export const REPORTS: ReportDef[] = [
     title: { ar: "الأوردرات المتأخرة", en: "Delayed orders" },
     description: { ar: "أوردرات مفتوحة فات معاد تسليمها، أو خرجت بعد معادها", en: "Open orders past their delivery date, or dispatched after it" },
     permissions: OPS, filters: ["period"],
-    columns: [{ key: "number", label: { ar: "الأوردر", en: "Order" }, type: "code" }, { key: "customer", label: { ar: "العميل", en: "Customer" }, type: "text" }, { key: "delivery", label: { ar: "معاد التسليم", en: "Delivery date" }, type: "date" }, { key: "status", label: { ar: "الحالة", en: "Status" }, type: "text" }, { key: "dispatched", label: { ar: "خرج يوم", en: "Dispatched" }, type: "date" }, { key: "days_late", label: { ar: "أيام تأخير", en: "Days late" }, type: "number" }],
+    columns: [{ key: "number", label: { ar: "الأوردر", en: "Order" }, type: "code" }, { key: "customer_ar", label: { ar: "العميل", en: "Customer (Arabic)" }, type: "text" }, { key: "customer_en", label: { ar: "العميل بالإنجليزي", en: "Customer" }, type: "text" }, { key: "delivery", label: { ar: "معاد التسليم", en: "Delivery date" }, type: "date" }, { key: "status", label: { ar: "الحالة", en: "Status" }, type: "text" }, { key: "dispatched", label: { ar: "خرج يوم", en: "Dispatched" }, type: "date" }, { key: "days_late", label: { ar: "أيام تأخير", en: "Days late" }, type: "number" }],
     run: async (p) => {
-      const rows = await prisma.$queryRaw<{ id: string; orderNumber: string; customerName: string; deliveryDate: string; status: string; issued: string | null }[]>`
-        SELECT o."id", o."orderNumber", o."customerName", o."deliveryDate", o."status",
+      // The customer as of now (a current report): the linked card, else the name as received.
+      const rows = await prisma.$queryRaw<{ id: string; orderNumber: string; customerName: string; cardName: string | null; cardNameAr: string | null; deliveryDate: string; status: string; issued: string | null }[]>`
+        SELECT o."id", o."orderNumber", o."customerName", c."name" "cardName", c."nameAr" "cardNameAr", o."deliveryDate", o."status",
           (SELECT min(x."businessDate") FROM "InventoryDocument" x WHERE x."type" = 'issue' AND x."sourceType" = 'order' AND x."sourceId" = o."id" AND x."status" = 'posted') issued
-        FROM "Order" o WHERE o."deliveryDate" BETWEEN ${p.from} AND ${p.to} AND o."status" <> 'cancelled'`;
+        FROM "Order" o LEFT JOIN "Customer" c ON c."id" = o."customerAccountId" WHERE o."deliveryDate" BETWEEN ${p.from} AND ${p.to} AND o."status" <> 'cancelled'`;
       const today = todayLocalISO();
       const day = (s: string) => Date.parse(`${s}T00:00:00Z`) / 86_400_000;
-      return { rows: rows.map((r) => ({ r, late: r.issued ? day(r.issued) - day(r.deliveryDate) : r.status !== "dispatched" ? day(today) - day(r.deliveryDate) : 0 })).filter((x) => x.late > 0).sort((a, b) => b.late - a.late).map(({ r, late }) => ({ number: r.orderNumber, customer: r.customerName, delivery: r.deliveryDate, status: r.status, dispatched: r.issued, days_late: late, _tone: r.issued ? "warn" : "danger", _href: `/orders/${r.id}` })) };
+      return { rows: rows.map((r) => ({ r, late: r.issued ? day(r.issued) - day(r.deliveryDate) : r.status !== "dispatched" ? day(today) - day(r.deliveryDate) : 0 })).filter((x) => x.late > 0).sort((a, b) => b.late - a.late).map(({ r, late }) => ({ number: r.orderNumber, ...customerCols(r.cardName ? r.cardNameAr : r.customerName, r.cardName ?? r.customerName), delivery: r.deliveryDate, status: r.status, dispatched: r.issued, days_late: late, _tone: r.issued ? "warn" : "danger", _href: `/orders/${r.id}` })) };
     },
   },
   {
