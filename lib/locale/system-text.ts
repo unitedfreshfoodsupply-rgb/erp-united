@@ -31,6 +31,11 @@ const PAIRS: readonly (readonly [ar: string, en: string])[] = [
   ["إشعار مدين {} على {}", "Debit note {} on {}"],
   ["تحصيل {} من {} ({})", "Receipt {} from {} ({})"],
   ["تحصيل {} من {}", "Receipt {} from {}"],
+  // Purchasing custody (Nov 2026) — before the plain payment templates, which would also match.
+  ["سداد {} لـ {} من عهدة {} ({})", "Payment {} to {} from {}'s custody ({})"],
+  ["سداد {} لـ {} من عهدة {}", "Payment {} to {} from {}'s custody"],
+  ["عهدة شراء {} — {}", "Purchasing custody {} — {}"],
+  ["رد عهدة شراء — {}", "Purchasing custody returned — {}"],
   ["سداد {} لـ {} ({})", "Payment {} to {} ({})"],
   ["سداد {} لـ {}", "Payment {} to {}"],
   ["عكس تحصيل {} من {}: {}", "Reversal of receipt {} from {}: {}"],

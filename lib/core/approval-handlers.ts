@@ -16,6 +16,7 @@ import { applyCreditDecision } from "@/lib/sales/credit";
 import { applyPoDecision } from "@/lib/purchasing/orders";
 import { applyBillDecision } from "@/lib/purchasing/bills";
 import { applyExpenseDecision } from "@/lib/hr/service";
+import { applyCustodyAdvanceDecision } from "@/lib/hr/custody";
 import { applyCorrectionDecision } from "@/lib/hr/attendance";
 import { applyLeaveDecision } from "@/lib/hr/leave";
 import { applyCompensationDecision } from "@/lib/hr/compensation";
@@ -90,6 +91,12 @@ const HANDLERS: Record<ApprovalType, Handler> = {
     // Approved: posted to the ledger. Rejected: recorded, nothing posted.
     onApproved: (tx, req, decider, comment) => applyExpenseDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyExpenseDecision(tx, req.entityId, false, decider, comment),
+  },
+  "hr.custody_advance": {
+    // Approved by someone other than the requester: the custody advance posts (Dr 1600 employee /
+    // Cr cash-bank). Rejected: nothing moves.
+    onApproved: (tx, req, decider, comment) => applyCustodyAdvanceDecision(tx, req.entityId, true, decider, comment),
+    onRejected: (tx, req, decider, comment) => applyCustodyAdvanceDecision(tx, req.entityId, false, decider, comment),
   },
   "hr.attendance_correction": {
     // Approved: the day takes the requested values (a locked day's pay difference goes to the

@@ -34,6 +34,8 @@ const RULES: { applies: (r: Row) => boolean; anyOf: Permission[] }[] = [
   { applies: (r) => ["payroll_run", "payroll_adjustment", "payroll_payment"].includes(r.entityType) || (r.entityType === "approval_request" && r.fieldChanged === "hr.payroll_run"), anyOf: ["hr.payroll.prepare", "hr.payroll.view", "hr.payroll.approve", "hr.payroll.post", "hr.payroll.pay"] },
   { applies: (r) => ["pay_component", "statutory_rule_set"].includes(r.entityType), anyOf: ["hr.compensation.view", "hr.statutory.manage", "hr.payroll.prepare", "hr.payroll.approve", "hr.payroll.view"] },
   { applies: (r) => ["employee", "department", "expense", "employee_transaction"].includes(r.entityType) || (r.entityType === "approval_request" && r.fieldChanged === "hr.expense"), anyOf: ["accounting.view", "hr.employees.manage", "hr.expenses.approve"] },
+  // Purchasing custody: money held by a buyer — finance and whoever pays advances.
+  { applies: (r) => r.entityType === "employee_custody_request" || (r.entityType === "approval_request" && r.fieldChanged === "hr.custody_advance"), anyOf: ["accounting.view", "hr.employees.manage", "hr.advances.manage"] },
   { applies: (r) => ["journal_entry", "accounting_period", "customer_receipt", "supplier_payment", "bank_reconciliation"].includes(r.entityType), anyOf: ["accounting.view"] },
 ];
 

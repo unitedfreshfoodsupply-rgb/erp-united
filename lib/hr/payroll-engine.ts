@@ -5,6 +5,7 @@ import { getSetting } from "@/lib/core/settings-service";
 import { datesBetween } from "@/lib/hr/attendance-calc";
 import { loadContext, onPayroll } from "@/lib/hr/attendance";
 import { verifiedRuleFor, type RuleCode, type RuleParams } from "@/lib/hr/statutory";
+import { custodyBalances } from "@/lib/hr/custody";
 
 /**
  * The payroll calculation (docs/erp/HR_PAYROLL_GAP_AUDIT.md §4.5).
@@ -171,7 +172,10 @@ export async function calculatePayroll(tx: Tx, run: RunInput): Promise<Calculati
   };
   const byRole = new Map(components.map((c) => [c.systemRole!, c]));
   const onAccountBy = new Map(onAccount.map((o) => [o.employeeId, o._sum.amount ?? ZERO]));
-  const advanceBy = new Map(advanceBalances.map((b) => [b.partyId!, D(b._sum.debit ?? 0).minus(b._sum.credit ?? 0)]));
+  // Purchasing custody shares 1600 but is never recovered from pay automatically (safe default,
+  // pending owner decision): only the salary side of the balance is open to recovery here.
+  const custodyBy = await custodyBalances(tx, ids);
+  const advanceBy = new Map(advanceBalances.map((b) => [b.partyId!, D(b._sum.debit ?? 0).minus(b._sum.credit ?? 0).minus(custodyBy.get(b.partyId!) ?? ZERO)]));
   const otherRecoveryBy = new Map(otherRecoveries.map((o) => [o.employeeId, o._sum.advanceRecovery ?? ZERO]));
   const planRecoveredBy = new Map(planRecoveries.map((p) => [p.sourceId ?? "", p._sum.amount ?? ZERO]));
   const empBy = new Map(employees.map((e) => [e.id, e]));
@@ -539,6 +543,9 @@ export async function calculatePayroll(tx: Tx, run: RunInput): Promise<Calculati
     if (runType === "final_settlement") {
       const left = openAdvance.minus(applied);
       if (left.gt(0)) ex.push({ severity: "warning", code: "advance_remaining", params: { amount: fmt(left) } });
+      // Custody still held by a leaver: settled by a cash return or a payment, reviewed by finance — not deducted here.
+      const custody = custodyBy.get(empId) ?? ZERO;
+      if (custody.gt(0)) ex.push({ severity: "warning", code: "purchasing_custody_open", params: { amount: fmt(custody) } });
     }
     // A negative difference (the employee was overpaid) becomes an advance to recover.
     if (signedRun && netEntitlement.lt(0)) {

@@ -176,6 +176,17 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/accounting/opening-batches/[id]/submit` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/opening-batches` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/opening-batches` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/attest` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/close` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/close/withdraw` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/exceptions/[id]` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/opening-migration/exceptions` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/exceptions` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/opening-migration/export` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/import` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/opening-migration/position` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/opening-migration` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/opening-stock` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/payments/[id]/allocate` | `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/payments/[id]/reverse` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
@@ -309,11 +320,14 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/hr/compensation/[id]/cancel` | any of `hr.compensation.manage`, `hr.payroll.approve` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/compensation` | any of `hr.compensation.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/hr/compensation` | `hr.compensation.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/hr/custody/missing-receipts` | any of `hr.advances.manage`, `hr.employees.manage`, `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
+| GET | `/api/hr/custody` | any of `hr.advances.manage`, `hr.employees.manage`, `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/hr/departments` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/documents/expiring` | `hr.private.view` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/hr/employees/[id]/bank-accounts/[accountId]/deactivate` | `hr.private.manage` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/hr/employees/[id]/bank-accounts/[accountId]/reveal` | `hr.private.view` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/hr/employees/[id]/bank-accounts` | `hr.private.manage` | ✓ |  |  |  |  |  |  |  |  |
+| GET | `/api/hr/employees/[id]/custody` | any of `hr.advances.manage`, `hr.employees.manage`, `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/hr/employees/[id]/documents` | `hr.private.manage` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/hr/employees/[id]/employment` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/employees/[id]/private` | `hr.private.view` | ✓ |  |  |  |  |  |  |  |  |
