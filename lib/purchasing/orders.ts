@@ -310,8 +310,44 @@ export async function cancelPurchaseOrder(id: string, input: unknown, actor: Ser
     if (po.status === "pending_approval") await cancelPendingApproval(tx, { type: "purchasing.order", entityId: id, reason: `أمر الشراء اتلغى: ${v.reason}`, actor });
     const updated = await transition(tx, po, { status: "cancelled", cancelReason: v.reason, closedAt: new Date() });
     await auditPo(tx, actor, po, "purchase_order_cancelled", null, v.reason);
+    await returnRequestsOfCancelledPo(tx, po, v.reason, actor);
     return updated;
   });
+}
+
+/**
+ * A cancelled PO no longer covers the purchase requests it was made from (Nov 2026): each goes
+ * back from "ordered" to "approved", unlinked from the PO, so purchasing can source it again —
+ * it used to stay "ordered" for ever and could not even be cancelled. A line suggestion whose
+ * order line already has another open request is cancelled instead (one open request per line),
+ * and that order's suggestions are re-sized to the line's current shortage.
+ */
+async function returnRequestsOfCancelledPo(tx: Tx, po: PurchaseOrder, reason: string, actor: ServiceActor) {
+  const rows = await tx.purchaseRequest.findMany({ where: { purchaseOrderId: po.id, status: "ordered" }, orderBy: { createdAt: "asc" } });
+  const resync = new Set<string>();
+  for (const r of rows) {
+    await advisoryXactLock(tx, `purchasing:request:${r.id}`);
+    const otherOpen = r.orderItemId
+      ? await tx.purchaseRequest.count({ where: { orderItemId: r.orderItemId, id: { not: r.id }, status: { in: ["pending_approval", "approved"] } } })
+      : 0;
+    const data = otherOpen
+      ? { status: "cancelled", cancelReason: `أمر الشراء ${po.number} اتلغى: ${reason}`, purchaseOrderId: null, purchaseOrderLineId: null }
+      : { status: "approved", purchaseOrderId: null, purchaseOrderLineId: null };
+    const res = await tx.purchaseRequest.updateMany({ where: { id: r.id, version: r.version, status: "ordered" }, data: { ...data, version: { increment: 1 } } });
+    if (res.count !== 1) throw new ApiError(409, "طلب الشراء اتغيّر، حدّث الشاشة");
+    await writeAudit({
+      userId: actor.id, userName: actor.name, role: actor.role,
+      action: otherOpen ? "purchase_request_cancelled" : "purchase_request_reopened",
+      entityType: "purchase_request", entityId: r.id, orderId: r.orderId,
+      fieldChanged: "status", oldValue: "ordered", newValue: `${r.number} · ${otherOpen ? "cancelled" : "approved"} · ${po.number}`,
+      reason, source: "user", deviceId: actor.deviceId,
+    }, tx);
+    if (r.orderId && r.orderItemId) resync.add(r.orderId);
+  }
+  if (resync.size) {
+    const { syncOrderSuggestions } = await import("@/lib/purchasing/requests");
+    for (const orderId of resync) await syncOrderSuggestions(tx, orderId, actor);
+  }
 }
 
 /** Stop waiting for what has not come (a short delivery the supplier will not make up). */

@@ -4080,7 +4080,42 @@ const profiles = {
   "stock.kind-standard-cost-in": { ar: "تغيير تكلفة معيارية (داخل)", en: "Standard cost change (in)" },
 } as const;
 
+// ─── Customer PO intake / orders waiting for stock (Nov 2026) ───────────
+const stockHold = {
+  "create.po-ref": { ar: "رقم أمر الشراء بتاع العميل (اختياري)", en: "Customer PO number (optional)" },
+  "create.save-awaiting": { ar: "احفظ الأوردر مستني بضاعة", en: "Save as awaiting stock" },
+  "create.awaiting-explain": { ar: "فيه أصناف الرصيد مش مكفيها. تقدر تحفظ الأوردر مستني بضاعة: مش هيتحجز أي حاجة ومش هيدخل التجهيز، وهيتعمل طلب شراء مقترح لكل سطر ناقص لحد ما البضاعة توصل وتعمل إفراج.", en: "Some lines are short. You can save the order as awaiting stock: nothing is reserved and it does not go to preparation; a suggested purchase request is raised for each short line until the stock arrives and you release it." },
+  "create.line-shortage": { ar: "مطلوب {requested} · متاح {available} · ناقص {shortage} {unit}", en: "Requested {requested} · available {available} · short {shortage} {unit}" },
+  "create.saved-awaiting-toast": { ar: "اتحفظ الأوردر {orderNumber} مستني بضاعة", en: "Order {orderNumber} saved as awaiting stock" },
+  "orders.reference.po": { ar: "أمر شراء العميل:", en: "Customer PO:" },
+  "orders.edit.po_ref": { ar: "رقم أمر الشراء بتاع العميل", en: "Customer PO number" },
+  "order.awaiting-stock": { ar: "مستني بضاعة", en: "Awaiting stock" },
+  "order.po-ref": { ar: "أمر شراء العميل", en: "Customer PO" },
+  "hold.title": { ar: "مستني بضاعة", en: "Awaiting stock" },
+  "hold.desc": { ar: "الأوردر ده اتحفظ والرصيد مش مكفيه. مفيش أي كمية محجوزة له ومش هيدخل التجهيز لحد ما تعمل إعادة فحص وإفراج.", en: "This order was saved without enough stock. Nothing is reserved for it and it will not go to preparation until you re-check and release it." },
+  "hold.stock-title": { ar: "المخزون لكل سطر", en: "Stock per line" },
+  "hold.col.requested": { ar: "المطلوب", en: "Requested" },
+  "hold.col.available": { ar: "المتاح دلوقتي", en: "Available now" },
+  "hold.col.covered": { ar: "متغطي", en: "Covered" },
+  "hold.col.short": { ar: "لسه ناقص", en: "Still short" },
+  "hold.line-ok": { ar: "متاح", en: "Available" },
+  "hold.release": { ar: "إعادة فحص المخزون والإفراج", en: "Re-check stock and release" },
+  "hold.released": { ar: "كل السطور اتحجزت والأوردر رجع للشغل العادي", en: "Every line is reserved; the order continues as normal" },
+  "hold.ready": { ar: "كل البضاعة متاحة دلوقتي — اعمل إفراج", en: "All stock is available now — release the order" },
+  "hold.not-ready": { ar: "لسه فيه نقص — الإفراج هيتقبل بس لما كل السطور تبقى متاحة", en: "Still short — release succeeds only when every line is available" },
+  "hold.suggestions": { ar: "طلبات الشراء المقترحة", en: "Suggested purchase requests" },
+  "hold.no-suggestions": { ar: "مفيش طلبات شراء لسه", en: "No purchase requests yet" },
+  "hold.suggestion-line": { ar: "سطر: {product}", en: "Line: {product}" },
+  "hold.prep-blocked": { ar: "مستني بضاعة — مينفعش يبدأ التجهيز", en: "Awaiting stock — preparation cannot start" },
+  "hold.owner": { ar: "المشتريات", en: "Purchasing" },
+  "pr.origin-line": { ar: "سطر {product} · مطلوب {required} · كان متاح {available} {unit}", en: "Line {product} · requested {required} · available then {available} {unit}" },
+  "pr.order-awaiting": { ar: "الأوردر مستني بضاعة", en: "order awaiting stock" },
+  "pr.customer-po": { ar: "أمر شراء العميل {ref}", en: "Customer PO {ref}" },
+  "pr.from-order-hint": { ar: "اقتراح من أوردر مستني بضاعة — بعد الاستلام الإفراج بيتعمل من الأوردر نفسه", en: "Suggested by an order awaiting stock — once received, release it from the order itself" },
+};
+
 export const DICTIONARY = {
+  ...stockHold,
   ...security,
   ...profiles,
   ...finance,

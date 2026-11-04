@@ -12,7 +12,7 @@ import { cancelPendingApproval, requestApproval } from "@/lib/core/approvals";
 import { optText, parse, text, version } from "@/lib/core/validation";
 import type { ServiceActor } from "@/lib/core/actor";
 import { isoDate, money, qty, createPoInTx } from "@/lib/purchasing/orders";
-import { assertQuantityFitsUnit, sellableNow } from "@/lib/sales/stock-commitment";
+import { assertQuantityFitsUnit, assessOrderStock, sellableNow, unitPrecision } from "@/lib/sales/stock-commitment";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { searchWhere } from "@/lib/core/search";
 
@@ -64,7 +64,8 @@ const fulfilInput = z.object({
 const INCLUDE = {
   product: { select: { id: true, name: true, nameAr: true, unit: true, sku: true } },
   customer: { select: { id: true, code: true, name: true, nameAr: true } },
-  order: { select: { id: true, orderNumber: true, status: true } },
+  order: { select: { id: true, orderNumber: true, status: true, stockStatus: true, customerPoRef: true } },
+  orderItem: { select: { id: true, productName: true, unit: true, requiredQuantity: true } },
   purchaseOrder: { select: { id: true, number: true, status: true, expectedDate: true, supplier: { select: { id: true, name: true } } } },
   purchaseOrderLine: { select: { id: true, quantity: true, uomCode: true, intakes: { where: { status: "posted" }, select: { goodQty: true } } } },
   fulfilledOrder: { select: { id: true, orderNumber: true, status: true } },
@@ -205,6 +206,9 @@ export async function fulfilPurchaseRequest(id: string, input: unknown, actor: S
   assertVersion(r, v.expected_version);
   if (r.status !== "ordered") throw new ApiError(409, r.status === "fulfilled" ? "طلب الشراء اتنفذ بالفعل" : "طلب الشراء لسه ما اتحولش لأمر شراء");
   if (!r.customerId) throw new ApiError(409, "طلب الشراء مش مربوط بعميل — اعمل أوردر عادي");
+  // A suggestion raised for a line of an order waiting for stock is served by that same order
+  // (re-check and release on the order) — a second order here would sell the goods twice.
+  if (r.orderItemId) throw new ApiError(409, "طلب الشراء ده لسطر في أوردر مستني بضاعة — كمّل من الأوردر نفسه (إعادة فحص المخزون والإفراج)");
   const { createOrder } = await import("@/lib/orders-service");
   const order = await createOrder(
     {
@@ -230,7 +234,7 @@ export async function fulfilPurchaseRequest(id: string, input: unknown, actor: S
 
 function present(r: Prisma.PurchaseRequestGetPayload<{ include: typeof INCLUDE }>, available: Prisma.Decimal | null) {
   const received = r.purchaseOrderLine ? r.purchaseOrderLine.intakes.reduce((a, i) => a.plus(i.goodQty), new Prisma.Decimal(0)) : null;
-  return { ...r, quantity: r.quantity.toFixed(), receivedGood: received?.toFixed() ?? null, availableNow: available?.toFixed() ?? null };
+  return { ...r, quantity: r.quantity.toFixed(), requiredQty: r.requiredQty?.toFixed() ?? null, availableQty: r.availableQty?.toFixed() ?? null, receivedGood: received?.toFixed() ?? null, availableNow: available?.toFixed() ?? null };
 }
 
 export async function listPurchaseRequests(filters: { status?: string; customerId?: string; orderId?: string; limit?: number; q?: string }, actor: ServiceActor) {
@@ -251,4 +255,155 @@ export async function getPurchaseRequest(id: string, actor: ServiceActor) {
   const r = await prisma.purchaseRequest.findUnique({ where: { id }, include: INCLUDE });
   if (!r) throw new ApiError(404, "طلب الشراء مش موجود");
   return present(r, (await sellableNow(prisma, r.productId)).available);
+}
+
+// --- Procurement suggestions from awaiting-stock orders (Nov 2026) -------------------------
+//
+// An order saved "awaiting stock" gets one purchase request per short line, raised by the
+// system on behalf of whoever saved the order. It is the same request as a hand-raised one —
+// same approval by someone else, same conversion to a supplier PO by purchasing — and carries
+// the order AND the line. The quantity is what the line still needs beyond what is already on
+// a purchase order for it; re-saving or editing the line resizes the one open request instead
+// of adding another (a partial unique index backs this). It is a recommendation: nothing here
+// buys, reserves or moves stock.
+
+type SuggestionActor = Actorish & { source?: string };
+
+const OPEN_SUGGESTION = ["pending_approval", "approved"];
+
+const suggestionAudit = (tx: Tx, actor: SuggestionActor, r: { id: string; number: string }, orderId: string, action: string, detail: string, reason?: string) =>
+  writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action, entityType: "purchase_request", entityId: r.id, orderId, newValue: `${r.number} · ${detail}`, reason, source: actor.source === "n8n" || actor.source === "hermes" ? actor.source : actor.source === "system" ? "system" : "user", deviceId: actor.deviceId }, tx);
+
+async function closeSuggestion(tx: Tx, r: PurchaseRequest, actor: SuggestionActor, reason: string) {
+  if (r.status === "pending_approval") await cancelPendingApproval(tx, { type: "purchasing.request", entityId: r.id, reason, actor });
+  await casUpdate(tx, r, { status: "cancelled", cancelReason: reason });
+  await suggestionAudit(tx, actor, r, r.orderId!, "purchase_request_cancelled", "إلغاء تلقائي", reason);
+}
+
+/**
+ * Brings an order's line suggestions in step with its current shortage: creates the missing
+ * one, resizes an open one whose quantity changed, closes one no longer needed. Runs in the
+ * caller's transaction; safe to call any number of times (idempotent). For an order that is
+ * not (or no longer) awaiting stock it closes every open suggestion.
+ */
+export async function syncOrderSuggestions(tx: Tx, orderId: string, actor: SuggestionActor) {
+  await advisoryXactLock(tx, `purchasing:order-suggestions:${orderId}`);
+  const order = await tx.order.findUnique({ where: { id: orderId }, select: { id: true, orderNumber: true, status: true, stockStatus: true, customerAccountId: true, customerPoRef: true, deliveryDate: true } });
+  if (!order) return { created: 0, updated: 0, closed: 0 };
+  const held = order.stockStatus === "awaiting_stock" && order.status === "new";
+  const assessment = held ? await assessOrderStock(tx, orderId) : null;
+  const coverage = new Map((assessment?.coverage ?? []).map((c) => [c.itemId, c]));
+  const existing = await tx.purchaseRequest.findMany({ where: { orderId, orderItemId: { not: null }, status: { in: [...OPEN_SUGGESTION, "ordered"] } }, orderBy: { createdAt: "asc" } });
+  const itemIds = [...new Set([...coverage.keys(), ...existing.map((e) => e.orderItemId!)])];
+  let created = 0, updated = 0, closed = 0;
+  for (const itemId of itemIds) {
+    const c = coverage.get(itemId);
+    const mine = existing.filter((e) => e.orderItemId === itemId);
+    let open = mine.find((e) => OPEN_SUGGESTION.includes(e.status)) ?? null;
+    // The line now names another product (a re-mapping): the old suggestion no longer fits.
+    if (open && c && open.productId !== c.productId) {
+      await closeSuggestion(tx, open, actor, "صنف السطر اتغيّر");
+      closed++;
+      open = null;
+    }
+    // Already on a purchase order for this line (base unit: suggestions are raised in it).
+    const ordered = mine.filter((e) => e.status === "ordered" && (!c || e.productId === c.productId)).reduce((a, e) => a.plus(e.quantity), new Prisma.Decimal(0));
+    let need = new Prisma.Decimal(0);
+    if (c && c.shortage.gt(0)) {
+      const precision = (await unitPrecision(tx, c.baseUnit)) ?? 3;
+      need = Prisma.Decimal.max(0, c.shortage.minus(ordered)).toDecimalPlaces(precision, Prisma.Decimal.ROUND_UP);
+    }
+    if (need.lte(0)) {
+      if (open) {
+        await closeSuggestion(tx, open, actor, held ? "الناقص اتغطى" : "الأوردر مبقاش مستني بضاعة");
+        closed++;
+      }
+      continue;
+    }
+    const sizing = { quantity: need, requiredQty: c!.requestedBase, availableQty: Prisma.Decimal.max(0, c!.available), neededBy: order.deliveryDate, customerReference: order.customerPoRef ?? null };
+    if (open) {
+      const same = open.quantity.equals(need) && D3(open.requiredQty).equals(sizing.requiredQty) && D3(open.availableQty).equals(sizing.availableQty) && open.neededBy === sizing.neededBy && (open.customerReference ?? null) === sizing.customerReference;
+      if (same) continue;
+      // A larger quantity on an approved suggestion goes back for approval: the approver
+      // signed off a smaller buy. A smaller one keeps its approval.
+      const reapprove = open.status === "approved" && need.gt(open.quantity);
+      const next = await casUpdate(tx, open, {
+        ...sizing,
+        ...(reapprove ? { status: "pending_approval", decidedById: null, decidedBy: null, decidedAt: null, decisionNote: null } : {}),
+      });
+      if (!open.quantity.equals(need)) {
+        await suggestionAudit(tx, actor, open, orderId, "purchase_request_quantity_changed", `${open.quantity.toFixed()} ← ${need.toFixed()} ${open.uomCode}`, `أوردر ${order.orderNumber}`);
+      }
+      if (reapprove) {
+        const product = await tx.stockProduct.findUniqueOrThrow({ where: { id: open.productId }, select: { name: true, nameAr: true } });
+        await requestApproval(tx, {
+          type: "purchasing.request",
+          entityId: next.id,
+          title: `طلب شراء ${next.number} · ${product.nameAr ?? product.name}`,
+          summary: `${need.toFixed()} ${next.uomCode} · أوردر ${order.orderNumber}${order.customerPoRef ? ` · ${order.customerPoRef}` : ""}`,
+          requester: { id: next.requestedById, name: next.requestedBy, role: actor.role, deviceId: actor.deviceId },
+        });
+      }
+      updated++;
+      continue;
+    }
+    const product = await tx.stockProduct.findUniqueOrThrow({ where: { id: c!.productId }, select: { id: true, name: true, nameAr: true, unit: true } });
+    const r = await tx.purchaseRequest.create({
+      data: {
+        number: await nextDocumentNumber(tx, "purchasing.request", todayLocalISO()),
+        productId: product.id,
+        uomCode: product.unit,
+        ...sizing,
+        customerId: order.customerAccountId,
+        orderId,
+        orderItemId: itemId,
+        notes: `ناقص في أوردر ${order.orderNumber} (سطر ${c!.line})`,
+        requestedById: actor.id,
+        requestedBy: actor.name,
+      },
+    });
+    await requestApproval(tx, {
+      type: "purchasing.request",
+      entityId: r.id,
+      title: `طلب شراء ${r.number} · ${product.nameAr ?? product.name}`,
+      summary: `${need.toFixed()} ${product.unit} · أوردر ${order.orderNumber}${order.customerPoRef ? ` · ${order.customerPoRef}` : ""}`,
+      requester: { id: actor.id, name: actor.name, role: actor.role, deviceId: actor.deviceId },
+    });
+    await suggestionAudit(tx, actor, r, orderId, "purchase_request_created", `${product.name} · ${need.toFixed()} ${product.unit} · أوردر ${order.orderNumber}`);
+    created++;
+  }
+  return { created, updated, closed };
+}
+
+/**
+ * The order is done with its suggestions: cancelled (open ones are cancelled; one already on
+ * a supplier PO stays with purchasing — the PO is theirs to keep or cancel — and is noted), or
+ * released with every line reserved (open ones are cancelled as covered; one on a PO is
+ * fulfilled by this order).
+ */
+export async function settleOrderSuggestions(tx: Tx, orderId: string, outcome: "cancelled" | "released", reason: string, actor: SuggestionActor) {
+  await advisoryXactLock(tx, `purchasing:order-suggestions:${orderId}`);
+  const rows = await tx.purchaseRequest.findMany({ where: { orderId, orderItemId: { not: null }, status: { in: [...OPEN_SUGGESTION, "ordered"] } }, orderBy: { createdAt: "asc" } });
+  const order = rows.length ? await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { orderNumber: true } }) : null;
+  for (const r of rows) {
+    if (OPEN_SUGGESTION.includes(r.status)) {
+      await closeSuggestion(tx, r, actor, outcome === "cancelled" ? `الأوردر اتلغى: ${reason}` : `البضاعة اتوفرت والأوردر اتفرج عنه`);
+    } else if (outcome === "released") {
+      await casUpdate(tx, r, { status: "fulfilled", fulfilledOrderId: orderId });
+      await suggestionAudit(tx, actor, r, orderId, "purchase_request_fulfilled", `أوردر ${order!.orderNumber}`);
+    } else {
+      await suggestionAudit(tx, actor, r, orderId, "purchase_request_origin_cancelled", `أوردر ${order!.orderNumber}`, reason);
+    }
+  }
+  return rows.length;
+}
+
+/** The order's line suggestions, as its screen shows them (purchasing.requests.view). */
+export async function orderSuggestions(orderId: string) {
+  const rows = await prisma.purchaseRequest.findMany({ where: { orderId, orderItemId: { not: null } }, include: INCLUDE, orderBy: { createdAt: "asc" } });
+  return rows.map((r) => present(r, null));
+}
+
+function D3(v: Prisma.Decimal | null) {
+  return v ?? new Prisma.Decimal(-1);
 }

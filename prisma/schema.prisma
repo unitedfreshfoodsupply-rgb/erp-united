@@ -157,6 +157,13 @@ model Order {
   /// ok | pending_approval | rejected — a price exception (below cost, discount over the
   /// limit) holds the order until someone else approves it (sales.price_exception).
   pricingStatus String   @default("ok")
+  /// The customer's own purchase-order reference (e.g. a hotel's PO number), as typed on
+  /// entry or received from the integration. Searchable; carried to its purchase requests.
+  customerPoRef String?
+  /// ok | awaiting_stock — an order saved on purpose with lines the stock cannot cover yet
+  /// (allow_shortage). It reserves nothing, cannot leave "new" and stays off the floor boards
+  /// until "re-check stock and release" reserves every line in full.
+  stockStatus   String   @default("ok")
   version       Int      @default(1)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -189,6 +196,8 @@ model Order {
   @@index([deliveryDate])
   @@index([customerAccountId])
   @@index([updatedAt])
+  @@index([customerPoRef])
+  @@index([stockStatus])
 }
 
 model OrderItem {
@@ -218,7 +227,9 @@ model OrderItem {
   /// return lines as they are, never carry prices.
   price          OrderItemPrice?
 
-  deliveryLines DeliveryLine[]
+  deliveryLines    DeliveryLine[]
+  /// Procurement suggestions raised for this line's shortage (awaiting-stock orders).
+  purchaseRequests PurchaseRequest[]
 
   @@index([orderId])
   @@index([stockProductId])
@@ -1671,6 +1682,13 @@ model PurchaseRequest {
   customerId          String?
   /// The order the customer asked on (its other lines went ahead without this one).
   orderId             String?
+  /// The order line whose shortage raised this request (a suggestion from an awaiting-stock
+  /// order). At most one open (pending_approval/approved) request per line — DB index.
+  orderItemId         String?
+  /// What the line asked and what was sellable when the suggestion was last sized, in the
+  /// product's base unit (quantity = what is still to buy). NULL for a manual request.
+  requiredQty         Decimal?  @db.Decimal(18, 3)
+  availableQty        Decimal?  @db.Decimal(18, 3)
   customerReference   String?
   neededBy            String?
   notes               String?
@@ -1692,6 +1710,7 @@ model PurchaseRequest {
   product           StockProduct       @relation(fields: [productId], references: [id], onDelete: Restrict)
   customer          Customer?          @relation(fields: [customerId], references: [id], onDelete: Restrict)
   order             Order?             @relation("PurchaseRequestOrigin", fields: [orderId], references: [id], onDelete: Restrict)
+  orderItem         OrderItem?         @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
   purchaseOrder     PurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
   purchaseOrderLine PurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id], onDelete: Restrict)
   fulfilledOrder    Order?             @relation("PurchaseRequestFulfilment", fields: [fulfilledOrderId], references: [id], onDelete: Restrict)
@@ -1700,6 +1719,7 @@ model PurchaseRequest {
   @@index([productId])
   @@index([customerId])
   @@index([orderId])
+  @@index([orderItemId])
   @@index([purchaseOrderId])
   @@index([fulfilledOrderId])
 }

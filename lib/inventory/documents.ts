@@ -1,4 +1,5 @@
 import { Prisma, type InventoryDocument } from "@prisma/client";
+import { noteStockArrival } from "@/lib/sales/stock-hold";
 import { asText } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
@@ -337,6 +338,8 @@ export async function releaseFromQuarantine(input: Record<string, unknown>, acto
       await postMovements(tx, [{ ...moves[1], unitCost: D(outRow.unitCost), costSource: "lot" }], mctx);
       await auditDoc(tx, doc, actor, "inventory_quarantine_release",
         `إفراج ${rawQty.toFixed(3)} كجم ${product.name} من ${from.code} إلى ${to.code}${lotId ? ` · ${lotId.slice(0, 8)}` : ""}${inspectionNote ? ` · فحص: ${inspectionNote}` : ""}`);
+      // Released stock may cover an order waiting for it: tell its people (reserves nothing).
+      await noteStockArrival(tx, [product.id], actor);
       return doc;
     })
   );
@@ -384,6 +387,8 @@ export async function releaseGradingHoldInTx(
     await postMovements(tx, [{ productId: l.productId, warehouseId: wh.id, locationId: (l.destinationLocationId ? dest.get(l.destinationLocationId)! : to).id, lotId: l.lotId, quantity: qty, kind: "release_in", reason, documentId: doc.id, unitCost: D(outRow.unitCost), costSource: "lot" }], mctx);
   }
   await auditDoc(tx, doc, actor as ServiceActor, "grading_loss_released", `${from.code} → ${to.code}`);
+  // The released goods may cover an order waiting for stock: tell its people (reserves nothing).
+  await noteStockArrival(tx, payload.lines.map((l) => l.productId), actor);
   return doc;
 }
 

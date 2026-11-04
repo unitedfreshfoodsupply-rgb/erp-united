@@ -28,6 +28,7 @@ const FIELD_LABEL: Record<TimelineLocale, Record<string, string>> = {
     customerName: "اسم العميل",
     deliveryDate: "تاريخ التسليم",
     deliveryTime: "ميعاد التسليم",
+    customerPoRef: "رقم أمر الشراء بتاع العميل",
     notes: "الملاحظات",
     vehicle: "العربية",
     driverName: "اسم السواق",
@@ -37,6 +38,7 @@ const FIELD_LABEL: Record<TimelineLocale, Record<string, string>> = {
     customerName: "the customer name",
     deliveryDate: "the delivery date",
     deliveryTime: "the delivery time",
+    customerPoRef: "the customer PO number",
     notes: "the notes",
     vehicle: "the vehicle",
     driverName: "the driver name",
@@ -193,6 +195,12 @@ const DESCRIBE: Record<string, Describe> = {
   purchase_request_ordered: (l, x) => ({ icon: "📦", headline: pick(x, "طلب الشراء اتحول لأمر شراء", "purchase request turned into a purchase order"), detail: l.newValue ?? undefined, milestone: false }),
   purchase_request_cancelled: (l, x) => ({ icon: "✖️", headline: pick(x, "اتلغى طلب الشراء", "purchase request cancelled"), detail: [l.newValue, l.reason].filter(Boolean).join(" · ") || undefined, milestone: false }),
   purchase_request_fulfilled: (l, x) => ({ icon: "🚚", headline: pick(x, "طلب الشراء اتنفذ بأوردر للعميل", "purchase request fulfilled with a customer order"), detail: l.newValue ?? undefined, milestone: true }),
+  // Customer PO intake / orders waiting for stock (Nov 2026).
+  order_held_for_stock: (l, x) => ({ icon: "📦", headline: pick(x, "اتحفظ الأوردر مستني بضاعة (مفيش حجز)", "saved the order as awaiting stock (nothing reserved)"), detail: l.newValue ?? undefined, milestone: true }),
+  order_stock_released: (l, x) => ({ icon: "✅", headline: pick(x, "البضاعة اتوفرت: كل السطور اتحجزت والأوردر رجع للشغل", "stock available: every line reserved, the order continues"), detail: l.reason ?? undefined, milestone: true }),
+  purchase_request_quantity_changed: (l, x) => ({ icon: "🧾", headline: pick(x, "كمية طلب الشراء المقترح اتعدلت", "suggested purchase request quantity changed"), detail: [l.newValue, l.reason].filter(Boolean).join(" · ") || undefined, milestone: false }),
+  purchase_request_origin_cancelled: (l, x) => ({ icon: "⚠️", headline: pick(x, "أوردر طلب الشراء اتلغى — أمر الشراء فاضل عند المشتريات", "the request's order was cancelled — the purchase order stays with purchasing"), detail: [l.newValue, l.reason].filter(Boolean).join(" · ") || undefined, milestone: false }),
+  purchase_request_reopened: (l, x) => ({ icon: "↩️", headline: pick(x, "أمر الشراء اتلغى — طلب الشراء رجع موافق عليه", "purchase order cancelled — the request is back to approved"), detail: [l.newValue, l.reason].filter(Boolean).join(" · ") || undefined, milestone: false }),
   stock_issue_exception_voided: (_, x) => ({ icon: "↩️", headline: pick(x, "فرق المخزن اتلغى (الأوردر اتفتح تاني)", "the stock difference was voided (the order was reopened)"), milestone: false }),
   inventory_issue_posted: (l, x) => ({ icon: "📤", headline: pick(x, "البضاعة اتخصمت من المخزن", "the goods were issued from stock"), detail: l.newValue ?? undefined, milestone: false }),
 

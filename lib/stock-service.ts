@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { noteStockArrival } from "@/lib/sales/stock-hold";
 import { asText } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { writeAudit, writeAuditMany } from "@/lib/audit";
@@ -631,6 +632,9 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
       });
     }
     if (poLine) await afterPoReceipt(tx, poLine.poId, actor);
+    // Sellable stock may cover an order waiting for it: tell its people, once per change.
+    // Read-only for the order — nothing is reserved or moved (lib/sales/stock-hold.ts).
+    await noteStockArrival(tx, [product.id, gradeBProduct?.id], actor);
     return { intake: created, replayed: false };
   });
 

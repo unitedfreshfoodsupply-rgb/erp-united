@@ -75,6 +75,8 @@ export async function dailyConsolidatedSheet(date: string): Promise<DailySheetDT
     where: {
       deliveryDate: date,
       status: { in: ELIGIBLE_STATUSES },
+      // An order waiting for stock is not picked until it is released (Nov 2026).
+      stockStatus: "ok",
     },
     include: {
       items: {

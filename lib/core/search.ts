@@ -21,7 +21,7 @@ const SOURCES = {
   product: `SELECT p."id" FROM "StockProduct" p WHERE united_norm(concat_ws(' ', p."sku", p."name", p."nameAr", p."category",
               (SELECT string_agg(a."alias", ' ') FROM "ProductAlias" a WHERE a."productId" = p."id"))) LIKE $1`,
   order: `SELECT o."id" FROM "Order" o LEFT JOIN "Customer" c ON c."id" = o."customerAccountId"
-          WHERE united_norm(concat_ws(' ', o."orderNumber", o."externalId", o."customerName", c."code", c."name", c."nameAr", c."phone")) LIKE $1`,
+          WHERE united_norm(concat_ws(' ', o."orderNumber", o."externalId", o."customerPoRef", o."customerName", c."code", c."name", c."nameAr", c."phone")) LIKE $1`,
   salesInvoice: `SELECT i."id" FROM "SalesInvoice" i JOIN "Customer" c ON c."id" = i."customerId"
           WHERE united_norm(concat_ws(' ', i."number", i."buyerName", i."buyerTaxId", c."code", c."name", c."nameAr", c."taxRegistrationNo")) LIKE $1`,
   supplierBill: `SELECT b."id" FROM "SupplierBill" b JOIN "Supplier" s ON s."id" = b."supplierId"

@@ -29,7 +29,11 @@ export async function GET(req: NextRequest) {
     // Without a filter the list is the boards' window (open + recently closed); ?scope=production
     // is exactly what the production totals count.
     const scope = searchParams.get("scope") === "production" ? "production" : undefined;
-    const orders = await listOrders({ status, date, assignedToId, scope, q: searchText(searchParams.get("q")) || undefined });
+    // ?stock=ok — the floor boards: orders waiting for stock are not worked (Nov 2026).
+    const stockParam = searchParams.get("stock");
+    if (stockParam && stockParam !== "ok" && stockParam !== "awaiting_stock") throw new ApiError(400, "فلتر المخزون غير معروف");
+    const stockStatus = stockParam === "ok" || stockParam === "awaiting_stock" ? stockParam : undefined;
+    const orders = await listOrders({ status, date, assignedToId, scope, stockStatus, q: searchText(searchParams.get("q")) || undefined });
     return jsonResponse(req, { orders });
   } catch (err) {
     return handleApiError(err, req);
@@ -49,6 +53,8 @@ export async function GET(req: NextRequest) {
  *   "delivery_time": "08:00",
  *   "notes": "",
  *   "source": "n8n",
+ *   "customer_po_ref": "PO-4471",          // optional: the customer's own PO number
+ *   "allow_shortage": true,                // optional: save a short order "awaiting stock"
  *   "items": [{ "product_id": "123", "product_name": "Mango", "quantity": 25, "unit": "KG" }]
  * }
  */
@@ -79,6 +85,9 @@ async function create(req: NextRequest) {
         delivery_date: body.delivery_date,
         delivery_time: body.delivery_time,
         notes: body.notes,
+        customer_po_ref: body.customer_po_ref,
+        // Only an explicit true holds a short order; anything else keeps the 409 (WF-01).
+        allow_shortage: body.allow_shortage === true,
         items: body.items ?? [],
       },
       actor

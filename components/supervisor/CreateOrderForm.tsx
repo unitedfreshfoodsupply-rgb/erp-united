@@ -25,6 +25,10 @@ import { lineMissingQuantity, linePriceDiffers, linePricingPayload } from "@/lib
  * its own agreed price (list price shown; typing a different one needs the price-
  * override permission and a reason). What the shelf cannot cover is offered as a
  * purchase request instead of an order line. The server enforces every rule again.
+ *
+ * Customer PO intake (Nov 2026): the customer's PO number is kept on the order. When lines are
+ * short the order can be saved "awaiting stock" instead: nothing is reserved, it does not go
+ * to preparation, and the server raises one suggested purchase request per short line.
  */
 
 type Row = { key: number; stock_product_id: string; quantity: string; unit: string; unit_price: string; discount_pct: string; search: string; prNumber?: string; serverIssue?: string; missingQty?: boolean };
@@ -71,6 +75,10 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
   const [date, setDate] = useState(todayLocalISO());
   const [time, setTime] = useState("");
   const [notes, setNotes] = useState("");
+  const [poRef, setPoRef] = useState("");
+  // The server found only plain shortages (stock moved since the screen loaded): the order
+  // may still be saved awaiting stock.
+  const [serverShort, setServerShort] = useState(false);
   const [priceReason, setPriceReason] = useState("");
   const [rows, setRows] = useState<Row[]>([emptyRow()]);
   const [error, setError] = useState<string | null>(null);
@@ -138,6 +146,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
   const anyUnpriced = rows.some((r, i) => r.stock_product_id && !Number.isFinite(lines[i].price));
 
   function updateRow(i: number, patch: Partial<Row>) {
+    setServerShort(false);
     setRows((r) => r.map((row, idx) => (idx === i ? { ...row, ...patch, serverIssue: undefined, missingQty: undefined } : row)));
   }
 
@@ -158,7 +167,8 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
         uom: r.unit,
         customer_id: accountId,
         needed_by: date,
-        customer_reference: notes || undefined,
+        // The customer's PO number is the reference purchasing sees (it used to be the notes).
+        customer_reference: poRef.trim() || undefined,
       });
       updateRow(i, { prNumber: request.number });
       toast.show(t("create.pr-created", { number: request.number }), "success");
@@ -174,8 +184,8 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
     updateRow(i, { quantity: q > 0 ? String(q) : "" });
   }
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(e: React.FormEvent | null, allowShortage = false) {
+    e?.preventDefault();
     if (busy) return;
     setError(null);
     // A line with a product but no quantity used to be left out of the order without a
@@ -190,7 +200,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
       return;
     }
     if (anyBadPrecision) return setError(t("create.error-precision"));
-    if (anyShort) return setError(t("create.error-short"));
+    if (anyShort && !allowShortage) return setError(t("create.error-short"));
     if (needsReason) return setError(t("create.error-price-reason"));
     setBusy(true);
     try {
@@ -201,6 +211,8 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
         delivery_date: date,
         delivery_time: time || undefined,
         notes: notes || undefined,
+        customer_po_ref: poRef.trim() || undefined,
+        ...(allowShortage ? { allow_shortage: true } : {}),
         items: picked.map(({ r, l }) => {
           // A discount typed without a price is sent against the list price it was shown on.
           const pricing = canPrice ? linePricingPayload(r, l.listPrice, priceReason) : null;
@@ -214,7 +226,10 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
       });
       await invalidateOrderData(qc);
       await qc.invalidateQueries({ queryKey: ["orders", "entry-catalog"] });
-      toast.show(t("create.success-toast", { orderNumber: order.orderNumber }), "success");
+      toast.show(
+        order.stockStatus === "awaiting_stock" ? t("create.saved-awaiting-toast", { orderNumber: order.orderNumber }) : t("create.success-toast", { orderNumber: order.orderNumber }),
+        order.stockStatus === "awaiting_stock" ? "info" : "success"
+      );
       onDone();
       router.push(`/orders/${order.id}`);
     } catch (err) {
@@ -227,6 +242,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
           const s = sf.find((x) => x.line === pos);
           return s ? { ...row, serverIssue: s.reason === "insufficient" ? t("create.short-server", { available: s.available, requested: s.requested, unit: unitLabel(s.unit, locale) }) : err.message } : row;
         }));
+        setServerShort(sf.length > 0 && sf.every((x) => x.reason === "insufficient"));
         await qc.invalidateQueries({ queryKey: ["orders", "entry-catalog"] });
       }
       const msg = err instanceof ApiClientError ? err.message : t("create.error-generic");
@@ -264,6 +280,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
         <Field label={t("orders.delivery-date")} required className="flex-1"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="field" /></Field>
         <Field label={t("orders.delivery-time-label")} className="flex-1"><input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="field" /></Field>
       </div>
+      <Field label={t("create.po-ref")}><input value={poRef} onChange={(e) => setPoRef(e.target.value)} className="field" maxLength={100} dir="auto" /></Field>
       <Field label={t("create.notes-placeholder")}><input value={notes} onChange={(e) => setNotes(e.target.value)} className="field" /></Field>
 
       <div className="flex flex-col gap-3">
@@ -368,6 +385,9 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
               {(l.short || row.serverIssue) && (
                 <div className="text-sm text-united-danger flex flex-col gap-1" role="alert">
                   <span>{row.serverIssue ?? t("create.short-line", { available: fmt(l.leftInUnit ?? 0, l.prec), requested: row.quantity, unit: unitLabel(row.unit, locale) })}</span>
+                  {l.short && l.leftInUnit !== null && (
+                    <span className="font-bold">{t("create.line-shortage", { requested: row.quantity, available: fmt(l.leftInUnit, l.prec), shortage: fmt(Math.max(0, l.q - l.leftInUnit), l.prec), unit: unitLabel(row.unit, locale) })}</span>
+                  )}
                   <div className="flex gap-2 flex-wrap">
                     {l.leftInUnit !== null && l.leftInUnit > 0 && (
                       <button type="button" className="btn-secondary text-sm" onClick={() => keepAvailable(i)}>{t("create.keep-available")}</button>
@@ -398,6 +418,14 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
       <button disabled={busy || anyShort || anyBadPrecision} className="btn-primary text-lg">
         {t("create.save-btn")}
       </button>
+      {(anyShort || serverShort) && !anyBadPrecision && (
+        <div className="flex flex-col gap-2 rounded-xl border border-[#F3D9AE] bg-[#FFFBF3] p-3">
+          <p className="text-sm text-united-warn">{t("create.awaiting-explain")}</p>
+          <button type="button" disabled={busy} onClick={() => submit(null, true)} className="btn-secondary text-lg">
+            {t("create.save-awaiting")}
+          </button>
+        </div>
+      )}
     </form>
   );
 }

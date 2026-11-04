@@ -6,6 +6,14 @@
  * message has no entry here.
  */
 export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
+  // Nov 2026: customer PO intake and orders waiting for stock.
+  ["مرجع أمر الشراء بتاع العميل لازم يكون 100 حرف بالكتير", "The customer PO reference can be at most 100 characters"],
+  ["مينفعش يبدأ التجهيز: الأوردر مستني بضاعة — اعمل إعادة فحص المخزون والإفراج الأول", "Preparation cannot start: the order is awaiting stock — re-check stock and release it first"],
+  ["طلب الشراء ده لسطر في أوردر مستني بضاعة — كمّل من الأوردر نفسه (إعادة فحص المخزون والإفراج)", "This purchase request is for a line of an order awaiting stock — continue from that order (re-check stock and release)"],
+  ["الأوردر مش مستني بضاعة", "The order is not awaiting stock"],
+  ["الأوردر مش في مرحلة جديد", "The order is not at the \"new\" stage"],
+  ["فلتر المخزون غير معروف", "Unknown stock filter"],
+  ["بس اللي يقدر يعدّل الأوردر يقدر يفرج عنه", "Only someone who may edit the order can release it"],
   // Nov 2026: the e-invoice receiver comes from the customer record (its legal entity).
   ["بيانات المستلم في الفاتورة الإلكترونية بتتعدل من ملف العميل (الكيان القانوني)، مش من شاشة الضرائب", "E-invoice receiver details are edited in the customer record (its legal entity), not on the ETA screen"],
   ["العميل مربوط بكيان قانوني بالفعل — عدّل الكيان نفسه", "The customer is already linked to a legal entity — edit that entity instead"],
