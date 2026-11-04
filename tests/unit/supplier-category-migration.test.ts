@@ -41,3 +41,17 @@ test("additive and closed: a nullable column, a CHECK on the two values, no othe
   assert.ok(!/\b(DELETE|DROP|TRUNCATE|INSERT)\b/i.test(code));
   assert.ok(!/"name"|"nameAr"|LIKE|ILIKE/.test(code), "no name matching");
 });
+
+// The third category (Nov 2026): services and non-produce suppliers. The constraint is widened
+// in its own migration; no row is written, so the backfill above stays the only classification.
+const other = readFileSync(join(process.cwd(), "prisma/migrations/20261104130000_supplier_category_other/migration.sql"), "utf8")
+  .split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
+
+test("the 'other' category only widens the CHECK: same constraint name, every earlier value still valid, no row touched", () => {
+  const statements = other.split(";").map((s) => s.trim()).filter(Boolean);
+  assert.deepEqual(statements, [
+    'ALTER TABLE "Supplier" DROP CONSTRAINT "Supplier_category_known"',
+    `ALTER TABLE "Supplier" ADD CONSTRAINT "Supplier_category_known" CHECK ("category" IS NULL OR "category" IN ('vegetable', 'fruit', 'other'))`,
+  ]);
+  assert.ok(!/\b(UPDATE|DELETE|INSERT|TRUNCATE|DROP COLUMN|DROP TABLE)\b/i.test(other));
+});

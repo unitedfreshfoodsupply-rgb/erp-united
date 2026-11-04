@@ -71,16 +71,18 @@ export async function createOpeningBalance(input: unknown, actor: ServiceActor) 
 /**
  * A customer's or supplier's open item at go-live, inside the caller's transaction: the
  * statement/aging document and its entry together. Customer: Dr AR / Cr opening equity;
- * supplier: Cr AP / Dr opening equity (a negative amount reverses).
+ * supplier: Cr AP / Dr opening equity (a negative amount reverses). A phase batch of the
+ * opening migration posts against the provisional clearing account instead, and every batch
+ * names itself on the row (openingBatchId), so each balance is traced to the batch that posted it.
  */
-export async function postPartyOpeningInTx(tx: Tx, v: { partyType: "customer" | "supplier"; partyId: string; date: string; dueDate: string; amount: Prisma.Decimal; reference: string | null; idempotencyKey?: string | null; requestHash?: string | null }, actor: ServiceActor) {
+export async function postPartyOpeningInTx(tx: Tx, v: { partyType: "customer" | "supplier"; partyId: string; date: string; dueDate: string; amount: Prisma.Decimal; reference: string | null; idempotencyKey?: string | null; requestHash?: string | null; counterKey?: "opening_equity" | "opening_clearing"; openingBatchId?: string | null }, actor: ServiceActor) {
   const party = v.partyType === "customer" ? await tx.customer.findUnique({ where: { id: v.partyId }, select: { id: true, name: true } }) : await tx.supplier.findUnique({ where: { id: v.partyId }, select: { id: true, name: true } });
   if (!party) throw new ApiError(404, v.partyType === "customer" ? "العميل مش موجود" : "المورد مش موجود");
-  const row = await tx.partyOpeningBalance.create({ data: { partyType: v.partyType, partyId: party.id, date: v.date, dueDate: v.dueDate, amount: v.amount, reference: v.reference, idempotencyKey: v.idempotencyKey ?? null, requestHash: v.requestHash ?? null, createdById: actor.id, createdBy: actor.name } });
+  const row = await tx.partyOpeningBalance.create({ data: { partyType: v.partyType, partyId: party.id, date: v.date, dueDate: v.dueDate, amount: v.amount, reference: v.reference, idempotencyKey: v.idempotencyKey ?? null, requestHash: v.requestHash ?? null, createdById: actor.id, createdBy: actor.name, openingBatchId: v.openingBatchId ?? null } });
   const partyLine = v.partyType === "customer" ? { key: "ar" as const, amount: v.amount } : { key: "ap" as const, amount: v.amount.negated() };
   await postJournal(tx, {
     date: v.date, description: `رصيد افتتاحي — ${party.name}${v.reference ? ` (${v.reference})` : ""}`, sourceType: "opening_balance", sourceId: row.id,
-    lines: [{ ...partyLine, party: { type: v.partyType, id: party.id } }, { key: "opening_equity", amount: partyLine.amount.negated() }],
+    lines: [{ ...partyLine, party: { type: v.partyType, id: party.id } }, { key: v.counterKey ?? "opening_equity", amount: partyLine.amount.negated() }],
   }, actor);
   await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "opening_balance_recorded", entityType: "journal_entry", entityId: row.id, fieldChanged: v.partyType, newValue: `${party.name} · ${v.amount.toFixed(2)}`, source: "user", deviceId: actor.deviceId }, tx);
   return row;
@@ -201,7 +203,7 @@ export async function integrityReport() {
         OR (e."sourceType" = 'opening_balance' AND NOT EXISTS (SELECT 1 FROM "PartyOpeningBalance" d WHERE d."id" = e."sourceId"))
         OR (e."sourceType" = 'payroll_run' AND NOT EXISTS (SELECT 1 FROM "PayrollRun" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
         OR (e."sourceType" = 'payroll_payment' AND NOT EXISTS (SELECT 1 FROM "PayrollPayment" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
-        OR (e."sourceType" = 'opening_batch' AND NOT EXISTS (SELECT 1 FROM "OpeningBatch" d WHERE d."status" = 'posted' AND e."sourceId" IN (d."id" || ':gl', d."id" || ':assets')))
+        OR (e."sourceType" = 'opening_batch' AND NOT EXISTS (SELECT 1 FROM "OpeningBatch" d WHERE d."status" = 'posted' AND e."sourceId" IN (d."id" || ':gl', d."id" || ':assets', d."id" || ':stock', d."id" || ':equity')))
         OR (e."sourceType" = 'asset_acquisition' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."entryId" = e."id" AND d."type" = 'acquisition'))
         OR (e."sourceType" = 'asset_improvement' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."entryId" = e."id" AND d."type" = 'improvement'))
         OR (e."sourceType" = 'asset_disposal' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."id" = e."sourceId" AND d."entryId" = e."id"))

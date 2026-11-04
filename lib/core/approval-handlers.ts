@@ -25,6 +25,7 @@ import { applyPaymentRequestDecision } from "@/lib/accounting/cash";
 import { applyJournalRequestDecision } from "@/lib/accounting/ledger";
 import { applyPeriodReopen, applyYearReopen } from "@/lib/accounting/fiscal-years";
 import { applyOpeningBatchDecision } from "@/lib/accounting/opening-batches";
+import { applyClosureDecision } from "@/lib/accounting/opening-migration";
 
 /**
  * What each approval type DOES once decided. Kept apart from the engine core so the
@@ -123,6 +124,11 @@ const HANDLERS: Record<ApprovalType, Handler> = {
     // Approved by someone who neither prepared nor submitted it: posted whole, once. Rejected: back to draft.
     onApproved: (tx, req, decider, comment) => applyOpeningBatchDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyOpeningBatchDecision(tx, req.entityId, false, decider, comment),
+  },
+  "accounting.opening_migration_close": {
+    // Approved by someone other than the requester, and only if every closure check still passes: closed for good. Rejected: open again.
+    onApproved: (tx, req, decider, comment) => applyClosureDecision(tx, req.entityId, true, decider, comment),
+    onRejected: (tx, req, decider, comment) => applyClosureDecision(tx, req.entityId, false, decider, comment),
   },
   "accounting.period_reopen": {
     // Approved by someone other than the requester: the month opens again (its year must be open).

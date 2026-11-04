@@ -33,9 +33,9 @@ export const SUPPLIER_TYPES = ["farm", "grower", "wholesaler", "market_trader", 
  * lib/stock-service.ts), which stays visibly "unclassified" until purchasing classifies it, and a
  * classified supplier cannot be made unclassified again (decision D-1).
  */
-export const SUPPLIER_CATEGORIES = ["vegetable", "fruit"] as const;
+export const SUPPLIER_CATEGORIES = ["vegetable", "fruit", "other"] as const;
 const category = z.enum(SUPPLIER_CATEGORIES, {
-  errorMap: (issue) => ({ message: issue.code === "invalid_type" ? "فئة المورد مطلوبة — اختار خضار أو فاكهة" : "فئة المورد لازم خضار أو فاكهة" }),
+  errorMap: (issue) => ({ message: issue.code === "invalid_type" ? "فئة المورد مطلوبة — اختار خضار أو فاكهة أو أخرى/خدمات" : "فئة المورد لازم خضار أو فاكهة أو أخرى/خدمات" }),
 });
 
 const audit = (actor: ServiceActor, a: Omit<AuditInput, "userId" | "userName" | "role" | "source" | "deviceId">): AuditInput => ({

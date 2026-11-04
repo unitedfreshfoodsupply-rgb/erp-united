@@ -27,7 +27,7 @@ import { PartyLink } from "@/components/profiles/EntityLink";
 type Tab = "orders" | "replenishment" | "rfqs" | "suppliers" | "bills";
 type Catalog = { products: { id: string; name: string; nameAr: string | null; unit: string; packagings: { uomCode: string }[] }[] };
 type SupplierRow = { id: string; code: string; name: string; nameAr?: string | null; type: string; phone: string | null; city: string | null; paymentTermsDays: number; leadTimeDays: number | null; active: boolean; version: number; taxRegistrationNo: string | null; email: string | null; address: string | null; category: string | null };
-const SUPPLIER_CATEGORIES = ["vegetable", "fruit"] as const;
+const SUPPLIER_CATEGORIES = ["vegetable", "fruit", "other"] as const;
 const categoryLabel = (t: (key: string) => string, c: string | null) => t(c ? `purchasing.supplier.category.${c}` : "purchasing.supplier.category.unclassified");
 
 function errorMsg(err: unknown): string {

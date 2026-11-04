@@ -25,7 +25,7 @@ const templates = {
   customers: { headers: "code,name,name_ar,legal_name,legal_name_ar,type,tax_registration_no,commercial_reg_no,phone,email,city,area,address,delivery_notes,external_ref,notes,payment_terms_days,credit_limit,credit_hold,credit_hold_reason,credit_reason,price_list_code,price_list_reason,group_code,legal_entity_code", required: ["name"] },
   customer_groups: { headers: "code,name,name_ar", required: ["code", "name"] },
   customer_legal_entities: { headers: "code,name,name_ar,tax_registration_no,commercial_reg_no,phone,email,address,area,city,country,governate,region_city,street,building_number,postal_code,floor,room,landmark,additional_information,receiver_type,receiver_id,notes", required: ["code", "name"] },
-  // category: vegetable | fruit — every imported supplier is classified (decision D-1, Nov 2026).
+  // category: vegetable | fruit | other (services, non-produce) — every imported supplier is classified (decision D-1, Nov 2026).
   suppliers: { headers: "code,name,name_ar,category,phone,notes,type,tax_registration_no,commercial_reg_no,email,city,address,payment_terms_days,lead_time_days,currency_code", required: ["name", "category"] },
   products: { headers: "name,name_ar,sku,category,unit,stock_tracked,sales_tax_code", required: ["name", "unit"] },
   product_settings: { headers: "sku,shelf_life_days,removal_strategy,min_stock_qty,reorder_point_qty,max_stock_qty,cold_chain,costing_method,standard_cost,standard_cost_reason", required: ["sku"] },
@@ -312,7 +312,7 @@ async function previewRows(kind: ImportKind, rows: CsvRecord[], body: Record<str
     const usedNames = new Set(existing.map((x) => x.name.toLowerCase()));
     const usedTaxes = new Set(existing.map((x) => x.taxRegistrationNo).filter(Boolean));
     rows.forEach((r, i) => {
-      if (r.values.category && !(SUPPLIER_CATEGORIES as readonly string[]).includes(r.values.category)) results[i].errors.push("category لازم vegetable أو fruit");
+      if (r.values.category && !(SUPPLIER_CATEGORIES as readonly string[]).includes(r.values.category)) results[i].errors.push("category لازم vegetable أو fruit أو other");
       if (usedNames.has(r.values.name.toLowerCase())) results[i].errors.push("اسم المورد موجود");
       if (r.values.tax_registration_no && usedTaxes.has(r.values.tax_registration_no.replace(/[\s-]/g, ""))) results[i].errors.push("الرقم الضريبي مسجل لمورد آخر");
     });

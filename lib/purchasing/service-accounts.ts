@@ -28,6 +28,8 @@ export const SERVICE_BILL_REFUSED_KEYS: ReadonlySet<string> = new Set([
   "cash", "bank",
   // Depreciation and disposal results are posted by the fixed-asset register only.
   "fa_depreciation", "fa_disposal_gain", "fa_disposal_loss",
+  // The provisional opening clearing account is moved by opening batches only (an equity account besides).
+  "opening_clearing",
 ]);
 
 export type ChargeableAccount = { type: string; postable: boolean; active: boolean; systemKey: string | null; controlledBy?: string | null };

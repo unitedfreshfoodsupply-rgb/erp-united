@@ -3521,11 +3521,15 @@ model PartyOpeningBalance {
   createdById    String?
   createdBy      String
   createdAt      DateTime @default(now())
+  /// The opening batch that posted it (phased migration, Nov 2026); NULL for a direct entry or an older batch.
+  openingBatchId String?
 
   receiptAllocations ReceiptAllocation[]
   paymentAllocations PaymentAllocation[]
+  openingBatch       OpeningBatch?       @relation(fields: [openingBatchId], references: [id], onDelete: Restrict)
 
   @@index([partyType, partyId])
+  @@index([openingBatchId])
 }
 
 /// A customer receipt taken back: a bounced cheque, money recorded on the wrong customer.
@@ -4087,7 +4091,7 @@ model OpeningBatch {
   id             String    @id @default(cuid())
   /// OPN-####
   number         String    @unique
-  /// initial | correction
+  /// initial | correction | phase (one segment of the phased opening migration, posted against the clearing account)
   kind           String    @default("initial")
   cutoverDate    String
   /// draft | pending_approval | posted | cancelled
@@ -4107,8 +4111,79 @@ model OpeningBatch {
   /// The journal entries the posting created.
   entryIds       Json?
   version        Int       @default(1)
+  /// Phase batches: the migration they belong to and their segment (suppliers | customers | other).
+  migrationId    String?
+  segment        String?
+  /// The source the lines came from (file name, its SHA-256), kept as evidence.
+  sourceFile     String?
+  sourceSha256   String?
 
-  lines OpeningBatchLine[]
+  lines         OpeningBatchLine[]
+  migration     OpeningMigration?     @relation(fields: [migrationId], references: [id], onDelete: Restrict)
+  partyOpenings PartyOpeningBalance[]
+
+  @@index([migrationId])
+}
+
+/// The phased opening migration (Nov 2026): suppliers first, customers later, then the rest
+/// (cash, banks, stock, assets, capital…). Each phase batch posts against the provisional
+/// clearing account (3900, system key opening_clearing); the migration closes only when every
+/// reconciliation passes, the clearing account is zero and a second person approves. One per company.
+model OpeningMigration {
+  id                 String    @id @default(cuid())
+  key                String    @unique @default("opening")
+  cutoverDate        String
+  /// open | closing (closure requested, awaiting approval) | closed
+  status             String    @default("open")
+  notes              String?
+  /// People's confirmations the data cannot give (cash count, bank statements…): { key: { by, byId, at, note } }
+  attestations       Json?
+  createdById        String?
+  createdBy          String
+  createdAt          DateTime  @default(now())
+  closeRequestedById String?
+  closeRequestedBy   String?
+  closeRequestedAt   DateTime?
+  closedById         String?
+  closedBy           String?
+  closedAt           DateTime?
+  /// The closure checks as they stood when the migration closed.
+  closeEvidence      Json?
+  version            Int       @default(1)
+
+  batches    OpeningBatch[]
+  exceptions OpeningException[]
+}
+
+/// A source row that could not be posted (no ERP record, another category, a figure to decide).
+/// Kept with its evidence until resolved or excluded, with a reason; never deleted.
+model OpeningException {
+  id           String    @id @default(cuid())
+  migrationId  String
+  /// suppliers | customers | other
+  segment      String
+  sourceFile   String
+  sourceRow    String
+  sourceName   String
+  sourceAmount Decimal   @db.Decimal(18, 2)
+  /// no_match | category_mismatch | duplicate | needs_decision | …
+  reason       String
+  detail       String?
+  /// open | resolved | excluded
+  status       String    @default("open")
+  resolution   String?
+  resolvedById String?
+  resolvedBy   String?
+  resolvedAt   DateTime?
+  createdById  String?
+  createdBy    String
+  createdAt    DateTime  @default(now())
+  version      Int       @default(1)
+
+  migration OpeningMigration @relation(fields: [migrationId], references: [id], onDelete: Restrict)
+
+  @@unique([migrationId, segment, sourceFile, sourceRow])
+  @@index([migrationId, status])
 }
 
 /// One staged opening line. `data` holds the kind's fields (account, party, product, asset
@@ -4117,7 +4192,7 @@ model OpeningBatchLine {
   id      String  @id @default(cuid())
   batchId String
   lineNo  Int
-  /// gl | customer | supplier | stock | asset
+  /// gl | customer | supplier | stock | asset | equity_transfer
   kind    String
   data    Json
   debit   Decimal @default(0) @db.Decimal(18, 2)

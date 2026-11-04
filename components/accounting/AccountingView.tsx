@@ -7,6 +7,7 @@ import { ChartView } from "@/components/accounting/ChartView";
 import { VatReturnsView } from "@/components/accounting/VatReturnsView";
 import { PeriodsView } from "@/components/accounting/PeriodsView";
 import { OpeningBatchView } from "@/components/accounting/OpeningBatchView";
+import { OpeningMigrationView, ProvisionalOpeningBanner } from "@/components/accounting/OpeningMigrationView";
 import { ComparativesView } from "@/components/accounting/ComparativesView";
 import { CostCentersView, CostCenterSelect } from "@/components/accounting/CostCentersView";
 import { JournalRequests } from "@/components/accounting/JournalRequests";
@@ -517,6 +518,7 @@ function Trial() {
   });
   return (
     <div className="flex flex-col gap-3">
+      <ProvisionalOpeningBanner />
       <div className="flex flex-wrap gap-2"><label className="text-xs font-bold">{t("accounting.date-from")} <input type="date" className="field ms-1" value={from} onChange={(e) => setFrom(e.target.value)} /></label><label className="text-xs font-bold">{t("accounting.date-to")} <input type="date" className="field ms-1" value={to} onChange={(e) => setTo(e.target.value)} /></label></div>
       {q.isLoading && <LoadingState />}
       {q.data && (
@@ -726,6 +728,7 @@ function Health() {
   };
   return (
     <div className="flex flex-col gap-3">
+      <ProvisionalOpeningBanner />
       <section className={`card p-4 font-extrabold ${r.ok ? "bg-united-green/10 text-united-green" : "bg-united-danger/10 text-united-danger"}`}>
         {r.ok ? t("accounting.health-matched") : t("accounting.health-diff")}
         <div className="text-xs font-bold text-united-muted mt-1">{t("accounting.last-checked")} {new Date(r.checkedAt).toLocaleString(intlLocale(locale))}</div>
@@ -781,9 +784,15 @@ function Opening() {
   const [stock, setStock] = useState<{ product_id: string; quantity: string; unit_cost: string; expiry_date: string }[]>([{ product_id: "", quantity: "", unit_cost: "", expiry_date: "" }]);
   const parties = b.party_type === "customer" ? customers.data : suppliers.data;
   const done = (msg: string) => { toast.show(msg, "success"); void qc.invalidateQueries({ queryKey: ["acc"] }); };
+  // The phased opening migration (Nov 2026): once started, its batches carry every opening figure and the direct forms close.
+  const [openBatch, setOpenBatch] = useState<string | null>(null);
+  const migration = useQuery({ queryKey: ["acc", "opening-migration"], queryFn: () => apiFetch<{ overview: { migration: unknown } }>("/api/accounting/opening-migration").then((r) => r.overview) });
+  const phased = !!migration.data?.migration;
   return (
     <div className="flex flex-col gap-3">
-      <OpeningBatchView />
+      <OpeningMigrationView onOpenBatch={setOpenBatch} />
+      <OpeningBatchView open={openBatch} setOpen={setOpenBatch} phased={phased} />
+      {phased ? <p className="text-sm font-bold text-united-muted">{t("openmig.direct-closed")}</p> : <>
       <h2 className="section-title mt-4">{t("opening.direct-title")}</h2>
       <p className="text-sm font-bold text-united-muted">{t("opening.direct-explain")}</p>
       <p className="text-sm font-bold text-united-muted">{t("accounting.info-go-live")}</p>
@@ -816,6 +825,7 @@ function Opening() {
           }}>{t("accounting.button.record-stock")}</button>
         </div>
       </section>
+      </>}
       <ul className="flex flex-col gap-1 text-sm font-bold">
         {list.data?.openingBalances.map((o) => (
           <li key={o.id} className="card p-2 flex justify-between"><span>{o.partyType === "customer" ? t("accounting.info-type-customer") : t("accounting.info-type-supplier")} · {getPartyName(o.party, locale)} · {o.date}{o.reference ? ` · ${o.reference}` : ""}</span><span dir="ltr">{fmtMoney(o.amount)}</span></li>

@@ -155,6 +155,13 @@ export const APPROVAL_TYPES = {
     levels: 1,
     link: () => "/accounting?tab=opening",
   },
+  "accounting.opening_migration_close": {
+    label: "قفل الترحيل الافتتاحي",
+    entityType: "opening_migration",
+    approvePermission: "accounting.opening.approve",
+    levels: 1,
+    link: () => "/accounting?tab=opening",
+  },
   "accounting.manual_journal": {
     label: "اعتماد قيد يدوي",
     entityType: "journal_request",
