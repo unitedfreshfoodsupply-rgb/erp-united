@@ -41,7 +41,7 @@ export function LoadBoard() {
     queryKey: ["orders", "load"],
     queryFn: () =>
       apiFetch<{ orders: OrderDTO[] }>(
-        "/api/orders?status=new,preparing,ready_for_loading,loading,loaded"
+        "/api/orders?status=new,preparing,ready_for_loading,loading,loaded&stock=ok"
       ),
     refetchInterval: 3000,
   });

@@ -472,7 +472,8 @@ export async function getTrip(id: string) {
 /** Orders that can still go on a trip: not out yet, not on another live trip. */
 export async function plannableOrders(date?: string) {
   return prisma.order.findMany({
-    where: { status: { in: ["new", "preparing", "ready_for_loading", "loading", "loaded"] }, tripStops: { none: { active: true } }, ...(date ? { deliveryDate: date } : {}) },
+    // An order waiting for stock is not planned onto a trip until it is released (Nov 2026).
+    where: { status: { in: ["new", "preparing", "ready_for_loading", "loading", "loaded"] }, stockStatus: "ok", tripStops: { none: { active: true } }, ...(date ? { deliveryDate: date } : {}) },
     orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }],
     // The linked card travels with the order: the planner sees the customer as it is now.
     select: { id: true, orderNumber: true, customerName: true, customerAccount: { select: { name: true, nameAr: true } }, status: true, deliveryDate: true, deliveryTime: true },

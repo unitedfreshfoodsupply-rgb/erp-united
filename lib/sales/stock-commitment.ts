@@ -36,6 +36,8 @@ export type StockShortfall = {
   requested: string;
   available: string;
   baseUnit?: string;
+  /** What is missing, in the base unit (insufficient lines only). */
+  shortage?: string;
   reason: StockShortfallReason;
 };
 
@@ -83,22 +85,43 @@ export async function assertQuantityFitsUnit(db: Pick<Tx, "unitOfMeasure">, unit
 
 type CommitLine = { itemId: string; line: number; productId: string; productName: string; unit: string; baseUnit: string; requested: Dec; base: Dec };
 
+/** One stock-tracked line as the plan sees it: what it asks (base unit) and what is left
+ * for it after the order's earlier lines on the same product. */
+export type LineCoverage = {
+  itemId: string;
+  line: number;
+  productId: string;
+  productName: string;
+  unit: string;
+  baseUnit: string;
+  /** Asked, in the line's own unit. */
+  requested: Dec;
+  /** Asked, in the product's base unit. */
+  requestedBase: Dec;
+  /** What this line can take now (base unit, never negative). */
+  available: Dec;
+  /** What is missing for this line (base unit): requestedBase − covered. */
+  shortage: Dec;
+};
+
+type StockPlan = {
+  warehouseId: string;
+  lines: CommitLine[];
+  coverage: LineCoverage[];
+  shortfalls: StockShortfall[];
+};
+
 /**
- * Holds stock for every stock-tracked line of an order, exactly at its required
- * quantity. Lines whose reservation already matches are left alone; a changed line
- * has its reservation released and taken again — all under the per-product
- * availability locks, in one global order, so two orders can never both take the
- * same kilo. Throws StockUnavailableError (nothing written) on any shortfall.
+ * The availability judgement behind commitOrderStock, shared with the read-only
+ * assessment of an order waiting for stock. With `lock` (commit) it takes the per-product
+ * availability locks first; without it (a read for a screen or a receipt) it takes none.
  */
-export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceActor, opts: { lines?: string[] } = {}): Promise<{ reserved: number }> {
-  // `lines` limits the commitment to those lines (a mapping that links them to a product);
-  // the order's other lines and their reservations are left exactly as they are.
-  const only = opts.lines ? new Set(opts.lines) : null;
+async function planOrderStock(tx: Tx, orderId: string, only: Set<string> | null, lock: boolean): Promise<StockPlan | null> {
   const order = await tx.order.findUnique({
     where: { id: orderId },
     include: { items: { include: { stockProduct: true }, orderBy: { createdAt: "asc" } } },
   });
-  if (!order || order.status === "cancelled" || order.status === "dispatched") return { reserved: 0 };
+  if (!order || order.status === "cancelled" || order.status === "dispatched") return null;
   const warehouse = await resolveWarehouse(tx, undefined);
 
   const shortfalls: StockShortfall[] = [];
@@ -132,7 +155,7 @@ export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceAc
   }
 
   const productIds = [...new Set(lines.map((l) => l.productId))].sort();
-  for (const id of productIds) await lockAvailability(tx, id, warehouse.id);
+  if (lock) for (const id of productIds) await lockAvailability(tx, id, warehouse.id);
 
   // What this order may hold of each product: free stock plus what it already holds.
   const free = new Map<string, Dec>();
@@ -145,8 +168,11 @@ export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceAc
     const total = available.plus(D(own._sum.quantity));
     free.set(id, total.gt(0) ? total : ZERO);
   }
+  const coverage: LineCoverage[] = [];
   for (const l of lines) {
     const left = free.get(l.productId)!;
+    const covered = Prisma.Decimal.min(left, l.base);
+    coverage.push({ itemId: l.itemId, line: l.line, productId: l.productId, productName: l.productName, unit: l.unit, baseUnit: l.baseUnit, requested: l.requested, requestedBase: l.base, available: left, shortage: l.base.minus(covered) });
     if (left.lessThan(l.base)) {
       shortfalls.push({
         line: l.line, itemId: l.itemId, productId: l.productId, productName: l.productName, unit: l.unit,
@@ -154,12 +180,31 @@ export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceAc
         // Shown in the line's own unit when it is the base unit; otherwise in base units.
         available: l.unit === l.baseUnit ? left.toFixed() : `${left.toFixed()} ${l.baseUnit}`,
         baseUnit: l.baseUnit,
+        // Additive (Nov 2026): what is missing, in the base unit.
+        shortage: l.base.minus(left).toFixed(),
         reason: "insufficient",
       });
     }
     free.set(l.productId, Prisma.Decimal.max(ZERO, left.minus(l.base)));
   }
-  if (shortfalls.length) throw new StockUnavailableError(shortfalls.sort((a, b) => a.line - b.line));
+  return { warehouseId: warehouse.id, lines, coverage, shortfalls: shortfalls.sort((a, b) => a.line - b.line) };
+}
+
+/**
+ * Holds stock for every stock-tracked line of an order, exactly at its required
+ * quantity. Lines whose reservation already matches are left alone; a changed line
+ * has its reservation released and taken again — all under the per-product
+ * availability locks, in one global order, so two orders can never both take the
+ * same kilo. Throws StockUnavailableError (nothing written) on any shortfall.
+ */
+export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceActor, opts: { lines?: string[] } = {}): Promise<{ reserved: number }> {
+  // `lines` limits the commitment to those lines (a mapping that links them to a product);
+  // the order's other lines and their reservations are left exactly as they are.
+  const only = opts.lines ? new Set(opts.lines) : null;
+  const plan = await planOrderStock(tx, orderId, only, true);
+  if (!plan) return { reserved: 0 };
+  const { lines, shortfalls } = plan;
+  if (shortfalls.length) throw new StockUnavailableError(shortfalls);
 
   // Reservations follow the lines exactly: release what changed or vanished, then take.
   const active = (await tx.stockReservation.findMany({ where: { sourceType: "order", sourceId: orderId, status: "active" } })).filter((r) => !only || (r.sourceLineId && only.has(r.sourceLineId)));
@@ -172,10 +217,20 @@ export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceAc
   }
   let reserved = 0;
   for (const l of lines) {
-    const { created } = await reserveInTx(tx, { productId: l.productId, warehouseId: warehouse.id, quantity: l.base, sourceType: "order", sourceId: orderId, sourceLineId: l.itemId }, actor);
+    const { created } = await reserveInTx(tx, { productId: l.productId, warehouseId: plan.warehouseId, quantity: l.base, sourceType: "order", sourceId: orderId, sourceLineId: l.itemId }, actor);
     if (created) reserved++;
   }
   return { reserved };
+}
+
+/**
+ * Read-only: what an order's lines could take now, without reserving or locking anything
+ * (an awaiting-stock order's screen, the receipt check). Same judgement as commitOrderStock.
+ * `shortfalls` are exactly what commitOrderStock would refuse with; empty = it would succeed.
+ */
+export async function assessOrderStock(tx: Tx, orderId: string): Promise<{ coverage: LineCoverage[]; shortfalls: StockShortfall[] } | null> {
+  const plan = await planOrderStock(tx, orderId, null, false);
+  return plan ? { coverage: plan.coverage, shortfalls: plan.shortfalls } : null;
 }
 
 /** Read-only availability for the order screen: what a product can promise now. */

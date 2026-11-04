@@ -108,6 +108,10 @@ export function nextAction(order: OrderDTO, locale: "ar" | "en" = "ar"): NextAct
   if (order.needsReview) {
     return { label: en ? "Needs supervisor approval" : "محتاج اعتماد المشرف", owner: en ? "Supervisor" : "المشرف", tone: "blocked" };
   }
+  // Saved short on purpose (Nov 2026): nothing to prepare until the stock is in and released.
+  if (order.status === "new" && order.stockStatus === "awaiting_stock") {
+    return { label: en ? "Awaiting stock — re-check and release" : "مستني بضاعة — إعادة فحص وإفراج", owner: en ? "Purchasing" : "المشتريات", tone: "blocked" };
+  }
   const roll = rollUpQuantities(order.items);
   switch (order.status) {
     case "new":

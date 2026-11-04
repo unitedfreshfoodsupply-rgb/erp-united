@@ -38,6 +38,10 @@ export type OrderDTO = {
   driverName: string | null;
   crateCount: number | null;
   source: string;
+  /** The customer's own PO reference (Nov 2026). */
+  customerPoRef?: string | null;
+  /** ok | awaiting_stock — saved short on purpose; held in "new" until released (Nov 2026). */
+  stockStatus?: "ok" | "awaiting_stock";
   version: number;
   createdAt: string;
   updatedAt: string;

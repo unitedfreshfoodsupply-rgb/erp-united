@@ -456,11 +456,13 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | PATCH | `/api/orders/[id]/items/[itemId]/price` | `sales.price_override` | ✓ |  |  |  |  | ✓ |  |  |  |
 | POST | `/api/orders/[id]/items/[itemId]/required` | `orders.edit` | ✓ | ✓ |  |  |  |  |  |  |  |
 | GET | `/api/orders/[id]/pricing` | `sales.pricing.view` | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  |
+| POST | `/api/orders/[id]/release-stock` | `orders.edit` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/orders/[id]/reopen` | `orders.edit` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/orders/[id]/reprice` | `sales.price_override` | ✓ |  |  |  |  | ✓ |  |  |  |
 | GET | `/api/orders/[id]` | `orders.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
 | PATCH | `/api/orders/[id]` | `orders.edit` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/orders/[id]/status` | `orders.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
+| GET | `/api/orders/[id]/stock` | `orders.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
 | GET | `/api/orders/entry/catalog` | `orders.create` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | GET | `/api/orders/entry/price` | `orders.create` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | GET | `/api/orders` | `orders.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |

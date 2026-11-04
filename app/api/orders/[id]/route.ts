@@ -15,7 +15,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-// Supervisor edit: customer / delivery date-time / notes / vehicle.
+// Supervisor edit: customer / delivery date-time / notes / vehicle / customer PO reference.
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const actor = await requireOrderActor(req, "orders.edit");
@@ -29,6 +29,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         deliveryTime: body.delivery_time,
         notes: body.notes,
         vehicle: body.vehicle,
+        customerPoRef: body.customer_po_ref,
       },
       actor,
       body.reason,
