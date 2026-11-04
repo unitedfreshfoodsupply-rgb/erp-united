@@ -276,15 +276,21 @@ async function main() {
   check("waste still 10", (await atWaste(pT10.id)) === 10);
 
   // =========================================================================
-  section("T11. OTHER LOCATIONS UNAFFECTED — COLD ROOMS & GRADE B STILL SELLABLE");
+  section("T11. OTHER LOCATIONS UNAFFECTED — COLD ROOMS SELLABLE; GRADE B SELLABLE AS ITS OWN PRODUCT");
   const pT11 = await newProduct(`${TAG} T11 coldroom`);
   await intake({ product_id: pT11.id, received_kg: 40, unit_cost: "5", location_id: "loc_cold_1" });
   const v11 = await product(pT11.id);
   check("cold-room stock fully sellable (40/40)", n(v11.sellableOnHand) === 40 && n(v11.available) === 40, [v11.sellableOnHand, v11.available]);
-  const gb11 = await newProduct(`${TAG} T11 gradeb`);
-  await intakeApproved({ product_id: gb11.id, received_kg: 60, grade_b_qty: 20, unit_cost: "5" }); // legacy: GB at loc_grade_b (loss approved by the supervisor)
-  const v11b = await product(gb11.id);
-  check("grade B bucket sellable (60 incl. 20 at GRADE-B)", n(v11b.sellableOnHand) === 60 && n(v11b.onHand) === 60, [v11b.sellableOnHand, v11b.onHand]);
+  // Nov 2026: Grade B is its own product with its own price — never a bucket of the first-grade
+  // product, which sold it as first grade. The legacy same-product route is refused.
+  const gb11 = await newProduct(`${TAG} T11 gradeA`);
+  const gb11b = await newProduct(`${TAG} T11 gradeB`);
+  const legacy11 = await intake({ product_id: gb11.id, received_kg: 60, grade_b_qty: 20, unit_cost: "5" });
+  check("grade B on the first-grade product -> 400", legacy11.status === 400 && legacy11.body?.code === "grade_b_product_required", legacy11.body);
+  await intakeApproved({ product_id: gb11.id, received_kg: 60, grade_b_qty: 20, grade_b_product_id: gb11b.id, unit_cost: "5" });
+  const v11a = await product(gb11.id);
+  const v11b = await product(gb11b.id);
+  check("first grade sellable (40), grade B sellable on its own product (20)", n(v11a.sellableOnHand) === 40 && n(v11b.sellableOnHand) === 20, [v11a.sellableOnHand, v11b.sellableOnHand]);
 
   // =========================================================================
   section("T12. F-20 — COLD-CHAIN PRODUCTS CAN RECORD WASTE AT INTAKE AND SORT");
@@ -299,13 +305,20 @@ async function main() {
   const p12b = await newProduct(`${TAG} T12b coldsort`);
   const dbc2 = await sql();
   await dbc2.stockProduct.update({ where: { id: p12b.id }, data: { coldChain: true } });
+  const p12gb = await newProduct(`${TAG} T12b coldsort B`);
   const i12b = (await intake({ product_id: p12b.id, received_kg: 100, unit_cost: "5" })).body.intake;
-  const s12 = await call("hossam", "POST", `/api/stock/intakes/${i12b.id}/sort`, { input_kg: 100, good_kg: 80, grade_b_kg: 10, waste_kg: 10, reason: `${TAG} فرز تبريد` });
+  const s12 = await call("hossam", "POST", `/api/stock/intakes/${i12b.id}/sort`, { input_kg: 100, good_kg: 80, grade_b_kg: 10, waste_kg: 10, grade_b_product_id: p12gb.id, reason: `${TAG} فرز تبريد` });
   check("cold-chain sort with waste -> 201", s12.status === 201, [s12.status, s12.body?.error]);
   const m12b = (await ledger(p12b.id)).filter((m: any) => m.kind === "sorting_in" && m.locationId === "loc_waste");
   check("cold-chain waste sorted into loc_waste (10)", m12b.some((m: any) => n(m.quantity) === 10), m12b.map((m: any) => m.quantity));
 
   // =========================================================================
+  section("T12c. WASTE NEVER TRANSFERRED BACK TO A SELLABLE LOCATION");
+  // Waste leaves the books only by a write-off: a transfer from the waste location to a cold
+  // room would put it back on sale at full cost with no approval (Nov 2026).
+  const wt = await call("hossam", "POST", "/api/inventory/transfers", { lines: [{ product_id: pT12.id, location_id: "loc_waste", to_location_id: "loc_cold_1", quantity: "5" }], reason: `${TAG} نقل هالك` });
+  check("transfer out of WASTE -> 400", wt.status === 400 && wt.body?.code === "waste_transfer_refused", [wt.status, wt.body]);
+
   section("T13. RECONCILIATION — VALUATION AGREES, TRIAL BALANCE BALANCED");
   const valRows = (await call("karim", "GET", "/api/inventory/reports/valuation")).body.rows;
   for (const [p, label] of [[pT1, "T1"], [pT3, "T3"], [pT8, "T8"], [pT9, "T9"], [pT10, "T10"], [pT12, "T12"]] as const) {

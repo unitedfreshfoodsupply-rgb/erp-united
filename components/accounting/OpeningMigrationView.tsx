@@ -46,10 +46,14 @@ type ImportResult = { mode: "preview" | "commit"; summary: { rows: number; total
 const SEGMENTS = ["suppliers", "customers", "other"] as const;
 type AttestationKey = "suppliers_complete" | "customers_complete" | "cash_bank_verified" | "other_accounts_reconciled";
 const STATUS_TONE: Record<Status, Tone> = { not_started: "neutral", in_progress: "info", awaiting_approval: "warn", reconciliation_required: "danger", ready_for_closure: "success", closed: "success" };
-const signed = (v: string | undefined) => { const n = Number(v ?? 0); return n === 0 ? fmtMoney(0) : `${fmtMoney(Math.abs(n))} ${n > 0 ? "Dr" : "Cr"}`; };
+/** A check's value: figures formatted ("1283160.00 / 1283160.00" → "1,283,160.00 / 1,283,160.00"), anything else as is. */
+const checkValue = (v: string) => v.split(" / ").map((x) => (/^-?\d+(\.\d+)?$/.test(x.trim()) ? fmtMoney(x.trim()) : x)).join(" / ");
+/** A signed balance (debit positive) as the amount and its side, in the screen's language. */
+const signedWith = (t: (k: string) => string) => (v: string | undefined) => { const n = Number(v ?? 0); return n === 0 ? fmtMoney(0) : `${fmtMoney(Math.abs(n))} ${t(n > 0 ? "openmig.dr" : "openmig.cr")}`; };
 
 export function OpeningMigrationView({ onOpenBatch }: { onOpenBatch: (id: string) => void }) {
   const { t, locale } = useLocale();
+  const signed = signedWith(t);
   const { can } = usePermissions();
   const toast = useToast();
   const dialogs = useDialogs();
@@ -104,7 +108,7 @@ export function OpeningMigrationView({ onOpenBatch }: { onOpenBatch: (id: string
           <div><dt className="font-bold text-united-muted">{t("openmig.posted-debit")}</dt><dd className="font-extrabold" dir="ltr">{fmtMoney(o.totals?.debit ?? "0")}</dd></div>
           <div><dt className="font-bold text-united-muted">{t("openmig.posted-credit")}</dt><dd className="font-extrabold" dir="ltr">{fmtMoney(o.totals?.credit ?? "0")}</dd></div>
           <div><dt className="font-bold text-united-muted">{t("openmig.pending-approvals")}</dt><dd className="font-extrabold">{(o.pendingApprovals?.batches.length ?? 0) + (o.pendingApprovals?.closure ? 1 : 0)}</dd></div>
-          <div><dt className="font-bold text-united-muted">{t("openmig.export")}</dt><dd className="flex gap-2 text-sm font-bold"><a className="underline" href="/api/accounting/opening-migration/export?part=accounts">{t("openmig.export-accounts")}</a><a className="underline" href="/api/accounting/opening-migration/export?part=parties">{t("openmig.export-parties")}</a></dd></div>
+          <div><dt className="font-bold text-united-muted">{t("openmig.export")}</dt><dd className="flex flex-col gap-1 text-sm font-bold"><a className="underline" href="/api/accounting/opening-migration/export?part=accounts">{t("openmig.export-accounts")}</a><a className="underline" href="/api/accounting/opening-migration/export?part=parties">{t("openmig.export-parties")}</a></dd></div>
         </dl>
         {!closed && <p role="note" className="rounded-xl border border-united-warn/40 bg-united-warn/10 p-3 text-sm font-bold text-united-warn">{t("openmig.provisional-banner", { amount: signed(o.clearing?.balance) })}</p>}
         {closed && <p className="text-sm font-bold text-united-green">{t("openmig.closed-note", { by: m.closedBy ?? "", at: (m.closedAt ?? "").slice(0, 10) })}</p>}
@@ -124,7 +128,7 @@ export function OpeningMigrationView({ onOpenBatch }: { onOpenBatch: (id: string
                     <th scope="row">{t(`openmig.segment.${seg}`)}</th>
                     <td className="num">{cell(s.imported)}</td><td className="num">{cell(s.pending)}</td><td className="num">{cell(s.posted)}</td>
                     <td className="num">{o.exceptions?.bySegment[seg]?.unmatched ?? 0}</td>
-                    {manage && !closed && <td><button type="button" className="btn-secondary btn-sm" disabled={m.state !== "open"} onClick={() => newBatch(seg)}>{t("openmig.new-batch")}</button></td>}
+                    {manage && !closed && <td><button type="button" className="btn-secondary btn-sm whitespace-nowrap" disabled={m.state !== "open"} onClick={() => newBatch(seg)}>{t("openmig.new-batch")}</button></td>}
                   </tr>
                 );
               })}
@@ -173,7 +177,7 @@ export function OpeningMigrationView({ onOpenBatch }: { onOpenBatch: (id: string
               <li key={c.key} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm">
                 <span className="flex items-center gap-2"><StatusPill tone={c.ok ? "success" : "danger"}>{c.ok ? t("openmig.check-ok") : t("openmig.check-fail")}</StatusPill><span className="font-bold">{label(c)}</span></span>
                 <span className="flex items-center gap-2 text-united-muted">
-                  {a ? <span>{t("openmig.attested-by", { by: a.by, at: a.at.slice(0, 10) })} — {a.note}</span> : c.value !== undefined && c.value !== "" ? <span dir="ltr">{c.value}</span> : c.count !== undefined ? <span>{c.count}</span> : null}
+                  {a ? <span>{t("openmig.attested-by", { by: a.by, at: a.at.slice(0, 10) })} — {a.note}</span> : c.value !== undefined && c.value !== "" ? <span dir="ltr">{checkValue(c.value)}</span> : c.count !== undefined ? <span>{c.count}</span> : null}
                   {att && manage && m.state === "open" && (
                     <button type="button" className="btn-secondary btn-sm" onClick={async () => {
                       const note = await dialogs.prompt({ title: t(a ? "openmig.withdraw-attest" : "openmig.attest", { what: label(c) }), label: t("openmig.attest-note"), required: true, confirmLabel: t(a ? "openmig.withdraw" : "openmig.confirm") });
@@ -310,9 +314,9 @@ function ExceptionsPanel({ canDecide, onDone }: { canDecide: boolean; onDone: ()
               {!q.data?.length ? <tr><td colSpan={7} className="text-united-muted">{t("openmig.exceptions-empty")}</td></tr> : q.data.map((e) => (
                 <tr key={e.id}>
                   <td>{t(`openmig.segment.${e.segment}`)}</td><td>{e.sourceFile}</td><td dir="ltr">{e.sourceRow}</td><td>{e.sourceName}</td><td className="num" dir="ltr">{fmtMoney(e.sourceAmount)}</td>
-                  <td>{t(`openmig.reason.${e.reason}`)}{e.detail ? <span className="block text-xs text-united-muted">{e.detail}</span> : null}</td>
+                  <td className="min-w-[12rem]">{t(`openmig.reason.${e.reason}`)}{e.detail ? <span className="block text-xs text-united-muted">{e.detail}</span> : null}</td>
                   {status !== "open" ? <td>{e.resolution}<span className="block text-xs text-united-muted">{e.resolvedBy}</span></td> : canDecide && (
-                    <td className="whitespace-nowrap"><button type="button" className="btn-secondary btn-sm" onClick={() => decide(e, "resolved")}>{t("openmig.exception-status.resolved")}</button> <button type="button" className="btn-ghost btn-sm text-united-danger" onClick={() => decide(e, "excluded")}>{t("openmig.exception-status.excluded")}</button></td>
+                    <td><div className="flex flex-col gap-1"><button type="button" className="btn-secondary btn-sm whitespace-nowrap" onClick={() => decide(e, "resolved")}>{t("openmig.exception-status.resolved")}</button><button type="button" className="btn-ghost btn-sm whitespace-nowrap text-united-danger" onClick={() => decide(e, "excluded")}>{t("openmig.exception-status.excluded")}</button></div></td>
                   )}
                 </tr>
               ))}
@@ -327,6 +331,7 @@ function ExceptionsPanel({ canDecide, onDone }: { canDecide: boolean; onDone: ()
 /** One line above a financial report while the opening figures are not final (phased migration not closed). */
 export function ProvisionalOpeningBanner() {
   const { t } = useLocale();
+  const signed = signedWith(t);
   const q = useQuery({ queryKey: ["acc", "opening-position"], queryFn: () => apiFetch<{ opening: { final: boolean; state: string; cutoverDate: string | null; clearing: string } }>("/api/accounting/opening-migration/position").then((r) => r.opening) });
   if (!q.data || q.data.final) return null;
   return (

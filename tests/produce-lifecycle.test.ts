@@ -95,19 +95,25 @@ export async function main() {
   // gross: +500 intake, +(-400 out) +250 good +50 waste = +400
   check("overall product stock = 400", Math.abs(totalAdj - 400) < 0.01, totalAdj);
 
-  section("8. LEGACY GRADE B (SAME SKU, loc_grade_b)");
+  section("8. GRADE B IS ITS OWN PRODUCT; A RECEIPT IS GRADED ONCE");
+  // Nov 2026: a second grade on the first-grade product (loc_grade_b) was sold and priced as
+  // first grade, so a Grade B quantity names its own Grade B product; and the kilos a receipt's
+  // sortings already took in are not raw stock to grade again.
   const raw2 = (await call("hossam", "POST", "/api/stock/intakes", {
     supplier_id: sup.id, product_id: product.id, received_date: today, received_kg: 200, unit_cost: 10,
   })).body.intake;
   const legSort = await call("hossam", "POST", `/api/stock/intakes/${raw2.id}/sort`, {
     input_kg: 100, good_kg: 60, grade_b_kg: 30, waste_kg: 10, reason: "فرز تقليدي",
   });
-  check("legacy sort 201", legSort.status === 201);
-  const legDoc = legSort.body.document;
-  check("legacy doc type grading", legDoc.type === "grading");
-  const legGb = legDoc.movements.find((m: any) => m.kind === "sorting_in" && m.locationId === "loc_grade_b");
-  check("legacy grade B at loc_grade_b", !!legGb);
-  check("legacy grade B on same product", legGb?.productId === product.id);
+  check("grade B without its product -> 400", legSort.status === 400 && legSort.body?.code === "grade_b_product_required", legSort.body);
+  const graded2 = await call("hossam", "POST", `/api/stock/intakes/${raw2.id}/sort`, {
+    input_kg: 200, good_kg: 160, grade_b_kg: 30, waste_kg: 10, grade_b_product_id: gradeBP.id, reason: "فرز",
+  });
+  check("the whole receipt graded -> 201", graded2.status === 201, graded2.body?.error);
+  const regrade = await call("hossam", "POST", `/api/stock/intakes/${raw2.id}/sort`, {
+    input_kg: 100, good_kg: 80, grade_b_kg: 0, waste_kg: 20, reason: "فرز تاني",
+  });
+  check("its graded good is not graded again -> 400", regrade.status === 400 && regrade.body?.code === "already_graded", regrade.body);
 
   section("9. API VALIDATION");
   // Unauthenticated

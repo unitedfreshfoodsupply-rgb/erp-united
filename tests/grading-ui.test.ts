@@ -52,8 +52,9 @@ async function main() {
   // Signed conservation: out −200, in +140+35+25 → net 0 at the bucket level.
   const net = d1.movements.reduce((s: number, m: any) => s + n(m.quantity), 0);
   check("net quantity = 0 (conserved)", Math.abs(net) < 1e-9, net);
-  // Remaining after the sort: the good (140) returned to the intake's own bucket and
-  // is still sortable there; the waste left for the WASTE bucket (not sortable).
+  // After the sort: the good (140) returned to the intake's own bucket — first grade now, not
+  // raw stock to grade again (Nov 2026: a receipt is graded once) — and the waste left for the
+  // WASTE bucket.
   const rem1 = (await ledger(a1g.id)).filter((m: any) => m.intakeId === i1.id && m.location?.code !== "WASTE").reduce((s: number, m: any) => s + n(m.quantityKg), 0);
   check("remaining of this receipt = 140 kg (good back in bucket)", Math.abs(rem1 - 140) < 1e-9, rem1);
 

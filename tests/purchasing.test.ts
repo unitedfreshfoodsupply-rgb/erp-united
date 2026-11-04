@@ -149,6 +149,10 @@ async function receivingAndBills() {
   check("PO partially received: 380 good, 20 rejected, 620 left", po.status === "partially_received" && po.lines[0].receivedGood === "380" && po.lines[0].rejected === "20" && po.lines[0].remaining === "620", po.lines[0]);
 
   check("800 more would exceed 1000 + 10% -> 409", (await call("hossam", "POST", "/api/stock/intakes", { purchase_order_line_id: lineId, received_kg: 800 })).status === 409);
+  // The ceiling counts what is accepted (received − rejected), every grade: 750 kg with 400 graded
+  // to Grade B has only 350 good, which the old rule let through — 380 + 750 = 1130 > 1100.
+  const tomatoB = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} Tomato grade B`, unit: "KG" })).body.product;
+  check("750 kg graded 350 good + 400 Grade B would exceed 1000 + 10% -> 409", (await call("hossam", "POST", "/api/stock/intakes", { purchase_order_line_id: lineId, received_kg: 750, grade_b_qty: 400, grade_b_product_id: tomatoB.id })).status === 409);
   r = await call("hossam", "POST", "/api/stock/intakes", { purchase_order_line_id: lineId, entered_qty: 35, entered_uom: "CRATE" });
   check("35 crates (700 kg) — within tolerance -> 201", r.status === 201 && r.body.intake.goodQty === "700", r.body);
   const rc2 = r.body.intake;

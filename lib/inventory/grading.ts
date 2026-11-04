@@ -10,6 +10,7 @@
  * are known at the call site.
  */
 import { Prisma } from "@prisma/client";
+import { ApiError } from "@/lib/rbac";
 
 const D = (v: Prisma.Decimal.Value) => new Prisma.Decimal(v);
 const ZERO = D(0);
@@ -155,3 +156,17 @@ export function computeGradingCosts(input: GradingCostsInput): GradingCostsResul
     allocatedInput: totalValue,
   };
 }
+
+/**
+ * Grade B is its own product (its own price list, its own stock and cost layers): first-grade
+ * customers must never receive it, and its lower selling price must never reach Grade A. A
+ * second grade kept on the first-grade product (the legacy GRADE-B bucket) was sold and priced
+ * as first grade, so a Grade B quantity now names its Grade B product, which is not the raw one.
+ * Its purchase cost stays the receipt's (the grading cost policy), never its selling price.
+ */
+export function assertGradeBProduct(raw: { id: string }, gradeBQty: Prisma.Decimal, gradeBProduct: { id: string } | null) {
+  if (!gradeBQty.gt(0)) return;
+  if (!gradeBProduct) throw new ApiError(400, "الفرزة لازم تتسجل على صنف الفرزة (صنف مستقل بسعره) — اختار صنف الفرزة", "grade_b_product_required");
+  if (gradeBProduct.id === raw.id) throw new ApiError(400, "صنف الفرزة لازم يكون غير صنف الدرجة الأولى", "grade_b_same_product");
+}
+

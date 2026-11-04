@@ -176,6 +176,17 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/accounting/opening-batches/[id]/submit` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/opening-batches` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/opening-batches` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/attest` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/close` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/close/withdraw` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/exceptions/[id]` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/opening-migration/exceptions` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/exceptions` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/opening-migration/export` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/import` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/opening-migration/position` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/opening-migration` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/opening-stock` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/payments/[id]/allocate` | `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/payments/[id]/reverse` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |

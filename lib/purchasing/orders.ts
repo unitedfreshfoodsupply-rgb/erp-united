@@ -294,7 +294,8 @@ async function receivedSoFar(db: Pick<Tx, "stockIntake">, poId: string) {
     where: { status: "posted", purchaseOrderLine: { poId } },
     _sum: { goodQty: true, rejectedQty: true, receivedQty: true },
   });
-  return new Map(rows.map((r) => [r.purchaseOrderLineId!, { good: D(r._sum.goodQty ?? 0), rejected: D(r._sum.rejectedQty ?? 0), received: D(r._sum.receivedQty ?? 0) }]));
+  // accepted = received − rejected: what entered stock (all grades) and what the supplier bills for.
+  return new Map(rows.map((r) => [r.purchaseOrderLineId!, { good: D(r._sum.goodQty ?? 0), rejected: D(r._sum.rejectedQty ?? 0), received: D(r._sum.receivedQty ?? 0), accepted: D(r._sum.receivedQty ?? 0).minus(D(r._sum.rejectedQty ?? 0)) }]));
 }
 
 export async function cancelPurchaseOrder(id: string, input: unknown, actor: ServiceActor) {
@@ -332,14 +333,14 @@ export async function closePurchaseOrder(id: string, input: unknown, actor: Serv
 /**
  * Re-derives an order's receiving status from its posted receipts, in the caller's
  * transaction (every receipt create / correction / void calls it). A line counts as
- * delivered when its good quantity reaches what was ordered.
+ * delivered when its accepted quantity (received − rejected, every grade) reaches what was ordered.
  */
 export async function refreshPoReceiptStatus(tx: Tx, poId: string, actor: { id: string | null; name: string; role: string; deviceId?: string }) {
   const po = await tx.purchaseOrder.findUnique({ where: { id: poId }, include: { lines: true } });
   if (!po || ["cancelled", "closed", "draft", "pending_approval"].includes(po.status)) return po?.status ?? null;
   const got = await receivedSoFar(tx, poId);
   const anyIn = [...got.values()].some((x) => x.received.gt(0));
-  const allIn = po.lines.every((l) => (got.get(l.id)?.good ?? D(0)).greaterThanOrEqualTo(l.baseQuantity));
+  const allIn = po.lines.every((l) => (got.get(l.id)?.accepted ?? D(0)).greaterThanOrEqualTo(l.baseQuantity));
   const next = allIn ? "received" : anyIn ? "partially_received" : po.sentAt ? "sent" : "approved";
   if (next !== po.status) {
     await transition(tx, po, { status: next });
@@ -352,13 +353,13 @@ export async function refreshPoReceiptStatus(tx: Tx, poId: string, actor: { id: 
 // Reads
 // ---------------------------------------------------------------------------
 
-function present(po: Prisma.PurchaseOrderGetPayload<{ include: { supplier: { select: { id: true; code: true; name: true; nameAr: true } }; lines: { include: { product: { select: { name: true; nameAr: true; unit: true } } } } } }>, got: Map<string, { good: Prisma.Decimal; rejected: Prisma.Decimal; received: Prisma.Decimal }>, withPrices: boolean) {
+function present(po: Prisma.PurchaseOrderGetPayload<{ include: { supplier: { select: { id: true; code: true; name: true; nameAr: true } }; lines: { include: { product: { select: { name: true; nameAr: true; unit: true } } } } } }>, got: Map<string, { good: Prisma.Decimal; rejected: Prisma.Decimal; received: Prisma.Decimal; accepted: Prisma.Decimal }>, withPrices: boolean) {
   const lines = po.lines
     .sort((a, b) => a.lineNo - b.lineNo)
     .map((l) => {
-      const g = got.get(l.id) ?? { good: D(0), rejected: D(0), received: D(0) };
-      // A cancelled or closed order expects nothing more.
-      const remaining = ["cancelled", "closed"].includes(po.status) ? D(0) : Prisma.Decimal.max(D(l.baseQuantity).minus(g.good), 0);
+      const g = got.get(l.id) ?? { good: D(0), rejected: D(0), received: D(0), accepted: D(0) };
+      // A cancelled or closed order expects nothing more; otherwise what is not yet accepted.
+      const remaining = ["cancelled", "closed"].includes(po.status) ? D(0) : Prisma.Decimal.max(D(l.baseQuantity).minus(g.accepted), 0);
       return {
         id: l.id,
         lineNo: l.lineNo,

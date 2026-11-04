@@ -630,6 +630,116 @@
     },
     {
       "method": "POST",
+      "path": "/api/accounting/opening-migration/attest",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-migration/close",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-migration/close/withdraw",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-migration/exceptions/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/opening-migration/exceptions",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-migration/exceptions",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/opening-migration/export",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-migration/import",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/opening-migration/position",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/opening-migration",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-migration",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
       "path": "/api/accounting/opening-stock",
       "gate": {
         "kind": "all",

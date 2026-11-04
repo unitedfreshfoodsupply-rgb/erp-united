@@ -343,20 +343,22 @@ export const REPORTS: ReportDef[] = [
     description: { ar: "الموجود، المحجوز، المتاح للبيع، الهالك، والقيمة لكل صنف", en: "On hand, reserved, available to sell, waste and value per product" },
     notes: { ar: "الكمية من دفتر المخزون؛ القيمة من طبقات التقييم (تطابق حساب المخزون في الأستاذ). المتاح = المخزون القابل للبيع ناقص المحجوز. صنف موقوف أو غير متتبَّع لسه عليه مخزون أو قيمة بيظهر برضه، عشان الإجمالي يطابق.", en: "Quantities from the stock ledger; value from the valuation layers (agrees with the inventory account). Available = sellable stock less reservations. A deactivated or untracked product that still holds stock or value is listed too, so the total agrees." },
     permissions: STOCK, filters: ["category"],
-    columns: [...PARTY_COLS, { key: "category", label: { ar: "الفئة", en: "Category" }, type: "text" }, { key: "unit", label: { ar: "الوحدة", en: "Unit" }, type: "code" }, { key: "sellable", label: { ar: "قابل للبيع", en: "Sellable" }, type: "qty" }, { key: "reserved", label: { ar: "محجوز", en: "Reserved" }, type: "qty" }, { key: "available", label: { ar: "متاح", en: "Available" }, type: "qty" }, { key: "held", label: { ar: "في الحجر", en: "Quarantine" }, type: "qty" }, { key: "waste", label: { ar: "هالك", en: "Waste" }, type: "qty" }, { key: "value", label: { ar: "القيمة", en: "Value" }, type: "money", total: true, cost: true }],
+    columns: [...PARTY_COLS, { key: "category", label: { ar: "الفئة", en: "Category" }, type: "text" }, { key: "unit", label: { ar: "الوحدة", en: "Unit" }, type: "code" }, { key: "sellable", label: { ar: "قابل للبيع", en: "Sellable" }, type: "qty" }, { key: "reserved", label: { ar: "محجوز", en: "Reserved" }, type: "qty" }, { key: "available", label: { ar: "متاح", en: "Available" }, type: "qty" }, { key: "held", label: { ar: "في الحجر", en: "Quarantine" }, type: "qty" }, { key: "waste", label: { ar: "هالك", en: "Waste" }, type: "qty" }, { key: "waste_value", label: { ar: "قيمة الهالك (من القيمة)", en: "Waste value (within value)" }, type: "money", total: true, cost: true }, { key: "value", label: { ar: "القيمة", en: "Value" }, type: "money", total: true, cost: true }],
     run: async (p) => {
-      const rows = await prisma.$queryRaw<{ id: string; name: string; nameAr: string | null; category: string | null; unit: string; reorder: Prisma.Decimal | null; sellable: Prisma.Decimal; held: Prisma.Decimal; waste: Prisma.Decimal; reserved: Prisma.Decimal; value: Prisma.Decimal }[]>`
+      const rows = await prisma.$queryRaw<{ id: string; name: string; nameAr: string | null; category: string | null; unit: string; reorder: Prisma.Decimal | null; sellable: Prisma.Decimal; held: Prisma.Decimal; waste: Prisma.Decimal; reserved: Prisma.Decimal; value: Prisma.Decimal; waste_value: Prisma.Decimal }[]>`
         SELECT pr."id", pr."name", pr."nameAr", pr."category", pr."unit", pr."reorderPointQty" reorder,
           coalesce(sum(m."quantity") FILTER (WHERE l."type" NOT IN ('waste', 'quarantine')), 0) sellable,
           coalesce(sum(m."quantity") FILTER (WHERE l."type" = 'quarantine'), 0) held,
           coalesce(sum(m."quantity") FILTER (WHERE l."type" = 'waste'), 0) waste,
           coalesce((SELECT sum(r."quantity") FROM "StockReservation" r WHERE r."productId" = pr."id" AND r."status" = 'active'), 0) reserved,
-          coalesce((SELECT sum(v."value") FROM "StockValuationLayer" v WHERE v."productId" = pr."id"), 0) value
+          coalesce((SELECT sum(v."value") FROM "StockValuationLayer" v WHERE v."productId" = pr."id"), 0) value,
+          -- Waste is not saleable: its value is shown on its own (it stays within the product's total, as the GL does).
+          coalesce((SELECT sum(v."value") FROM "StockValuationLayer" v JOIN "StockMovement" wm ON wm."id" = v."movementId" JOIN "StorageLocation" wl ON wl."id" = wm."locationId" WHERE v."productId" = pr."id" AND wl."type" = 'waste'), 0) waste_value
         FROM "StockProduct" pr LEFT JOIN "StockMovement" m ON m."productId" = pr."id" LEFT JOIN "StorageLocation" l ON l."id" = m."locationId"
         WHERE ((pr."active" AND pr."stockTracked") OR EXISTS (SELECT 1 FROM "StockValuationLayer" hv WHERE hv."productId" = pr."id" HAVING sum(hv."value") <> 0) OR EXISTS (SELECT 1 FROM "StockMovement" hm WHERE hm."productId" = pr."id" HAVING sum(hm."quantity") <> 0)) AND (${p.category ?? null}::text IS NULL OR pr."category" = ${p.category ?? null})
         GROUP BY pr."id", pr."name", pr."nameAr", pr."category", pr."unit", pr."reorderPointQty" ORDER BY pr."name"`;
       return {
-        rows: rows.map((r) => { const avail = D(r.sellable).minus(D(r.reserved)); return { ...name(r.nameAr, r.name), category: r.category ?? "", unit: r.unit, sellable: q3(r.sellable), reserved: q3(r.reserved), available: q3(avail), held: q3(r.held), waste: q3(r.waste), value: m2(r.value), _tone: r.reorder != null && avail.lte(D(r.reorder)) ? "warn" : null, _href: `/stock/products/${r.id}` }; }),
+        rows: rows.map((r) => { const avail = D(r.sellable).minus(D(r.reserved)); return { ...name(r.nameAr, r.name), category: r.category ?? "", unit: r.unit, sellable: q3(r.sellable), reserved: q3(r.reserved), available: q3(avail), held: q3(r.held), waste: q3(r.waste), waste_value: m2(r.waste_value), value: m2(r.value), _tone: r.reorder != null && avail.lte(D(r.reorder)) ? "warn" : null, _href: `/stock/products/${r.id}` }; }),
         // Layers carry 4 decimals: the total is their exact sum rounded once, not the sum of rounded rows.
         totals: { value: m2(rows.reduce((t, r) => t.plus(D(r.value)), D(0))) },
       };
@@ -431,13 +433,22 @@ export const REPORTS: ReportDef[] = [
     key: "waste-trend", category: "inventory",
     title: { ar: "اتجاه الهالك والفرزة", en: "Waste and grade-B trend" },
     description: { ar: "نِسب السليم والفرزة والهالك أسبوع بأسبوع، وقيمة الهالك", en: "Good, grade-B and waste rates by week, and the waste value" },
-    notes: { ar: "من الاستلامات بالكيلو. القيمة = هالك × تكلفة الاستلام.", en: "From receipts weighed in kilos. Value = waste × receipt cost." },
+    notes: { ar: "من الاستلامات بالكيلو، ومعاها الهالك اللي طلع من فرز بعد الاستلام (في أسبوع الفرز). القيمة = هالك الاستلام × تكلفته + قيمة هالك الفرز في دفتر المخزون.", en: "From receipts weighed in kilos, plus the waste graded out after receipt (in the week of the sorting). Value = receipt waste × receipt cost + the stock-ledger value of sorting waste." },
     permissions: STOCK, filters: ["period", "groupBy"],
     columns: [{ key: "period", label: { ar: "الفترة", en: "Period" }, type: "date" }, { key: "received", label: { ar: "المستلم", en: "Received" }, type: "qty", total: true }, { key: "good_pct", label: { ar: "سليم %", en: "Good %" }, type: "percent" }, { key: "gradeb_pct", label: { ar: "فرزة %", en: "Grade B %" }, type: "percent" }, { key: "waste_pct", label: { ar: "هالك %", en: "Waste %" }, type: "percent" }, { key: "waste_value", label: { ar: "قيمة الهالك", en: "Waste value" }, type: "money", total: true, cost: true }],
     run: async (p) => {
+      // Waste graded out of a receipt later (post-receipt sorting into a waste location) counts
+      // too; it was missing when only the receipt's own waste figure was read.
       const rows = await prisma.$queryRaw<{ per: Date; rec: Prisma.Decimal; g: Prisma.Decimal; b: Prisma.Decimal; w: Prisma.Decimal; wv: Prisma.Decimal | null }[]>`
-        SELECT date_trunc(${p.groupBy}, i."receivedDate"::date) per, sum(i."receivedQty") rec, sum(i."goodQty") g, sum(i."gradeBQty") b, sum(i."wasteQty") w, sum(i."wasteQty" * i."unitCost") wv
-        FROM "StockIntake" i JOIN "StockProduct" pr ON pr."id" = i."productId" WHERE i."status" = 'posted' AND pr."unit" = 'KG' AND i."receivedDate" BETWEEN ${p.from} AND ${p.to} GROUP BY 1 ORDER BY 1`;
+        WITH rec AS (
+          SELECT date_trunc(${p.groupBy}, i."receivedDate"::date) per, sum(i."receivedQty") rec, sum(i."goodQty") g, sum(i."gradeBQty") b, sum(i."wasteQty") w, sum(i."wasteQty" * i."unitCost") wv
+          FROM "StockIntake" i JOIN "StockProduct" pr ON pr."id" = i."productId" WHERE i."status" = 'posted' AND pr."unit" = 'KG' AND i."receivedDate" BETWEEN ${p.from} AND ${p.to} GROUP BY 1),
+        srt AS (
+          SELECT date_trunc(${p.groupBy}, m."effectiveDate"::date) per, sum(m."quantity") w, sum(v."value") wv
+          FROM "StockMovement" m JOIN "StorageLocation" l ON l."id" = m."locationId" JOIN "StockProduct" pr ON pr."id" = m."productId" LEFT JOIN "StockValuationLayer" v ON v."movementId" = m."id"
+          WHERE m."kind" = 'sorting_in' AND l."type" = 'waste' AND pr."unit" = 'KG' AND m."effectiveDate" BETWEEN ${p.from} AND ${p.to} GROUP BY 1)
+        SELECT coalesce(rec.per, srt.per) per, coalesce(rec.rec, 0) rec, coalesce(rec.g, 0) g, coalesce(rec.b, 0) b, coalesce(rec.w, 0) + coalesce(srt.w, 0) w, coalesce(rec.wv, 0) + coalesce(srt.wv, 0) wv
+        FROM rec FULL JOIN srt ON srt.per = rec.per ORDER BY 1`;
       return { rows: rows.map((r) => ({ period: r.per.toISOString().slice(0, 10), received: q3(r.rec), good_pct: pct(r.g, r.rec), gradeb_pct: pct(r.b, r.rec), waste_pct: pct(r.w, r.rec), waste_value: m2(r.wv), _href: `/reports/goods-received?${periodSpan(r.per.toISOString().slice(0, 10), p.groupBy, p)}` })) };
     },
   },

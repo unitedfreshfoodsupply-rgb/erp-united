@@ -80,18 +80,32 @@ export async function main() {
   // Grade B (50kg) went to a different product, so it's absent from this product's
   // ledger. Document-level reconciliation is tested above (allQty sum to zero).
 
-  section("6. LEGACY GRADE B SORT (SAME PRODUCT, LOC_GRADE_B)");
+  section("6. GRADE B IS ITS OWN PRODUCT (no legacy same-product bucket)");
+  // Nov 2026: a second grade kept on the first-grade product (loc_grade_b) was priced and sold
+  // as first grade. A Grade B quantity now names its Grade B product, which is not the raw one.
   const intake2 = (await call("hossam", "POST", "/api/stock/intakes", {
     supplier_id: sup.id, product_id: product.id, received_date: today, received_kg: 100, unit_cost: 10,
   })).body.intake;
   const legSort = await call("hossam", "POST", `/api/stock/intakes/${intake2.id}/sort`, {
     input_kg: 80, good_kg: 50, grade_b_kg: 20, waste_kg: 10, reason: "فرز تقليدي",
   });
-  check("legacy sort -> 201", legSort.status === 201);
-  const legDoc = legSort.body.document;
-  const legGbIn = legDoc.movements.find((m: any) => m.kind === "sorting_in" && m.locationId === "loc_grade_b");
-  check("legacy Grade B at loc_grade_b", !!legGbIn);
-  check("legacy Grade B on same product", legGbIn?.productId === product.id);
+  check("grade B without its product -> 400", legSort.status === 400 && legSort.body?.code === "grade_b_product_required", legSort.body);
+  const sameSort = await call("hossam", "POST", `/api/stock/intakes/${intake2.id}/sort`, {
+    input_kg: 80, good_kg: 50, grade_b_kg: 20, waste_kg: 10, grade_b_product_id: product.id, reason: "فرز تقليدي",
+  });
+  check("grade B on the first-grade product itself -> 400", sameSort.status === 400 && sameSort.body?.code === "grade_b_same_product", sameSort.body);
+  const graded = await call("hossam", "POST", `/api/stock/intakes/${intake2.id}/sort`, {
+    input_kg: 80, good_kg: 50, grade_b_kg: 20, waste_kg: 10, grade_b_product_id: gradeBP.id, reason: "فرز",
+  });
+  check("graded onto the Grade B product -> 201", graded.status === 201, graded.body?.error);
+  const again = await call("hossam", "POST", `/api/stock/intakes/${intake2.id}/sort`, {
+    input_kg: 50, good_kg: 50, grade_b_kg: 0, waste_kg: 0, reason: "فرز تاني لنفس الكمية",
+  });
+  check("the same kilos are not graded twice: 80 of 100 graded, 50 more -> 400", again.status === 400 && again.body?.code === "already_graded", again.body);
+  const rest = await call("hossam", "POST", `/api/stock/intakes/${intake2.id}/sort`, {
+    input_kg: 20, good_kg: 15, grade_b_kg: 0, waste_kg: 5, reason: "الباقي",
+  });
+  check("the 20 kg left ungraded can still be graded -> 201", rest.status === 201, rest.body?.error);
 
   section("7. ROLLBACK ON FAILURE — ATOMICITY");
   // If a sort fails partway through, no movements should persist. Try a bad

@@ -103,7 +103,7 @@ export function OpeningBatchView(props: { open?: string | null; setOpen?: (id: s
   return (
     <section className="flex flex-col gap-3" aria-labelledby="opening-batches">
       <h2 id="opening-batches" className="section-title">{t("opening.title")}</h2>
-      <p className="text-sm text-united-muted">{t("opening.explain")}</p>
+      <p className="text-sm text-united-muted">{t(props.phased ? "openmig.batches-explain" : "opening.explain")}</p>
       {can("accounting.manage") && !(props.phased && !initialPosted) && (
         <div className="card p-3 flex flex-wrap items-end gap-2">
           {!initialPosted && !props.phased ? (

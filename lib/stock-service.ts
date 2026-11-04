@@ -15,7 +15,7 @@ import { receivingLocation, resolveLocation, resolveWarehouse } from "@/lib/inve
 import { cancelPendingApproval, requestApproval } from "@/lib/core/approvals";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { createAdjustment as createAdjustmentDocument } from "@/lib/inventory/documents";
-import { computeGradingCosts, type GradingCostPolicy, type WasteLossPolicy } from "@/lib/inventory/grading";
+import { assertGradeBProduct, computeGradingCosts, type GradingCostPolicy, type WasteLossPolicy } from "@/lib/inventory/grading";
 import { gradingPrices } from "@/lib/sales/pricing";
 import { getSetting } from "@/lib/core/settings-service";
 import { afterPoReceipt, guardPoReceipt, loadPoLine, poLineUnitCost, lockPoForReceipt } from "@/lib/purchasing/receiving";
@@ -387,6 +387,7 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
     entered = { qty, uom: input.entered_uom };
   }
   const { received, rejected, gradeB, waste, good } = receivedNumbers(receivedRaw, input.rejected_qty ?? input.rejected_kg, input.grade_b_qty, input.waste_qty);
+  assertGradeBProduct(product, gradeB, gradeBProduct);
   const costProvisional = await resolveReceiptCost();
 
   // --- grading cost allocation (policy-gated; proportional by default) ---
@@ -409,7 +410,10 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
     unitCost == null
       ? { goodUnitCost: null as Dec | null, gradeBUnitCost: null as Dec | null, wasteUnitCost: null as Dec | null, wasteLoss: D(0), costBasis: "proportional" as const, fallbackReason: null, allocatedInput: D(0) }
       : computeGradingCosts({
-          inputQty: received, inputUnitCost: unitCost,
+          // The allocation basis is what was accepted (received − rejected): rejected goods go back to
+          // the supplier, are never billed and never enter stock, so their cost must not be spread
+          // over the outputs (under NRV it overstated inventory and left a residual in GRNI).
+          inputQty: received.minus(rejected), inputUnitCost: unitCost,
           goodQty: good, gradeBQty: gradeB, wasteQty: waste,
           goodPrice: prices.length > 0 ? prices[0] : null,
           gradeBPrice: prices.length > 1 ? prices[1] : null,
@@ -445,7 +449,7 @@ export async function recordIntake(input: IntakeInput, actor: StockActor) {
       if (prev) return { intake: sameIntake(prev, { supplierId: supplier.id, productId: product.id, purchaseOrderLineId: poLine?.id ?? null, received, rejected }), replayed: true };
     }
     // The order first (lock, still receivable, within tolerance), then the receipt.
-    if (poLine) await guardPoReceipt(tx, { lineId: poLine.id, good, tolerancePct });
+    if (poLine) await guardPoReceipt(tx, { lineId: poLine.id, accepted: received.minus(rejected), tolerancePct });
     const warehouse = await resolveWarehouse(tx, input.warehouse_id ?? poLine?.po.warehouseId);
     const location = await resolveLocation(tx, warehouse.id, input.location_id);
     let receiveAt = location;
@@ -742,7 +746,7 @@ export async function updateIntake(
   const updated = await inTx(async (tx) => {
     if (!notesOnly) await lockUnbilledReceipt(tx, id);
     // A correction against a PO is held to the same tolerance as the receipt was.
-    const po = existing.purchaseOrderLineId ? await guardPoReceipt(tx, { lineId: existing.purchaseOrderLineId, good, tolerancePct, excludeIntakeId: id }) : null;
+    const po = existing.purchaseOrderLineId ? await guardPoReceipt(tx, { lineId: existing.purchaseOrderLineId, accepted: received.minus(rejected), tolerancePct, excludeIntakeId: id }) : null;
     // A fully rejected receipt never got a lot; correcting it upward gives it one now.
     let lotId = existing.lotId;
     if (delta.gt(0) && !lotId && !existing.goodQty.gt(0)) {

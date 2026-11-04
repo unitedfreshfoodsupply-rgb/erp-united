@@ -173,7 +173,10 @@ export async function migrationOverview() {
     }
   }
   const money = (b: Bucket) => ({ batches: b.batches, lines: b.lines, debit: b.debit.toFixed(2), credit: b.credit.toFixed(2), amount: b.amount.toFixed(2) });
-  const postedLines = f.batches.filter((b) => b.status === "posted").flatMap((b) => b.lines);
+  // Posted totals with each batch's clearing side, so they read as the balanced entries they are.
+  const postedBatches = f.batches.filter((b) => b.status === "posted");
+  const postedDebit = postedBatches.reduce((x, b) => { const c = s.tracedMap.get(b.id) ?? D(0); return x.plus(b.lines.reduce((y, l) => y.plus(l.debit), D(0))).plus(c.gt(0) ? c : 0); }, D(0));
+  const postedCredit = postedBatches.reduce((x, b) => { const c = s.tracedMap.get(b.id) ?? D(0); return x.plus(b.lines.reduce((y, l) => y.plus(l.credit), D(0))).plus(c.lt(0) ? c.negated() : 0); }, D(0));
   const exceptions = { open: 0, resolved: 0, excluded: 0, openAmount: D(0), bySegment: {} as Record<string, { open: number; openAmount: string; unmatched: number }> };
   for (const r of f.exceptionRows) {
     exceptions[r.status as "open" | "resolved" | "excluded"] += r._count._all;
@@ -189,7 +192,7 @@ export async function migrationOverview() {
     status: s.status,
     migration: { id: f.migration.id, cutoverDate: f.migration.cutoverDate, state: f.migration.status, notes: f.migration.notes, createdBy: f.migration.createdBy, createdAt: f.migration.createdAt, closeRequestedBy: f.migration.closeRequestedBy, closeRequestedAt: f.migration.closeRequestedAt, closedBy: f.migration.closedBy, closedAt: f.migration.closedAt, version: f.migration.version },
     segments: Object.fromEntries(Object.entries(segments).map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([st, b]) => [st, money(b)]))])),
-    totals: { debit: postedLines.reduce((x, l) => x.plus(l.debit), D(0)).toFixed(2), credit: postedLines.reduce((x, l) => x.plus(l.credit), D(0)).toFixed(2) },
+    totals: { debit: postedDebit.toFixed(2), credit: postedCredit.toFixed(2) },
     clearing: {
       balance: f.clearing.toFixed(2), traced: s.tracedTotal.toFixed(2), untraced: s.untraced.toFixed(2),
       byBatch: f.batches.filter((b) => b.status === "posted").map((b) => ({ id: b.id, number: b.number, segment: b.segment, sourceFile: b.sourceFile, postedAt: b.postedAt, decidedBy: b.decidedBy, movement: (s.tracedMap.get(b.id) ?? D(0)).toFixed(2) })),

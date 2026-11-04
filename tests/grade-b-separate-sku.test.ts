@@ -54,7 +54,9 @@ export async function main() {
   const allMain = mainLed.body.movements?.filter((m: any) => m.intakeId === intake.id) ?? [];
   check("main product has movements for good + waste", allMain.length === 2, allMain.length);
 
-  section("5. GRADE B WITHOUT SEPARATE PRODUCT (LEGACY MODE)");
+  section("5. GRADE B WITHOUT SEPARATE PRODUCT (LEGACY MODE) — REFUSED");
+  // Nov 2026: the legacy mode kept Grade B on the first-grade product at loc_grade_b, where it was
+  // counted, picked and priced as first grade. A Grade B quantity now names its own product.
   const r2 = await call("hossam", "POST", "/api/stock/intakes", {
     supplier_id: sup.id,
     product_id: mainP.id,
@@ -63,11 +65,9 @@ export async function main() {
     grade_b_qty: 30,
     unit_cost: 8,
   });
-  check("legacy grade B (no grade_b_product_id) -> 201", r2.status === 201, r2.body?.error);
-  check("gradeBProduct is null in legacy mode", r2.body.intake.gradeBProduct === null);
-  const legLed = await call("hossam", "GET", `/api/stock/ledger?product_id=${mainP.id}&limit=500`);
-  const legGrade = legLed.body.movements?.filter((m: any) => m.intakeId === r2.body.intake.id && Math.abs(m.quantityKg - 30) < 0.001) ?? [];
-  check("legacy Grade B stays on same product at loc_grade_b", legGrade.some((m: any) => m.locationId === "loc_grade_b"));
+  check("grade B without grade_b_product_id -> 400", r2.status === 400 && r2.body?.code === "grade_b_product_required", r2.body);
+  const r3 = await call("hossam", "POST", "/api/stock/intakes", { supplier_id: sup.id, product_id: mainP.id, received_date: today, received_kg: 100, grade_b_qty: 30, grade_b_product_id: mainP.id, unit_cost: 8 });
+  check("grade B on the first-grade product itself -> 400", r3.status === 400 && r3.body?.code === "grade_b_same_product", r3.body);
 }
 
 main().then(() => finish("GRADE-B-SEPARATE-SKU")).catch((e) => { console.error(e); process.exit(1); });

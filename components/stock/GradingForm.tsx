@@ -128,8 +128,12 @@ export function GradingForm({
       const moves = ledgerQ.data?.movements ?? [];
       const locId = intake.location?.id;
       const own = locId ? moves.filter((m) => m.intakeId === intake.id && m.location?.id === locId) : moves.filter((m) => m.intakeId === intake.id);
-      return p3(own.reduce((s, m) => s + m.quantityKg, 0));
-    }, [ledgerQ.data, intake.id, intake.location?.id]);
+      const bucket = own.reduce((s, m) => s + m.quantityKg, 0);
+      // A receipt is graded once: what its sortings already took in is not raw stock any more
+      // (the graded good back in the bucket is first grade). The server applies the same cap.
+      const graded = -moves.filter((m) => m.intakeId === intake.id && m.kind === "sorting_out").reduce((s, m) => s + m.quantityKg, 0);
+      return p3(Math.max(0, Math.min(bucket, (intake.goodKg ?? 0) - graded)));
+    }, [ledgerQ.data, intake.id, intake.location?.id, intake.goodKg]);
 
   const gbProducts = (productsQ.data?.products ?? []).filter((p) => p.stockTracked && p.unit === "KG");
 
@@ -213,8 +217,9 @@ export function GradingForm({
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex flex-col gap-1 min-w-[180px] flex-1">
               <span className="text-[11px] font-extrabold text-united-muted">{t("stock.grade-b-product-hint")}</span>
-              <select className="field" value={gradeBProductId} onChange={(e) => setGradeBProductId(e.target.value)}>
-                <option value="">{t("stock.grade-b-same-product")}</option>
+              <select className="field" value={gradeBProductId} onChange={(e) => setGradeBProductId(e.target.value)} aria-label={t("stock.grade-b-choose")} required={Number(gradeBKg) > 0}>
+                {/* Grade B is its own product with its own price: it is never kept on the first-grade product. */}
+                <option value="" disabled>{t("stock.grade-b-choose")}</option>
                 {gbProducts
                   .filter((p) => p.id !== intake.productId)
                   .map((p) => (
@@ -267,7 +272,7 @@ export function GradingForm({
           {error && <p className="text-united-danger font-bold text-sm">{error}</p>}
 
           <div className="flex gap-2">
-            <button onClick={submit} disabled={busy || !valid} className="btn-primary flex-1 text-sm" data-testid="grading-submit">
+            <button onClick={submit} disabled={busy || !valid || (Number(gradeBKg) > 0 && !gradeBProductId)} className="btn-primary flex-1 text-sm" data-testid="grading-submit">
               {busy ? t("stock.submit.saving") : t("stock.submit.label")}
             </button>
             <button onClick={onClose} disabled={busy} className="btn-secondary text-sm">
