@@ -682,6 +682,17 @@ model Company {
   address                String?
   phone                  String?
   email                  String?
+  /// Printed on invoices only when configured (commercial invoices, Nov 2026): the legal form
+  /// and issued capital (Companies Law 159/1981 Art. 6), bank details and invoice terms.
+  legalForm              String?
+  issuedCapital          String?
+  bankName               String?
+  bankAccountName        String?
+  bankAccountNumber      String?
+  /// Egyptian IBAN (EG + 27 digits).
+  iban                   String?
+  /// The commercial terms printed at the foot of sales invoices.
+  invoiceTerms           String?
   baseCurrencyCode       String
   active                 Boolean  @default(true)
   version                Int      @default(1)
@@ -1502,6 +1513,10 @@ model SalesInvoice {
   issuedById    String?
   issuedBy      String?
   issuedAt      DateTime?
+  /// The seller, buyer contact, order references and line product codes as they were at
+  /// issue (lib/sales/invoice-snapshot.ts). Frozen with the invoice; null on drafts and on
+  /// invoices issued before Nov 2026.
+  issueSnapshot Json?
 
   customer    Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
   order       Order?             @relation(fields: [orderId], references: [id], onDelete: Restrict)
@@ -1841,6 +1856,9 @@ model SupplierBill {
   createdById       String?
   createdBy         String
   createdAt         DateTime  @default(now())
+  /// The supplier, the buyer (company) and line product codes, POs and receipts as they were
+  /// when the bill posted. Frozen with the bill; null until then.
+  postSnapshot      Json?
 
   supplier     Supplier                  @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   lines        SupplierBillLine[]

@@ -4376,6 +4376,16 @@
       }
     },
     {
+      "method": "PATCH",
+      "path": "/api/sales/invoices/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "sales.invoices.manage"
+        ]
+      }
+    },
+    {
       "method": "POST",
       "path": "/api/sales/invoices/[id]/void",
       "gate": {

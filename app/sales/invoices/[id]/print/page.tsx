@@ -6,6 +6,9 @@ import { prisma } from "@/lib/prisma";
 import { getInvoice } from "@/lib/sales/invoicing";
 import { etaPublicState } from "@/lib/eta/service";
 import { invoiceDocument, type InvoiceLang } from "@/lib/sales/invoiceDocument";
+import { companySnapshot, documentCompany } from "@/lib/core/document-snapshot";
+import { DocumentPrintStyles } from "@/components/print/DocumentPrintStyles";
+import { DocumentGapNotice } from "@/components/print/DocumentGapNotice";
 import { PrintButton } from "./PrintButton";
 import { notFound } from "next/navigation";
 import { ApiError } from "@/lib/rbac";
@@ -24,20 +27,26 @@ export default async function InvoicePrint({ params, searchParams }: { params: {
     throw e;
   });
   if (inv.status !== "issued") return <main className="p-8 font-bold" dir={lang === "ar" ? "rtl" : "ltr"}>{lang === "en" ? "The invoice is still a draft — it cannot be printed before it is issued." : "الفاتورة لسه مسودة — مفيش طباعة قبل الإصدار."}</main>;
-  const [company, eta] = await Promise.all([prisma.company.findFirst({ where: { active: true }, orderBy: { createdAt: "asc" } }), etaPublicState(inv.id)]);
-  const d = invoiceDocument({ invoice: { ...inv, payments: inv.payments }, company, eta, lang });
+  // Today's company is read only for an invoice issued before snapshots existed.
+  const [company, eta] = await Promise.all([inv.issueSnapshot ? null : documentCompany(prisma), etaPublicState(inv.id)]);
+  const d = invoiceDocument({ invoice: { ...inv, payments: inv.payments }, snapshot: inv.issueSnapshot, company: company ? companySnapshot(company) : null, eta, lang });
   const L = d.labels;
+  const hasCodes = d.lines.some((l) => l.code);
   const Row = ({ k, v, strong }: { k: string; v: React.ReactNode; strong?: boolean }) => (
-    <div className={`flex justify-between gap-4 py-1 ${strong ? "font-extrabold" : ""}`}>
+    <div className={`flex justify-between gap-4 py-0.5 ${strong ? "font-extrabold" : ""}`}>
       <span className="text-united-dark/60">{k}</span>
-      <span dir="ltr" className="text-united-dark">{v}</span>
+      <span dir="ltr" className="text-united-dark text-end whitespace-nowrap">{v}</span>
     </div>
   );
+  const heads = [L.no, ...(hasCodes ? [L.code] : []), L.item, L.qty, L.unit, L.unitPrice, L.discount, L.net, L.tax, L.lineTotal];
 
   return (
-    <main dir={d.dir} lang={d.lang} data-invoice={d.meta.number} className="invoice-doc max-w-[210mm] mx-auto bg-white text-united-dark text-[13px] leading-relaxed p-[12mm] print:p-0">
+    <main dir={d.dir} lang={d.lang} data-invoice={d.meta.number} data-source={d.source} className="commercial-doc invoice-doc max-w-[210mm] mx-auto bg-white text-united-dark text-[13px] leading-relaxed p-[12mm] print:p-0">
+      <DocumentPrintStyles pageLabel={L.page} ofLabel={L.of} number={d.meta.number} />
+      <DocumentGapNotice gaps={d.sellerGaps} lang={lang} />
+
       {/* Header: brand on one side, document identity on the other */}
-      <header className="flex items-start justify-between gap-6 pb-5 border-b-4 border-united-dark">
+      <header className="flex items-start justify-between gap-6 pb-4 border-b-4 border-united-dark doc-keep">
         <div className="flex items-start gap-3">
           <Image src="/brand/united-mark.webp" alt="" width={56} height={56} className="shrink-0" />
           <div>
@@ -46,6 +55,7 @@ export default async function InvoicePrint({ params, searchParams }: { params: {
             {d.seller && (
               <div className="mt-2 text-xs text-united-dark/80 space-y-0.5">
                 <div className="font-bold">{d.seller.legalName}</div>
+                {(d.seller.legalForm || d.seller.issuedCapital) && <div>{[d.seller.legalForm, d.seller.issuedCapital && `${L.capital}: ${d.seller.issuedCapital}`].filter(Boolean).join(" · ")}</div>}
                 {d.seller.address && <div>{d.seller.address}</div>}
                 {(d.seller.phone || d.seller.email) && <div dir="ltr">{[d.seller.phone, d.seller.email].filter(Boolean).join(" · ")}</div>}
               </div>
@@ -53,13 +63,15 @@ export default async function InvoicePrint({ params, searchParams }: { params: {
           </div>
         </div>
         <div className="text-end">
-          <div className="text-3xl font-extrabold text-united-green">{L.title}</div>
+          <div className="text-3xl font-extrabold text-united-green" data-testid="doc-title">{d.title}</div>
+          <div className="text-xs text-united-dark/50">{d.subtitle}</div>
           <div className="mt-2 inline-block rounded-lg bg-united-bg px-3 py-1 font-extrabold text-lg" dir="ltr">{d.meta.number}</div>
+          {d.commercialNote && <div className="mt-1 text-[11px] text-united-dark/60" data-testid="commercial-note">{d.commercialNote}</div>}
         </div>
       </header>
 
       {/* Parties and document facts */}
-      <section className="grid grid-cols-3 gap-4 py-5">
+      <section className="grid grid-cols-3 gap-3 py-4 doc-keep">
         <div className="rounded-lg border border-united-dark/15 p-3">
           <div className="text-[11px] font-bold uppercase text-united-green mb-1">{L.seller}</div>
           <div className="font-extrabold">{d.seller?.name ?? "UNITED"}</div>
@@ -71,6 +83,8 @@ export default async function InvoicePrint({ params, searchParams }: { params: {
           <div className="font-extrabold">{d.buyer.name}</div>
           {d.buyer.code && <Row k={L.customerCode} v={d.buyer.code} />}
           {d.buyer.taxId && <Row k={L.taxId} v={d.buyer.taxId} />}
+          {d.buyer.commercialReg && <Row k={L.commercialReg} v={d.buyer.commercialReg} />}
+          {d.buyer.phone && <Row k={L.phone} v={d.buyer.phone} />}
           {d.buyer.address && <div className="text-xs text-united-dark/70 mt-1">{d.buyer.address}</div>}
         </div>
         <div className="rounded-lg border border-united-dark/15 p-3">
@@ -78,40 +92,43 @@ export default async function InvoicePrint({ params, searchParams }: { params: {
           {d.meta.issueTime && <Row k={L.issueTime} v={d.meta.issueTime} />}
           {d.meta.dueDate && <Row k={L.dueDate} v={d.meta.dueDate} />}
           {d.meta.order && <Row k={L.order} v={d.meta.order} />}
+          {d.meta.customerPo && <Row k={L.customerPo} v={d.meta.customerPo} />}
           {d.meta.delivery && <Row k={L.delivery} v={d.meta.delivery} />}
+          {d.meta.trip && <Row k={L.trip} v={d.meta.trip} />}
           <Row k={L.currency} v={d.meta.currency} />
         </div>
       </section>
 
-      {/* Lines */}
-      <table className="w-full border-collapse text-[12px]">
+      {/* Lines: the header repeats on every printed page */}
+      <table className="doc-lines w-full border-collapse text-[12px]">
         <thead>
-          <tr className="bg-united-dark text-white">
-            {[L.no, L.item, L.qty, L.unit, L.unitPrice, L.discount, L.net, L.tax, L.lineTotal].map((h, i) => (
-              <th key={i} className={`px-2 py-2 font-bold ${i < 2 ? "text-start" : "text-center"}`}>{h}</th>
+          <tr className="bg-united-bg text-united-dark border-b-2 border-united-dark">
+            {heads.map((h, i) => (
+              <th key={i} className={`px-2 py-2 font-extrabold ${i < (hasCodes ? 3 : 2) ? "text-start" : "text-center"}`}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {d.lines.map((l) => (
-            <tr key={l.no} className="border-b border-united-dark/10 even:bg-united-bg/60 print-break-inside-avoid">
+            <tr key={l.no} className="border-b border-united-dark/10 even:bg-united-bg/40">
               <td className="px-2 py-1.5">{l.no}</td>
+              {hasCodes && <td className="px-2 py-1.5 whitespace-nowrap" dir="ltr">{l.code ?? "—"}</td>}
               <td className="px-2 py-1.5 font-bold">{l.description}</td>
-              <td className="px-2 py-1.5 text-center" dir="ltr">{l.qty}</td>
+              <td className="px-2 py-1.5 text-center whitespace-nowrap" dir="ltr">{l.qty}</td>
               <td className="px-2 py-1.5 text-center">{unitLabel(l.unit, lang)}</td>
-              <td className="px-2 py-1.5 text-center" dir="ltr">{l.unitPrice}</td>
-              <td className="px-2 py-1.5 text-center" dir="ltr">{l.discount}</td>
-              <td className="px-2 py-1.5 text-center" dir="ltr">{l.net}</td>
-              <td className="px-2 py-1.5 text-center" dir="ltr">{l.tax}</td>
-              <td className="px-2 py-1.5 text-center font-bold" dir="ltr">{l.total}</td>
+              <td className="px-2 py-1.5 text-center whitespace-nowrap" dir="ltr">{l.unitPrice}</td>
+              <td className="px-2 py-1.5 text-center whitespace-nowrap" dir="ltr">{l.discount}</td>
+              <td className="px-2 py-1.5 text-center whitespace-nowrap" dir="ltr">{l.net}</td>
+              <td className="px-2 py-1.5 text-center whitespace-nowrap" dir="ltr">{l.tax}</td>
+              <td className="px-2 py-1.5 text-center font-bold whitespace-nowrap" dir="ltr">{l.total}</td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      {/* Tax summary + payment on one side, totals on the other */}
-      <section className="grid grid-cols-2 gap-6 pt-5 print-break-inside-avoid">
-        <div className="space-y-4">
+      {/* Tax summary + payment on one side, totals on the other — kept on one page */}
+      <section className="grid grid-cols-2 gap-6 pt-4 doc-keep">
+        <div className="space-y-3">
           <div>
             <div className="text-[11px] font-bold uppercase text-united-green mb-1">{L.taxSummary}</div>
             <table className="w-full text-[12px]">
@@ -126,6 +143,7 @@ export default async function InvoicePrint({ params, searchParams }: { params: {
           <div>
             <div className="text-[11px] font-bold uppercase text-united-green mb-1">{L.payment}</div>
             {d.payment.terms && <Row k={L.terms} v={d.payment.terms} />}
+            {d.payment.status && <Row k={L.status} v={d.payment.status} />}
             <Row k={L.paid} v={d.payment.paid} />
             {d.payment.balance !== null && <Row k={L.balance} v={d.payment.paidInFull ? L.paidInFull : d.payment.balance} strong />}
             {d.payment.receipts.length > 0 && (
@@ -145,8 +163,20 @@ export default async function InvoicePrint({ params, searchParams }: { params: {
         </div>
       </section>
 
+      {d.bank && (
+        <section className="mt-4 rounded-lg border border-united-dark/15 p-3 doc-keep" data-testid="bank-details">
+          <div className="text-[11px] font-bold uppercase text-united-green mb-1">{L.bank}</div>
+          <div className="grid grid-cols-2 gap-x-6">
+            <Row k={L.bankName} v={d.bank.name} />
+            {d.bank.accountName && <Row k={L.bankAccountName} v={d.bank.accountName} />}
+            {d.bank.accountNumber && <Row k={L.bankAccount} v={d.bank.accountNumber} />}
+            {d.bank.iban && <Row k={L.iban} v={d.bank.iban} />}
+          </div>
+        </section>
+      )}
+
       {d.eta && (
-        <section className="mt-5 rounded-lg border-2 border-united-green/40 p-3 print-break-inside-avoid" data-eta-uuid={d.eta.uuid}>
+        <section className="mt-4 rounded-lg border-2 border-united-green/40 p-3 doc-keep" data-eta-uuid={d.eta.uuid}>
           <div className="text-[11px] font-bold uppercase text-united-green mb-1">{L.eta}</div>
           <div className="grid grid-cols-2 gap-x-6">
             <Row k={L.etaUuid} v={d.eta.uuid} />
@@ -158,12 +188,29 @@ export default async function InvoicePrint({ params, searchParams }: { params: {
         </section>
       )}
 
-      {d.notes && <p className="mt-4 text-xs text-united-dark/70">{d.notes}</p>}
-      <footer className="mt-8 pt-3 border-t border-united-dark/15 flex justify-between text-[11px] text-united-dark/50">
+      {(d.notes || d.commercialTerms) && (
+        <section className="mt-4 space-y-2 text-xs text-united-dark/80 doc-keep">
+          {d.notes && <p><span className="font-bold">{L.notes}: </span>{d.notes}</p>}
+          {d.commercialTerms && <p className="whitespace-pre-line"><span className="font-bold">{L.commercialTerms}: </span>{d.commercialTerms}</p>}
+        </section>
+      )}
+
+      {/* Signatures: who prepared it, and the customer's acknowledgement of receipt */}
+      <section className="mt-8 grid grid-cols-3 gap-6 text-xs doc-keep" data-testid="signatures">
+        {[[L.preparedBy, d.signatures.preparedBy], [L.authorized, null], [L.receivedBy, null]].map(([label, name], i) => (
+          <div key={i}>
+            <div className="h-10 border-b border-united-dark/40" />
+            <div className="mt-1 font-bold text-united-dark/70">{label}</div>
+            {name && <div className="text-united-dark/60">{name}</div>}
+          </div>
+        ))}
+      </section>
+
+      <footer className="mt-6 pt-3 border-t border-united-dark/15 flex justify-between text-[11px] text-united-dark/50">
         <span>{L.thanks}</span>
         <span dir="ltr">{d.meta.number}</span>
       </footer>
-      <div className="no-print mt-6 flex gap-2">
+      <div className="no-print doc-screen-only mt-6 flex gap-2">
         <PrintButton lang={lang} />
         <a className="btn-secondary mt-6" href={`?lang=${lang === "ar" ? "en" : "ar"}`}>{lang === "ar" ? "English" : "عربي"}</a>
       </div>

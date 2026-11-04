@@ -20,6 +20,8 @@ import { idempotencyKeyField, lockKey, replayRequest, requestFingerprint } from 
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { listLimit } from "@/lib/core/list-window";
 import { searchWhere } from "@/lib/core/search";
+import { asJson, companyDocumentGaps, companySnapshot, documentCompany, partySnapshot } from "@/lib/core/document-snapshot";
+import { buildIssueSnapshot, readIssueSnapshot } from "@/lib/sales/invoice-snapshot";
 
 /**
  * Sales invoicing.
@@ -252,6 +254,9 @@ export async function issueInvoice(id: string, input: unknown, actor: ServiceAct
     const buyer = resolveBuyerIdentity(inv.customer);
     if (!buyer.ok) throw new ApiError(409, buyer.error, "buyer_tax_id_missing");
     const { buyerName, buyerTaxId, address } = buyer;
+    // The seller, the buyer's card, the order's references and the product codes as they are
+    // now — frozen with the invoice by the same UPDATE (SalesInvoice_frozen keeps it).
+    const issueSnapshot = await buildIssueSnapshot(tx, inv, buyer.source);
     const updated = await tx.salesInvoice.update({
       where: { id, version: inv.version, status: "draft" },
       data: {
@@ -262,6 +267,7 @@ export async function issueInvoice(id: string, input: unknown, actor: ServiceAct
         buyerName,
         buyerTaxId,
         buyerAddress: address,
+        issueSnapshot: asJson(issueSnapshot),
         notes: v.notes ?? inv.notes,
         issuedById: actor.id,
         issuedBy: actor.name,
@@ -553,7 +559,7 @@ export async function getInvoice(id: string) {
     where: { id },
     include: {
       customer: { select: { id: true, code: true, name: true, nameAr: true, taxRegistrationNo: true, paymentTermsDays: true } },
-      order: { select: { id: true, orderNumber: true, deliveryDate: true } },
+      order: { select: { id: true, orderNumber: true, deliveryDate: true, customerPoRef: true } },
       lines: { orderBy: { lineNo: "asc" }, include: { creditLines: { select: { quantity: true } } } },
       creditNotes: { orderBy: { createdAt: "asc" }, include: { lines: true } },
       receiptAllocations: { where: { receipt: { reversal: { is: null } } }, include: { receipt: { select: { id: true, number: true, date: true } } } },
@@ -562,8 +568,13 @@ export async function getInvoice(id: string) {
   if (!inv) throw new ApiError(404, "الفاتورة مش موجودة");
   const credited = inv.creditNotes.reduce((s, c) => s.plus(c.total), D(0));
   const paid = inv.receiptAllocations.reduce((s, a) => s.plus(a.amount), D(0));
+  const snapshot = readIssueSnapshot(inv.issueSnapshot);
   return {
     ...inv,
+    issueSnapshot: snapshot,
+    // A draft shows what issue will freeze: the current company and customer, and what is
+    // missing from them (fixed in their master records, never on the invoice).
+    current: inv.status === "draft" ? await draftMasterData(inv.customerId) : null,
     lines: inv.lines.map((l) => ({ ...l, creditedQty: l.creditLines.reduce((s, c) => s.plus(c.quantity), D(0)).toString(), creditLines: undefined })),
     credited: credited.toFixed(2),
     paid: paid.toFixed(2),
@@ -571,6 +582,40 @@ export async function getInvoice(id: string) {
     receiptAllocations: undefined,
     open: inv.status === "issued" ? inv.total.minus(credited).minus(paid).toFixed(2) : null,
   };
+}
+
+async function draftMasterData(customerId: string) {
+  const [company, customer] = await Promise.all([documentCompany(prisma), prisma.customer.findUnique({ where: { id: customerId }, include: { legalEntity: true } })]);
+  const seller = company ? companySnapshot(company) : null;
+  const identity = customer ? resolveBuyerIdentity(customer) : null;
+  return {
+    seller,
+    sellerGaps: companyDocumentGaps(seller),
+    buyer: customer ? partySnapshot(customer) : null,
+    buyerIdentity: identity && (identity.ok ? { ok: true as const, name: identity.buyerName, taxId: identity.buyerTaxId, address: identity.address, source: identity.source } : { ok: false as const, error: identity.error }),
+  };
+}
+
+/**
+ * A draft's own fields: the notes printed on it. Its lines come from the order (what was
+ * delivered, at the order's prices — repriced explicitly) and its buyer from the customer
+ * record, so neither is typed here. Audited with the previous and the new value.
+ */
+export async function updateDraftInvoice(id: string, input: unknown, actor: ServiceActor) {
+  assertPermission(actor, "sales.invoices.manage");
+  const v = parse(z.object({ notes: optText("ملاحظات", 2000).nullable(), expected_version: version }), input);
+  return inTx(async (tx) => {
+    await advisoryXactLock(tx, `sales:invoice:${id}`);
+    const inv = await tx.salesInvoice.findUnique({ where: { id } });
+    if (!inv) throw new ApiError(404, "الفاتورة مش موجودة");
+    if (inv.status !== "draft") throw new ApiError(409, inv.status === "issued" ? "الفاتورة صدرت — التصحيح بإشعار دائن" : "الفاتورة ملغية");
+    if (v.expected_version !== undefined && v.expected_version !== inv.version) throw new ApiError(409, "الفاتورة اتغيرت، حدّث الشاشة");
+    const notes = v.notes ?? null;
+    if (notes === inv.notes) return inv;
+    const updated = await tx.salesInvoice.update({ where: { id, version: inv.version, status: "draft" }, data: { notes, version: { increment: 1 } } });
+    await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "invoice_draft_edited", entityType: "sales_invoice", entityId: id, orderId: inv.orderId, fieldChanged: "notes", oldValue: inv.notes, newValue: notes, source: "user", deviceId: actor.deviceId }, tx);
+    return updated;
+  });
 }
 
 /** Dispatched orders with no live invoice yet — the accountant's to-do list. */

@@ -28,7 +28,8 @@ import { localName, type LocalizedNameSource } from "@/lib/locale/names";
 import { useDialogs } from "@/components/ui/Dialog";
 import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
 import { FilterBar, useListState } from "@/components/ui/DataTable";
-import { PartyLink } from "@/components/profiles/EntityLink";
+import { DocLink, PartyLink } from "@/components/profiles/EntityLink";
+import { href as docHref } from "@/lib/profiles/links";
 import { AttachmentsPanel } from "@/components/AttachmentsPanel";
 import { StatusPill } from "@/components/ui/StatusPill";
 
@@ -427,7 +428,13 @@ function Refunds({ kind }: { kind: "customer" | "supplier" }) {
   );
 }
 
-type Journal = { id: string; number: string; date: string; description: string; sourceType: string; total: string; reversedBy?: { number: string } | null; lines?: { id: string; debit: string; credit: string; description: string | null; account: { code: string; name?: string; nameAr: string } }[] };
+/** Journal sources that open as a document (by its id); the link is dropped for viewers who cannot open it. */
+const SOURCE_DOC: Record<string, ((id: string) => string) | undefined> = {
+  sales_invoice: docHref.invoice,
+  supplier_bill: docHref.bill,
+};
+
+type Journal = { id: string; number: string; date: string; description: string; sourceType: string; sourceId?: string | null; total: string; reversedBy?: { number: string } | null; lines?: { id: string; debit: string; credit: string; description: string | null; account: { code: string; name?: string; nameAr: string } }[] };
 
 function Journals() {
   const { can } = usePermissions();
@@ -492,6 +499,9 @@ function Journals() {
               <div className="min-w-0">
                 <h3 className="section-title"><bdi dir="ltr">{j.number}</bdi> · {j.date}</h3>
                 <p className="text-sm text-united-muted">{t(SOURCE_TYPES[j.sourceType])} · <bdi>{systemText(j.description, locale)}</bdi></p>
+                {j.sourceId && SOURCE_DOC[j.sourceType] && (
+                  <p className="text-sm font-bold" data-testid="journal-source"><span className="text-united-muted">{t("doc.source-document")} </span><DocLink href={SOURCE_DOC[j.sourceType]!(j.sourceId)}>{t("doc.open-source")}</DocLink></p>
+                )}
               </div>
               <button type="button" className="btn-secondary btn-sm shrink-0" onClick={() => setOpen(null)}>{t("accounting.button.close")}</button>
             </div>

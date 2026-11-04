@@ -63,6 +63,13 @@ export type CompanyDTO = {
   address: string | null;
   phone: string | null;
   email: string | null;
+  legalForm: string | null;
+  issuedCapital: string | null;
+  bankName: string | null;
+  bankAccountName: string | null;
+  bankAccountNumber: string | null;
+  iban: string | null;
+  invoiceTerms: string | null;
   baseCurrencyCode: string;
   active: boolean;
   version: number;

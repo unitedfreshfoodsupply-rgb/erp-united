@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Check } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
@@ -23,10 +23,16 @@ import { intlLocale } from "@/lib/format";
 import { changeArrow } from "@/lib/auditLabels";
 import { Tabs } from "@/components/stock/inventory/shared";
 
-type Tab = "users" | "matrix" | "overview" | "settings" | "master" | "integrations" | "import";
+const TABS = ["users", "matrix", "overview", "settings", "master", "integrations", "import"] as const;
+type Tab = (typeof TABS)[number];
 
 export function AdminDashboard() {
+  // A deep link may open a tab (?tab=master from an invoice's missing company details).
   const [tab, setTab] = useState<Tab>("users");
+  useEffect(() => {
+    const want = new URLSearchParams(window.location.search).get("tab");
+    if (want && (TABS as readonly string[]).includes(want)) setTab(want as Tab);
+  }, []);
   const { can } = usePermissions();
   const { t } = useLocale();
   const importAllowed = {

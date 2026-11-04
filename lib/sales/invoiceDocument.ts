@@ -5,31 +5,48 @@
  *
  * Bilingual by structure: every label comes from one dictionary per language, the
  * direction follows the language, and figures are always Latin digits, left-to-right.
+ *
+ * An ordinary commercial invoice (Nov 2026): until the ETA integration is switched on, an
+ * invoice is printed as UNITED's sales invoice and says it was not submitted to the
+ * e-invoicing system. Only an invoice the ETA has actually received or accepted prints as a
+ * tax invoice with its UUID — never a placeholder UUID, QR code or approval claim.
  */
 import { formatNumber } from "@/lib/format";
+import { companyDocumentGaps, type CompanyDocumentGap } from "@/lib/core/document-snapshot";
+import type { SalesIssueSnapshot } from "@/lib/sales/invoice-snapshot";
 
 export type InvoiceLang = "ar" | "en";
 
 export const INVOICE_LABELS = {
   ar: {
-    title: "فاتورة ضريبية", subtitle: "Tax Invoice", seller: "المورّد", buyer: "العميل", taxId: "رقم التسجيل الضريبي", commercialReg: "السجل التجاري",
-    customerCode: "كود العميل", invoiceNo: "رقم الفاتورة", issueDate: "تاريخ الإصدار", issueTime: "وقت الإصدار", dueDate: "تاريخ الاستحقاق", order: "أمر التوريد",
-    delivery: "التسليم", currency: "العملة", no: "#", item: "الصنف", qty: "الكمية", unit: "الوحدة", unitPrice: "سعر الوحدة", discount: "الخصم", net: "الصافي",
+    title: "فاتورة مبيعات", subtitle: "Sales Invoice", etaTitle: "فاتورة ضريبية", etaSubtitle: "Tax Invoice",
+    commercialNote: "فاتورة تجارية — غير مُرسلة لمنظومة الفاتورة الإلكترونية",
+    seller: "البائع", buyer: "العميل", taxId: "رقم التسجيل الضريبي", commercialReg: "السجل التجاري",
+    customerCode: "كود العميل", phone: "تليفون", email: "البريد", invoiceNo: "رقم الفاتورة", issueDate: "تاريخ الإصدار", issueTime: "وقت الإصدار", dueDate: "تاريخ الاستحقاق", order: "أمر البيع",
+    customerPo: "أمر شراء العميل", delivery: "تاريخ التسليم", trip: "رحلة التوزيع", currency: "العملة", no: "#", code: "الكود", item: "الصنف", qty: "الكمية", unit: "الوحدة", unitPrice: "سعر الوحدة", discount: "الخصم", net: "الصافي",
     tax: "الضريبة", lineTotal: "الإجمالي", exempt: "معفى", subtotal: "الإجمالي قبل الخصم", totalDiscount: "إجمالي الخصم", netTotal: "الصافي بعد الخصم",
     totalTax: "إجمالي الضريبة", grandTotal: "إجمالي الفاتورة", taxSummary: "ملخص الضريبة", taxBase: "الوعاء", rate: "النسبة", payment: "السداد",
     terms: "شروط الدفع", cash: "نقدي عند التسليم", days: (n: number) => `آجل ${n} يوم`, paid: "المدفوع", balance: "المتبقي", paidInFull: "مدفوعة بالكامل",
-    receipts: "إيصالات التحصيل", eta: "الفاتورة الإلكترونية — مصلحة الضرائب", etaUuid: "الرقم الإلكتروني (UUID)", etaLongId: "الرقم المرجعي",
-    etaStatus: "الحالة", etaSubmitted: "تاريخ الإرسال", etaAccepted: "تاريخ القبول", thanks: "شكرًا لتعاملكم مع UNITED", page: "صفحة",
+    status: "حالة السداد", statusPaid: "مسددة", statusPartial: "مدفوعة جزئيًا", statusUnpaid: "غير مدفوعة",
+    receipts: "إيصالات التحصيل", bank: "التحويل البنكي", bankName: "البنك", bankAccountName: "اسم الحساب", bankAccount: "رقم الحساب", iban: "IBAN",
+    commercialTerms: "الشروط", notes: "ملاحظات", capital: "رأس المال المصدر", preparedBy: "أعدّها", receivedBy: "استلام العميل (الاسم / التوقيع / التاريخ)", authorized: "التوقيع المعتمد",
+    eta: "الفاتورة الإلكترونية — مصلحة الضرائب", etaUuid: "الرقم الإلكتروني (UUID)", etaLongId: "الرقم المرجعي",
+    etaStatus: "الحالة", etaSubmitted: "تاريخ الإرسال", etaAccepted: "تاريخ القبول", thanks: "شكرًا لتعاملكم مع UNITED", page: "صفحة", of: "من",
   },
   en: {
-    title: "Tax Invoice", subtitle: "فاتورة ضريبية", seller: "Seller", buyer: "Customer", taxId: "Tax registration no.", commercialReg: "Commercial registry",
-    customerCode: "Customer code", invoiceNo: "Invoice no.", issueDate: "Issue date", issueTime: "Issue time", dueDate: "Due date", order: "Order",
-    delivery: "Delivery", currency: "Currency", no: "#", item: "Item", qty: "Qty", unit: "Unit", unitPrice: "Unit price", discount: "Discount", net: "Net",
+    title: "Sales Invoice", subtitle: "فاتورة مبيعات", etaTitle: "Tax Invoice", etaSubtitle: "فاتورة ضريبية",
+    commercialNote: "Commercial invoice — not submitted to the ETA e-invoicing system",
+    seller: "Seller", buyer: "Customer", taxId: "Tax registration no.", commercialReg: "Commercial registry",
+    customerCode: "Customer code", phone: "Phone", email: "Email", invoiceNo: "Invoice no.", issueDate: "Issue date", issueTime: "Issue time", dueDate: "Due date", order: "Sales order",
+    customerPo: "Customer PO", delivery: "Delivery date", trip: "Delivery trip", currency: "Currency", no: "#", code: "Code", item: "Item", qty: "Qty", unit: "Unit", unitPrice: "Unit price", discount: "Discount", net: "Net",
     tax: "Tax", lineTotal: "Total", exempt: "Exempt", subtotal: "Subtotal", totalDiscount: "Total discount", netTotal: "Net after discount",
     totalTax: "Total tax", grandTotal: "Invoice total", taxSummary: "Tax summary", taxBase: "Taxable amount", rate: "Rate", payment: "Payment",
     terms: "Payment terms", cash: "Cash on delivery", days: (n: number) => `Net ${n} days`, paid: "Paid", balance: "Balance due", paidInFull: "Paid in full",
-    receipts: "Receipts", eta: "E-invoice — Egyptian Tax Authority", etaUuid: "Document UUID", etaLongId: "Long ID",
-    etaStatus: "Status", etaSubmitted: "Submitted", etaAccepted: "Accepted", thanks: "Thank you for choosing UNITED", page: "Page",
+    status: "Payment status", statusPaid: "Settled", statusPartial: "Partly paid", statusUnpaid: "Unpaid",
+    receipts: "Receipts", bank: "Bank transfer", bankName: "Bank", bankAccountName: "Account name", bankAccount: "Account no.", iban: "IBAN",
+    commercialTerms: "Terms", notes: "Notes", capital: "Issued capital", preparedBy: "Prepared by", receivedBy: "Received by the customer (name / signature / date)", authorized: "Authorised signature",
+    eta: "E-invoice — Egyptian Tax Authority", etaUuid: "Document UUID", etaLongId: "Long ID",
+    etaStatus: "Status", etaSubmitted: "Submitted", etaAccepted: "Accepted", thanks: "Thank you for choosing UNITED", page: "Page", of: "of",
   },
 } as const;
 
@@ -42,17 +59,30 @@ const PRINTABLE_ETA = new Set(["submitted", "valid", "cancelled"]);
 
 type Num = string | number | { toString(): string };
 
+export type DocCompany = {
+  legalName: string; tradeName: string | null; nameAr: string | null; taxRegistrationNumber: string | null; commercialRegistration: string | null;
+  address: string | null; phone: string | null; email: string | null;
+  code?: string;
+  legalForm?: string | null;
+  issuedCapital?: string | null;
+  bank?: { name: string; accountName: string | null; accountNumber: string | null; iban: string | null } | null;
+  invoiceTerms?: string | null;
+};
+
 export type InvoiceDocInput = {
   invoice: {
-    number: string | null; status: string; issueDate: string | null; dueDate: string | null; issuedAt: Date | string | null; currencyCode: string;
+    number: string | null; status: string; issueDate: string | null; dueDate: string | null; issuedAt: Date | string | null; issuedBy?: string | null; currencyCode: string;
     buyerName: string | null; buyerTaxId: string | null; buyerAddress: string | null; notes: string | null;
     gross: Num; discountTotal: Num; net: Num; taxTotal: Num; total: Num; paid: Num; open: Num | null;
     customer: { code: string; paymentTermsDays: number } | null;
-    order: { orderNumber: string; deliveryDate: string } | null;
+    order: { orderNumber: string; deliveryDate: string; customerPoRef?: string | null } | null;
     lines: { lineNo: number; description: string; uomCode: string; quantity: Num; unitPrice: Num; discountPct: Num; discount: Num; net: Num; taxCode: string; taxRate: Num; tax: Num; total: Num }[];
     payments: { number: string; date: string; amount: Num }[];
   };
-  company: { legalName: string; tradeName: string | null; nameAr: string | null; taxRegistrationNumber: string | null; commercialRegistration: string | null; address: string | null; phone: string | null; email: string | null } | null;
+  /** The issue snapshot: when present, the seller and references come from it, never from today's records. */
+  snapshot?: SalesIssueSnapshot | null;
+  /** Today's company record — used only for an invoice issued before snapshots existed. */
+  company: DocCompany | null;
   eta: { status: string; uuid: string | null; longId: string | null; submittedAt: Date | string | null; acceptedAt: Date | string | null } | null;
   lang: InvoiceLang;
 };
@@ -63,7 +93,9 @@ const price = (v: Num) => formatNumber(v.toString(), { minDp: 2, maxDp: 4 });
 const cairo = (d: Date | string, opts: Intl.DateTimeFormatOptions) => new Date(d).toLocaleString("en-GB", { timeZone: "Africa/Cairo", ...opts });
 
 export function invoiceDocument(input: InvoiceDocInput) {
-  const { invoice: inv, company, eta, lang } = input;
+  const { invoice: inv, eta, lang } = input;
+  const snap = input.snapshot ?? null;
+  const company: DocCompany | null = snap ? snap.seller : input.company;
   const L = INVOICE_LABELS[lang];
   const taxes = new Map<string, { label: string; rate: number; base: number; tax: number }>();
   for (const l of inv.lines) {
@@ -81,28 +113,54 @@ export function invoiceDocument(input: InvoiceDocInput) {
     : inv.customer?.paymentTermsDays ?? null;
   const terms = termDays === null || Number.isNaN(termDays) ? null : termDays > 0 ? L.days(termDays) : L.cash;
   const open = inv.open === null ? null : Number(inv.open.toString());
+  const paid = Number(inv.paid.toString());
+  const etaFacts = eta && PRINTABLE_ETA.has(eta.status) && eta.uuid
+    ? {
+        status: ETA_STATUS_LABEL[lang][eta.status] ?? eta.status,
+        uuid: eta.uuid,
+        longId: eta.longId,
+        submittedAt: eta.submittedAt ? cairo(eta.submittedAt, { dateStyle: "short", timeStyle: "short", hour12: false }) : null,
+        acceptedAt: eta.acceptedAt ? cairo(eta.acceptedAt, { dateStyle: "short", timeStyle: "short", hour12: false }) : null,
+      }
+    : null;
+  const order = snap?.order ?? (inv.order ? { number: inv.order.orderNumber, customerPoRef: inv.order.customerPoRef ?? null, deliveryDate: inv.order.deliveryDate, trip: null } : null);
+  const buyerCard = snap?.buyer ?? null;
   return {
     lang,
     dir: lang === "ar" ? ("rtl" as const) : ("ltr" as const),
     labels: L,
+    // A tax invoice only when the ETA has the document; otherwise UNITED's commercial invoice.
+    title: etaFacts ? L.etaTitle : L.title,
+    subtitle: etaFacts ? L.etaSubtitle : L.subtitle,
+    commercialNote: etaFacts ? null : L.commercialNote,
+    /** Where the parties come from: the issue snapshot, or (before Nov 2026) the frozen buyer columns and today's company. */
+    source: snap ? ("snapshot" as const) : ("legacy" as const),
     seller: company && {
       name: (lang === "ar" ? company.nameAr : null) ?? company.tradeName ?? company.legalName,
       legalName: company.legalName,
+      legalForm: company.legalForm ?? null, issuedCapital: company.issuedCapital ?? null,
       taxId: company.taxRegistrationNumber, commercialReg: company.commercialRegistration,
       address: company.address, phone: company.phone, email: company.email,
     },
-    buyer: { name: inv.buyerName ?? "", taxId: inv.buyerTaxId, address: inv.buyerAddress, code: inv.customer?.code ?? null },
+    /** Company fields the document needs and the company record lacks (shown on screen to whoever prints, never on paper). */
+    sellerGaps: companyDocumentGaps(company ? { code: company.code ?? "", bank: null, invoiceTerms: null, ...company, legalForm: company.legalForm ?? null, issuedCapital: company.issuedCapital ?? null } : null) as CompanyDocumentGap[],
+    buyer: {
+      name: inv.buyerName ?? "", taxId: inv.buyerTaxId, address: inv.buyerAddress, code: buyerCard?.code ?? inv.customer?.code ?? null,
+      commercialReg: buyerCard?.commercialRegNo ?? null, phone: buyerCard?.phone ?? null, email: buyerCard?.email ?? null,
+    },
     meta: {
       number: inv.number ?? "",
       issueDate: inv.issueDate ?? "",
       issueTime: inv.issuedAt ? cairo(inv.issuedAt, { hour: "2-digit", minute: "2-digit", hour12: false }) : null,
       dueDate: inv.dueDate,
-      order: inv.order?.orderNumber ?? null,
-      delivery: inv.order?.deliveryDate ?? null,
+      order: order?.number ?? null,
+      customerPo: order?.customerPoRef ?? null,
+      delivery: order?.deliveryDate ?? null,
+      trip: order?.trip ?? null,
       currency: inv.currencyCode,
     },
     lines: inv.lines.map((l) => ({
-      no: l.lineNo, description: l.description, qty: qty(l.quantity), unit: l.uomCode, unitPrice: price(l.unitPrice),
+      no: l.lineNo, code: snap?.lines[String(l.lineNo)]?.productCode ?? null, description: l.description, qty: qty(l.quantity), unit: l.uomCode, unitPrice: price(l.unitPrice),
       discount: Number(l.discount.toString()) ? `${money(l.discount)}${Number(l.discountPct.toString()) ? ` (${Number(l.discountPct.toString())}%)` : ""}` : "—",
       net: money(l.net), tax: Number(l.taxRate.toString()) ? `${money(l.tax)} (${Number(l.taxRate.toString())}%)` : L.exempt, total: money(l.total),
     })),
@@ -110,18 +168,14 @@ export function invoiceDocument(input: InvoiceDocInput) {
     taxSummary: [...taxes.values()].map((t) => ({ label: t.label, rate: t.rate, base: money(t.base), tax: money(t.tax) })),
     payment: {
       terms, dueDate: inv.dueDate, paid: money(inv.paid), balance: open === null ? null : money(open), paidInFull: open !== null && open <= 0,
+      status: open === null ? null : open <= 0 ? L.statusPaid : paid > 0 ? L.statusPartial : L.statusUnpaid,
       receipts: inv.payments.map((p) => ({ number: p.number, date: p.date, amount: money(p.amount) })),
     },
+    bank: company?.bank ?? null,
+    commercialTerms: company?.invoiceTerms ?? null,
     notes: inv.notes,
-    eta: eta && PRINTABLE_ETA.has(eta.status) && eta.uuid
-      ? {
-          status: ETA_STATUS_LABEL[lang][eta.status] ?? eta.status,
-          uuid: eta.uuid,
-          longId: eta.longId,
-          submittedAt: eta.submittedAt ? cairo(eta.submittedAt, { dateStyle: "short", timeStyle: "short", hour12: false }) : null,
-          acceptedAt: eta.acceptedAt ? cairo(eta.acceptedAt, { dateStyle: "short", timeStyle: "short", hour12: false }) : null,
-        }
-      : null,
+    signatures: { preparedBy: inv.issuedBy ?? null },
+    eta: etaFacts,
   };
 }
 

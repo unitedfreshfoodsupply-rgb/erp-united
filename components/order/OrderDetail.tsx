@@ -37,6 +37,7 @@ import { PartyLink } from "@/components/profiles/EntityLink";
 import { OrderStepper } from "@/components/order/OrderStepper";
 import { Field } from "@/components/ui/Field";
 import { StockHoldPanel } from "@/components/order/StockHoldPanel";
+import { OrderInvoices } from "@/components/order/OrderInvoices";
 
 // Map order source → translation key
 const SOURCE_TKEY: Record<string, string> = {
@@ -518,6 +519,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
             </a>
           )}
         </div>
+        <div className="mt-2"><OrderInvoices orderId={orderId} /></div>
       </div>
 
       {(urgency === "late" || urgency === "soon") && (

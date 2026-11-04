@@ -9,6 +9,8 @@ import { assertPermission } from "@/lib/authz-core";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { inTx, type Tx } from "@/lib/tx";
+import { asJson, companyDocumentGaps, companySnapshot, documentCompany, partySnapshot } from "@/lib/core/document-snapshot";
+import { buildPostSnapshot, readPostSnapshot } from "@/lib/purchasing/bill-snapshot";
 import { todayLocalISO } from "@/lib/localDate";
 import { isValidISODate } from "@/lib/dates";
 import { getSetting } from "@/lib/core/settings-service";
@@ -57,9 +59,9 @@ function addDays(iso: string, days: number) {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
-const auditBill = (tx: Tx, actor: Actorish, entityType: "supplier_bill" | "debit_note", id: string, number: string, action: string, detail: string | null, reason?: string | null) =>
+const auditBill = (tx: Tx, actor: Actorish, entityType: "supplier_bill" | "debit_note", id: string, number: string, action: string, detail: string | null, reason?: string | null, previous?: string) =>
   writeAudit(
-    { userId: actor.id, userName: actor.name, role: actor.role, action, entityType, entityId: id, fieldChanged: number, newValue: detail, reason: reason ?? undefined, source: "user", deviceId: actor.deviceId },
+    { userId: actor.id, userName: actor.name, role: actor.role, action, entityType, entityId: id, fieldChanged: number, oldValue: previous ?? null, newValue: detail, reason: reason ?? undefined, source: "user", deviceId: actor.deviceId },
     tx
   );
 const amountsData = (a: LineAmounts) => ({ gross: a.gross, discount: a.discount, net: a.net, tax: a.tax, total: a.total });
@@ -317,7 +319,7 @@ export async function updateBill(id: string, input: unknown, actor: ServiceActor
         variance: m.variance,
         matchStatus: m.status,
       });
-      await auditBill(tx, actor, "supplier_bill", id, bill.number, "supplier_bill_edited", `${lines.length} سطر · ${updated.total.toFixed(2)} · ${m.status}`);
+      await auditBill(tx, actor, "supplier_bill", id, bill.number, "supplier_bill_edited", `${updated.supplierInvoiceNo} · ${updated.billDate} · ${lines.length} سطر · ${updated.total.toFixed(2)} · ${m.status}`, undefined, `${bill.supplierInvoiceNo} · ${bill.billDate} · ${bill.total.toFixed(2)} · ${bill.matchStatus}`);
       return updated;
     })
   );
@@ -460,7 +462,7 @@ async function updateServiceBill(id: string, input: unknown, actor: ServiceActor
       await tx.supplierBillServiceLine.deleteMany({ where: { billId: id } });
       await tx.supplierBillServiceLine.createMany({ data: lines.map((l) => ({ ...l, billId: id })) });
       const updated = await transition(tx, bill, { supplierInvoiceNo: v.supplier_invoice_no, billDate: v.bill_date, dueDate, notes: v.notes ?? null, ...totalsData(totals), expectedNet: totals.net, variance: 0 });
-      await auditBill(tx, actor, "supplier_bill", id, bill.number, "supplier_bill_edited", `خدمة · ${lines.length} سطر · ${updated.total.toFixed(2)}`);
+      await auditBill(tx, actor, "supplier_bill", id, bill.number, "supplier_bill_edited", `خدمة · ${updated.supplierInvoiceNo} · ${updated.billDate} · ${lines.length} سطر · ${updated.total.toFixed(2)}`, undefined, `${bill.supplierInvoiceNo} · ${bill.billDate} · ${bill.total.toFixed(2)}`);
       return updated;
     })
   );
@@ -531,8 +533,10 @@ async function createServiceDebitNote(billId: string, input: unknown, actor: Ser
 }
 
 async function transition(tx: Tx, bill: SupplierBill, data: Prisma.SupplierBillUpdateInput) {
+  // Posting freezes who the bill is from, as the supplier's card is now (SupplierBill_frozen keeps it).
+  const snapshot = data.status === "posted" ? { postSnapshot: asJson(await buildPostSnapshot(tx, bill.id)) } : {};
   try {
-    return await tx.supplierBill.update({ where: { id: bill.id, version: bill.version }, data: { ...data, version: { increment: 1 } } });
+    return await tx.supplierBill.update({ where: { id: bill.id, version: bill.version }, data: { ...data, ...snapshot, version: { increment: 1 } } });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") throw new ApiError(409, "الفاتورة اتعدلت من حد تاني — حدّث الصفحة");
     throw err;
@@ -841,8 +845,8 @@ export async function getBill(id: string) {
   const b = await prisma.supplierBill.findUnique({
     where: { id },
     include: {
-      supplier: { select: { id: true, code: true, name: true, nameAr: true, paymentTermsDays: true } },
-      lines: { orderBy: { lineNo: "asc" }, include: { intake: { select: { receiptNumber: true, receivedDate: true } }, poLine: { select: { po: { select: { id: true, number: true } } } } } },
+      supplier: true,
+      lines: { orderBy: { lineNo: "asc" }, include: { intake: { select: { receiptNumber: true, receivedDate: true } }, poLine: { select: { po: { select: { id: true, number: true } } } }, product: { select: { sku: true } } } },
       serviceLines: { orderBy: { lineNo: "asc" }, include: { account: { select: { code: true, name: true, nameAr: true } }, debitLines: { select: { net: true } } } },
       debitNotes: { orderBy: { createdAt: "asc" }, include: { lines: true } },
       paymentAllocations: { where: { payment: { reversal: { is: null } } }, include: { payment: { select: { id: true, number: true, date: true } } } },
@@ -859,7 +863,10 @@ export async function getBill(id: string) {
     number: b.number,
     status: b.status,
     kind: b.kind,
-    supplier: b.supplier,
+    supplier: { id: b.supplier.id, code: b.supplier.code, name: b.supplier.name, nameAr: b.supplier.nameAr, paymentTermsDays: b.supplier.paymentTermsDays },
+    postSnapshot: readPostSnapshot(b.postSnapshot),
+    // Until it posts (and for bills posted before snapshots existed), the current cards.
+    current: b.status === "posted" && b.postSnapshot ? null : await billMasterData(b.supplier),
     supplierInvoiceNo: b.supplierInvoiceNo,
     billDate: b.billDate,
     dueDate: b.dueDate,
@@ -890,6 +897,9 @@ export async function getBill(id: string) {
       receiptNumber: l.intake.receiptNumber,
       receivedDate: l.intake.receivedDate,
       poNumber: l.poLine?.po.number ?? null,
+      poId: l.poLine?.po.id ?? null,
+      productId: l.productId,
+      productCode: l.product?.sku ?? null,
       description: l.description,
       uomCode: l.uomCode,
       receivedQty: l.receivedQty.toString(),
@@ -926,6 +936,12 @@ export async function getBill(id: string) {
     // WS3 (ACC-E1): how posting (and allowance debit notes) revalued provisional receipts.
     revaluations: await revaluationsOf(prisma, { billId: b.id }),
   };
+}
+
+async function billMasterData(supplier: Parameters<typeof partySnapshot>[0] & { category: string | null }) {
+  const company = await documentCompany(prisma);
+  const buyer = company ? companySnapshot(company) : null;
+  return { supplier: { ...partySnapshot(supplier), category: supplier.category }, buyer, buyerGaps: companyDocumentGaps(buyer) };
 }
 
 /** Posted bills − debit notes − payments for a supplier (what we owe them now). */

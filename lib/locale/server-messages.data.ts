@@ -6,6 +6,15 @@
  * message has no entry here.
  */
 export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
+  // Commercial invoices: the company's bank details and printed terms (Nov 2026).
+  ["اسم الحساب البنكي", "Bank account name"],
+  ["الشكل القانوني", "Legal form"],
+  ["رأس المال المصدر", "Issued capital"],
+  ["رقم الحساب البنكي", "Bank account number"],
+  ["رقم الحساب البنكي: أرقام وحروف إنجليزي بس (4 لـ 40)", "Bank account number: Latin letters and digits only (4 to 40)"],
+  ["الـ IBAN", "The IBAN"],
+  ["الـ IBAN المصري: EG وبعدها 27 رقم", "An Egyptian IBAN: EG followed by 27 digits"],
+  ["شروط الفاتورة", "Invoice terms"],
   // Phased opening migration (Nov 2026).
   ["قسم الدفعة مش معروف", "The batch segment is not known"],
   ["تحويل الأرصدة الافتتاحية للحساب الوسيط بيتعمل في دفعة \"أرصدة أخرى\" من الترحيل الافتتاحي المرحلي بس", "Moving opening-balance equity to the clearing account is done only in an \"other balances\" batch of the phased opening migration"],

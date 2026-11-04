@@ -545,6 +545,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/sales/invoices/[id]/recover` | `sales.invoices.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/sales/invoices/[id]/reprice` | `sales.invoices.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/sales/invoices/[id]` | `sales.invoices.view` | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
+| PATCH | `/api/sales/invoices/[id]` | `sales.invoices.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/sales/invoices/[id]/void` | `sales.invoices.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/sales/invoices` | `sales.invoices.view` | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
 | POST | `/api/sales/invoices` | `sales.invoices.manage` | ✓ |  |  |  |  |  | ✓ |  |  |

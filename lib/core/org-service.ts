@@ -53,6 +53,14 @@ const companyCreate = z.object({
   phone: optText("التليفون", 40).optional(),
   email: optText("الإيميل", 200).optional(),
   base_currency_code: egpCurrencyCode.optional(),
+  // Printed on invoices only when set (commercial invoices, Nov 2026).
+  legal_form: optText("الشكل القانوني", 120).optional(),
+  issued_capital: optText("رأس المال المصدر", 60).optional(),
+  bank_name: optText("اسم البنك", 120).optional(),
+  bank_account_name: optText("اسم الحساب البنكي", 160).optional(),
+  bank_account_number: optText("رقم الحساب البنكي", 40).optional().refine((v) => !v || /^[0-9A-Za-z -]{4,40}$/.test(v), "رقم الحساب البنكي: أرقام وحروف إنجليزي بس (4 لـ 40)"),
+  iban: optText("الـ IBAN", 34).optional().transform((v) => (v ? v.replace(/\s+/g, "").toUpperCase() : v)).refine((v) => !v || /^EG\d{27}$/.test(v), "الـ IBAN المصري: EG وبعدها 27 رقم"),
+  invoice_terms: optText("شروط الفاتورة", 1500).optional(),
 });
 const companyUpdate = companyCreate.omit({ code: true }).partial().extend({ active: active().optional(), expected_version: version });
 
@@ -371,6 +379,13 @@ export async function createCompany(input: unknown, actor: ServiceActor) {
           address: v.address ?? null,
           phone: v.phone ?? null,
           email: v.email ?? null,
+          legalForm: v.legal_form ?? null,
+          issuedCapital: v.issued_capital ?? null,
+          bankName: v.bank_name ?? null,
+          bankAccountName: v.bank_account_name ?? null,
+          bankAccountNumber: v.bank_account_number ?? null,
+          iban: v.iban ?? null,
+          invoiceTerms: v.invoice_terms ?? null,
           baseCurrencyCode: currency,
         },
       })
@@ -395,6 +410,13 @@ export async function updateCompany(id: string, input: unknown, actor: ServiceAc
     address: v.address,
     phone: v.phone,
     email: v.email,
+    legalForm: v.legal_form,
+    issuedCapital: v.issued_capital,
+    bankName: v.bank_name,
+    bankAccountName: v.bank_account_name,
+    bankAccountNumber: v.bank_account_number,
+    iban: v.iban,
+    invoiceTerms: v.invoice_terms,
     baseCurrencyCode: v.base_currency_code,
     active: v.active,
   });

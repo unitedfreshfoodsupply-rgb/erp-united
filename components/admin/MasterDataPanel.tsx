@@ -25,6 +25,7 @@ import type {
   WarehouseDTO,
 } from "@/lib/master-client-types";
 import { localName } from "@/lib/locale/names";
+import { companyDocumentGaps, companySnapshot } from "@/lib/core/document-snapshot";
 
 /**
  * Organisation master data: the company, its branches, warehouses and storage
@@ -72,6 +73,18 @@ export function MasterDataPanel({ canManage }: { canManage: boolean }) {
 // Organisation tree
 // ---------------------------------------------------------------------------
 
+/** What printed invoices need from the company record and it does not have yet. */
+function DocumentGaps({ company }: { company: CompanyDTO }) {
+  const { t } = useLocale();
+  const gaps = companyDocumentGaps(companySnapshot(company));
+  if (!gaps.length) return null;
+  return (
+    <p role="status" data-testid="company-document-gaps" className="mt-2 rounded-lg bg-united-warn/10 border border-united-warn/40 px-3 py-2 text-sm font-bold text-united-dark">
+      {t("doc.gaps-company", { fields: gaps.map((g) => t(`doc.gap.${g}`)).join(" · ") })}
+    </p>
+  );
+}
+
 function CompanySection({ company, currencies, canManage }: { company: CompanyDTO; currencies: CurrencyDTO[]; canManage: boolean }) {
   const { t, locale } = useLocale();
   const [editing, setEditing] = useState(false);
@@ -93,6 +106,7 @@ function CompanySection({ company, currencies, canManage }: { company: CompanyDT
               [t("admin.company.fact-currency"), company.baseCurrencyCode],
             ]}
           />
+          <DocumentGaps company={company} />
         </div>
         <div className="flex gap-2 items-center">
           <ActiveBadge active={company.active} />
@@ -117,6 +131,13 @@ function CompanySection({ company, currencies, canManage }: { company: CompanyDT
             { key: "phone", label: t("admin.company.field-phone"), ltr: true },
             { key: "email", label: t("admin.company.field-email"), ltr: true },
             { key: "address", label: t("admin.company.field-address") },
+            { key: "legal_form", label: t("admin.company.field-legal-form") },
+            { key: "issued_capital", label: t("admin.company.field-issued-capital") },
+            { key: "bank_name", label: t("admin.company.field-bank-name") },
+            { key: "bank_account_name", label: t("admin.company.field-bank-account-name") },
+            { key: "bank_account_number", label: t("admin.company.field-bank-account-number"), ltr: true },
+            { key: "iban", label: t("admin.company.field-iban"), ltr: true },
+            { key: "invoice_terms", label: t("admin.company.field-invoice-terms") },
           ]}
           initial={{
             legal_name: company.legalName,
@@ -128,6 +149,13 @@ function CompanySection({ company, currencies, canManage }: { company: CompanyDT
             phone: company.phone,
             email: company.email,
             address: company.address,
+            legal_form: company.legalForm,
+            issued_capital: company.issuedCapital,
+            bank_name: company.bankName,
+            bank_account_name: company.bankAccountName,
+            bank_account_number: company.bankAccountNumber,
+            iban: company.iban,
+            invoice_terms: company.invoiceTerms,
           }}
           onDone={() => setEditing(false)}
         />

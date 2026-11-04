@@ -19,6 +19,7 @@ import { isServiceBillAccount } from "@/lib/purchasing/service-accounts";
 import { DataTable, FilterBar, useListQuery, useListState, type Column } from "@/components/ui/DataTable";
 import { href as profileHref } from "@/lib/profiles/links";
 import { DocLink, PartyLink } from "@/components/profiles/EntityLink";
+import { AttachmentsPanel } from "@/components/AttachmentsPanel";
 import { formatNumber } from "@/lib/format";
 
 /**
@@ -45,7 +46,7 @@ const MATCH: Record<string, { label: string; cls: string }> = {
 };
 
 type BillRow = { id: string; number: string; status: string; kind?: string; supplier: { id: string; code: string; name: string; nameAr?: string | null }; supplierInvoiceNo: string; billDate: string; dueDate: string; lineCount: number; total: string; variance: string; matchStatus: string; open: string | null };
-type BillLine = { id: string; lineNo: number; intakeId: string; receiptNumber: string; receivedDate: string; poNumber: string | null; description: string; uomCode: string; receivedQty: string; quantity: string; unitPrice: string; expectedUnitPrice: string | null; expectedNet: string | null; lineVariance: string | null; taxCode: string; net: string; tax: string; total: string; debitedQty: string };
+type BillLine = { id: string; lineNo: number; intakeId: string; poId?: string | null; productCode?: string | null; receiptNumber: string; receivedDate: string; poNumber: string | null; description: string; uomCode: string; receivedQty: string; quantity: string; unitPrice: string; expectedUnitPrice: string | null; expectedNet: string | null; lineVariance: string | null; taxCode: string; net: string; tax: string; total: string; debitedQty: string };
 type ServiceLine = { id: string; lineNo: number; accountId: string; account: { code: string; name: string; nameAr: string }; description: string; taxCode: string; taxRate: string; net: string; tax: string; total: string; debitedNet: string; assetCategoryId: string | null; assetName: string | null; improvesAssetId: string | null; costCenterId: string | null };
 type Bill = Omit<BillRow, "lineCount"> & { currencyCode: string; notes: string | null; cancelReason: string | null; expectedNet: string; net: string; taxTotal: string; debited: string; approvalId: string | null; createdBy: string; postedBy: string | null; approvedBy: string | null; version: number; lines: BillLine[]; serviceLines: ServiceLine[]; debitNotes: { id: string; number: string; issueDate: string; reason: string; total: string; createdBy: string }[] };
 type Billable = { intakeId: string; receiptNumber: string; receivedDate: string; product: { id: string; name: string; unit: string }; poNumber: string | null; goodQty: string; gradeBQty?: string; wasteQty?: string; billableQty?: string; expectedUnitPrice: string | null; priceSource: string | null; expectedNet: string | null; taxCode: string; taxRate: string };
@@ -382,12 +383,16 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const debitable = service ? b.serviceLines.some((l) => Number(l.debitedNet) < Number(l.net)) : b.lines.some((l) => Number(l.debitedQty) < Number(l.quantity));
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex justify-between items-center gap-2">
-        <div>
+      <div className="flex flex-wrap justify-between items-start gap-2">
+        <div className="min-w-0">
           <h2 className="text-xl font-extrabold" dir="ltr">{b.number}</h2>
           <p className="text-sm font-bold text-united-muted"><PartyLink kind="supplier" id={b.supplier.id} name={localName(b.supplier, locale)} /> · {t("purchasing.bill.supplier_invoice_label")} <span dir="ltr">{b.supplierInvoiceNo}</span> · {b.billDate} · {t("purchasing.bill.due_date")} {b.dueDate}</p>
         </div>
-        <button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button>
+        <div className="flex gap-2 flex-wrap">
+          <Link href={`/purchasing/bills/${b.id}/print`} target="_blank" className="btn-secondary">{t("doc.print-ar")}</Link>
+          <Link href={`/purchasing/bills/${b.id}/print?lang=en`} target="_blank" className="btn-secondary">{t("doc.print-en")}</Link>
+          <button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button>
+        </div>
       </div>
       <div className="flex flex-wrap gap-2 items-center">
         <span className={`rounded-full px-3 py-1 text-sm font-extrabold ${BILL_STATUS[b.status]?.cls}`}>{BILL_STATUS[b.status] ? t(BILL_STATUS[b.status].label) : b.status}</span>
@@ -411,7 +416,7 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <div key={l.id} className="py-2 flex flex-col gap-1">
             <div className="flex justify-between text-sm font-extrabold gap-2"><span>{l.description}</span><span dir="ltr">{fmtMoney(l.total)}</span></div>
             <div className="flex flex-wrap justify-between gap-2 text-xs font-bold text-united-muted">
-              <span><DocLink href={profileHref.intake(l.receiptNumber)}>{l.receiptNumber}</DocLink> · {t("purchasing.bill.received_label")} <span dir="ltr">{fmtQty(l.receivedQty, l.uomCode)}</span> · {t("purchasing.bill.invoiced_label")} <span dir="ltr">{fmtQty(l.quantity, l.uomCode)} × {l.unitPrice}</span> · {t("purchasing.bill.agreed_price")} <span dir="ltr">{l.expectedUnitPrice ?? "—"}</span></span>
+              <span>{l.productCode && <bdi dir="ltr">{l.productCode} · </bdi>}<DocLink href={profileHref.intake(l.receiptNumber)}>{l.receiptNumber}</DocLink>{l.poNumber && <> · <DocLink href={l.poId ? profileHref.po(l.poId) : null}>{l.poNumber}</DocLink></>} · {t("purchasing.bill.received_label")} <span dir="ltr">{fmtQty(l.receivedQty, l.uomCode)}</span> · {t("purchasing.bill.invoiced_label")} <span dir="ltr">{fmtQty(l.quantity, l.uomCode)} × {l.unitPrice}</span> · {t("purchasing.bill.agreed_price")} <span dir="ltr">{l.expectedUnitPrice ?? "—"}</span></span>
               {l.lineVariance !== null && Number(l.lineVariance) !== 0 && <span className={Number(l.lineVariance) > 0 ? "text-united-danger" : "text-united-green"}>{t("purchasing.bill.variance")} <span dir="ltr">{fmtMoney(l.lineVariance)}</span></span>}
               {Number(l.debitedQty) > 0 && <span>{t("purchasing.bill.debited_label")} <span dir="ltr">{fmtQty(l.debitedQty, l.uomCode)}</span></span>}
             </div>
@@ -453,6 +458,11 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
           )}
         </section>
       )}
+      <section className="card p-4">
+        <h3 className="font-extrabold mb-1">{t("doc.attachments")}</h3>
+        <p className="text-xs text-united-muted mb-2">{t("doc.bill-attachments-hint")}</p>
+        <AttachmentsPanel entityType="supplier_bill" entityId={b.id} canManage={manage} />
+      </section>
     </div>
   );
 }
