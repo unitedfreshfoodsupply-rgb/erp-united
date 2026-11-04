@@ -17,7 +17,7 @@ This branch is a release candidate. It has not been deployed. Applying it to pro
 
 | Migration | Adds |
 |---|---|
-| `20261104100000_supplier_category` | `Supplier.category` (nullable) with a CHECK |
+| `20261104100000_supplier_category` | `Supplier.category` (nullable) with a CHECK, **and a data backfill**: the 83 production suppliers are classified from the approved lists (decision D-1: SUP-00001–39 fruit, SUP-00040–83 vegetable). Each row is matched by its id and its code, and only rows still unclassified change. Read-only check on 4 Nov: all 83 id/code pairs exist in production |
 | `20261104130000_supplier_category_other` | widens the CHECK to `other` (services) |
 | `20261104140000_phased_opening_migration` | account 3900 and its guard trigger; `OpeningMigration`, `OpeningException`; phase columns on opening batches |
 | `20261104150000_customer_po_shortage` | `Order.customerPoRef`, `Order.stockStatus` (default `ok`); order-line link and one-open-request index on purchase requests |
@@ -30,7 +30,7 @@ This branch is a release candidate. It has not been deployed. Applying it to pro
 - `prisma migrate diff` found no drift;
 - running the same file a second time was refused ("latest applied migration is not 20261103130000_search_normalization").
 
-**Backward compatibility (by inspection).** The previous release keeps working on the new schema, so an application-only rollback is possible:
+**Backward compatibility (tested).** The previous release (`04be32a`) was built and run on a database with all 101 migrations. Its own reset and seed worked, and its e2e suites passed with 0 failures: orders 186, sales 199, purchasing 126, stock 153, accounting 54, flows 68, HR 38, treasury 73, business cycle 59, opening batch 12. An application-only rollback is therefore possible, because:
 - every new column is nullable or has a default;
 - every CHECK only widens;
 - the new triggers act only on rows the previous code never writes: account 3900, phase batches, custody payments.
@@ -45,7 +45,11 @@ This branch is a release candidate. It has not been deployed. Applying it to pro
    - Run `npx tsx scripts/ops/migrations-sql.ts --after=20261103130000_search_normalization > deploy-20261104.sql`.
    - Review the file, then run it once in the Supabase SQL editor.
    - Then run `prisma migrate status` against production; it must report up to date.
-3. **Permissions.** Run `npx tsx scripts/ops/permissions-sql.ts` (or `npm run db:sync-permissions`), so the role bundles match the code. This release adds `purchasing.suppliers.view` to STOCK_CONTROLLER (decision D-2).
+3. **Permissions.**
+   - Run `npx tsx scripts/ops/permissions-sql.ts > sync-permissions.sql` (it only prints the SQL), review it, and run it once in the SQL editor.
+   - Alternatively, run `npm run db:sync-permissions` with production's `DATABASE_URL` on the VPS.
+   - This release adds `purchasing.suppliers.view` to STOCK_CONTROLLER (decision D-2).
+   - Rehearsed on the production copy: the grant goes from 0 to 1, and a second run changes nothing.
 4. **Application.**
    - Build this commit in a new release directory on the VPS.
    - Start it under PM2 beside the running one, then switch the port with the existing switch script (`/root/united-switch.sh` pattern).
@@ -83,6 +87,7 @@ This branch is a release candidate. It has not been deployed. Applying it to pro
 
 | Suite | Result |
 |---|---|
+| GitHub CI | Integration tests failed there (19 of 197, 9 of them already on `main` @ `04be32a`) because CI ran them on an unseeded database. Fixed in `74e69ba`: CI now seeds the database first (`npm run test:reset`), as locally. Reproduced: unseeded 178/197, seeded 197/197 |
 | Typecheck, lint, production build | clean, clean, OK |
 | Unit | 245 / 245 |
 | Integration (fresh database, 101 migrations) | 197 / 197 |
