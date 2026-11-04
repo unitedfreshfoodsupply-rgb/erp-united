@@ -6,6 +6,9 @@
  * message has no entry here.
  */
 export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
+  // Nov 2026: the e-invoice receiver comes from the customer record (its legal entity).
+  ["بيانات المستلم في الفاتورة الإلكترونية بتتعدل من ملف العميل (الكيان القانوني)، مش من شاشة الضرائب", "E-invoice receiver details are edited in the customer record (its legal entity), not on the ETA screen"],
+  ["العميل مربوط بكيان قانوني بالفعل — عدّل الكيان نفسه", "The customer is already linked to a legal entity — edit that entity instead"],
   // Nov 2026: opening balances named by code; customer, supplier and product profiles.
   ["كود الحساب", "Account code"],
   ["كود العميل", "Customer code"],

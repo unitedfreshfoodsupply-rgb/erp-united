@@ -510,6 +510,8 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | PATCH | `/api/sales/customers/[id]/contacts/[contactId]` | `sales.customers.manage` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | POST | `/api/sales/customers/[id]/contacts` | `sales.customers.manage` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | PATCH | `/api/sales/customers/[id]/credit` | `sales.credit.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/sales/customers/[id]/eta-identity` | any of `sales.customers.view`, `accounting.eta.view` | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
+| POST | `/api/sales/customers/[id]/eta-identity` | `sales.customers.manage` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | GET | `/api/sales/customers/[id]/exposure` | any of `sales.invoices.view`, `sales.credit.manage` | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
 | GET | `/api/sales/customers/[id]/history` | `sales.customers.view` | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | PATCH | `/api/sales/customers/[id]/price-list` | `sales.pricing.manage` | ✓ |  |  |  |  | ✓ |  |  |  |

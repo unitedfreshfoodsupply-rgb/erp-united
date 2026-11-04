@@ -13,6 +13,7 @@ import { fmtMoney } from "@/components/stock/inventory/shared";
 import { CustomerHistory, CustomerOverview } from "@/components/sales/CustomersView";
 import { CustomerStatement } from "@/components/sales/InvoicesView";
 import { DocSection, Figures, ProfileTabs, useSummary, useTabParam } from "./ProfileParts";
+import { EtaIdentityCard } from "./EtaIdentityCard";
 
 /**
  * One customer, everything about them (Nov 2026): who they are, what they ordered and
@@ -66,7 +67,7 @@ export function CustomerProfile({ customerId }: { customerId: string }) {
         { label: t("profile.fig.last-receipt"), value: s.lastReceiptDate ? <span dir="ltr">{s.lastReceiptDate}</span> : null },
       ]} />
       <ProfileTabs value={tab} onChange={setTab} items={items} />
-      {tab === "overview" && <CustomerOverview id={customerId} />}
+      {tab === "overview" && <><CustomerOverview id={customerId} /><EtaIdentityCard customerId={customerId} /></>}
       {tab === "orders" && <DocSection kind="customer" id={customerId} section="orders" openFilter />}
       {tab === "products" && <DocSection kind="customer" id={customerId} section="products" groupsTitle={t("profile.by-product")} linesTitle={t("profile.order-lines")} />}
       {tab === "invoices" && <DocSection kind="customer" id={customerId} section="invoices" />}

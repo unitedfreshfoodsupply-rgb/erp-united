@@ -3,6 +3,7 @@ import { asText } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { writeAudit, writeAuditMany } from "@/lib/audit";
 import { ApiError } from "@/lib/rbac";
+import { assertPermission } from "@/lib/authz-core";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { inTx, type Tx } from "@/lib/tx";
 import { todayLocalISO } from "@/lib/localDate";
@@ -150,6 +151,8 @@ export async function updateSupplier(
   actor: StockActor,
   expectedVersion?: number
 ) {
+  // The rule holds in the service, whichever route or script reaches it (as for customers).
+  assertPermission(actor, "stock.manage_suppliers");
   const existing = await prisma.supplier.findUnique({ where: { id } });
   if (!existing) throw new ApiError(404, "المورد مش موجود");
   assertVersion(existing.version, expectedVersion, "المورد");

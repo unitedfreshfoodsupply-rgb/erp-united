@@ -15,6 +15,7 @@ import { ETA_DOCUMENT_VERSION } from "./mapper";
 import { canonicalSerialize, etaJson, sha256Hex } from "./serialize";
 import { checkEtaSignatures, type SignatureCheck } from "./signature";
 import { hasBlockingIssues, validateEtaSource } from "./validate";
+import { receiverGaps, resolveEtaReceiver } from "./receiver";
 import type { AddressSource, EtaSource, EtaStatus } from "./types";
 
 /**
@@ -98,12 +99,10 @@ export async function loadEtaSource(db: Tx | typeof prisma, invoiceId: string): 
   if (!inv) throw new ApiError(404, "الفاتورة مش موجودة");
   const company = await db.company.findFirst({ where: { active: true }, orderBy: { createdAt: "asc" }, include: { etaIssuerProfile: true } });
   const legacy = await db.etaReceiverProfile.findUnique({ where: { customerId: inv.customerId } });
-  // Receiver identity: a linked legal entity owns the billing/e-invoice receiver
-  // details; the legacy per-customer EtaReceiverProfile remains the fallback.
-  const le = inv.customer?.legalEntity ?? null;
-  const receiver = le
-    ? { type: (le.receiverType as "B" | "P" | "F" | null) ?? null, personalId: le.receiverId ?? null, address: addr(le) }
-    : { type: (legacy?.receiverType as "B" | "P" | "F" | null) ?? null, personalId: legacy?.receiverId ?? null, address: addr(legacy) };
+  // Receiver identity from the canonical customer record (lib/eta/receiver.ts): the ACTIVE
+  // linked legal entity; the retired EtaReceiverProfile only when there is none.
+  const r = resolveEtaReceiver({ customer: { taxRegistrationNo: inv.customer?.taxRegistrationNo ?? null }, legalEntity: inv.customer?.legalEntity ?? null, legacyProfile: legacy });
+  const receiver = { type: r.type, personalId: r.personalId, address: r.address };
   const productIds = [...new Set(inv.lines.map((l) => l.productId).filter((x): x is string => !!x))];
   const [products, codes, units, taxes] = await Promise.all([
     db.stockProduct.findMany({ where: { id: { in: productIds } }, select: { id: true, sku: true } }),
@@ -221,7 +220,30 @@ async function etaState(kind: EtaKind, id: string, actor: ServiceActor) {
   const { issues, document } = validateEtaSource(src);
   const doc = await prisma.etaDocument.findUnique({ where: { sourceType_sourceId: { sourceType: kind, sourceId: id } }, include: { events: { orderBy: { createdAt: "asc" } } } });
   const w = await apiWindow();
-  return { number: src.invoice.number, ready: !hasBlockingIssues(issues), issues, document, eta: present(doc), api: { ...w, eligible: apiEligible(w, documentDate(src)) } };
+  // Once a document has been signed for ETA, that signed payload is the legal record: show it
+  // as stored, never rebuilt from today's customer data. The live build stays only for a draft.
+  // The stored payload is the same ETA document shape as the live build, plus its signatures.
+  const signed = signedDocument(doc?.signedPayload ?? null) as typeof document | null;
+  // Receiver gaps are fixed in the customer record, never on this screen.
+  const customerId = kind === "credit_note"
+    ? (await prisma.creditNote.findUnique({ where: { id }, select: { invoice: { select: { customerId: true } } } }))?.invoice.customerId
+    : (await prisma.salesInvoice.findUnique({ where: { id }, select: { customerId: true } }))?.customerId;
+  return {
+    number: src.invoice.number, ready: !hasBlockingIssues(issues), issues,
+    receiverEditHref: customerId ? `/sales/customers/${customerId}?tab=overview#eta-identity` : null,
+    document: signed ?? document, documentSource: signed ? ("signed" as const) : ("draft" as const),
+    eta: present(doc), api: { ...w, eligible: apiEligible(w, documentDate(src)) },
+  };
+}
+
+function signedDocument(json: string | null): unknown | null {
+  if (!json) return null;
+  try {
+    const parsed = JSON.parse(json) as { documents?: unknown[] };
+    return Array.isArray(parsed?.documents) && parsed.documents.length === 1 ? parsed.documents[0] : parsed;
+  } catch {
+    return null;
+  }
 }
 
 /** Readiness + current ETA state of one invoice (finance view). */
@@ -762,17 +784,15 @@ export async function saveIssuerProfile(input: unknown, actor: ServiceActor) {
   });
 }
 
+/**
+ * Retired (Nov 2026): the ETA receiver is part of the customer's master record (its legal
+ * entity), edited with the customer under sales.customers.manage. A separate editable copy
+ * here let the two disagree, and was ignored for customers with a legal entity. Kept as a
+ * refusal so old clients get a clear answer; existing rows are still read as a fallback.
+ */
 export async function saveReceiverProfile(customerId: string, input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.eta.manage");
-  const v = parse(z.object({ receiver_type: z.enum(["B", "P", "F"]).nullable().optional(), receiver_id: optText("رقم الهوية", 50).optional(), ...addressInput }), input);
-  return inTx(async (tx) => {
-    const c = await tx.customer.findUnique({ where: { id: customerId }, select: { id: true, code: true } });
-    if (!c) throw new ApiError(404, "العميل مش موجود");
-    const data = { receiverType: v.receiver_type ?? null, receiverId: v.receiver_id ?? null, ...Object.fromEntries(Object.keys(addressInput).map((k) => [k, (v as Record<string, unknown>)[k] ?? null])), updatedById: actor.id, updatedBy: actor.name };
-    const row = await tx.etaReceiverProfile.upsert({ where: { customerId }, create: { customerId, ...data }, update: { ...data, version: { increment: 1 } } });
-    await auditSetup(tx, actor, row.id, "receiver", `${c.code} · ${data.receiverType ?? "تلقائي"}`);
-    return row;
-  });
+  throw new ApiError(409, "بيانات المستلم في الفاتورة الإلكترونية بتتعدل من ملف العميل (الكيان القانوني)، مش من شاشة الضرائب", "eta.receiver-profile-retired", { customerId, editHref: `/sales/customers/${customerId}?tab=overview#eta-identity` });
 }
 
 export async function setItemCode(productId: string, input: unknown, actor: ServiceActor) {
@@ -815,7 +835,7 @@ export async function etaOverview(actor: ServiceActor) {
   // Products and customers actually invoiced that still lack ETA data.
   const lines = await prisma.salesInvoiceLine.findMany({ where: { invoice: { status: "issued" }, productId: { not: null } }, distinct: ["productId"], select: { productId: true } });
   const products = await prisma.stockProduct.findMany({ where: { id: { in: lines.map((l) => l.productId!) } }, select: { id: true, name: true, nameAr: true, sku: true, unit: true, etaItemCode: { select: { itemType: true, itemCode: true } } }, orderBy: { name: "asc" } });
-  const customers = await prisma.customer.findMany({ where: { id: { in: [...new Set(invoices.map((i) => i.customerId))] } }, select: { id: true, code: true, name: true, nameAr: true, taxRegistrationNo: true, etaReceiverProfile: true }, orderBy: { name: "asc" } });
+  const customers = await prisma.customer.findMany({ where: { id: { in: [...new Set(invoices.map((i) => i.customerId))] } }, select: { id: true, code: true, name: true, nameAr: true, taxRegistrationNo: true, etaReceiverProfile: true, legalEntity: true }, orderBy: { name: "asc" } });
   const ip = company?.etaIssuerProfile;
   const w = await apiWindow();
   return {
@@ -829,7 +849,18 @@ export async function etaOverview(actor: ServiceActor) {
     units: units.map((u) => ({ code: u.code, name: u.nameAr ?? u.name, nameAr: u.nameAr, nameEn: u.name, etaUnitType: u.etaUnitType?.etaUnitType ?? null })),
     taxes: taxes.map((t) => ({ ...t, rate: t.rate.toString() })),
     products: products.map((p) => ({ id: p.id, name: p.nameAr ?? p.name, nameAr: p.nameAr, nameEn: p.name, sku: p.sku, unit: p.unit, itemType: p.etaItemCode?.itemType ?? null, itemCode: p.etaItemCode?.itemCode ?? null })),
-    customers: customers.map((c) => ({ id: c.id, code: c.code, name: c.name, nameAr: c.nameAr, taxRegistrationNo: c.taxRegistrationNo, profile: c.etaReceiverProfile })),
+    customers: customers.map((c) => {
+      // Read-only view of the canonical receiver; it is edited in the customer record.
+      const inputs = { customer: { taxRegistrationNo: c.taxRegistrationNo }, legalEntity: c.legalEntity, legacyProfile: c.etaReceiverProfile };
+      const receiver = resolveEtaReceiver(inputs);
+      const g = receiverGaps(inputs, receiver);
+      return {
+        id: c.id, code: c.code, name: c.name, nameAr: c.nameAr, taxRegistrationNo: g.taxId,
+        legalEntity: c.legalEntity && c.legalEntity.active ? { id: c.legalEntity.id, code: c.legalEntity.code, name: c.legalEntity.name, nameAr: c.legalEntity.nameAr } : null,
+        receiver, effectiveType: g.effectiveType, gaps: g.gaps, personIdOnlyAbove: g.personIdOnlyAbove,
+        editHref: `/sales/customers/${c.id}?tab=overview#eta-identity`,
+      };
+    }),
     counts: Object.fromEntries(docs.map((d) => [d.status, d._count._all])),
     invoices: invoices.map((i) => {
       const s = states.find((x) => x.sourceId === i.id);

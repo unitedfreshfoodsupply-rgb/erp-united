@@ -3,7 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
 import { writeAudit, writeAuditMany, type AuditInput } from "@/lib/audit";
-import { assertPermission } from "@/lib/authz-core";
+import { actorCan, assertPermission, forbiddenMessage } from "@/lib/authz-core";
+import { receiverGaps, resolveEtaReceiver } from "@/lib/eta/receiver";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { inTx, type Tx } from "@/lib/tx";
 import { todayLocalISO } from "@/lib/localDate";
@@ -662,51 +663,112 @@ export async function listCustomerGroups() {
 }
 
 /** Creates a legal billing entity that owns a tax number; hotels link to it. */
+const legalEntityData = (v: z.infer<typeof legalEntityCreate>, actor: ServiceActor) => ({
+  code: v.code,
+  name: v.name,
+  nameAr: v.name_ar ?? null,
+  taxRegistrationNo: v.tax_registration_no ?? null,
+  commercialRegNo: v.commercial_reg_no ?? null,
+  phone: v.phone ?? null,
+  email: v.email ?? null,
+  address: v.address ?? null,
+  area: v.area ?? null,
+  city: v.city ?? null,
+  country: v.country ?? null,
+  governate: v.governate ?? null,
+  regionCity: v.region_city ?? null,
+  street: v.street ?? null,
+  buildingNumber: v.building_number ?? null,
+  postalCode: v.postal_code ?? null,
+  floor: v.floor ?? null,
+  room: v.room ?? null,
+  landmark: v.landmark ?? null,
+  additionalInformation: v.additional_information ?? null,
+  receiverType: v.receiver_type ?? null,
+  receiverId: v.receiver_id ?? null,
+  notes: v.notes ?? null,
+  createdById: actor.id,
+  createdBy: actor.name,
+});
+
+function legalEntityConflict(err: unknown): never {
+  const e = err as { code?: string; meta?: { target?: string[] | string } };
+  if (e?.code === "P2002") {
+    const target = String(e.meta?.target ?? "");
+    if (target.includes("taxRegistrationNo")) throw new ApiError(409, "الرقم الضريبي مسجل لكيان قانوني آخر");
+    if (target.includes("code")) throw new ApiError(409, "كود الكيان القانوني مستخدم قبل كده");
+  }
+  throw err;
+}
+
 export async function createCustomerLegalEntity(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "sales.customers.manage");
   const v = parse(legalEntityCreate, input);
   try {
     return await inTx(async (tx) => {
-      const le = await tx.customerLegalEntity.create({
-        data: {
-          code: v.code,
-          name: v.name,
-          nameAr: v.name_ar ?? null,
-          taxRegistrationNo: v.tax_registration_no ?? null,
-          commercialRegNo: v.commercial_reg_no ?? null,
-          phone: v.phone ?? null,
-          email: v.email ?? null,
-          address: v.address ?? null,
-          area: v.area ?? null,
-          city: v.city ?? null,
-          country: v.country ?? null,
-          governate: v.governate ?? null,
-          regionCity: v.region_city ?? null,
-          street: v.street ?? null,
-          buildingNumber: v.building_number ?? null,
-          postalCode: v.postal_code ?? null,
-          floor: v.floor ?? null,
-          room: v.room ?? null,
-          landmark: v.landmark ?? null,
-          additionalInformation: v.additional_information ?? null,
-          receiverType: v.receiver_type ?? null,
-          receiverId: v.receiver_id ?? null,
-          notes: v.notes ?? null,
-          createdById: actor.id,
-          createdBy: actor.name,
-        },
-      });
+      const le = await tx.customerLegalEntity.create({ data: legalEntityData(v, actor) });
       await writeAudit(audit(actor, { action: "customer_legal_entity_created", entityType: "customer_legal_entity", entityId: le.id, newValue: `${le.code} · ${le.name}` }), tx);
       return le;
     });
   } catch (err) {
-    const e = err as { code?: string; meta?: { target?: string[] | string } };
-    if (e?.code === "P2002") {
-      const target = String(e.meta?.target ?? "");
-      if (target.includes("taxRegistrationNo")) throw new ApiError(409, "الرقم الضريبي مسجل لكيان قانوني آخر");
-      if (target.includes("code")) throw new ApiError(409, "كود الكيان القانوني مستخدم قبل كده");
-    }
-    throw err;
+    legalEntityConflict(err);
+  }
+}
+
+/**
+ * The customer's e-invoice (ETA) identity as its master record holds it: the active linked
+ * legal entity, the receiver it gives ETA, and what is still missing. One read model for the
+ * customer page and the ETA screen; nothing is copied anywhere.
+ */
+export async function customerEtaIdentity(customerId: string, actor: ServiceActor) {
+  if (!actorCan(actor, "sales.customers.view") && !actorCan(actor, "accounting.eta.view")) throw new ApiError(403, forbiddenMessage(["sales.customers.view"]));
+  const c = await prisma.customer.findUnique({ where: { id: customerId }, select: { id: true, code: true, name: true, nameAr: true, legalName: true, legalNameAr: true, taxRegistrationNo: true, version: true, legalEntity: true, etaReceiverProfile: true } });
+  if (!c) throw new ApiError(404, "العميل مش موجود");
+  const le = c.legalEntity && c.legalEntity.active ? c.legalEntity : null;
+  const inputs = { customer: { taxRegistrationNo: c.taxRegistrationNo }, legalEntity: le, legacyProfile: c.etaReceiverProfile };
+  const receiver = resolveEtaReceiver(inputs);
+  const g = receiverGaps(inputs, receiver);
+  return {
+    customer: { id: c.id, code: c.code, name: c.name, nameAr: c.nameAr, legalName: c.legalName, legalNameAr: c.legalNameAr, taxRegistrationNo: c.taxRegistrationNo, version: c.version },
+    legalEntity: le,
+    receiver, effectiveType: g.effectiveType, taxId: g.taxId, gaps: g.gaps, personIdOnlyAbove: g.personIdOnlyAbove,
+    canEdit: actorCan(actor, "sales.customers.manage"),
+  };
+}
+
+const legalEntityForCustomer = legalEntityCreate.partial({ code: true, name: true });
+
+/**
+ * Creates the customer's legal entity from its own card and links it, in one transaction:
+ * the authorised place to record the structured tax address and receiver type for a
+ * customer that has none yet. Name and tax number default to the card's (never invented).
+ */
+export async function createLegalEntityForCustomer(customerId: string, input: unknown, actor: ServiceActor) {
+  assertPermission(actor, "sales.customers.manage");
+  const v = parse(legalEntityForCustomer, input);
+  try {
+    return await inTx(async (tx) => {
+      const c = await tx.customer.findUnique({ where: { id: customerId }, include: { legalEntity: true } });
+      if (!c) throw new ApiError(404, "العميل مش موجود");
+      if (c.legalEntity?.active) throw new ApiError(409, "العميل مربوط بكيان قانوني بالفعل — عدّل الكيان نفسه");
+      const data = legalEntityData({
+        ...v,
+        code: v.code ?? `LE-${c.code}`,
+        name: v.name ?? c.legalName ?? c.name,
+        name_ar: v.name_ar ?? c.legalNameAr ?? c.nameAr ?? null,
+        tax_registration_no: v.tax_registration_no ?? c.taxRegistrationNo ?? null,
+      }, actor);
+      const le = await tx.customerLegalEntity.create({ data });
+      await tx.customer.update({ where: { id: c.id, version: c.version }, data: { legalEntityId: le.id, version: { increment: 1 } } });
+      await writeAuditMany([
+        audit(actor, { action: "customer_legal_entity_created", entityType: "customer_legal_entity", entityId: le.id, newValue: `${le.code} · ${le.name}` }),
+        audit(actor, { action: "customer_edited", entityType: "customer", entityId: c.id, fieldChanged: "legalEntityId", oldValue: c.legalEntityId, newValue: `${le.code} · ${le.name}` }),
+      ], tx);
+      return le;
+    });
+  } catch (err) {
+    if ((err as { code?: string })?.code === "P2025") throw new ApiError(409, "بيانات العميل اتغيرت من واحد تاني، حدّث الشاشة");
+    legalEntityConflict(err);
   }
 }
 

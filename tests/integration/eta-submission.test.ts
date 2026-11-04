@@ -9,13 +9,13 @@ import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { Prisma } from "@prisma/client";
 import { prisma, actor } from "./_db";
-import { createCustomer } from "@/lib/sales/customers";
+import { createCustomer, createLegalEntityForCustomer } from "@/lib/sales/customers";
 import { createCreditNote, issueInvoice } from "@/lib/sales/invoicing";
 import { updateSetting } from "@/lib/core/settings-service";
 import { EtaTransportError, type EtaGateway, type EtaRemoteDoc, type EtaSearchQuery, type EtaSigner, type EtaSubmissionState, type EtaSubmitResult } from "@/lib/eta/gateway";
 import {
   ETA_LOOKUP_MIN_WAIT_MS, etaCreditNoteState, etaInvoiceState, etaPendingSubmissions, lookupInvoiceEta, reconcileCreditNoteEta, reconcileInvoiceEta,
-  recordCreditNotePortalFiling, recordInvoicePortalFiling, refreshCreditNoteEta, refreshInvoiceEta, saveIssuerProfile, saveReceiverProfile, setItemCode, setUnitType,
+  recordCreditNotePortalFiling, recordInvoicePortalFiling, refreshCreditNoteEta, refreshInvoiceEta, saveIssuerProfile, setItemCode, setUnitType,
   submitCreditNoteToEta, submitInvoiceToEta, type EtaDeps,
 } from "@/lib/eta/service";
 
@@ -95,7 +95,8 @@ before(async () => {
   await saveIssuerProfile({ eta_branch_id: "0", activity_code: "4630", ...addr }, acct);
   const reg = String(Date.now()).slice(-9);
   customerId = (await createCustomer({ name: `${TAG} فندق`, tax_registration_no: reg }, acct)).id;
-  await saveReceiverProfile(customerId, addr, acct);
+  // The receiver address lives in the customer record (its legal entity), not on the ETA screen.
+  await createLegalEntityForCustomer(customerId, { country: addr.country, governate: addr.governate, region_city: addr.regionCity, street: addr.street, building_number: addr.buildingNumber }, acct);
   productId = (await prisma.stockProduct.create({ data: { name: `${TAG} Mango` } })).id;
   await setItemCode(productId, { item_type: "EGS", item_code: `EG-999999999-${TAG}` }, acct);
   await setUnitType("KG", { eta_unit_type: "KGM" }, acct);

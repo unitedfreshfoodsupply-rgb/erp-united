@@ -37,7 +37,7 @@ type Overview = {
   units: { code: string; name: string; nameAr: string | null; nameEn: string; etaUnitType: string | null }[];
   taxes: { code: string; name: string; nameAr: string; rate: string; etaType: string | null; etaSubtype: string | null }[];
   products: { id: string; name: string; sku: string | null; unit: string; itemType: string | null; itemCode: string | null }[];
-  customers: { id: string; code: string; name: string; nameAr?: string | null; taxRegistrationNo: string | null; profile: (Address & { receiverType: string | null; receiverId: string | null }) | null }[];
+  customers: { id: string; code: string; name: string; nameAr?: string | null; taxRegistrationNo: string | null; legalEntity: { id: string; code: string; name: string; nameAr: string | null } | null; receiver: { type: string | null; personalId: string | null; address: Address; origin: "legal_entity" | "eta_profile_legacy" | "none" }; effectiveType: "B" | "P" | "F"; gaps: string[]; personIdOnlyAbove: boolean; editHref: string }[];
   invoices: { id: string; number: string; issueDate: string; buyerName: string; total: string; etaStatus: string | null; etaStatusLabel: string; origin?: string | null; uuid: string | null }[];
   creditNotes?: { id: string; number: string; issueDate: string; total: string; invoiceNumber: string | null; buyerName: string | null; etaStatus: string | null; etaStatusLabel: string; origin?: string | null; uuid: string | null }[];
 };
@@ -132,7 +132,7 @@ function InvoiceEta({ id, base = "invoices" }: { id: string; base?: "invoices" |
   const toast = useToast();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
-  const q = useQuery({ queryKey: ["eta", base, id], queryFn: () => apiFetch<{ ready: boolean; issues: Issue[]; api: { enabled: boolean; from: string | null; eligible: boolean }; eta: EtaState | null; document: unknown }>(`/api/eta/${base}/${id}`) });
+  const q = useQuery({ queryKey: ["eta", base, id], queryFn: () => apiFetch<{ ready: boolean; issues: Issue[]; api: { enabled: boolean; from: string | null; eligible: boolean }; eta: EtaState | null; document: unknown; documentSource?: "signed" | "draft"; receiverEditHref?: string | null }>(`/api/eta/${base}/${id}`) });
   const act = async (path: string, body?: unknown) => {
     setBusy(true);
     try { await apiPost(`/api/eta/${base}/${id}/${path}`, body); toast.show("orders.item.done", "success"); } catch (err) { fail(toast, err); } finally { setBusy(false); void qc.invalidateQueries({ queryKey: ["eta"] }); }
@@ -171,6 +171,7 @@ function InvoiceEta({ id, base = "invoices" }: { id: string; base?: "invoices" |
         <div>
           <div className="text-united-danger">{t("eta.missing-before-send", { count: String(errors.length) })}</div>
           <ul className="list-disc ps-5 text-xs">{errors.map((e, k) => <li key={k}>{e.message}</li>)}</ul>
+          {q.data.receiverEditHref && errors.some((e) => e.field.startsWith("receiver.")) && <a className="link text-xs" href={q.data.receiverEditHref}>{t("eta.receiver-open-customer")}</a>}
         </div>
       ) : <div className="text-united-green text-xs">{t("eta.data-complete")}</div>}
       {warnings.length > 0 && <ul className="list-disc ps-5 text-xs text-united-warn">{warnings.map((w, k) => <li key={k}>{w.message}</li>)}</ul>}
@@ -213,7 +214,7 @@ function InvoiceEta({ id, base = "invoices" }: { id: string; base?: "invoices" |
         )}
       </div>
       {q.data.document != null && (
-        <details className="text-xs"><summary className="cursor-pointer text-united-muted">{t("eta.document-summary")}</summary><pre className="whitespace-pre-wrap" dir="ltr">{JSON.stringify(q.data.document, null, 1)}</pre></details>
+        <details className="text-xs"><summary className="cursor-pointer text-united-muted">{t("eta.document-summary")}</summary>{q.data.documentSource === "signed" && <p className="text-united-muted">{t("eta.document-signed")}</p>}<pre className="whitespace-pre-wrap" dir="ltr">{JSON.stringify(q.data.document, null, 1)}</pre></details>
       )}
       {eta && eta.events.length > 0 && (
         <ul className="text-xs text-united-muted">{eta.events.map((e, k) => <li key={k}>{new Date(e.createdAt).toLocaleString(intlLocale(locale))} · {e.action} → {e.toStatus} · {e.actorName}</li>)}</ul>
@@ -305,7 +306,8 @@ function Setup({ data }: { data: Overview }) {
 
       <section className="card p-4 flex flex-col gap-2">
         <h3 className="font-extrabold">{t("eta.receivers-title")}</h3>
-        <ul className="flex flex-col gap-2">{data.customers.map((c) => <ReceiverRow key={c.id} c={c} manage={manage} onSave={(body) => save(`/api/eta/receivers/${c.id}`, body)} />)}</ul>
+        <p className="text-xs text-united-muted">{t("eta.receiver-from-master")}</p>
+        <ul className="flex flex-col gap-2">{data.customers.map((c) => <ReceiverRow key={c.id} c={c} />)}</ul>
       </section>
     </div>
   );
@@ -338,22 +340,26 @@ function ItemRow({ p, manage, onSave }: { p: Overview["products"][number]; manag
   );
 }
 
-function ReceiverRow({ c, manage, onSave }: { c: Overview["customers"][number]; manage: boolean; onSave: (body: unknown) => void }) {
+const GAP_LABEL: Record<string, TranslationKey> = {
+  tax_registration_no: "eta.gap.tax_registration_no", legal_entity: "eta.gap.legal_entity", receiver_id: "eta.gap.receiver_id",
+  ...Object.fromEntries(ADDRESS.map(([k, label]) => [k, label])),
+};
+
+/** Read-only: the receiver as the customer record gives it, what is missing, and where to fix it. */
+function ReceiverRow({ c }: { c: Overview["customers"][number] }) {
   const { t, locale } = useLocale();
-  const [f, setF] = useState<Record<string, string>>({ receiver_type: c.profile?.receiverType ?? "", receiver_id: c.profile?.receiverId ?? "", ...Object.fromEntries(ADDRESS.map(([k]) => [k, c.profile?.[k] ?? ""])) });
-  const derived = c.taxRegistrationNo ? "B" : "P";
-  const complete = (f.receiver_type || derived) !== "B" || ADDRESS.every(([k]) => f[k]);
+  const { can } = usePermissions();
+  const r = c.receiver;
+  const source = r.origin === "legal_entity" && c.legalEntity ? t("eta.receiver-source.legal_entity", { code: c.legalEntity.code }) : t(`eta.receiver-source.${r.origin}` as TranslationKey);
   return (
-    <li className="border-b border-united-dark/5 pb-2">
-      <details>
-        <summary className="cursor-pointer text-sm font-bold">{complete ? "✓" : "✗"} {localName(c, locale)} · {c.taxRegistrationNo ? <span dir="ltr">{c.taxRegistrationNo} {t("eta.receiver-tax-reg")}</span> : t("eta.receiver-no-tax")}</summary>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
-          <Field label={t("eta.receiver-type")}><select className="field" disabled={!manage} value={f.receiver_type} onChange={(e) => setF({ ...f, receiver_type: e.target.value })}><option value="">{t("eta.receiver-auto", { derived })}</option><option value="B">{t("eta.receiver-company")}</option><option value="P">{t("eta.receiver-person")}</option><option value="F">{t("eta.receiver-foreign")}</option></select></Field>
-          <Field label={t("eta.receiver-national-id")}><input className="field" dir="ltr" disabled={!manage} value={f.receiver_id} onChange={(e) => setF({ ...f, receiver_id: e.target.value })} /></Field>
-          {ADDRESS.map(([k, labelKey]) => <Field key={k} label={t(labelKey)}><input className="field" disabled={!manage} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></Field>)}
-        </div>
-        {manage && <button type="button" className="btn-secondary mt-2" onClick={() => onSave({ ...f, receiver_type: f.receiver_type || null })}>{t("orders.edit.save")}</button>}
-      </details>
+    <li className="border-b border-united-dark/5 pb-2 text-sm">
+      <div className="font-bold">{c.gaps.length === 0 ? "✓" : "✗"} {localName(c, locale)} · {c.taxRegistrationNo ? <span dir="ltr">{c.taxRegistrationNo} {t("eta.receiver-tax-reg")}</span> : t("eta.receiver-no-tax")} · {c.effectiveType}</div>
+      <div className="text-xs text-united-muted">{source}{ADDRESS.some(([k]) => r.address[k]) ? ` · ${ADDRESS.map(([k]) => r.address[k]).filter(Boolean).join("، ")}` : ""}</div>
+      {c.gaps.length > 0 && <div className="text-xs text-united-danger">{t("eta.receiver-missing", { fields: c.gaps.map((g) => t(GAP_LABEL[g] ?? ("eta.receiver-type" as TranslationKey))).join("، ") })}</div>}
+      {c.personIdOnlyAbove && <div className="text-xs text-united-muted">{t("eta.receiver-person-id-above")}</div>}
+      {(c.gaps.length > 0 || r.origin === "eta_profile_legacy") && (can("sales.customers.manage")
+        ? <a className="link text-xs" href={c.editHref}>{t("eta.receiver-open-customer")}</a>
+        : <div className="text-xs text-united-muted">{t("eta.receiver-ask-sales")}</div>)}
     </li>
   );
 }

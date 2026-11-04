@@ -4014,6 +4014,27 @@
     },
     {
       "method": "GET",
+      "path": "/api/sales/customers/[id]/eta-identity",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "sales.customers.view",
+          "accounting.eta.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/sales/customers/[id]/eta-identity",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "sales.customers.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/sales/customers/[id]/exposure",
       "gate": {
         "kind": "any",
