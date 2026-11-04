@@ -1,5 +1,6 @@
 import { commitOrderStock } from "@/lib/sales/stock-commitment";
 import { syncOrderSuggestions } from "@/lib/purchasing/requests";
+import { inTx } from "@/lib/tx";
 import { Prisma } from "@prisma/client";
 import { asText } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
@@ -573,7 +574,7 @@ export async function mapOrderProductName(
 
   const createAlias = input.create_alias ?? true;
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await inTx(async (tx) => {
     await advisoryXactLock(tx, ALIAS_LOCK);
 
     let aliasId: string | null = null;
@@ -639,7 +640,7 @@ export async function mapOrderProductName(
       source: "user", deviceId: actor.deviceId,
     }, tx);
     return { aliasId, linkedLines: updated.count };
-  }, { maxWait: 15_000, timeout: 20_000 });
+  });
 
   return { product, ...result };
 }
@@ -654,7 +655,7 @@ export async function unmapOrderProductName(
   const normalized = normalizeProductName(productName);
   if (!normalized) throw new ApiError(400, "الاسم ده مش صالح");
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await inTx(async (tx) => {
     await advisoryXactLock(tx, ALIAS_LOCK);
     // History is never rewritten: only lines of live orders can be unmapped, and only
     // while they hold no stock — an unmapped line can neither be reserved nor dispatched.
@@ -697,7 +698,7 @@ export async function unmapOrderProductName(
       source: "user", deviceId: actor.deviceId,
     }, tx);
     return { clearedLines: cleared.count, removedAlias };
-  }, { maxWait: 15_000, timeout: 20_000 });
+  });
 
   return result;
 }

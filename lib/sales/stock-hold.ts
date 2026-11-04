@@ -5,9 +5,9 @@ import { writeAudit } from "@/lib/audit";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { inTx, type Tx } from "@/lib/tx";
 import { assertPermission, actorCan } from "@/lib/authz-core";
-import { notify } from "@/lib/core/notifications";
+import { notifyMany, usersWithPermission } from "@/lib/core/notifications";
 import type { ServiceActor } from "@/lib/core/actor";
-import { assessOrderStock, commitOrderStock, StockUnavailableError, type StockShortfall } from "@/lib/sales/stock-commitment";
+import { assessOrderStock, assessOrdersStock, commitOrderStock, REASON_AR, StockUnavailableError, type StockShortfall } from "@/lib/sales/stock-commitment";
 import { orderSuggestions, settleOrderSuggestions, syncOrderSuggestions } from "@/lib/purchasing/requests";
 
 /**
@@ -131,45 +131,68 @@ export async function releaseHeldOrder(orderId: string, actor: HoldActor & { per
 }
 
 /**
- * Called by the paths that make stock sellable (a receipt, a released grading hold, a
- * quarantine release), in their transaction. Re-reads the coverage of every order waiting
- * for those products and tells the order's creator and whoever may release it — once per
- * change: a line newly covered, or the whole order releasable. Reserves and moves nothing.
+ * The awaiting-stock check. Run at the end of every transaction that raised the sellable
+ * availability of these products (lib/inventory/availability-changes.ts: a receipt or an upward
+ * correction, grading after receipt, opening stock, a quarantine or hold release, a return, a
+ * released reservation), inside it — and once more after commit when orders were waiting (see
+ * availability-changes). Re-reads the coverage of EVERY order waiting for them and
+ * tells the order's creator and whoever may release it — once per change: a line newly covered,
+ * or the whole order releasable — with what is still missing. Reserves, moves and buys nothing:
+ * the release is "re-check and release" (releaseHeldOrder), procurement stays with the suggestions.
+ *
+ * A fixed number of queries whatever the number of orders (release gate D-3, Nov 2026): it used
+ * to read each order on its own, a dozen round trips each, inside the receipt — past ~150
+ * waiting orders a receipt on the remote database ran out of time, and orders after the 200th
+ * were never told at all.
  */
-export async function noteStockArrival(tx: Tx, productIds: (string | null | undefined)[], actor: HoldActor) {
+export async function noteStockArrival(tx: Tx, productIds: (string | null | undefined)[], actor: HoldActor): Promise<{ held: number; sent: number }> {
   const ids = [...new Set(productIds.filter((x): x is string => !!x))];
-  if (!ids.length) return 0;
+  if (!ids.length) return { held: 0, sent: 0 };
   const held = await tx.order.findMany({
     where: { stockStatus: "awaiting_stock", status: "new", items: { some: { stockProductId: { in: ids } } } },
     select: { id: true, orderNumber: true, customerName: true, assignedToId: true },
     orderBy: { createdAt: "asc" },
-    take: 200,
   });
-  let sent = 0;
+  if (!held.length) return { held: 0, sent: 0 };
+  const orderIds = held.map((o) => o.id);
+  const [assessed, raised, created, editors] = await Promise.all([
+    assessOrdersStock(tx, orderIds),
+    tx.purchaseRequest.findMany({ where: { orderId: { in: orderIds }, orderItemId: { not: null } }, select: { orderId: true, orderItemId: true } }),
+    tx.auditLog.findMany({ where: { orderId: { in: orderIds }, action: "order_created" }, select: { orderId: true, userId: true }, orderBy: { timestamp: "asc" } }),
+    usersWithPermission(tx, "orders.edit"),
+  ]);
+  // Lines that were short when saved carry a suggestion; "covered" counts only those.
+  const shortLinesOf = new Map<string, Set<string>>();
+  for (const r of raised) shortLinesOf.set(r.orderId!, (shortLinesOf.get(r.orderId!) ?? new Set()).add(r.orderItemId!));
+  const creatorOf = new Map<string, string | null>();
+  for (const c of created) if (!creatorOf.has(c.orderId!)) creatorOf.set(c.orderId!, c.userId);
+
+  const events: Parameters<typeof notifyMany>[1] = [];
   for (const o of held) {
-    const a = await assessOrderStock(tx, o.id);
+    const a = assessed.get(o.id);
     if (!a) continue;
-    // Lines that were short when saved carry a suggestion; "covered" counts only those.
-    const shortLines = new Set((await tx.purchaseRequest.findMany({ where: { orderId: o.id, orderItemId: { not: null } }, select: { orderItemId: true } })).map((r) => r.orderItemId!));
+    const shortLines = shortLinesOf.get(o.id) ?? new Set<string>();
     const covered = a.coverage.filter((c) => shortLines.has(c.itemId) && c.shortage.lte(0)).map((c) => c.itemId).sort();
     const ready = a.shortfalls.length === 0;
     if (!ready && covered.length === 0) continue;
     const state = ready ? "ready" : `partial:${createHash("sha1").update(covered.join(",")).digest("hex").slice(0, 16)}`;
-    const creator = await tx.auditLog.findFirst({ where: { orderId: o.id, action: "order_created" }, select: { userId: true } });
-    sent += await notify(
-      tx,
-      { userIds: [creator?.userId, o.assignedToId].filter((x): x is string => !!x), permission: "orders.edit", exclude: [actor.id] },
-      {
+    // Everything that still stops the release: a quantity short, or a line that cannot be reserved at all.
+    const stillShort = a.shortfalls.slice(0, 3).map((f) => (f.reason === "insufficient" ? `${f.productName} ${f.shortage} ${f.baseUnit ?? f.unit}` : `${f.productName} (${REASON_AR[f.reason]})`)).join("، ") + (a.shortfalls.length > 3 ? ` (+${a.shortfalls.length - 3})` : "");
+    const userIds = [creatorOf.get(o.id), o.assignedToId, ...editors].filter((x): x is string => !!x && x !== actor.id);
+    if (!userIds.length) continue;
+    events.push({
+      userIds,
+      n: {
         type: ready ? "order.stock_ready" : "order.stock_partial",
         severity: ready ? "warning" : "info",
         title: ready ? `البضاعة اتوفرت لأوردر ${o.orderNumber} — اعمل إعادة فحص وإفراج` : `وصلت بضاعة لجزء من أوردر ${o.orderNumber}`,
-        body: ready ? o.customerName : `${o.customerName} · ${covered.length} من ${shortLines.size} سطر ناقص اتغطى`,
+        body: ready ? `${o.customerName} · كل السطور متغطية` : `${o.customerName} · ${covered.length} من ${shortLines.size} سطر ناقص اتغطى · لسه ناقص: ${stillShort}`,
         entityType: "order",
         entityId: o.id,
         link: `/orders/${o.id}`,
         dedupeKey: `order-stock:${o.id}:${state}`,
-      }
-    );
+      },
+    });
   }
-  return sent;
+  return { held: held.length, sent: await notifyMany(tx, events) };
 }

@@ -2,8 +2,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
 import { advisoryXactLock } from "@/lib/dbLock";
-import type { Tx } from "@/lib/tx";
-import { refreshPoReceiptStatus } from "@/lib/purchasing/orders";
+import { afterCommit, inTx, type Tx } from "@/lib/tx";
+import { refreshPoReceiptStatus, releasePoCoverage } from "@/lib/purchasing/orders";
 
 /**
  * The purchase-order side of a goods receipt.
@@ -77,8 +77,30 @@ export async function lockPoForReceipt(tx: Tx, lineId: string) {
   return line.poId;
 }
 
+/**
+ * After a receipt against a PO is posted, corrected or voided: the PO's receiving status, then
+ * the suggestions of the orders it serves (release gate D-1, Nov 2026). What the PO still has to
+ * bring just changed, so may what its order lines lack beyond it — a rejected or graded-out part
+ * of a delivery that closed the line, a voided receipt. A receipt voided or corrected down after
+ * the PO was closed can leave a request with nothing accepted on it: it is released as the close
+ * would have released it.
+ *
+ * The purchasing side runs once the receipt has committed, in its own transaction, outside the
+ * receipt's stock locks: a receipt never waits for, deadlocks with or fails on a purchase request
+ * being decided at the same moment. Should it fail, it is logged and the next re-size corrects it.
+ */
 export async function afterPoReceipt(tx: Tx, poId: string, actor: { id: string | null; name: string; role: string; deviceId?: string }) {
-  return refreshPoReceiptStatus(tx, poId, actor);
+  const status = await refreshPoReceiptStatus(tx, poId, actor);
+  if (!afterCommit(tx, `po-coverage:${poId}`, () => inTx((t) => syncPoCoverage(t, poId, actor)))) await syncPoCoverage(tx, poId, actor);
+  return status;
+}
+
+export async function syncPoCoverage(tx: Tx, poId: string, actor: { id: string | null; name: string; role: string; deviceId?: string }) {
+  await advisoryXactLock(tx, `purchasing:po:${poId}`);
+  const po = await tx.purchaseOrder.findUniqueOrThrow({ where: { id: poId } });
+  if (po.status === "closed") await releasePoCoverage(tx, po, "closed", "استلام اتلغى أو اتعدّل بعد قفل أمر الشراء", actor, { noteKept: false });
+  const { syncSuggestionsOfPo } = await import("@/lib/purchasing/requests");
+  await syncSuggestionsOfPo(tx, poId, actor);
 }
 
 /** What is still expected, per open PO line, for the receiving screen (no prices). */

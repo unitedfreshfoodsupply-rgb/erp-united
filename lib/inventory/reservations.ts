@@ -14,6 +14,7 @@ import { postMovements, type MoveInput } from "@/lib/inventory/ledger";
 import { resolveWarehouse } from "@/lib/inventory/context";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { notify } from "@/lib/core/notifications";
+import { availabilityChanged } from "@/lib/inventory/availability-changes";
 
 /**
  * Reservations: stock promised to a demand before it physically leaves.
@@ -81,6 +82,7 @@ export async function reserveInTx(
     },
   });
   await auditReservation(tx, reservation, actor, "stock_reserved", `${product.name} · ${input.quantity.toFixed()} ${product.unit}`);
+  await availabilityChanged(tx, [{ productId: product.id, delta: D(input.quantity).negated() }], actor);
   return { reservation, created: true };
 }
 
@@ -138,6 +140,7 @@ export async function releaseReservation(id: string, reason: unknown, actor: Ser
       throw err;
     }
     await auditReservation(tx, updated, actor, "stock_reservation_released", `${D(r.quantity).toFixed()}`, why);
+    await availabilityChanged(tx, [{ productId: r.productId, delta: D(r.quantity) }], actor);
     return updated;
   });
 }
@@ -149,6 +152,7 @@ export async function releaseReservationInTx(tx: Tx, r: StockReservation, reason
     data: { status: "released", closedReason: reason, closedAt: new Date(), version: { increment: 1 } },
   });
   await auditReservation(tx, updated, actor, "stock_reservation_released", `${D(r.quantity).toFixed()}`, reason);
+  await availabilityChanged(tx, [{ productId: r.productId, delta: D(r.quantity) }], actor);
   return updated;
 }
 
@@ -162,6 +166,7 @@ export async function releaseAllForSource(tx: Tx, sourceType: "order" | "manual"
     });
     await auditReservation(tx, updated, actor, "stock_reservation_released", `${D(r.quantity).toFixed()}`, reason);
   }
+  await availabilityChanged(tx, active.map((r) => ({ productId: r.productId, delta: D(r.quantity) })), actor);
   return active.length;
 }
 
@@ -217,6 +222,8 @@ export async function issueStock(
         where: { id: own.id, version: own.version },
         data: { status: "consumed", closedReason: doc.number, closedAt: new Date(), version: { increment: 1 } },
       });
+      // Nets out against the issue movement below (stock it held leaves with it).
+      await availabilityChanged(tx, [{ productId: own.productId, delta: D(own.quantity) }], actor);
     }
     const picks = await allocate(tx, {
       productId: product.id,

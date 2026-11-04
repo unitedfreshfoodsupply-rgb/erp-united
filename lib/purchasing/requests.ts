@@ -15,6 +15,7 @@ import { isoDate, money, qty, createPoInTx } from "@/lib/purchasing/orders";
 import { assertQuantityFitsUnit, assessOrderStock, sellableNow, unitPrecision } from "@/lib/sales/stock-commitment";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { searchWhere } from "@/lib/core/search";
+import { resolveWarehouse } from "@/lib/inventory/context";
 
 /**
  * Purchase requests (remediation 2026-11, WF-01).
@@ -266,10 +267,69 @@ export async function getPurchaseRequest(id: string, actor: ServiceActor) {
 // a purchase order for it; re-saving or editing the line resizes the one open request instead
 // of adding another (a partial unique index backs this). It is a recommendation: nothing here
 // buys, reserves or moves stock.
+//
+// "On a purchase order" means still to come from it (release gate D-1, Nov 2026): what a LIVE PO
+// line has yet to deliver (ordered − accepted), plus what it delivered that is still held in
+// quarantine (a grading loss waiting for approval — it is in the house, not yet sellable). It used
+// to be the full quantity of every converted request, whatever became of its PO — a closed PO,
+// a rejected delivery or a short one kept "covering" the line, and the order waited with no
+// suggestion open.
 
 type SuggestionActor = Actorish & { source?: string };
 
 const OPEN_SUGGESTION = ["pending_approval", "approved"];
+const PO_DONE = ["cancelled", "closed"];
+
+/**
+ * What each converted ("ordered") request still brings to its line, base unit, by request id:
+ *  - its PO line's outstanding quantity (ordered − accepted over posted receipts, every grade —
+ *    the PO's own receiving rule) while the PO is live, nothing once it is cancelled or closed;
+ *  - plus what that line delivered of the product that is still in quarantine (its receipts'
+ *    lots), whatever the PO's state: held for a grading-loss approval, it is not sellable yet but
+ *    it is not to be bought again either. When it leaves quarantine — released or written off —
+ *    the line is re-sized (syncSuggestionsForLots).
+ * What a line delivered and released is stock now (or graded out of it), not "on order".
+ */
+export async function stillOnOrder(tx: Tx, rows: PurchaseRequest[]): Promise<Map<string, Prisma.Decimal>> {
+  const ordered = rows.filter((r) => r.status === "ordered");
+  const out = new Map<string, Prisma.Decimal>();
+  if (!ordered.length) return out;
+  const lineIds = ordered.map((r) => r.purchaseOrderLineId).filter((x): x is string => !!x);
+  const poIds = ordered.map((r) => r.purchaseOrderId).filter((x): x is string => !!x);
+  const [pos, lines, receipts, lots, quarantines] = await Promise.all([
+    tx.purchaseOrder.findMany({ where: { id: { in: poIds } }, select: { id: true, status: true } }),
+    tx.purchaseOrderLine.findMany({ where: { id: { in: lineIds } }, select: { id: true, productId: true, baseQuantity: true } }),
+    tx.stockIntake.groupBy({ by: ["purchaseOrderLineId"], where: { status: "posted", purchaseOrderLineId: { in: lineIds } }, _sum: { receivedQty: true, rejectedQty: true } }),
+    // A lot past its expiry will never be sold: it is not "coming" either.
+    tx.stockIntake.findMany({ where: { status: "posted", purchaseOrderLineId: { in: lineIds }, lot: { OR: [{ expiryDate: null }, { expiryDate: { gte: todayLocalISO() } }] } }, select: { purchaseOrderLineId: true, lotId: true } }),
+    // The warehouse whose stock the order lines are judged against.
+    resolveWarehouse(tx, undefined).then((wh) => tx.storageLocation.findMany({ where: { type: "quarantine", warehouseId: wh.id }, select: { id: true } })),
+  ]);
+  const zero = new Prisma.Decimal(0);
+  const lineBy = new Map(lines.map((l) => [l.id, l]));
+  const heldByLine = new Map<string, Prisma.Decimal>();
+  if (lots.length && quarantines.length) {
+    const held = await tx.stockMovement.groupBy({ by: ["lotId", "productId"], where: { lotId: { in: [...new Set(lots.map((l) => l.lotId!))] }, locationId: { in: quarantines.map((q) => q.id) } }, _sum: { quantity: true } });
+    const heldBy = new Map(held.map((h) => [`${h.lotId}|${h.productId}`, new Prisma.Decimal(h._sum.quantity ?? 0)]));
+    for (const lineId of new Set(lots.map((l) => l.purchaseOrderLineId!))) {
+      const productId = lineBy.get(lineId)?.productId;
+      const lotIds = new Set(lots.filter((l) => l.purchaseOrderLineId === lineId).map((l) => l.lotId!));
+      heldByLine.set(lineId, [...lotIds].reduce((a, lot) => a.plus(Prisma.Decimal.max(zero, heldBy.get(`${lot}|${productId}`) ?? zero)), zero));
+    }
+  }
+  const poStatus = new Map(pos.map((p) => [p.id, p.status]));
+  const accepted = new Map(receipts.map((g) => [g.purchaseOrderLineId!, new Prisma.Decimal(g._sum.receivedQty ?? 0).minus(g._sum.rejectedQty ?? 0)]));
+  for (const r of ordered) {
+    const status = r.purchaseOrderId ? poStatus.get(r.purchaseOrderId) : undefined;
+    const live = !!status && !PO_DONE.includes(status);
+    const line = r.purchaseOrderLineId ? lineBy.get(r.purchaseOrderLineId) : undefined;
+    // A link to the PO without its line (never written since conversions record both): the request's own quantity.
+    if (!line) out.set(r.id, live ? r.quantity : zero);
+    else if (line.productId !== r.productId) out.set(r.id, zero);
+    else out.set(r.id, (live ? Prisma.Decimal.max(zero, line.baseQuantity.minus(accepted.get(line.id) ?? zero)) : zero).plus(heldByLine.get(line.id) ?? zero));
+  }
+  return out;
+}
 
 const suggestionAudit = (tx: Tx, actor: SuggestionActor, r: { id: string; number: string }, orderId: string, action: string, detail: string, reason?: string) =>
   writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action, entityType: "purchase_request", entityId: r.id, orderId, newValue: `${r.number} · ${detail}`, reason, source: actor.source === "n8n" || actor.source === "hermes" ? actor.source : actor.source === "system" ? "system" : "user", deviceId: actor.deviceId }, tx);
@@ -286,14 +346,20 @@ async function closeSuggestion(tx: Tx, r: PurchaseRequest, actor: SuggestionActo
  * caller's transaction; safe to call any number of times (idempotent). For an order that is
  * not (or no longer) awaiting stock it closes every open suggestion.
  */
-export async function syncOrderSuggestions(tx: Tx, orderId: string, actor: SuggestionActor) {
+export async function syncOrderSuggestions(tx: Tx, orderId: string, actor: SuggestionActor, opts: { forOrder?: boolean } = {}) {
   await advisoryXactLock(tx, `purchasing:order-suggestions:${orderId}`);
   const order = await tx.order.findUnique({ where: { id: orderId }, select: { id: true, orderNumber: true, status: true, stockStatus: true, customerAccountId: true, customerPoRef: true, deliveryDate: true } });
   if (!order) return { created: 0, updated: 0, closed: 0 };
   const held = order.stockStatus === "awaiting_stock" && order.status === "new";
   const assessment = held ? await assessOrderStock(tx, orderId) : null;
   const coverage = new Map((assessment?.coverage ?? []).map((c) => [c.itemId, c]));
-  const existing = await tx.purchaseRequest.findMany({ where: { orderId, orderItemId: { not: null }, status: { in: [...OPEN_SUGGESTION, "ordered"] } }, orderBy: { createdAt: "asc" } });
+  const where = { orderId, orderItemId: { not: null }, status: { in: [...OPEN_SUGGESTION, "ordered"] } };
+  // An open suggestion may be approved or converted right now (the request's own lock): take
+  // those locks, then read, so a resize never trips over a decision (it used to answer 409).
+  const openRows = await tx.purchaseRequest.findMany({ where: { ...where, status: { in: OPEN_SUGGESTION } }, select: { id: true }, orderBy: { id: "asc" } });
+  for (const r of openRows) await advisoryXactLock(tx, `purchasing:request:${r.id}`);
+  const existing = await tx.purchaseRequest.findMany({ where, orderBy: { createdAt: "asc" } });
+  const coming = await stillOnOrder(tx, existing);
   const itemIds = [...new Set([...coverage.keys(), ...existing.map((e) => e.orderItemId!)])];
   let created = 0, updated = 0, closed = 0;
   for (const itemId of itemIds) {
@@ -306,8 +372,8 @@ export async function syncOrderSuggestions(tx: Tx, orderId: string, actor: Sugge
       closed++;
       open = null;
     }
-    // Already on a purchase order for this line (base unit: suggestions are raised in it).
-    const ordered = mine.filter((e) => e.status === "ordered" && (!c || e.productId === c.productId)).reduce((a, e) => a.plus(e.quantity), new Prisma.Decimal(0));
+    // Still to come on a live purchase order for this line (base unit: suggestions are raised in it).
+    const ordered = mine.filter((e) => e.status === "ordered" && (!c || e.productId === c.productId)).reduce((a, e) => a.plus(coming.get(e.id) ?? 0), new Prisma.Decimal(0));
     let need = new Prisma.Decimal(0);
     if (c && c.shortage.gt(0)) {
       const precision = (await unitPrecision(tx, c.baseUnit)) ?? 3;
@@ -348,6 +414,10 @@ export async function syncOrderSuggestions(tx: Tx, orderId: string, actor: Sugge
       continue;
     }
     const product = await tx.stockProduct.findUniqueOrThrow({ where: { id: c!.productId }, select: { id: true, name: true, nameAr: true, unit: true } });
+    // Raised by whoever acts on the order; when a PO-side event raises it (a PO closed, a
+    // receipt, grading, stock leaving quarantine), on behalf of whoever saved the order, as at
+    // saving — the buyer who closed the PO must still be able to approve it (four eyes).
+    const raiser = opts.forOrder ? await orderCreator(tx, orderId, actor) : actor;
     const r = await tx.purchaseRequest.create({
       data: {
         number: await nextDocumentNumber(tx, "purchasing.request", todayLocalISO()),
@@ -358,8 +428,8 @@ export async function syncOrderSuggestions(tx: Tx, orderId: string, actor: Sugge
         orderId,
         orderItemId: itemId,
         notes: `ناقص في أوردر ${order.orderNumber} (سطر ${c!.line})`,
-        requestedById: actor.id,
-        requestedBy: actor.name,
+        requestedById: raiser.id,
+        requestedBy: raiser.name,
       },
     });
     await requestApproval(tx, {
@@ -367,12 +437,34 @@ export async function syncOrderSuggestions(tx: Tx, orderId: string, actor: Sugge
       entityId: r.id,
       title: `طلب شراء ${r.number} · ${product.nameAr ?? product.name}`,
       summary: `${need.toFixed()} ${product.unit} · أوردر ${order.orderNumber}${order.customerPoRef ? ` · ${order.customerPoRef}` : ""}`,
-      requester: { id: actor.id, name: actor.name, role: actor.role, deviceId: actor.deviceId },
+      requester: { id: raiser.id, name: raiser.name, role: raiser.role, deviceId: actor.deviceId },
     });
     await suggestionAudit(tx, actor, r, orderId, "purchase_request_created", `${product.name} · ${need.toFixed()} ${product.unit} · أوردر ${order.orderNumber}`);
     created++;
   }
   return { created, updated, closed };
+}
+
+async function orderCreator(tx: Tx, orderId: string, fallback: SuggestionActor): Promise<{ id: string | null; name: string; role: string }> {
+  const row = await tx.auditLog.findFirst({ where: { orderId, action: "order_created" }, orderBy: { timestamp: "asc" }, select: { userId: true, userName: true, role: true } });
+  return row ? { id: row.userId, name: row.userName, role: row.role } : fallback;
+}
+
+/** Re-sizes the suggestions of every order a purchase order serves (its converted line requests). */
+export async function syncSuggestionsOfPo(tx: Tx, poId: string, actor: SuggestionActor) {
+  const rows = await tx.purchaseRequest.findMany({ where: { purchaseOrderId: poId, status: "ordered", orderItemId: { not: null } }, select: { orderId: true } });
+  for (const orderId of new Set(rows.map((r) => r.orderId).filter((x): x is string => !!x))) await syncOrderSuggestions(tx, orderId, actor, { forOrder: true });
+}
+
+/**
+ * Stock left quarantine from these lots (released, written off, moved): when a lot came in on a
+ * PO, what that PO still "brings" changed (stillOnOrder counts its held part), so the orders it
+ * serves are re-sized. Called at commit by lib/inventory/availability-changes.ts.
+ */
+export async function syncSuggestionsForLots(tx: Tx, lotIds: string[], actor: SuggestionActor) {
+  if (!lotIds.length) return;
+  const intakes = await tx.stockIntake.findMany({ where: { lotId: { in: lotIds }, purchaseOrderLineId: { not: null } }, select: { purchaseOrderLine: { select: { poId: true } } } });
+  for (const poId of new Set(intakes.map((i) => i.purchaseOrderLine!.poId))) await syncSuggestionsOfPo(tx, poId, actor);
 }
 
 /**

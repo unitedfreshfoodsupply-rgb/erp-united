@@ -7,6 +7,7 @@ import { isValidISODate } from "@/lib/dates";
 import type { ServiceActor } from "@/lib/core/actor";
 import { D, parseMoney, parseQty } from "@/lib/inventory/decimal";
 import { productAvailability } from "@/lib/inventory/balances";
+import { sellabilityChanged } from "@/lib/inventory/availability-changes";
 import { orderBuckets } from "@/lib/inventory/picking";
 import { todayLocalISO } from "@/lib/localDate";
 import { resolveWarehouse } from "@/lib/inventory/context";
@@ -169,6 +170,8 @@ export async function updateLotExpiry(lotId: string, input: Record<string, unkno
   if (expiry === lot.expiryDate) return lot;
   return inTx(async (tx) => {
     const updated = await tx.stockLot.update({ where: { id: lotId, version: lot.version }, data: { expiryDate: expiry as string | null, version: { increment: 1 } } });
+    // A lot past its expiry that no longer is (or the reverse) changes what can be sold.
+    await sellabilityChanged(tx, { lotId }, (b) => ({ ...b, expiryDate: lot.expiryDate }), (b) => ({ ...b, expiryDate: expiry as string | null }), actor);
     await writeAudit(
       {
         userId: actor.id, userName: actor.name, role: actor.role,

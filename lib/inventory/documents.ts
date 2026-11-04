@@ -1,12 +1,11 @@
 import { Prisma, type InventoryDocument } from "@prisma/client";
-import { noteStockArrival } from "@/lib/sales/stock-hold";
 import { asText } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { assertPermission } from "@/lib/authz-core";
-import { inTx, type Tx } from "@/lib/tx";
+import { afterCommit, inTx, type Tx } from "@/lib/tx";
 import { todayLocalISO } from "@/lib/localDate";
 import { isValidISODate } from "@/lib/dates";
 import { getSetting } from "@/lib/core/settings-service";
@@ -15,6 +14,7 @@ import { requestApproval } from "@/lib/core/approvals";
 import type { ServiceActor } from "@/lib/core/actor";
 import { D, parseQty, type Dec } from "@/lib/inventory/decimal";
 import { postMovements, bucketBalance, lockForMoves, lockProductValuations, productValuation, type MoveInput } from "@/lib/inventory/ledger";
+import { syncPoCoverage } from "@/lib/purchasing/receiving";
 import { assertGradeBProduct, computeGradingCosts, type GradingCostPolicy, type WasteLossPolicy } from "@/lib/inventory/grading";
 import { gradingPrices } from "@/lib/sales/pricing";
 import { allocate, lockAvailability, PickClaims } from "@/lib/inventory/picking";
@@ -346,8 +346,8 @@ export async function releaseFromQuarantine(input: Record<string, unknown>, acto
       await postMovements(tx, [{ ...moves[1], unitCost: D(outRow.unitCost), costSource: "lot" }], mctx);
       await auditDoc(tx, doc, actor, "inventory_quarantine_release",
         `إفراج ${rawQty.toFixed(3)} كجم ${product.name} من ${from.code} إلى ${to.code}${lotId ? ` · ${lotId.slice(0, 8)}` : ""}${inspectionNote ? ` · فحص: ${inspectionNote}` : ""}`);
-      // Released stock may cover an order waiting for it: tell its people (reserves nothing).
-      await noteStockArrival(tx, [product.id], actor);
+      // Released stock may cover an order waiting for it: postMovements reports it, and the
+      // orders' people are told at commit (lib/inventory/availability-changes.ts).
       return doc;
     })
   );
@@ -395,8 +395,7 @@ export async function releaseGradingHoldInTx(
     await postMovements(tx, [{ productId: l.productId, warehouseId: wh.id, locationId: (l.destinationLocationId ? dest.get(l.destinationLocationId)! : to).id, lotId: l.lotId, quantity: qty, kind: "release_in", reason, documentId: doc.id, unitCost: D(outRow.unitCost), costSource: "lot" }], mctx);
   }
   await auditDoc(tx, doc, actor as ServiceActor, "grading_loss_released", `${from.code} → ${to.code}`);
-  // The released goods may cover an order waiting for stock: tell its people (reserves nothing).
-  await noteStockArrival(tx, payload.lines.map((l) => l.productId), actor);
+  // The released goods may cover an order waiting for stock: told at commit (availability-changes).
   return doc;
 }
 
@@ -881,6 +880,13 @@ export async function createSorting(input: Record<string, unknown>, actor: Servi
         });
       }
       await auditDoc(tx, doc, actor, "inventory_sorting_posted", `فرز ${inputKg.toFixed(3)} كجم → ممتاز ${goodKg.toFixed(3)} · فرزة ${gradeBKg.toFixed(3)} · هالك ${wasteKg.toFixed(3)}`);
+      // Grading a PO's delivery can leave its order line short of what the PO "delivered": the
+      // suggestions of the orders that PO serves are re-sized (release gate D-1).
+      // After commit, outside this sort's stock locks (as after a receipt: lib/purchasing/receiving.ts).
+      if (intake.purchaseOrderLineId) {
+        const { poId } = await tx.purchaseOrderLine.findUniqueOrThrow({ where: { id: intake.purchaseOrderLineId }, select: { poId: true } });
+        if (!afterCommit(tx, `po-coverage:${poId}`, () => inTx((t) => syncPoCoverage(t, poId, actor)))) await syncPoCoverage(tx, poId, actor);
+      }
       return doc;
     })
   );

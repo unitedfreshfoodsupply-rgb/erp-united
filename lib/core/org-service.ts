@@ -10,6 +10,7 @@ import type { ServiceActor } from "@/lib/core/actor";
 import { STORAGE_LOCATION_TYPES, UOM_CATEGORIES } from "@/lib/core/reference-data";
 import { active, optDecimal, optText, parse, text, version } from "@/lib/core/validation";
 import { egpCurrencyCode } from "@/lib/core/currency";
+import { sellabilityChanged } from "@/lib/inventory/availability-changes";
 
 /**
  * Organisation master data: currencies, company → branch → warehouse → storage
@@ -641,7 +642,12 @@ export async function updateLocation(id: string, input: unknown, actor: ServiceA
     existing.version,
     changes,
     auditRows(actor, "storage_location", id, "storage_location_updated", changes),
-    (tx) => tx.storageLocation.update({ where: { id, version: existing.version }, data: { ...data, version: { increment: 1 } } }),
+    async (tx) => {
+      const row = await tx.storageLocation.update({ where: { id, version: existing.version }, data: { ...data, version: { increment: 1 } } });
+      // Quarantine or waste turned into a shelf (or the reverse) changes what it holds can be sold.
+      if (row.type !== existing.type) await sellabilityChanged(tx, { locationId: id }, (b) => ({ ...b, locationType: existing.type }), (b) => ({ ...b, locationType: row.type }), actor);
+      return row;
+    },
     async (tx) => {
       const parentId = v.parent_id === undefined ? existing.parentId : v.parent_id;
       if (v.active === true && !existing.active) {

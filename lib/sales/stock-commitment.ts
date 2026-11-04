@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/rbac";
 import type { Tx } from "@/lib/tx";
 import type { ServiceActor } from "@/lib/core/actor";
-import { productAvailability } from "@/lib/inventory/balances";
+import { productAvailability, productsAvailability } from "@/lib/inventory/balances";
 import { lockAvailability } from "@/lib/inventory/picking";
 import { resolveWarehouse } from "@/lib/inventory/context";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
@@ -41,7 +41,7 @@ export type StockShortfall = {
   reason: StockShortfallReason;
 };
 
-const REASON_AR: Record<StockShortfallReason, string> = {
+export const REASON_AR: Record<StockShortfallReason, string> = {
   unmapped: "الصنف مش مربوط بدليل الأصناف",
   unit_not_on_product: "الوحدة مش مضافة على كارت الصنف",
   precision: "الكمية مش مطابقة لدقة الوحدة",
@@ -111,19 +111,45 @@ type StockPlan = {
   shortfalls: StockShortfall[];
 };
 
+const PLAN_INCLUDE = { items: { include: { stockProduct: true }, orderBy: { createdAt: "asc" } } } satisfies Prisma.OrderInclude;
+type PlanOrder = Prisma.OrderGetPayload<{ include: typeof PLAN_INCLUDE }>;
+
+/** Where a plan reads units and stock: the database for one order, or what a batch preloaded. */
+type PlanReads = {
+  warehouseId: string;
+  /** unitPrecision and toBaseQuantity read through this. */
+  units: Pick<Tx, "unitOfMeasure" | "productPackaging">;
+  /** Taken (commit only) before availability is read. */
+  lock?: (productIds: string[]) => Promise<void>;
+  /** Free stock of a product (productAvailability.available) and what this order already holds of it. */
+  stock: (productId: string) => Promise<{ available: Dec; own: Dec }>;
+};
+
 /**
  * The availability judgement behind commitOrderStock, shared with the read-only
  * assessment of an order waiting for stock. With `lock` (commit) it takes the per-product
  * availability locks first; without it (a read for a screen or a receipt) it takes none.
  */
 async function planOrderStock(tx: Tx, orderId: string, only: Set<string> | null, lock: boolean): Promise<StockPlan | null> {
-  const order = await tx.order.findUnique({
-    where: { id: orderId },
-    include: { items: { include: { stockProduct: true }, orderBy: { createdAt: "asc" } } },
-  });
+  const order = await tx.order.findUnique({ where: { id: orderId }, include: PLAN_INCLUDE });
   if (!order || order.status === "cancelled" || order.status === "dispatched") return null;
   const warehouse = await resolveWarehouse(tx, undefined);
+  return planFor(order, only, {
+    warehouseId: warehouse.id,
+    units: tx,
+    lock: lock ? async (ids) => { for (const id of ids) await lockAvailability(tx, id, warehouse.id); } : undefined,
+    stock: async (id) => {
+      const { available } = await productAvailability(tx, id, warehouse.id);
+      const own = await tx.stockReservation.aggregate({
+        where: { productId: id, warehouseId: warehouse.id, sourceType: "order", sourceId: orderId, status: "active", ...(only ? { sourceLineId: { in: [...only] } } : {}) },
+        _sum: { quantity: true },
+      });
+      return { available, own: D(own._sum.quantity) };
+    },
+  });
+}
 
+async function planFor(order: PlanOrder, only: Set<string> | null, reads: PlanReads): Promise<StockPlan> {
   const shortfalls: StockShortfall[] = [];
   const lines: CommitLine[] = [];
   for (const [idx, item] of order.items.entries()) {
@@ -138,14 +164,14 @@ async function planOrderStock(tx: Tx, orderId: string, only: Set<string> | null,
     }
     if (!p.stockTracked) continue; // services and packaging are not stock
     if (!requested.gt(0)) continue; // a line corrected to 0 holds nothing (its reservation is released below)
-    const precision = await unitPrecision(tx, item.unit);
+    const precision = await unitPrecision(reads.units, item.unit);
     if (precision === null || !fitsPrecision(requested, precision)) {
       shortfalls.push({ ...base, productId: p.id, reason: "precision" });
       continue;
     }
     let baseQty: Dec;
     try {
-      baseQty = await toBaseQuantity(tx, p, requested, item.unit);
+      baseQty = await toBaseQuantity(reads.units, p, requested, item.unit);
     } catch (err) {
       if (!(err instanceof ApiError)) throw err;
       shortfalls.push({ ...base, productId: p.id, reason: "unit_mismatch" });
@@ -155,17 +181,13 @@ async function planOrderStock(tx: Tx, orderId: string, only: Set<string> | null,
   }
 
   const productIds = [...new Set(lines.map((l) => l.productId))].sort();
-  if (lock) for (const id of productIds) await lockAvailability(tx, id, warehouse.id);
+  if (reads.lock) await reads.lock(productIds);
 
   // What this order may hold of each product: free stock plus what it already holds.
   const free = new Map<string, Dec>();
   for (const id of productIds) {
-    const { available } = await productAvailability(tx, id, warehouse.id);
-    const own = await tx.stockReservation.aggregate({
-      where: { productId: id, warehouseId: warehouse.id, sourceType: "order", sourceId: orderId, status: "active", ...(only ? { sourceLineId: { in: [...only] } } : {}) },
-      _sum: { quantity: true },
-    });
-    const total = available.plus(D(own._sum.quantity));
+    const { available, own } = await reads.stock(id);
+    const total = available.plus(own);
     free.set(id, total.gt(0) ? total : ZERO);
   }
   const coverage: LineCoverage[] = [];
@@ -187,7 +209,7 @@ async function planOrderStock(tx: Tx, orderId: string, only: Set<string> | null,
     }
     free.set(l.productId, Prisma.Decimal.max(ZERO, left.minus(l.base)));
   }
-  return { warehouseId: warehouse.id, lines, coverage, shortfalls: shortfalls.sort((a, b) => a.line - b.line) };
+  return { warehouseId: reads.warehouseId, lines, coverage, shortfalls: shortfalls.sort((a, b) => a.line - b.line) };
 }
 
 /**
@@ -231,6 +253,46 @@ export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceAc
 export async function assessOrderStock(tx: Tx, orderId: string): Promise<{ coverage: LineCoverage[]; shortfalls: StockShortfall[] } | null> {
   const plan = await planOrderStock(tx, orderId, null, false);
   return plan ? { coverage: plan.coverage, shortfalls: plan.shortfalls } : null;
+}
+
+/**
+ * assessOrderStock for many orders at once (every order waiting on a receipt): the same
+ * judgement (planFor), with the orders, units, packagings, stock and reservations read in a
+ * fixed number of queries instead of a dozen per order. Cancelled and dispatched orders are
+ * left out, as assessOrderStock returns null for them.
+ */
+export async function assessOrdersStock(tx: Tx, orderIds: string[]): Promise<Map<string, { coverage: LineCoverage[]; shortfalls: StockShortfall[] }>> {
+  const out = new Map<string, { coverage: LineCoverage[]; shortfalls: StockShortfall[] }>();
+  if (!orderIds.length) return out;
+  const orders = (await tx.order.findMany({ where: { id: { in: orderIds } }, include: PLAN_INCLUDE })).filter((o) => o.status !== "cancelled" && o.status !== "dispatched");
+  if (!orders.length) return out;
+  const warehouse = await resolveWarehouse(tx, undefined);
+  const products = orders.flatMap((o) => o.items.map((i) => i.stockProduct).filter((p): p is NonNullable<typeof p> => !!p));
+  const productIds = [...new Set(products.map((p) => p.id))];
+  const codes = [...new Set([...orders.flatMap((o) => o.items.map((i) => i.unit)), ...products.map((p) => p.unit)])];
+  const [uoms, packs, held, free] = await Promise.all([
+    tx.unitOfMeasure.findMany({ where: { code: { in: codes } } }),
+    tx.productPackaging.findMany({ where: { productId: { in: productIds } } }),
+    tx.stockReservation.groupBy({ by: ["sourceId", "productId"], where: { sourceType: "order", sourceId: { in: orders.map((o) => o.id) }, warehouseId: warehouse.id, status: "active" }, _sum: { quantity: true } }),
+    productsAvailability(tx, productIds, warehouse.id),
+  ]);
+  // The two lookups unitPrecision and toBaseQuantity make, answered from what was just read.
+  const uomBy = new Map(uoms.map((u) => [u.code, u]));
+  const packBy = new Map(packs.map((p) => [`${p.productId}|${p.uomCode}`, p]));
+  const units = {
+    unitOfMeasure: { findUnique: async ({ where }: { where: { code: string } }) => uomBy.get(where.code) ?? null },
+    productPackaging: { findUnique: async ({ where }: { where: { productId_uomCode: { productId: string; uomCode: string } } }) => packBy.get(`${where.productId_uomCode.productId}|${where.productId_uomCode.uomCode}`) ?? null },
+  } as unknown as PlanReads["units"];
+  const ownBy = new Map(held.map((r) => [`${r.sourceId}|${r.productId}`, D(r._sum.quantity)]));
+  for (const order of orders) {
+    const plan = await planFor(order, null, {
+      warehouseId: warehouse.id,
+      units,
+      stock: async (id) => ({ available: free.get(id)?.available ?? ZERO, own: ownBy.get(`${order.id}|${id}`) ?? ZERO }),
+    });
+    out.set(order.id, { coverage: plan.coverage, shortfalls: plan.shortfalls });
+  }
+  return out;
 }
 
 /** Read-only availability for the order screen: what a product can promise now. */
