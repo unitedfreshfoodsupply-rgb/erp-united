@@ -2312,6 +2312,7 @@ model CashAccount {
   reconciliations BankReconciliation[]
   payrollPayments PayrollPayment[]
   paymentRequests SupplierPaymentRequest[]
+  custodyRequests EmployeeCustodyRequest[]
 }
 
 /// Money in from a customer, allocated to invoices; what is not allocated is a credit
@@ -2379,29 +2380,34 @@ model ReceiptAllocation {
 }
 
 model SupplierPayment {
-  id             String   @id @default(cuid())
+  id                String   @id @default(cuid())
   /// PAY-YYYY-#####
-  number         String   @unique
+  number            String   @unique
   /// Client-supplied key: a retried or double-tapped submit returns the first document instead of recording money twice.
-  idempotencyKey String?  @unique
-  supplierId     String
-  cashAccountId  String
-  date           String
-  amount         Decimal  @db.Decimal(18, 2)
-  method         String
-  reference      String?
-  notes          String?
-  createdById    String?
-  createdBy      String
-  createdAt      DateTime @default(now())
+  idempotencyKey    String?  @unique
+  supplierId        String
+  /// Where the money came from: a cash/bank account OR an employee's purchasing custody — exactly one (DB CHECK SupplierPayment_one_source).
+  cashAccountId     String?
+  /// Paid by this employee out of the purchasing custody they hold (Cr 1600 employee advances, party = employee).
+  custodyEmployeeId String?
+  date              String
+  amount            Decimal  @db.Decimal(18, 2)
+  method            String
+  reference         String?
+  notes             String?
+  createdById       String?
+  createdBy         String
+  createdAt         DateTime @default(now())
 
-  supplier    Supplier                 @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  cashAccount CashAccount              @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
-  allocations PaymentAllocation[]
-  deductions  PaymentDeduction[]
-  reversal    SupplierPaymentReversal?
-  request     SupplierPaymentRequest?
+  supplier        Supplier                 @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  cashAccount     CashAccount?             @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  custodyEmployee Employee?                @relation("SupplierPaymentCustody", fields: [custodyEmployeeId], references: [id], onDelete: Restrict)
+  allocations     PaymentAllocation[]
+  deductions      PaymentDeduction[]
+  reversal        SupplierPaymentReversal?
+  request         SupplierPaymentRequest?
 
+  @@index([custodyEmployeeId])
   @@index([supplierId])
 }
 
@@ -2479,24 +2485,29 @@ model Department {
 }
 
 model Employee {
-  id           String   @id @default(cuid())
+  id                 String   @id @default(cuid())
   /// EMP-#####
-  code         String   @unique
-  name         String
-  nameAr       String?
-  departmentId String?
-  jobTitle     String?
-  phone        String?
+  code               String   @unique
+  name               String
+  nameAr             String?
+  departmentId       String?
+  jobTitle           String?
+  phone              String?
   /// The system user, when the employee signs in.
-  userId       String?  @unique
-  hireDate     String?
-  active       Boolean  @default(true)
-  version      Int      @default(1)
-  createdAt    DateTime @default(now())
+  userId             String?  @unique
+  hireDate           String?
+  active             Boolean  @default(true)
+  /// The supplier category this employee buys for with purchasing custody: vegetable | fruit | other (NULL = not a buyer).
+  purchasingCategory String?
+  version            Int      @default(1)
+  createdAt          DateTime @default(now())
 
-  department   Department?           @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  expenses     Expense[]
-  transactions EmployeeTransaction[]
+  department             Department?              @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  expenses               Expense[]
+  transactions           EmployeeTransaction[]
+  custodyRequests        EmployeeCustodyRequest[]
+  custodyPayments        SupplierPayment[]        @relation("SupplierPaymentCustody")
+  custodyPaymentRequests SupplierPaymentRequest[] @relation("SupplierPaymentRequestCustody")
 
   employments        EmployeeEmployment[]      @relation("EmploymentEmployee")
   reportsInHistory   EmployeeEmployment[]      @relation("EmploymentManager")
@@ -3355,6 +3366,10 @@ model EmployeeTransaction {
   requestHash    String?
   /// advance | reimbursement | advance_return | salary_on_account
   type           String
+  /// salary (default) | purchasing_custody — custody is an advance or advance_return of purchasing funds,
+  /// kept apart from salary advances: never recovered from pay automatically.
+  purpose        String   @default("salary")
+  reference      String?
   /// YYYY-MM — for salary_on_account: the month whose payroll must recover it in full.
   payrollPeriod  String?
   date           String
@@ -3365,10 +3380,12 @@ model EmployeeTransaction {
   createdBy      String
   createdAt      DateTime @default(now())
 
-  employee    Employee             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  advancePlan EmployeeAdvancePlan?
+  employee       Employee                @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  advancePlan    EmployeeAdvancePlan?
+  custodyRequest EmployeeCustodyRequest?
 
   @@index([employeeId])
+  @@index([employeeId, purpose])
 }
 
 // ---------------------------------------------------------------------------
@@ -4371,35 +4388,75 @@ model StandardCostChange {
 /// ACC-04: a supplier payment waiting for a second person (accounting.payment_approval).
 /// It posts as a SupplierPayment only when someone other than the requester approves it.
 model SupplierPaymentRequest {
-  id             String    @id @default(cuid())
+  id                String    @id @default(cuid())
   /// SPR-YYYY-#####
+  number            String    @unique
+  supplierId        String
+  /// Exactly one of cashAccountId / custodyEmployeeId (DB CHECK SupplierPaymentRequest_one_source).
+  cashAccountId     String?
+  custodyEmployeeId String?
+  date              String
+  amount            Decimal   @db.Decimal(18, 2)
+  method            String
+  reference         String?
+  notes             String?
+  /// What was asked (allocations, deductions, auto), re-validated when approved.
+  request           Json
+  /// pending_approval | posted | rejected
+  status            String
+  paymentId         String?   @unique
+  idempotencyKey    String?   @unique
+  requestHash       String?
+  requestedById     String?
+  requestedBy       String
+  createdAt         DateTime  @default(now())
+  decidedBy         String?
+  decidedAt         DateTime?
+  decisionNote      String?
+  version           Int       @default(1)
+
+  supplier        Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  cashAccount     CashAccount?     @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  custodyEmployee Employee?        @relation("SupplierPaymentRequestCustody", fields: [custodyEmployeeId], references: [id], onDelete: Restrict)
+  payment         SupplierPayment? @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([status])
+  @@index([supplierId])
+  @@index([custodyEmployeeId])
+}
+
+/// A purchasing-custody advance (عهدة شراء) waiting for a second person (approval type
+/// hr.custody_advance). Nothing moves while it waits; on approval the EmployeeTransaction
+/// (type advance, purpose purchasing_custody) and its journal (Dr 1600 employee / Cr cash-bank)
+/// are written in the approval's transaction. Permanent: a guard trigger keeps what was asked.
+model EmployeeCustodyRequest {
+  id             String    @id @default(cuid())
+  /// CST-YYYY-#####
   number         String    @unique
-  supplierId     String
+  employeeId     String
   cashAccountId  String
   date           String
   amount         Decimal   @db.Decimal(18, 2)
-  method         String
   reference      String?
   notes          String?
-  /// What was asked (allocations, deductions, auto), re-validated when approved.
-  request        Json
   /// pending_approval | posted | rejected
   status         String
-  paymentId      String?   @unique
+  transactionId  String?   @unique
   idempotencyKey String?   @unique
   requestHash    String?
   requestedById  String?
   requestedBy    String
   createdAt      DateTime  @default(now())
+  decidedById    String?
   decidedBy      String?
   decidedAt      DateTime?
   decisionNote   String?
   version        Int       @default(1)
 
-  supplier    Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  cashAccount CashAccount      @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
-  payment     SupplierPayment? @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  employee    Employee             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  cashAccount CashAccount          @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  transaction EmployeeTransaction? @relation(fields: [transactionId], references: [id], onDelete: Restrict)
 
   @@index([status])
-  @@index([supplierId])
+  @@index([employeeId])
 }

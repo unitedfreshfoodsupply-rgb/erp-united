@@ -320,11 +320,14 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/hr/compensation/[id]/cancel` | any of `hr.compensation.manage`, `hr.payroll.approve` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/compensation` | any of `hr.compensation.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/hr/compensation` | `hr.compensation.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/hr/custody/missing-receipts` | any of `hr.advances.manage`, `hr.employees.manage`, `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
+| GET | `/api/hr/custody` | any of `hr.advances.manage`, `hr.employees.manage`, `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/hr/departments` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/documents/expiring` | `hr.private.view` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/hr/employees/[id]/bank-accounts/[accountId]/deactivate` | `hr.private.manage` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/hr/employees/[id]/bank-accounts/[accountId]/reveal` | `hr.private.view` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/hr/employees/[id]/bank-accounts` | `hr.private.manage` | ✓ |  |  |  |  |  |  |  |  |
+| GET | `/api/hr/employees/[id]/custody` | any of `hr.advances.manage`, `hr.employees.manage`, `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/hr/employees/[id]/documents` | `hr.private.manage` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/hr/employees/[id]/employment` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/employees/[id]/private` | `hr.private.view` | ✓ |  |  |  |  |  |  |  |  |

@@ -11,6 +11,7 @@ import { parse, text } from "@/lib/core/validation";
 import { nextDocumentNumber } from "@/lib/core/sequences";
 import type { ServiceActor } from "@/lib/core/actor";
 import type { Permission } from "@/lib/permissions";
+import { custodyBalance } from "@/lib/hr/custody";
 
 /**
  * Final settlement of a leaver (WS5, audit HR-12; docs/erp/REMEDIATION_PLAN_2026-11.md).
@@ -69,13 +70,18 @@ async function checkItems(tx: Tx, items: z.infer<typeof item>[]) {
   if (bad) throw new ApiError(400, `البند ${bad.code} لازم يكون مفعّل، إدخال لمرة، واستحقاق أو استقطاع`);
 }
 
-/** The open advance balance of an employee (journal, employee advances) less recoveries counted by unposted runs. */
+/**
+ * The open advance balance of an employee (journal, employee advances) less recoveries counted by
+ * unposted runs. Purchasing custody is left out: it is never recovered from a leaver's pay by
+ * default (it is settled by a return or supplier payments and shown for review — pending owner decision).
+ */
 async function openAdvance(tx: Tx, employeeId: string) {
-  const [bal, pending] = await Promise.all([
+  const [bal, pending, custody] = await Promise.all([
     tx.journalLine.aggregate({ where: { partyType: "employee", partyId: employeeId, account: { systemKey: "employee_advances" } }, _sum: { debit: true, credit: true } }),
     tx.payrollRunEmployee.aggregate({ where: { employeeId, inclusion: "included", run: { status: { notIn: ["cancelled", "posted", "reversed"] } } }, _sum: { advanceRecovery: true } }),
+    custodyBalance(tx, employeeId),
   ]);
-  return D(bal._sum.debit ?? 0).minus(bal._sum.credit ?? 0).minus(pending._sum.advanceRecovery ?? 0);
+  return D(bal._sum.debit ?? 0).minus(bal._sum.credit ?? 0).minus(custody).minus(pending._sum.advanceRecovery ?? 0);
 }
 
 /** POST /api/hr/payroll/settlements — the settlement run of a terminated employee. */

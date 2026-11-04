@@ -2069,6 +2069,32 @@
       }
     },
     {
+      "method": "GET",
+      "path": "/api/hr/custody/missing-receipts",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.advances.manage",
+          "hr.employees.manage",
+          "accounting.view",
+          "accounting.payments.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/custody",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.advances.manage",
+          "hr.employees.manage",
+          "accounting.view",
+          "accounting.payments.manage"
+        ]
+      }
+    },
+    {
       "method": "POST",
       "path": "/api/hr/departments",
       "gate": {
@@ -2115,6 +2141,19 @@
         "kind": "all",
         "permissions": [
           "hr.private.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/employees/[id]/custody",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.advances.manage",
+          "hr.employees.manage",
+          "accounting.view",
+          "accounting.payments.manage"
         ]
       }
     },

@@ -67,6 +67,8 @@ export async function createAdvancePlan(body: unknown, actor: ServiceActor) {
     return await inTx(async (tx) => {
       const adv = await tx.employeeTransaction.findUnique({ where: { id: v.advance_transaction_id }, include: { employee: { select: { code: true } } } });
       if (!adv || adv.type !== "advance") throw new ApiError(400, "خطة السداد بتكون لسلفة متسجلة");
+      // Purchasing custody is settled by supplier payments and a cash return, never by instalments from pay.
+      if (adv.purpose !== "salary") throw new ApiError(400, "عهدة الشراء متتخصمش من المرتب — بتتقفل بسداد موردين أو رد نقدية");
       const total = v.total_amount !== undefined ? D(v.total_amount) : adv.amount;
       if (total.gt(adv.amount)) throw new ApiError(400, `إجمالي الخطة أكبر من السلفة (${adv.amount.toFixed(2)})`);
       if (D(v.instalment_amount).gt(total)) throw new ApiError(400, "القسط أكبر من إجمالي الخطة");
