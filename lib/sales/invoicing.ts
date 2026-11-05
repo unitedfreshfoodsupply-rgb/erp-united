@@ -22,6 +22,7 @@ import { listLimit } from "@/lib/core/list-window";
 import { searchWhere } from "@/lib/core/search";
 import { asJson, companyDocumentGaps, companySnapshot, documentCompany, partySnapshot } from "@/lib/core/document-snapshot";
 import { buildIssueSnapshot, readIssueSnapshot } from "@/lib/sales/invoice-snapshot";
+import { ORDER_REFUSAL } from "@/lib/orderActions";
 
 /**
  * Sales invoicing.
@@ -188,14 +189,26 @@ async function voidDraft(tx: Tx, inv: SalesInvoice, reason: string, actor: Actor
 
 /**
  * The order side of invoicing: an order taken back out of "dispatched" may not carry
- * an issued invoice (that needs a credit note first); a draft is simply voided.
+ * an issued invoice — its correction is a credit note on the invoice (with the goods back
+ * to stock), and a credit note never reopens the order; a draft is simply voided.
  */
 export async function releaseOrderInvoiceForReopen(tx: Tx, orderId: string, reason: string, actor: Actorish) {
   const live = await tx.salesInvoice.findMany({ where: { orderId, status: { not: "void" } } });
   for (const inv of live) {
-    if (inv.status === "issued") throw new ApiError(409, `الأوردر عليه فاتورة ${inv.number} — اعمل إشعار دائن قبل إعادة الفتح`);
+    if (inv.status === "issued") throw new ApiError(409, ORDER_REFUSAL.reopenInvoiced(await invoiceCreditFacts(tx, inv)));
     await voidDraft(tx, inv, `الأوردر اتفتح تاني: ${reason}`, actor);
   }
+}
+
+/** How far credit notes cover an issued invoice — what the reopen refusal says about it. */
+export async function invoiceCreditFacts(db: Pick<Tx, "creditNote">, inv: Pick<SalesInvoice, "id" | "number" | "total">) {
+  const notes = await db.creditNote.findMany({ where: { invoiceId: inv.id }, orderBy: { createdAt: "asc" }, select: { number: true, total: true, returnDocumentId: true } });
+  const credited = notes.reduce((s, c) => s.plus(c.total), D(0));
+  return {
+    number: inv.number,
+    fullyCredited: notes.length > 0 && credited.greaterThanOrEqualTo(inv.total),
+    creditNotes: notes.map((c) => ({ number: c.number, restocked: !!c.returnDocumentId })),
+  };
 }
 
 // ---------------------------------------------------------------------------

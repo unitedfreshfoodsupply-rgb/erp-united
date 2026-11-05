@@ -38,6 +38,7 @@ import { holdable, holdOrderForStockInTx } from "@/lib/sales/stock-hold";
 import { settleOrderSuggestions, syncOrderSuggestions } from "@/lib/purchasing/requests";
 import { assertPricingCleared, evaluateOrderPricing } from "@/lib/sales/price-exceptions";
 import { releaseOrderInvoiceForReopen } from "@/lib/sales/invoicing";
+import { ORDER_REFUSAL } from "@/lib/orderActions";
 import { searchWhere } from "@/lib/core/search";
 import { storedOrderCustomerName } from "@/lib/locale/names";
 
@@ -1178,9 +1179,9 @@ export async function cancelOrder(
   // and puts the order back into an active, workable state instead of quietly
   // reclassifying real freight-in-transit as never-happened.
   if (order.status === "dispatched") {
-    throw new ApiError(400, "الأوردر اتحرك بالفعل — استخدم إعادة الفتح لو محتاج تصحيح");
+    throw new ApiError(400, ORDER_REFUSAL.cancelDispatched);
   }
-  if (await liveTripStop(orderId)) throw new ApiError(409, "الأوردر على رحلة — شيله من الرحلة الأول");
+  if (await liveTripStop(orderId)) throw new ApiError(409, ORDER_REFUSAL.cancelOnTrip);
 
   return inTx(async (tx) => {
     const updated = await casOrderUpdate(orderId, order.version, (where) =>
@@ -1241,7 +1242,7 @@ export async function reopenOrder(
   if (order.status === to) throw new ApiError(400, "الأوردر في الحالة دي بالفعل");
   const stop = await liveTripStop(orderId);
   if (stop && ["dispatched", "in_transit", "completed"].includes(stop.trip.status)) {
-    throw new ApiError(409, `الأوردر خرج على الرحلة ${stop.trip.number} — التصحيح بنتيجة التسليم (مرتجع/عجز)`);
+    throw new ApiError(409, ORDER_REFUSAL.reopenTripLeft(stop.trip.number));
   }
 
   // Status, line resets, flags and the audit row are one change: a reopened order

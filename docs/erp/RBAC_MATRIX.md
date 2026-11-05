@@ -450,6 +450,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/operations/trips` | `operations.trips.manage` | ✓ | ✓ |  |  |  |  |  |  |  |
 | PATCH | `/api/operations/vehicles/[id]` | `operations.trips.manage` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/operations/vehicles` | `operations.trips.manage` | ✓ | ✓ |  |  |  |  |  |  |  |
+| GET | `/api/orders/[id]/actions` | `orders.edit` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/orders/[id]/approve` | `orders.approve` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/orders/[id]/assign` | `orders.approve` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/orders/[id]/cancel` | `orders.edit` | ✓ | ✓ |  |  |  |  |  |  |  |

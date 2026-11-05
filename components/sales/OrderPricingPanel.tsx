@@ -23,7 +23,7 @@ type Pricing = {
   }[];
   totals: Amounts;
   unpricedLines: number;
-  commercial?: { delivery: { trip: string; status: string } | null; invoice: { id: string; number: string | null; status: string; total: string; open: string | null } | null };
+  commercial?: { delivery: { trip: string; status: string } | null; invoice: { id: string; number: string | null; status: string; total: string; open: string | null; credited?: string } | null };
 };
 // Status maps hold dictionary keys, translated at render.
 const DELIVERY: Record<string, string> = { pending: "pricing.delivery.pending", delivered: "pricing.delivery.delivered", partial: "pricing.delivery.partial", failed: "pricing.delivery.failed" };
@@ -67,7 +67,7 @@ export function OrderPricingPanel({ orderId }: { orderId: string }) {
           {p.commercial.delivery && <span className="rounded-full px-3 py-1 bg-blue-50 text-blue-700">{DELIVERY[p.commercial.delivery.status] ? t(DELIVERY[p.commercial.delivery.status]) : p.commercial.delivery.status} · <span dir="ltr">{p.commercial.delivery.trip}</span></span>}
           {p.commercial.invoice ? (
             <span className={`rounded-full px-3 py-1 ${p.commercial.invoice.open === "0.00" ? "bg-united-green/10 text-united-green" : "bg-united-warn/10 text-united-warn"}`}>
-              {p.commercial.invoice.status === "draft" ? t("pricing.invoice-draft") : <>{t("pricing.invoice")} <span dir="ltr">{p.commercial.invoice.number}</span></>} · {p.commercial.invoice.open === "0.00" ? t("pricing.paid") : p.commercial.invoice.open ? <>{t("pricing.left")} <span dir="ltr">{fmtMoney(p.commercial.invoice.open)}</span></> : <span dir="ltr">{fmtMoney(p.commercial.invoice.total)}</span>}
+              {p.commercial.invoice.status === "draft" ? t("pricing.invoice-draft") : <>{t("pricing.invoice")} <span dir="ltr">{p.commercial.invoice.number}</span></>} · {p.commercial.invoice.open === "0.00" ? (Number(p.commercial.invoice.credited ?? 0) > 0 && Number(p.commercial.invoice.credited) >= Number(p.commercial.invoice.total) ? t("pricing.credited-full") : t("pricing.paid")) : p.commercial.invoice.open ? <>{t("pricing.left")} <span dir="ltr">{fmtMoney(p.commercial.invoice.open)}</span></> : <span dir="ltr">{fmtMoney(p.commercial.invoice.total)}</span>}
             </span>
           ) : (
             <span className="rounded-full px-3 py-1 bg-united-dark/5">{t("pricing.not-invoiced")}</span>

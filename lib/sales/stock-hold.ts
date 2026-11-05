@@ -7,7 +7,7 @@ import { inTx, type Tx } from "@/lib/tx";
 import { assertPermission, actorCan } from "@/lib/authz-core";
 import { notifyMany, usersWithPermission } from "@/lib/core/notifications";
 import type { ServiceActor } from "@/lib/core/actor";
-import { assessOrderStock, assessOrdersStock, commitOrderStock, REASON_AR, StockUnavailableError, type StockShortfall } from "@/lib/sales/stock-commitment";
+import { assessOrdersStock, commitOrderStock, REASON_AR, StockUnavailableError, type StockShortfall } from "@/lib/sales/stock-commitment";
 import { orderSuggestions, settleOrderSuggestions, syncOrderSuggestions } from "@/lib/purchasing/requests";
 
 /**
@@ -69,7 +69,8 @@ export async function holdOrderForStockInTx(tx: Tx, orderId: string, shortfalls:
 export async function orderStockView(orderId: string, actor: HoldActor & { permissions: readonly string[] }) {
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, status: true, stockStatus: true, version: true } });
   if (!order) throw new ApiError(404, "الأوردر مش موجود");
-  const a = await assessOrderStock(prisma, orderId);
+  // The batched assessment: the same judgement in a fixed number of reads, whatever the line count.
+  const a = (await assessOrdersStock(prisma, [orderId])).get(orderId) ?? null;
   const lines = (a?.coverage ?? []).map((c) => ({
     itemId: c.itemId,
     line: c.line,

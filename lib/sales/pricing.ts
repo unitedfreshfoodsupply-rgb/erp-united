@@ -538,7 +538,9 @@ export async function orderPricing(orderId: string) {
   const settled = invoice ? invoice.creditNotes.reduce((s, c) => s.plus(c.total), new Prisma.Decimal(0)).plus(invoice.receiptAllocations.reduce((s, a) => s.plus(a.amount), new Prisma.Decimal(0))) : null;
   const commercial = {
     delivery: stop ? { trip: stop.trip.number, status: stop.status, deliveredAt: stop.deliveredAt } : null,
-    invoice: invoice ? { id: invoice.id, number: invoice.number, status: invoice.status, total: invoice.total.toFixed(2), open: invoice.status === "issued" ? invoice.total.minus(settled!).toFixed(2) : null } : null,
+    invoice: invoice ? { id: invoice.id, number: invoice.number, status: invoice.status, total: invoice.total.toFixed(2), open: invoice.status === "issued" ? invoice.total.minus(settled!).toFixed(2) : null,
+      // Credit notes alone (not receipts): an invoice they cleared is "credited", not "paid".
+      credited: invoice.creditNotes.reduce((s, c) => s.plus(c.total), new Prisma.Decimal(0)).toFixed(2) } : null,
   };
   const totals = sumAmounts(
     order.items.filter((i) => i.price).map((i) => lineAmounts({ quantity: valuedQuantity(i), unitPrice: i.price!.unitPrice, discountPct: i.price!.discountPct, taxRate: i.price!.taxRate }))

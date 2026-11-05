@@ -1147,6 +1147,10 @@ const orders = {
   // Supervisor action buttons
   "orders.cancel_btn": { ar: "إلغاء الأوردر", en: "Cancel Order" },
   "orders.reopen_btn": { ar: "إعادة فتح (رجّعه للتجهيز)", en: "Reopen (back to preparation)" },
+  // The prompt's confirm says what it does; its dismiss is "رجوع" (Nov 2026).
+  "orders.cancel_confirm": { ar: "أيوه، ألغي الأوردر", en: "Yes, cancel the order" },
+  "orders.reopen_confirm": { ar: "افتح الأوردر تاني", en: "Reopen the order" },
+  "orders.action.open_invoice": { ar: "افتح الفاتورة", en: "Open the invoice" },
 
   // Next action owner labels (used in header nextAction display)
   "orders.owner.prep": { ar: "التجهيز", en: "Preparation" },
@@ -4785,6 +4789,7 @@ export const DICTIONARY = {
   "pricing.invoice-draft": { ar: "فاتورة مسودة", en: "Draft invoice" },
   "pricing.invoice": { ar: "فاتورة", en: "Invoice" },
   "pricing.paid": { ar: "مدفوعة", en: "Paid" },
+  "pricing.credited-full": { ar: "متخصومة بالكامل بإشعار دائن", en: "Fully credited" },
   "pricing.left": { ar: "باقي", en: "Open" },
   "pricing.not-invoiced": { ar: "لسه مااتفوترش", en: "Not invoiced yet" },
   "pricing.unpriced": { ar: "{count} سطر من غير سعر (صنف مش مربوط أو مفيش سعر لليوم ده)", en: "{count} line(s) without a price (product not mapped or no price for this day)" },
