@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleApiError } from "@/lib/rbac";
 import { requireOrderActor } from "@/lib/api-auth";
-import { setLoadedQuantity, markItemLoaded } from "@/lib/orders-service";
+import { setLoadedQuantity, markItemLoaded, recordLoaded } from "@/lib/orders-service";
 import { readJson } from "@/lib/http";
 import { localizeServerMessage, requestLocale } from "@/lib/locale/server-messages";
 
@@ -13,21 +13,24 @@ export async function POST(
     const actor = await requireOrderActor(req, "orders.load");
     const body = await readJson(req);
 
-    if (body.quantity !== undefined) {
-      const result = await setLoadedQuantity(params.id, params.itemId, body.quantity, actor, {
+    // The floor's one tap — quantity and done together — is one transaction (PM-8).
+    if (body.quantity !== undefined && body.mark_done) {
+      const item = await recordLoaded(params.id, params.itemId, body.quantity, actor, {
         expectedVersion: body.expected_version,
         note: body.note,
       });
-      if (!body.mark_done) return NextResponse.json(result);
+      return NextResponse.json({ item });
+    }
+
+    if (body.quantity !== undefined) {
+      return NextResponse.json(await setLoadedQuantity(params.id, params.itemId, body.quantity, actor, {
+        expectedVersion: body.expected_version,
+        note: body.note,
+      }));
     }
 
     if (body.mark_done) {
-      const item = await markItemLoaded(
-        params.id,
-        params.itemId,
-        actor,
-        body.quantity !== undefined ? undefined : body.expected_version
-      );
+      const item = await markItemLoaded(params.id, params.itemId, actor, body.expected_version);
       return NextResponse.json({ item });
     }
 

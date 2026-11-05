@@ -68,6 +68,13 @@ const ORDER_INCLUDE = {
   customerAccount: { select: { name: true, nameAr: true, code: true } },
 } as const;
 
+// The polled lists (boards, command center): the same order and line rows without the catalogue
+// names, which only the order detail reads (ItemRow) — one query fewer on every poll (PS-4).
+const ORDER_LIST_INCLUDE = {
+  items: true,
+  customerAccount: { select: { name: true, nameAr: true, code: true } },
+} as const;
+
 /** The order actor as the inventory services take it. "SYSTEM" (an integration) is
  * only a label there: those services check permissions, never the role. */
 const stockActor = (a: Actor) => a as unknown as ServiceActor;
@@ -119,7 +126,7 @@ export function productionScope(now = new Date()): Prisma.OrderWhereInput {
   };
 }
 
-export async function listOrders(filters: {
+export type OrderListFilters = {
   status?: OrderStatus | OrderStatus[];
   date?: string;
   assignedToId?: string;
@@ -130,8 +137,12 @@ export async function listOrders(filters: {
   q?: string;
   /** ok (the floor boards: orders that may be worked) | awaiting_stock (Nov 2026). */
   stockStatus?: "ok" | "awaiting_stock";
-}) {
-  const unfiltered = !filters.status && !filters.date && !filters.assignedToId && !filters.q && !filters.stockStatus;
+};
+
+const isUnfiltered = (f: OrderListFilters) => !f.status && !f.date && !f.assignedToId && !f.q && !f.stockStatus;
+
+export async function listOrders(filters: OrderListFilters) {
+  const unfiltered = isUnfiltered(filters);
   const scope = filters.scope === "production" ? productionScope() : unfiltered || filters.scope === "board" ? boardScope() : {};
   return prisma.order.findMany({
     where: {
@@ -152,9 +163,114 @@ export async function listOrders(filters: {
         },
       ],
     },
-    include: ORDER_INCLUDE,
+    include: ORDER_LIST_INCLUDE,
     orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }, { createdAt: "asc" }],
   });
+}
+
+// ---------------------------------------------------------------------------
+// Polled lists: run the full list only when something in it changed (PM-6)
+// ---------------------------------------------------------------------------
+
+/**
+ * listOrders' WHERE as SQL, for the change stamp below. It must select exactly the orders
+ * listOrders selects (boardScope / productionScope / the filters above) — keep the two in step;
+ * tests/integration/order-list-stamp.test.ts compares them filter by filter. A search (q) has no
+ * SQL form here: the polled lists never search, and a search is always run in full.
+ */
+export function orderListWhereSql(filters: OrderListFilters, now: Date): Prisma.Sql {
+  // timestamp(3) columns hold UTC wall time; a JS Date bound in raw SQL arrives as timestamptz and
+  // would be shifted by the session time zone, so the instant is passed as UTC text.
+  const ts = (d: Date) => Prisma.sql`${d.toISOString()}::timestamp`;
+  const open = Prisma.join(OPEN_STATUSES);
+  const parts: Prisma.Sql[] = [];
+  if (filters.scope === "production") {
+    parts.push(Prisma.sql`o."status" <> 'cancelled' AND o."stockStatus" = 'ok' AND (o."status" IN (${open}) OR o."deliveryDate" = ${todayLocalISO(now)} OR o."updatedAt" >= ${ts(startOfBusinessDay(now))})`);
+  } else if (isUnfiltered(filters) || filters.scope === "board") {
+    const since = new Date(now.getTime() - BOARD_HISTORY_DAYS * 86_400_000);
+    parts.push(Prisma.sql`(o."status" IN (${open}) OR o."updatedAt" >= ${ts(since)} OR o."deliveryDate" >= ${todayLocalISO(since)})`);
+  }
+  if (filters.assignedToId) parts.push(Prisma.sql`o."assignedToId" = ${filters.assignedToId}`);
+  if (filters.stockStatus) parts.push(Prisma.sql`o."stockStatus" = ${filters.stockStatus}`);
+  if (filters.status) {
+    const list = Array.isArray(filters.status) ? filters.status : [filters.status];
+    parts.push(list.length ? Prisma.sql`o."status" IN (${Prisma.join(list)})` : Prisma.sql`FALSE`);
+  }
+  if (filters.date !== undefined) parts.push(Prisma.sql`o."deliveryDate" = ${filters.date}`);
+  return parts.length ? Prisma.join(parts, " AND ") : Prisma.sql`TRUE`;
+}
+
+/**
+ * A fingerprint of everything a polled list's payload is read from, in one statement: every
+ * column of every order the list selects, every column of their lines, the names and code of
+ * their customer cards and — with `stages` — when each open order entered its current status
+ * (the audit rows getStageEntryMap reads). Equal stamps mean an identical list; anything that
+ * changes a row, adds or removes one, or moves an order in or out of the window changes it.
+ */
+export async function orderListStamp(filters: OrderListFilters, opts: { stages?: boolean } = {}, now = new Date()): Promise<string> {
+  const where = orderListWhereSql(filters, now);
+  const stages = opts.stages
+    ? Prisma.sql`UNION ALL SELECT 'a' || a."orderId" || '|' || max(a."timestamp")::text FROM "AuditLog" a
+        WHERE a."orderId" IN (SELECT "id" FROM o WHERE "status" IN (${Prisma.join(OPEN_STATUSES)}))
+          AND a."action" IN ('order_created', 'status_changed', 'status_override')
+        GROUP BY a."orderId"`
+    : Prisma.empty;
+  const [row] = await prisma.$queryRaw<{ stamp: string }[]>`
+    WITH o AS (SELECT * FROM "Order" o WHERE ${where})
+    SELECT md5(coalesce(string_agg(x, E'\n' ORDER BY x), '')) AS stamp FROM (
+      SELECT 'o' || o::text AS x FROM o
+      UNION ALL SELECT 'i' || i::text FROM "OrderItem" i WHERE i."orderId" IN (SELECT "id" FROM o)
+      UNION ALL SELECT 'c' || ROW(c."id", c."name", c."nameAr", c."code")::text FROM "Customer" c WHERE c."id" IN (SELECT "customerAccountId" FROM o)
+      ${stages}
+    ) t`;
+  return row.stamp;
+}
+
+/** The last result of each polled list, keyed by its filters, with the stamp it was read under.
+ * Per process; the payload is the same for every caller (no prices, no per-user fields). */
+const polled = new Map<string, { stamp: string; value: unknown }>();
+const POLLED_MAX = 64;
+
+async function whenChanged<T>(key: string, stamp: string, load: () => Promise<T>): Promise<T> {
+  const hit = polled.get(key);
+  if (hit && hit.stamp === stamp) {
+    polled.delete(key);
+    polled.set(key, hit); // most recently used last
+    return hit.value as T;
+  }
+  // The stamp was read before the data, so a change in between only makes the next poll reload.
+  const value = await load();
+  polled.delete(key);
+  polled.set(key, { stamp, value });
+  while (polled.size > POLLED_MAX) polled.delete(polled.keys().next().value as string);
+  return value;
+}
+
+/**
+ * listOrders for the polled boards: one stamp statement, and the full list only when the stamp
+ * changed since the last poll of the same filters. The response is built from the same rows, so
+ * the payload ETag (lib/http-response.ts) turns an unchanged poll into a body-less 304. A search
+ * always runs in full.
+ */
+export async function listOrdersPolled(filters: OrderListFilters) {
+  if (filters.q) return listOrders(filters);
+  const stamp = await orderListStamp(filters);
+  return whenChanged(`orders:${JSON.stringify(filters)}`, stamp, () => listOrders(filters));
+}
+
+/**
+ * The command center's board and its operational intelligence (GET /api/supervisor/intelligence).
+ * The orders and their stage entry times are re-read only when the stamp changed; the
+ * classification is computed on every call, because it moves with the clock (minutes in stage,
+ * stalled, late) and with the operational settings.
+ */
+export async function boardWithIntelligence() {
+  const stamp = await orderListStamp({}, { stages: true });
+  const { orders, entered } = await whenChanged("intelligence", stamp, async () => {
+    const orders = await listOrders({});
+    return { orders, entered: await getStageEntryMap(orders.filter((o) => isOrderOpen(o.status as OrderStatus)).map((o) => o.id)) };
+  });
+  return { orders, intelligence: intelligenceFrom(orders, entered, await getOperationalSettings()) };
 }
 
 export async function getOrder(id: string) {
@@ -671,9 +787,10 @@ function shortageTolerance() {
  * the common case — a line within tolerance — costs nothing extra.
  */
 async function recomputeOrderFlags(tx: Tx, orderId: string, thresholdPct: number, actor: Actor) {
+  // The order and its lines only: nothing below reads the catalogue or customer names (PM-8).
   const order = await tx.order.findUniqueOrThrow({
     where: { id: orderId },
-    include: ORDER_INCLUDE,
+    include: { items: true },
   });
   let shortage = false;
   let needsReview = false;
@@ -916,6 +1033,85 @@ export async function markItemLoaded(
       deviceId: actor.deviceId,
     }, tx);
 
+    return updated;
+  });
+}
+
+/**
+ * One tap on the floor (PM-8): the quantity and "done" in a single request used to run
+ * setPreparedQuantity and then markItemPrepared — two transactions, about 20 round trips, and a
+ * line left with its quantity saved but not marked done when the second one failed. These run
+ * the same checks in the same order, then one transaction: one compare-and-swap update of the
+ * line (quantity, note, done; version + 1), both audit rows (quantity set, marked done), and the
+ * order's shortage / review flags. Returns the line, as the route returned it before.
+ */
+export async function recordPrepared(
+  orderId: string,
+  itemId: string,
+  quantity: number,
+  actor: Actor,
+  opts: { expectedVersion?: number; note?: string } = {}
+) {
+  assertPermission(actor, "orders.prepare", "بس التجهيز أو المشرف يقدروا يدخلوا الكمية اللي اتجهزت");
+  const item = await loadItemWithOrderStatus(orderId, itemId);
+  assertOrderStatusForItemAction(item.order?.status, "preparing", "مينفعش تسجّل كمية تجهيز");
+  assertVersion(item.version, opts.expectedVersion, "الصنف");
+  assertValidQuantity(quantity, "الكمية");
+  return recordItemStage(orderId, itemId, item, actor, opts.note, {
+    data: { preparedQuantity: quantity, preparationStatus: "done" },
+    audit: [
+      { action: "prepared_quantity_set", fieldChanged: "preparedQuantity", oldValue: item.preparedQuantity, newValue: quantity, reason: opts.note },
+      { action: "item_marked_prepared" },
+    ],
+  });
+}
+
+/** recordPrepared for loading: the loaded quantity and "loaded" in one transaction (PM-8). */
+export async function recordLoaded(
+  orderId: string,
+  itemId: string,
+  quantity: number,
+  actor: Actor,
+  opts: { expectedVersion?: number; note?: string } = {}
+) {
+  assertPermission(actor, "orders.load", "بس التحميل أو المشرف يقدروا يدخلوا الكمية اللي اتحملت");
+  const item = await loadItemWithOrderStatus(orderId, itemId);
+  assertOrderStatusForItemAction(item.order?.status, "loading", "مينفعش تسجّل كمية تحميل");
+  assertVersion(item.version, opts.expectedVersion, "الصنف");
+  assertValidQuantity(quantity, "الكمية");
+  return recordItemStage(orderId, itemId, item, actor, opts.note, {
+    data: { loadedQuantity: quantity, loadingStatus: "done" },
+    audit: [
+      { action: "loaded_quantity_set", fieldChanged: "loadedQuantity", oldValue: item.loadedQuantity, newValue: quantity, reason: opts.note },
+      { action: "item_marked_loaded" },
+    ],
+  });
+}
+
+async function recordItemStage(
+  orderId: string,
+  itemId: string,
+  item: { version: number; notes: string | null },
+  actor: Actor,
+  note: string | undefined,
+  change: {
+    data: Prisma.OrderItemUpdateInput;
+    audit: Pick<Parameters<typeof writeAudit>[0], "action" | "fieldChanged" | "oldValue" | "newValue" | "reason">[];
+  }
+) {
+  const thresholdPct = await shortageTolerance();
+  return inTx(async (tx) => {
+    const updated = await casItemUpdate(itemId, item.version, (where) =>
+      tx.orderItem.update({ where, data: { ...change.data, notes: note ?? item.notes, version: { increment: 1 } } })
+    );
+    // One insert, one millisecond apart: the trail is sorted by timestamp, so the tap's rows
+    // keep their order (quantity, then done) as when they were two separate actions.
+    const at = Date.now();
+    await writeAuditMany(
+      change.audit.map((a, i) => ({ ...a, userId: actor.id, userName: actor.name, role: actor.role, entityType: "order_item" as const, entityId: itemId, orderId, source: actor.source, deviceId: actor.deviceId, timestamp: new Date(at + i) })),
+      tx
+    );
+    await recomputeOrderFlags(tx, orderId, thresholdPct, actor);
     return updated;
   });
 }
@@ -1416,46 +1612,47 @@ export async function cloneOrder(
  * days no longer count (they used to, so the totals grew with every day of history).
  */
 export async function dailyProduction() {
-  const orders = await prisma.order.findMany({
-    where: productionScope(),
-    include: ORDER_INCLUDE,
+  // The lines of the production scope with only what the totals read, and the catalogue names
+  // of their products, so the board can show each product in the UI language (`productName`
+  // stays the name as ordered — it is also the drill-down key). Two queries (PS-4).
+  const items = await prisma.orderItem.findMany({
+    where: { order: productionScope() },
+    select: { orderId: true, productName: true, unit: true, stockProductId: true, requiredQuantity: true, preparedQuantity: true, stockProduct: { select: { name: true, nameAr: true } } },
   });
 
   const byProduct = new Map<
     string,
-    { productName: string; productId: string | null; unit: string; required: number; prepared: number; orders: Set<string> }
+    { productName: string; productId: string | null; product: { name: string; nameAr: string | null } | null; unit: string; required: number; prepared: number; orders: Set<string> }
   >();
 
-  for (const order of orders) {
-    for (const item of order.items) {
-      const key = `${item.productName}__${item.unit}`;
-      if (!byProduct.has(key)) {
-        byProduct.set(key, {
-          productName: item.productName,
-          productId: item.stockProductId ?? null,
-          unit: item.unit,
-          required: 0,
-          prepared: 0,
-          orders: new Set(),
-        });
-      }
-      const agg = byProduct.get(key)!;
-      agg.productId ??= item.stockProductId ?? null; // any linked line names the product
-      agg.required += item.requiredQuantity;
-      agg.prepared += item.preparedQuantity ?? 0;
-      agg.orders.add(order.id);
+  for (const item of items) {
+    const key = `${item.productName}__${item.unit}`;
+    if (!byProduct.has(key)) {
+      byProduct.set(key, {
+        productName: item.productName,
+        productId: null,
+        product: null,
+        unit: item.unit,
+        required: 0,
+        prepared: 0,
+        orders: new Set(),
+      });
     }
+    const agg = byProduct.get(key)!;
+    if (agg.productId == null && item.stockProductId) { // any linked line names the product
+      agg.productId = item.stockProductId;
+      agg.product = item.stockProduct;
+    }
+    agg.required += item.requiredQuantity;
+    agg.prepared += item.preparedQuantity ?? 0;
+    agg.orders.add(item.orderId);
   }
 
-  // The catalogue names, so the board can show each product in the UI language
-  // (`productName` stays the name as ordered — it is also the drill-down key).
-  const ids = [...new Set([...byProduct.values()].map((v) => v.productId).filter((x): x is string => !!x))];
-  const names = new Map((ids.length ? await prisma.stockProduct.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, nameAr: true } }) : []).map((p) => [p.id, p]));
   return Array.from(byProduct.values())
     .map((v) => ({
       productName: v.productName,
-      productNameEn: (v.productId && names.get(v.productId)?.name) || null,
-      productNameAr: (v.productId && names.get(v.productId)?.nameAr) || null,
+      productNameEn: v.product?.name || null,
+      productNameAr: v.product?.nameAr || null,
       unit: v.unit,
       required: v.required,
       prepared: v.prepared,
@@ -1617,6 +1814,13 @@ export async function getOperationalIntelligence(allOrders: OrderForIntel[]) {
     getStageEntryMap(openOrders.map((o) => o.id)),
     getOperationalSettings(),
   ]);
+  return intelligenceFrom(allOrders, enteredMap, ops);
+}
+
+/** getOperationalIntelligence from rows already read: no database access, the clock and the
+ * settings applied now. */
+function intelligenceFrom(allOrders: OrderForIntel[], enteredMap: Map<string, Date>, ops: OperationalSettings) {
+  const openOrders = allOrders.filter((o) => isOrderOpen(o.status as OrderStatus));
 
   const classified: ClassifiedOrder[] = openOrders.map((o) => {
     const enteredAt = enteredMap.get(o.id) ?? o.createdAt;
@@ -1729,13 +1933,18 @@ export async function dailyOperationsSummary() {
   const endOfDay = endOfBusinessDay(now);
   const dateLabel = todayLocalISO(now);
 
+  // Only the columns the summary reads (PS-4): today's orders for their status and quantities,
+  // the open orders for the pipeline, the exception flags and the intelligence.
   const [todayOrders, allOpenOrCancelledOrders] = await Promise.all([
     prisma.order.findMany({
       where: { createdAt: { gte: startOfDay, lt: endOfDay } },
-      include: ORDER_INCLUDE,
+      select: { status: true, items: { select: { requiredQuantity: true, preparedQuantity: true, loadedQuantity: true } } },
     }),
     // Pipeline, exception counts and intelligence all read open orders only.
-    prisma.order.findMany({ where: { status: { in: OPEN_STATUSES } }, include: ORDER_INCLUDE }),
+    prisma.order.findMany({
+      where: { status: { in: OPEN_STATUSES } },
+      select: { id: true, orderNumber: true, customerName: true, status: true, needsReview: true, shortage: true, createdAt: true, updatedAt: true, deliveryDate: true, deliveryTime: true, customerAccount: { select: { name: true, nameAr: true } } },
+    }),
   ]);
 
   const byStatusToday: Record<string, number> = {};

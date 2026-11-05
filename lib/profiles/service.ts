@@ -6,7 +6,8 @@ import { isValidISODate } from "@/lib/dates";
 import { todayLocalISO } from "@/lib/localDate";
 import { customerReceivable, openAmounts } from "@/lib/sales/invoicing";
 import { debitedByBill, supplierPayable } from "@/lib/purchasing/bills";
-import { orderValue } from "@/lib/sales/pricing";
+import { valuedQuantity } from "@/lib/sales/pricing";
+import { lineAmounts, sumAmounts } from "@/lib/sales/money";
 import { MONEY, maySeeSection, type ProfileKind } from "./access";
 import { href, linkFor, refundsLink } from "./links";
 
@@ -70,11 +71,14 @@ const productRef = (can: Can, p: { id: string; name: string; nameAr: string | nu
 
 async function customerOrders(id: string, can: Can, w: Window): Promise<Source> {
   const where: Prisma.OrderWhereInput = { customerAccountId: id, ...range("deliveryDate", w), ...(w.open ? { status: { notIn: ["dispatched", "cancelled"] } } : {}) };
+  const priced = can(MONEY.salesPrice);
+  // A priced viewer gets each order's value from its lines read here, with orderValue's own
+  // arithmetic — one query for every order's prices instead of two per order (PS-7).
+  const itemSelect = { preparationStatus: true, loadingStatus: true, ...(priced ? PRICED_LINE : {}) };
   const [total, orders] = await Promise.all([
     prisma.order.count({ where }),
-    prisma.order.findMany({ where, orderBy: [{ deliveryDate: "desc" }, { createdAt: "desc" }], take: w.limit, select: { id: true, orderNumber: true, deliveryDate: true, deliveryTime: true, status: true, createdAt: true, items: { select: { preparationStatus: true, loadingStatus: true } }, tripStops: { where: { active: true }, select: { status: true, trip: { select: { number: true } } }, take: 1 } } }),
+    prisma.order.findMany({ where, orderBy: [{ deliveryDate: "desc" }, { createdAt: "desc" }], take: w.limit, select: { id: true, orderNumber: true, deliveryDate: true, deliveryTime: true, status: true, createdAt: true, items: { select: itemSelect }, tripStops: { where: { active: true }, select: { status: true, trip: { select: { number: true } } }, take: 1 } } }),
   ]);
-  const priced = can(MONEY.salesPrice);
   const rows: Sourced[] = [];
   for (const o of orders) {
     const prepared = o.items.filter((i) => i.preparationStatus === "done").length, loaded = o.items.filter((i) => i.loadingStatus === "done").length;
@@ -82,12 +86,19 @@ async function customerOrders(id: string, can: Can, w: Window): Promise<Source> 
       key: `order:${o.id}`, kind: "order", id: o.id, number: o.orderNumber, date: o.deliveryDate, status: o.status, at: o.createdAt.getTime(),
       // lines | prepared | loaded | trip | delivery (the screen spells these out)
       detail: [o.items.length, prepared, loaded, o.tripStops[0]?.trip.number ?? "", o.tripStops[0]?.status ?? ""].join("|"),
-      amount: priced ? m2((await orderValue(prisma, o.id)).total) : null,
+      amount: priced ? m2(valueOfLines(o.items)) : null,
       href: linkFor(can, href.order(o.id)),
     });
   }
   return { rows, total };
 }
+
+/** The line fields valueOfLines reads; PricedLine is derived from this select, so the two cannot drift. */
+const PRICED_LINE = { requiredQuantity: true, preparedQuantity: true, loadedQuantity: true, price: { select: { unitPrice: true, discountPct: true, taxRate: true } } } satisfies Prisma.OrderItemSelect;
+type PricedLine = Prisma.OrderItemGetPayload<{ select: typeof PRICED_LINE }>;
+/** orderValue(...).total from lines already read: lines without a price count as nothing. */
+const valueOfLines = (items: PricedLine[]) =>
+  sumAmounts(items.filter((i) => i.price).map((i) => lineAmounts({ quantity: valuedQuantity(i), unitPrice: i.price!.unitPrice, discountPct: i.price!.discountPct, taxRate: i.price!.taxRate }))).total;
 
 async function customerInvoices(id: string, can: Can, w: Window): Promise<Source> {
   const invWhere: Prisma.SalesInvoiceWhereInput = { customerId: id, ...(w.from || w.to ? range("issueDate", w) : {}) };
@@ -228,35 +239,36 @@ async function customerProducts(id: string, can: Can, w: Window): Promise<Sectio
 }
 
 async function customerSummary(id: string, can: Can) {
-  const c = await prisma.customer.findUnique({ where: { id }, select: { id: true, paymentTermsDays: true, creditLimit: true, creditHold: true } });
-  if (!c) throw new ApiError(404, "العميل مش موجود");
   const year = `${todayLocalISO().slice(0, 4)}-01-01`;
+  const orders = can("orders.view"), money = can(MONEY.receivable);
+  // The card and every count and sum of the summary in one statement (PM-9); the receivable is
+  // the shared balance rule (customerReceivable).
+  const [c] = await prisma.$queryRaw<{ paymentTermsDays: number; creditLimit: Prisma.Decimal | null; creditHold: boolean; orders: number; open: number; last: string | null; inv: Prisma.Decimal | null; invYear: Prisma.Decimal | null; cn: Prisma.Decimal | null; cnYear: Prisma.Decimal | null; rc: Prisma.Decimal | null; lastRc: string | null }[]>`
+    SELECT c."paymentTermsDays", c."creditLimit", c."creditHold"
+    ${orders ? Prisma.sql`,
+      (SELECT count(*)::int FROM "Order" o WHERE o."customerAccountId" = c."id") AS "orders",
+      (SELECT count(*)::int FROM "Order" o WHERE o."customerAccountId" = c."id" AND o."status" NOT IN ('dispatched', 'cancelled')) AS "open",
+      (SELECT max(o."deliveryDate") FROM "Order" o WHERE o."customerAccountId" = c."id" AND o."status" <> 'cancelled') AS "last"` : Prisma.empty}
+    ${money ? Prisma.sql`,
+      (SELECT sum(i."net") FROM "SalesInvoice" i WHERE i."customerId" = c."id" AND i."status" = 'issued') AS "inv",
+      (SELECT sum(i."net") FROM "SalesInvoice" i WHERE i."customerId" = c."id" AND i."status" = 'issued' AND i."issueDate" >= ${year}) AS "invYear",
+      (SELECT sum(n."net") FROM "CreditNote" n WHERE n."customerId" = c."id") AS "cn",
+      (SELECT sum(n."net") FROM "CreditNote" n WHERE n."customerId" = c."id" AND n."issueDate" >= ${year}) AS "cnYear",
+      (SELECT sum(r."amount") FROM "CustomerReceipt" r WHERE r."customerId" = c."id" AND NOT EXISTS (SELECT 1 FROM "CustomerReceiptReversal" x WHERE x."receiptId" = r."id")) AS "rc",
+      (SELECT max(r."date") FROM "CustomerReceipt" r WHERE r."customerId" = c."id" AND NOT EXISTS (SELECT 1 FROM "CustomerReceiptReversal" x WHERE x."receiptId" = r."id")) AS "lastRc"` : Prisma.empty}
+    FROM "Customer" c WHERE c."id" = ${id}`;
+  if (!c) throw new ApiError(404, "العميل مش موجود");
   const out: Record<string, unknown> = {};
-  if (can("orders.view")) {
-    const [orders, open, last] = await Promise.all([
-      prisma.order.count({ where: { customerAccountId: id } }),
-      prisma.order.count({ where: { customerAccountId: id, status: { notIn: ["dispatched", "cancelled"] } } }),
-      prisma.order.findFirst({ where: { customerAccountId: id, status: { not: "cancelled" } }, orderBy: [{ deliveryDate: "desc" }], select: { deliveryDate: true } }),
-    ]);
-    Object.assign(out, { orders, openOrders: open, lastOrderDate: last?.deliveryDate ?? null });
-  }
-  if (can(MONEY.receivable)) {
-    const [inv, invYear, cn, cnYear, rc, lastRc] = await Promise.all([
-      prisma.salesInvoice.aggregate({ where: { customerId: id, status: "issued" }, _sum: { net: true } }),
-      prisma.salesInvoice.aggregate({ where: { customerId: id, status: "issued", issueDate: { gte: year } }, _sum: { net: true } }),
-      prisma.creditNote.aggregate({ where: { customerId: id }, _sum: { net: true } }),
-      prisma.creditNote.aggregate({ where: { customerId: id, issueDate: { gte: year } }, _sum: { net: true } }),
-      prisma.customerReceipt.aggregate({ where: { customerId: id, reversal: { is: null } }, _sum: { amount: true } }),
-      prisma.customerReceipt.findFirst({ where: { customerId: id, reversal: { is: null } }, orderBy: [{ date: "desc" }], select: { date: true } }),
-    ]);
+  if (orders) Object.assign(out, { orders: c.orders, openOrders: c.open, lastOrderDate: c.last ?? null });
+  if (money) {
     Object.assign(out, {
       receivable: m2(await customerReceivable(prisma, id)),
       // Net sales: issued invoices less credit notes, before VAT.
-      netSales: D(inv._sum.net).minus(D(cn._sum.net)).toFixed(2), netSalesThisYear: D(invYear._sum.net).minus(D(cnYear._sum.net)).toFixed(2),
-      received: m2(rc._sum.amount), lastReceiptDate: lastRc?.date ?? null,
+      netSales: D(c.inv).minus(D(c.cn)).toFixed(2), netSalesThisYear: D(c.invYear).minus(D(c.cnYear)).toFixed(2),
+      received: m2(c.rc), lastReceiptDate: c.lastRc ?? null,
     });
   }
-  if (can(MONEY.receivable) || can("sales.credit.manage")) Object.assign(out, { paymentTermsDays: c.paymentTermsDays, creditLimit: c.creditLimit?.toFixed(2) ?? null, creditHold: c.creditHold });
+  if (money || can("sales.credit.manage")) Object.assign(out, { paymentTermsDays: c.paymentTermsDays, creditLimit: c.creditLimit?.toFixed(2) ?? null, creditHold: c.creditHold });
   return out;
 }
 
@@ -379,34 +391,37 @@ async function supplierHistory(id: string): Promise<SectionResult> {
 }
 
 async function supplierSummary(id: string, can: Can) {
-  const s = await prisma.supplier.findUnique({ where: { id }, select: { id: true } });
-  if (!s) throw new ApiError(404, "المورد مش موجود");
   const year = `${todayLocalISO().slice(0, 4)}-01-01`;
+  const orders = can("purchasing.orders.view"), money = can(MONEY.payable);
+  // Every count and sum of the summary in one statement (PM-9); the payable is the shared
+  // balance rule (supplierPayable).
+  const [s] = await prisma.$queryRaw<{ receipts: number; lastReceipt: string | null; unbilled: number; orders: number; open: number; billed: Prisma.Decimal | null; billedYear: Prisma.Decimal | null; dn: Prisma.Decimal | null; dnYear: Prisma.Decimal | null; paid: Prisma.Decimal | null; lastPay: string | null }[]>`
+    SELECT
+      (SELECT count(*)::int FROM "StockIntake" i WHERE i."supplierId" = s."id" AND i."status" = 'posted') AS "receipts",
+      (SELECT max(i."receivedDate") FROM "StockIntake" i WHERE i."supplierId" = s."id" AND i."status" = 'posted') AS "lastReceipt",
+      (SELECT count(*)::int FROM "StockIntake" i WHERE i."supplierId" = s."id" AND i."status" = 'posted'
+        AND NOT EXISTS (SELECT 1 FROM "SupplierBillLine" l JOIN "SupplierBill" b ON b."id" = l."billId" WHERE l."intakeId" = i."id" AND b."status" IN ('draft', 'pending_approval', 'approved', 'posted'))) AS "unbilled"
+    ${orders ? Prisma.sql`,
+      (SELECT count(*)::int FROM "PurchaseOrder" o WHERE o."supplierId" = s."id") AS "orders",
+      (SELECT count(*)::int FROM "PurchaseOrder" o WHERE o."supplierId" = s."id" AND o."status" IN ('approved', 'sent', 'partially_received')) AS "open"` : Prisma.empty}
+    ${money ? Prisma.sql`,
+      (SELECT sum(b."net") FROM "SupplierBill" b WHERE b."supplierId" = s."id" AND b."status" = 'posted') AS "billed",
+      (SELECT sum(b."net") FROM "SupplierBill" b WHERE b."supplierId" = s."id" AND b."status" = 'posted' AND b."billDate" >= ${year}) AS "billedYear",
+      (SELECT sum(n."net") FROM "DebitNote" n WHERE n."supplierId" = s."id") AS "dn",
+      (SELECT sum(n."net") FROM "DebitNote" n WHERE n."supplierId" = s."id" AND n."issueDate" >= ${year}) AS "dnYear",
+      (SELECT sum(p."amount") FROM "SupplierPayment" p WHERE p."supplierId" = s."id" AND NOT EXISTS (SELECT 1 FROM "SupplierPaymentReversal" x WHERE x."paymentId" = p."id")) AS "paid",
+      (SELECT max(p."date") FROM "SupplierPayment" p WHERE p."supplierId" = s."id" AND NOT EXISTS (SELECT 1 FROM "SupplierPaymentReversal" x WHERE x."paymentId" = p."id")) AS "lastPay"` : Prisma.empty}
+    FROM "Supplier" s WHERE s."id" = ${id}`;
+  if (!s) throw new ApiError(404, "المورد مش موجود");
   const out: Record<string, unknown> = {};
-  const [receipts, lastReceipt, unbilled] = await Promise.all([
-    prisma.stockIntake.count({ where: { supplierId: id, status: "posted" } }),
-    prisma.stockIntake.findFirst({ where: { supplierId: id, status: "posted" }, orderBy: [{ receivedDate: "desc" }], select: { receivedDate: true } }),
-    prisma.stockIntake.count({ where: { supplierId: id, status: "posted", billLines: { none: { bill: { status: { in: ["draft", "pending_approval", "approved", "posted"] } } } } } }),
-  ]);
-  Object.assign(out, { receipts, lastReceiptDate: lastReceipt?.receivedDate ?? null, unbilledReceipts: unbilled });
-  if (can("purchasing.orders.view")) {
-    const [orders, open] = await Promise.all([prisma.purchaseOrder.count({ where: { supplierId: id } }), prisma.purchaseOrder.count({ where: { supplierId: id, status: { in: ["approved", "sent", "partially_received"] } } })]);
-    Object.assign(out, { purchaseOrders: orders, openPurchaseOrders: open });
-  }
-  if (can(MONEY.payable)) {
-    const [billed, billedYear, dn, dnYear, paid, lastPay] = await Promise.all([
-      prisma.supplierBill.aggregate({ where: { supplierId: id, status: "posted" }, _sum: { net: true } }),
-      prisma.supplierBill.aggregate({ where: { supplierId: id, status: "posted", billDate: { gte: year } }, _sum: { net: true } }),
-      prisma.debitNote.aggregate({ where: { supplierId: id }, _sum: { net: true } }),
-      prisma.debitNote.aggregate({ where: { supplierId: id, issueDate: { gte: year } }, _sum: { net: true } }),
-      prisma.supplierPayment.aggregate({ where: { supplierId: id, reversal: { is: null } }, _sum: { amount: true } }),
-      prisma.supplierPayment.findFirst({ where: { supplierId: id, reversal: { is: null } }, orderBy: [{ date: "desc" }], select: { date: true } }),
-    ]);
+  Object.assign(out, { receipts: s.receipts, lastReceiptDate: s.lastReceipt ?? null, unbilledReceipts: s.unbilled });
+  if (orders) Object.assign(out, { purchaseOrders: s.orders, openPurchaseOrders: s.open });
+  if (money) {
     Object.assign(out, {
       payable: m2(await supplierPayable(prisma, id)),
       // Net purchases: posted bills less debit notes, before VAT.
-      netPurchases: D(billed._sum.net).minus(D(dn._sum.net)).toFixed(2), netPurchasesThisYear: D(billedYear._sum.net).minus(D(dnYear._sum.net)).toFixed(2),
-      paid: m2(paid._sum.amount), lastPaymentDate: lastPay?.date ?? null,
+      netPurchases: D(s.billed).minus(D(s.dn)).toFixed(2), netPurchasesThisYear: D(s.billedYear).minus(D(s.dnYear)).toFixed(2),
+      paid: m2(s.paid), lastPaymentDate: s.lastPay ?? null,
     });
   }
   return out;

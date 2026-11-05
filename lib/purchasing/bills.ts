@@ -77,13 +77,20 @@ const RECEIPT_INCLUDE = {
 } as const;
 type ReceiptRow = Prisma.StockIntakeGetPayload<{ include: typeof RECEIPT_INCLUDE }>;
 
-/** The agreed price per base unit for a receipt, and where it came from. */
-async function agreedPrice(db: Tx | typeof prisma, r: ReceiptRow): Promise<{ price: Prisma.Decimal | null; source: "po" | "receipt" | "supplier_price" | null }> {
+type SupplierPriceRow = { productId: string; uomCode: string; validFrom: string; validTo: string | null; unitPrice: Prisma.Decimal };
+
+/** The agreed price per base unit for a receipt, and where it came from. `prices`: the
+ * supplier's price rows already read (newest validFrom first), instead of a query per receipt. */
+async function agreedPrice(db: Tx | typeof prisma, r: ReceiptRow, prices?: SupplierPriceRow[]): Promise<{ price: Prisma.Decimal | null; source: "po" | "receipt" | "supplier_price" | null }> {
   if (r.purchaseOrderLine) return { price: poLineUnitCost(r.purchaseOrderLine), source: "po" };
   // WS3 (ACC-E1): a provisional receipt cost is never an agreed price — nothing to match
   // against (the bill waits for approval), and posting revalues the receipt instead.
   if (r.costProvisional) return { price: null, source: null };
-  return agreedFromSupplierPrice(r, await effectiveSupplierPrice(db, { supplierId: r.supplierId, product: r.product, uom: r.product.unit, date: r.receivedDate }));
+  const sp = prices
+    // effectiveSupplierPrice's rule for the product's own unit: the newest row in force that day.
+    ? (prices.find((p) => p.productId === r.product.id && p.uomCode === r.product.unit && p.validFrom <= r.receivedDate && (p.validTo == null || p.validTo >= r.receivedDate)) ?? null)
+    : await effectiveSupplierPrice(db, { supplierId: r.supplierId, product: r.product, uom: r.product.unit, date: r.receivedDate });
+  return agreedFromSupplierPrice(r, sp);
 }
 
 /** agreedPrice of a receipt with no PO line, given its dated supplier price (read beforehand). */
@@ -118,9 +125,18 @@ export async function billableReceipts(supplierId: string) {
     take: 500,
   });
   const rows = all.filter((r) => billableQty(r).gt(0));
+  // The supplier's dated prices for the receipts without a purchase order, read once (PS-9).
+  const walkIn = rows.filter((r) => !r.purchaseOrderLine && !r.costProvisional);
+  const prices = walkIn.length
+    ? await prisma.supplierPrice.findMany({
+        where: { supplierId, productId: { in: [...new Set(walkIn.map((r) => r.product.id))] }, validFrom: { lte: walkIn.reduce((m, r) => (r.receivedDate > m ? r.receivedDate : m), walkIn[0].receivedDate) } },
+        orderBy: { validFrom: "desc" },
+        select: { productId: true, uomCode: true, validFrom: true, validTo: true, unitPrice: true },
+      })
+    : [];
   return Promise.all(
     rows.map(async (r) => {
-      const agreed = await agreedPrice(prisma, r);
+      const agreed = await agreedPrice(prisma, r, prices);
       const tax = defaultTax(r);
       return {
         intakeId: r.id,

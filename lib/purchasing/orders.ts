@@ -500,9 +500,21 @@ export async function listPurchaseOrders(filters: { status?: string; supplierId?
     include: PO_INCLUDE,
   });
   const withPrices = canSeePrices(viewer);
-  const out = [];
-  for (const po of rows) out.push(present(po, await receivedSoFar(prisma, po.id), withPrices));
-  return out;
+  // What every listed order has received, in one grouped query (PS-6): present() only looks up
+  // its own line ids, and a line belongs to one order, so one map serves them all.
+  const got = await receivedSoFarMany(prisma, rows.map((po) => po.id));
+  return rows.map((po) => present(po, got, withPrices));
+}
+
+/** receivedSoFar for several purchase orders at once, keyed by purchase-order line id. */
+async function receivedSoFarMany(db: Pick<Tx, "stockIntake">, poIds: string[]) {
+  if (!poIds.length) return new Map<string, { good: Prisma.Decimal; rejected: Prisma.Decimal; received: Prisma.Decimal; accepted: Prisma.Decimal }>();
+  const rows = await db.stockIntake.groupBy({
+    by: ["purchaseOrderLineId"],
+    where: { status: "posted", purchaseOrderLine: { poId: { in: poIds } } },
+    _sum: { goodQty: true, rejectedQty: true, receivedQty: true },
+  });
+  return new Map(rows.map((r) => [r.purchaseOrderLineId!, { good: D(r._sum.goodQty ?? 0), rejected: D(r._sum.rejectedQty ?? 0), received: D(r._sum.receivedQty ?? 0), accepted: D(r._sum.receivedQty ?? 0).minus(D(r._sum.rejectedQty ?? 0)) }]));
 }
 
 export function canSeePrices(viewer: { permissions?: readonly string[] } | { can?: (p: never) => boolean }) {

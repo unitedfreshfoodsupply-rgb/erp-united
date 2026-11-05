@@ -49,55 +49,58 @@ export async function homeSummary(viewer: Viewer) {
   } = { actions: [] };
   const push = (a: HomeAction | null) => { if (a && a.count > 0) out.actions.push(a); };
 
+  // Every count and sum below is a scalar subquery of ONE statement (PM-9): the sections run on a
+  // single pooled connection, so separate queries waited for each other (35-40 round trips for
+  // the owner). Each subquery is the query the section used to run on its own; a section the
+  // viewer may not see adds nothing. The two aging reports stay separate.
+  const cols: Prisma.Sql[] = [];
+  const col = (name: string, sql: Prisma.Sql) => cols.push(Prisma.sql`(${sql}) AS ${Prisma.raw(`"${name}"`)}`);
   if (decidable.length) {
-    tasks.push(prisma.approvalRequest.count({ where: { status: "pending", type: { in: decidable }, NOT: { requestedById: viewer.id } } })
-      .then((count) => push({ key: "approvals", count, href: "/approvals" })));
+    col("approvals", Prisma.sql`SELECT count(*)::int FROM "ApprovalRequest" a WHERE a."status" = 'pending' AND a."type" IN (${Prisma.join(decidable)}) AND (NOT a."requestedById" = ${viewer.id})`);
   }
   if (can(viewer, "sales.invoices.manage")) {
-    tasks.push(prisma.salesInvoice.count({ where: { status: "draft" } }).then((count) => push({ key: "draft-invoices", count, href: "/sales" })));
-    tasks.push(prisma.$queryRaw<{ n: bigint }[]>`
-      SELECT count(*) AS n FROM "Order" o
+    col("draftInvoices", Prisma.sql`SELECT count(*)::int FROM "SalesInvoice" WHERE "status" = 'draft'`);
+    col("ordersToInvoice", Prisma.sql`
+      SELECT count(*)::int FROM "Order" o
       WHERE o."status" = 'dispatched'
         AND NOT EXISTS (SELECT 1 FROM "SalesInvoice" i WHERE i."orderId" = o."id" AND i."status" <> 'void')
-        AND NOT EXISTS (SELECT 1 FROM "TripStop" s WHERE s."orderId" = o."id" AND s."active" AND s."status" IN ('pending', 'failed'))`
-      .then(([r]) => push({ key: "orders-to-invoice", count: Number(r?.n ?? 0), href: "/sales" })));
+        AND NOT EXISTS (SELECT 1 FROM "TripStop" s WHERE s."orderId" = o."id" AND s."active" AND s."status" IN ('pending', 'failed'))`);
   }
   if (can(viewer, "purchasing.bills.manage")) {
-    tasks.push(prisma.supplierBill.count({ where: { status: "draft" } }).then((count) => push({ key: "draft-bills", count, href: "/purchasing" })));
+    col("draftBills", Prisma.sql`SELECT count(*)::int FROM "SupplierBill" WHERE "status" = 'draft'`);
   }
   if (can(viewer, "accounting.eta.view")) {
-    tasks.push(prisma.$queryRaw<{ n: bigint }[]>`
-      SELECT count(*) AS n FROM "SalesInvoice" i
+    col("etaPending", Prisma.sql`
+      SELECT count(*)::int FROM "SalesInvoice" i
       WHERE i."status" = 'issued'
-        AND NOT EXISTS (SELECT 1 FROM "EtaDocument" d WHERE d."sourceType" = 'sales_invoice' AND d."sourceId" = i."id" AND d."status" IN ('valid', 'submitted', 'submitting'))`
-      .then(([r]) => push({ key: "eta-pending", count: Number(r?.n ?? 0), href: "/eta" })));
+        AND NOT EXISTS (SELECT 1 FROM "EtaDocument" d WHERE d."sourceType" = 'sales_invoice' AND d."sourceId" = i."id" AND d."status" IN ('valid', 'submitted', 'submitting'))`);
   }
+  const open = Prisma.join(OPEN_STATUSES);
   if (can(viewer, "orders.approve")) {
-    tasks.push(prisma.order.count({ where: { status: { in: OPEN_STATUSES }, needsReview: true } }).then((count) => push({ key: "orders-review", count, href: "/supervisor" })));
+    col("ordersReview", Prisma.sql`SELECT count(*)::int FROM "Order" WHERE "status" IN (${open}) AND "needsReview" = true`);
   }
-
-  if (can(viewer, "orders.view", "reports.view")) {
-    tasks.push(prisma.order.groupBy({ by: ["status"], where: { status: { in: OPEN_STATUSES } }, _count: { _all: true } }).then(async (rows) => {
-      const byStatus = Object.fromEntries(rows.map((r) => [r.status, r._count._all]));
-      const [late, dispatched] = await Promise.all([
-        prisma.order.count({ where: { status: { in: OPEN_STATUSES }, deliveryDate: { lt: today } } }),
-        // Orders whose stock left today (a posted, unreversed issue document dated today).
-        prisma.inventoryDocument.findMany({ where: { type: "issue", status: "posted", businessDate: today, sourceType: "order" }, select: { sourceId: true }, distinct: ["sourceId"] }).then((d) => d.length),
-      ]);
-      out.operations = { byStatus, open: rows.reduce((s, r) => s + r._count._all, 0), late, dispatchedToday: dispatched };
-    }));
+  const operations = can(viewer, "orders.view", "reports.view");
+  if (operations) {
+    col("byStatus", Prisma.sql`SELECT json_object_agg(g."status", g.n) FROM (SELECT "status", count(*)::int AS n FROM "Order" WHERE "status" IN (${open}) GROUP BY "status") g`);
+    col("late", Prisma.sql`SELECT count(*)::int FROM "Order" WHERE "status" IN (${open}) AND "deliveryDate" < ${today}`);
+    // Orders whose stock left today (a posted, unreversed issue document dated today).
+    col("dispatchedToday", Prisma.sql`SELECT count(*)::int FROM (SELECT DISTINCT "sourceId" FROM "InventoryDocument" WHERE "type" = 'issue' AND "status" = 'posted' AND "businessDate" = ${today} AND "sourceType" = 'order') d`);
   }
-  if (can(viewer, "reports.finance")) {
-    tasks.push(prisma.$queryRaw<{ cur: Prisma.Decimal | null; prev: Prisma.Decimal | null; collected: Prisma.Decimal | null; issued: bigint }[]>`
-      SELECT
-        (SELECT coalesce(sum("net"), 0) FROM "SalesInvoice" WHERE "status" = 'issued' AND "issueDate" BETWEEN ${monthStart} AND ${today})
-          - (SELECT coalesce(sum("net"), 0) FROM "CreditNote" WHERE "issueDate" BETWEEN ${monthStart} AND ${today}) AS cur,
-        (SELECT coalesce(sum("net"), 0) FROM "SalesInvoice" WHERE "status" = 'issued' AND "issueDate" BETWEEN ${prevStart} AND ${prevEnd})
-          - (SELECT coalesce(sum("net"), 0) FROM "CreditNote" WHERE "issueDate" BETWEEN ${prevStart} AND ${prevEnd}) AS prev,
-        (SELECT coalesce(sum(r."amount"), 0) FROM "CustomerReceipt" r WHERE r."date" BETWEEN ${monthStart} AND ${today}
-          AND NOT EXISTS (SELECT 1 FROM "CustomerReceiptReversal" x WHERE x."receiptId" = r."id")) AS collected,
-        (SELECT count(*) FROM "SalesInvoice" WHERE "status" = 'issued' AND "issueDate" BETWEEN ${monthStart} AND ${today}) AS issued`
-      .then(([r]) => { out.sales = { monthToDate: D(r?.cur).toFixed(2), previousToDate: D(r?.prev).toFixed(2), collected: D(r?.collected).toFixed(2), invoicesIssued: Number(r?.issued ?? 0) }; }));
+  const finance = can(viewer, "reports.finance");
+  if (finance) {
+    col("salesCur", Prisma.sql`SELECT (SELECT coalesce(sum("net"), 0) FROM "SalesInvoice" WHERE "status" = 'issued' AND "issueDate" BETWEEN ${monthStart} AND ${today})
+          - (SELECT coalesce(sum("net"), 0) FROM "CreditNote" WHERE "issueDate" BETWEEN ${monthStart} AND ${today})`);
+    col("salesPrev", Prisma.sql`SELECT (SELECT coalesce(sum("net"), 0) FROM "SalesInvoice" WHERE "status" = 'issued' AND "issueDate" BETWEEN ${prevStart} AND ${prevEnd})
+          - (SELECT coalesce(sum("net"), 0) FROM "CreditNote" WHERE "issueDate" BETWEEN ${prevStart} AND ${prevEnd})`);
+    col("collected", Prisma.sql`SELECT coalesce(sum(r."amount"), 0) FROM "CustomerReceipt" r WHERE r."date" BETWEEN ${monthStart} AND ${today}
+          AND NOT EXISTS (SELECT 1 FROM "CustomerReceiptReversal" x WHERE x."receiptId" = r."id")`);
+    col("invoicesIssued", Prisma.sql`SELECT count(*)::int FROM "SalesInvoice" WHERE "status" = 'issued' AND "issueDate" BETWEEN ${monthStart} AND ${today}`);
+    // Cash in hand and at the bank: the GL balance of every active cash/bank account as of
+    // today (a posting dated later this month is not money yet; same rule as the Command Center).
+    for (const type of ["cash", "bank"]) {
+      col(type, Prisma.sql`SELECT sum(l."debit" - l."credit") FROM "CashAccount" c JOIN "JournalLine" l ON l."accountId" = c."accountId" JOIN "JournalEntry" e ON e."id" = l."entryId"
+          WHERE c."active" AND e."date" <= ${today} AND c."type" = ${type}`);
+    }
     tasks.push(agingReport(today).then((a) => {
       const t = a.totals;
       out.receivables = { total: t.total, overdue: D(t.d1_30).plus(D(t.d31_60)).plus(D(t.d61_90)).plus(D(t.d90_plus)).toFixed(2) };
@@ -107,41 +110,56 @@ export async function homeSummary(viewer: Viewer) {
       const t = a.totals;
       out.payables = { total: D(t.total).toFixed(2), overdue: D(t.d1_30).plus(D(t.d31_60)).plus(D(t.d61_90)).plus(D(t.d90_plus)).toFixed(2) };
     }));
-    // Cash in hand and at the bank: the GL balance of every active cash/bank account as of
-    // today (a posting dated later this month is not money yet; same rule as the Command Center).
-    tasks.push(prisma.$queryRaw<{ type: string; b: Prisma.Decimal | null }[]>`
-      SELECT c."type", sum(l."debit" - l."credit") AS b
-      FROM "CashAccount" c JOIN "JournalLine" l ON l."accountId" = c."accountId" JOIN "JournalEntry" e ON e."id" = l."entryId"
-      WHERE c."active" AND e."date" <= ${today} GROUP BY c."type"`
-      .then((rows) => {
-        const of = (t: string) => D(rows.find((r) => r.type === t)?.b ?? 0);
-        out.cash = { cash: of("cash").toFixed(2), bank: of("bank").toFixed(2), total: of("cash").plus(of("bank")).toFixed(2) };
-      }));
   }
-  if (can(viewer, "stock.view")) {
-    tasks.push(Promise.all([
-      // Weighed produce only (pieces are not kilos): received, and how it graded.
-      prisma.stockIntake.aggregate({ where: { status: "posted", receivedDate: today, product: { unit: "KG" } }, _sum: { receivedQty: true, goodQty: true, gradeBQty: true, wasteQty: true, rejectedQty: true } }),
-      prisma.stockIntake.count({ where: { status: "posted", receivedDate: today } }),
-      prisma.stockProduct.count({ where: { active: true } }),
-      // Products at or below their reorder point, counting only sellable locations.
-      prisma.$queryRaw<{ n: bigint }[]>`
-        SELECT count(*) AS n FROM "StockProduct" p
+  const stock = can(viewer, "stock.view");
+  if (stock) {
+    // Weighed produce only (pieces are not kilos): received, and how it graded.
+    for (const f of ["receivedQty", "goodQty", "gradeBQty", "wasteQty", "rejectedQty"]) {
+      col(`kg_${f}`, Prisma.sql`SELECT sum(i.${Prisma.raw(`"${f}"`)}) FROM "StockIntake" i JOIN "StockProduct" p ON p."id" = i."productId" WHERE i."status" = 'posted' AND i."receivedDate" = ${today} AND p."unit" = 'KG'`);
+    }
+    col("receiptsToday", Prisma.sql`SELECT count(*)::int FROM "StockIntake" WHERE "status" = 'posted' AND "receivedDate" = ${today}`);
+    col("activeProducts", Prisma.sql`SELECT count(*)::int FROM "StockProduct" WHERE "active" = true`);
+    // Products at or below their reorder point, counting only sellable locations.
+    col("lowStock", Prisma.sql`
+        SELECT count(*)::int FROM "StockProduct" p
         WHERE p."active" AND p."reorderPointQty" IS NOT NULL
           AND coalesce((SELECT sum(m."quantity") FROM "StockMovement" m JOIN "StorageLocation" l ON l."id" = m."locationId"
-                        WHERE m."productId" = p."id" AND l."type" NOT IN ('waste', 'quarantine')), 0) <= p."reorderPointQty"`,
-      prisma.stockIssueException.count({ where: { status: "open" } }),
-    ]).then(([kg, receipts, products, low, exceptions]) => {
-      const s = kg._sum;
-      out.stock = {
-        receiptsToday: receipts, receivedTodayKg: D(s.receivedQty).toFixed(0), activeProducts: products,
-        gradedToday: { good: D(s.goodQty).toFixed(1), gradeB: D(s.gradeBQty).toFixed(1), waste: D(s.wasteQty).toFixed(1), rejected: D(s.rejectedQty).toFixed(1) },
-        lowStock: Number(low[0]?.n ?? 0), openExceptions: exceptions,
-      };
-    }));
+                        WHERE m."productId" = p."id" AND l."type" NOT IN ('waste', 'quarantine')), 0) <= p."reorderPointQty"`);
+    col("openExceptions", Prisma.sql`SELECT count(*)::int FROM "StockIssueException" WHERE "status" = 'open'`);
   }
   if (can(viewer, "purchasing.requests.view")) {
-    tasks.push(prisma.purchaseRequest.count({ where: { status: { in: ["pending_approval", "approved"] } } }).then((count) => { out.purchaseRequests = { open: count }; }));
+    col("openRequests", Prisma.sql`SELECT count(*)::int FROM "PurchaseRequest" WHERE "status" IN ('pending_approval', 'approved')`);
+  }
+
+  if (cols.length) {
+    tasks.push(prisma.$queryRaw<Record<string, number | Prisma.Decimal | Record<string, number> | null>[]>`SELECT ${Prisma.join(cols)}`.then(([r]) => {
+      const n = (k: string) => Number(r[k] ?? 0);
+      const dec = (k: string) => D(r[k] as Prisma.Decimal | null);
+      if (decidable.length) push({ key: "approvals", count: n("approvals"), href: "/approvals" });
+      if (can(viewer, "sales.invoices.manage")) {
+        push({ key: "draft-invoices", count: n("draftInvoices"), href: "/sales" });
+        push({ key: "orders-to-invoice", count: n("ordersToInvoice"), href: "/sales" });
+      }
+      if (can(viewer, "purchasing.bills.manage")) push({ key: "draft-bills", count: n("draftBills"), href: "/purchasing" });
+      if (can(viewer, "accounting.eta.view")) push({ key: "eta-pending", count: n("etaPending"), href: "/eta" });
+      if (can(viewer, "orders.approve")) push({ key: "orders-review", count: n("ordersReview"), href: "/supervisor" });
+      if (operations) {
+        const byStatus = (r.byStatus as Record<string, number> | null) ?? {};
+        out.operations = { byStatus, open: Object.values(byStatus).reduce((s, v) => s + v, 0), late: n("late"), dispatchedToday: n("dispatchedToday") };
+      }
+      if (finance) {
+        out.sales = { monthToDate: dec("salesCur").toFixed(2), previousToDate: dec("salesPrev").toFixed(2), collected: dec("collected").toFixed(2), invoicesIssued: n("invoicesIssued") };
+        out.cash = { cash: dec("cash").toFixed(2), bank: dec("bank").toFixed(2), total: dec("cash").plus(dec("bank")).toFixed(2) };
+      }
+      if (stock) {
+        out.stock = {
+          receiptsToday: n("receiptsToday"), receivedTodayKg: dec("kg_receivedQty").toFixed(0), activeProducts: n("activeProducts"),
+          gradedToday: { good: dec("kg_goodQty").toFixed(1), gradeB: dec("kg_gradeBQty").toFixed(1), waste: dec("kg_wasteQty").toFixed(1), rejected: dec("kg_rejectedQty").toFixed(1) },
+          lowStock: n("lowStock"), openExceptions: n("openExceptions"),
+        };
+      }
+      if (can(viewer, "purchasing.requests.view")) out.purchaseRequests = { open: n("openRequests") };
+    }));
   }
 
   await Promise.all(tasks);
