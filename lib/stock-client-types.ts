@@ -138,6 +138,8 @@ export type PeriodTotalsDTO = {
   crates: number;
   yieldPct: number | null;
   intakeCount: number;
+  /** The same sums per base unit, kg first — what a screen shows (kg and pieces never add up). */
+  byUnit: { unit: string; received: number; good: number; rejected: number; intakeCount: number; yieldPct: number | null }[];
 };
 
 export type SupplierPerformanceDTO = {
@@ -172,6 +174,12 @@ export type StockDashboardDTO = {
   month: PeriodTotalsDTO;
   currentStock: StockBalanceDTO[];
   totalStockKg: number;
+  /** The current balance per base unit, kg first. */
+  stockTotalsByUnit: { unit: string; balance: number }[];
+  /** Per product, what can be sold (default warehouse, the inventory module's rule): available
+   * = sellable on hand − reserved; unsellable = waste awaiting write-off, quarantine, expired.
+   * null when no default warehouse is set up. */
+  sellable: Record<string, { available: number; reserved: number; unsellable: number }> | null;
   recentMovements: MovementDTO[];
   supplierPerformance: SupplierPerformanceDTO[];
   todayByProduct: ProductTotalsDTO[];

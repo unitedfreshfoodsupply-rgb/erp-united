@@ -12,13 +12,18 @@ function relativeTime(ms: number, t: (key: string, params?: Record<string, strin
 }
 
 /** Small "this is live" cue — a pulsing dot plus a relative last-updated time that
- * ticks on its own, so the operator trusts the screen without a manual refresh. */
+ * ticks on its own, so the operator trusts the screen without a manual refresh.
+ * `stale`: the last background refresh failed while the screen still shows the data it had
+ * (PM-4) — the cue says so and keeps counting the data's age instead of the board being
+ * replaced by an error. Polling keeps retrying on its own. */
 export function LiveIndicator({
   dataUpdatedAt,
   isLoading,
+  stale,
 }: {
   dataUpdatedAt?: number;
   isLoading?: boolean;
+  stale?: boolean;
 }) {
   const { t } = useLocale();
   const [, setTick] = useState(0);
@@ -28,6 +33,15 @@ export function LiveIndicator({
   }, []);
 
   if (isLoading || !dataUpdatedAt) return null;
+
+  if (stale) {
+    return (
+      <div className="flex items-center gap-1.5 text-xs font-bold text-united-warn">
+        <span aria-hidden className="inline-block h-2 w-2 shrink-0 rounded-full bg-united-warn" />
+        {t("ui.live.stale", { when: relativeTime(dataUpdatedAt, t) })}
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-1.5 text-xs font-bold text-united-muted">

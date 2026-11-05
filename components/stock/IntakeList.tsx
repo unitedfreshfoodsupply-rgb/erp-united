@@ -8,6 +8,7 @@ import { LiveIndicator } from "@/components/ui/LiveIndicator";
 import { useToast } from "@/components/ui/Toast";
 import { todayLocalISO } from "@/lib/localDate";
 import { fmtKg, fmtYield, YIELD_TONE_CLASS, yieldTone } from "@/lib/stockPresentation";
+import { unitLabel } from "@/lib/format";
 import { invalidateStockData } from "@/lib/stockInvalidation";
 import { usePermissions } from "@/lib/use-session";
 import { GradingForm } from "@/components/stock/GradingForm";
@@ -38,12 +39,20 @@ export function IntakeList() {
 
   const intakes = data?.intakes ?? [];
   const posted = intakes.filter((i) => i.status === "posted");
-  const received = posted.reduce((s, i) => s + i.receivedKg, 0);
-  const good = posted.reduce((s, i) => s + i.goodKg, 0);
+  // Good / received per base unit (UXO-10): kg and pieces are never added together.
+  const byUnit = new Map<string, { good: number; received: number }>();
+  for (const i of posted) {
+    const u = byUnit.get(i.product.unit) ?? { good: 0, received: 0 };
+    byUnit.set(i.product.unit, { good: u.good + i.goodKg, received: u.received + i.receivedKg });
+  }
+  const figures = [...byUnit]
+    .sort(([a], [b]) => (a === "KG" ? -1 : b === "KG" ? 1 : a.localeCompare(b)))
+    .map(([unit, u]) => `${fmtKg(u.good)} / ${fmtKg(u.received)} ${unitLabel(unit)}`)
+    .join(" · ");
 
   return (
     <div className="page-narrow">
-      <PageHeader title={t("intake.title")} actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />} />
+      <PageHeader title={t("intake.title")} actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} stale={isError && !!data} />} />
 
       <FilterBar list={search} searchLabel={t("intake.search")} searchHint={t("intake.search-hint")} />
       <div className="flex flex-wrap items-center gap-2">
@@ -65,14 +74,14 @@ export function IntakeList() {
         </button>
         {posted.length > 0 && (
           <span className="text-sm font-bold text-united-muted ms-auto">
-            {t("intake.summary", { good: fmtKg(good), received: fmtKg(received), count: posted.length })}
+            {t("intake.summary-by-unit", { figures, count: posted.length })}
           </span>
         )}
       </div>
 
       {isLoading && <LoadingState />}
-      {isError && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
-      {!isLoading && !isError && intakes.length === 0 && (
+      {isError && !data && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
+      {data && intakes.length === 0 && (
         <EmptyState icon="📋" title={t("intake.empty")} />
       )}
 
@@ -294,7 +303,7 @@ function EditField({
         min={0}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="tap-target w-full text-center text-lg font-extrabold border-2 border-united-dark/10 rounded-xl focus:border-united-green outline-none"
+        className="tap-target w-full text-center text-lg font-extrabold border-2 border-united-field rounded-xl focus:border-united-green focus:ring-2 focus:ring-united-green/25 outline-none"
       />
     </label>
   );

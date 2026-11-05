@@ -2,7 +2,7 @@
 
 import { unitLabel } from "@/lib/format";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
 import { LoadingState, EmptyState, ErrorState } from "@/components/States";
 import { LiveIndicator } from "@/components/ui/LiveIndicator";
@@ -27,13 +27,16 @@ export function StockDashboard() {
     queryKey: ["stock", "dashboard", today],
     queryFn: () => apiFetch<StockDashboardDTO>(`/api/stock/dashboard?date=${today}`),
     refetchInterval: 15_000,
+    // A new day is a new key: the last figures stay on screen until the new day's arrive
+    // instead of the page blanking at midnight (UXO-9).
+    placeholderData: keepPreviousData,
   });
 
   return (
     <div className="page-container max-w-3xl">
       <div className="page-header">
         <h1 className="page-title">{t("stock.page-title")}</h1>
-        <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
+        <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} stale={isError && !!data} />
       </div>
 
       <div className="flex gap-2 overflow-x-auto no-scrollbar">
@@ -52,52 +55,86 @@ export function StockDashboard() {
         ))}
       </div>
 
+      {/* The receiving form loads its own lists: it is there at once, and stays usable when
+          the dashboard figures are slow or fail (UXO-9). */}
+      <QuickIntakeForm date={today} />
+
       {isLoading && <LoadingState />}
-      {isError && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
+      {isError && !data && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
 
       {data && (
         <>
           <section className="kpi-grid">
-            <StatTile label={t("stock.stat-today-received")} value={fmtKg(data.today.receivedKg)} unit={t("stock.unit-kg")} sub={`${data.today.intakeCount} ${t("stock.stat-intake-count")}`} />
-            <StatTile label={t("stock.stat-net-good")} value={fmtKg(data.today.goodKg)} unit={t("stock.unit-kg")} tone="good" />
-            <StatTile label={t("stock.stat-sort-rejected")} value={fmtKg(data.today.rejectedKg)} unit={t("stock.unit-kg")} tone={data.today.rejectedKg > 0 ? "warn" : "muted"} />
-            <StatTile
-              label={t("stock.stat-yield-pct")}
-              value={fmtYield(data.today.yieldPct)}
-              tone={({ good: "good", warn: "warn", bad: "bad", none: "muted" } as const)[yieldTone(data.today.yieldPct)]}
-              sub={data.today.crates > 0 ? `${data.today.crates} ${t("stock.stat-crates")}` : undefined}
-            />
+            <UnitStatTile label={t("stock.stat-today-received")} byUnit={data.today.byUnit} pick={(u) => u.received} sub={`${data.today.intakeCount} ${t("stock.stat-intake-count")}`} />
+            <UnitStatTile label={t("stock.stat-net-good")} byUnit={data.today.byUnit} pick={(u) => u.good} tone="good" />
+            <UnitStatTile label={t("stock.stat-sort-rejected")} byUnit={data.today.byUnit} pick={(u) => u.rejected} tone={data.today.rejectedKg > 0 ? "warn" : "muted"} />
+            <YieldStatTile label={t("stock.stat-yield-pct")} byUnit={data.today.byUnit} sub={data.today.crates > 0 ? `${data.today.crates} ${t("stock.stat-crates")}` : undefined} />
           </section>
 
-          <QuickIntakeForm date={today} />
-
           <section className="card p-4">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between gap-3 mb-3">
               <h2 className="text-lg font-extrabold text-united-dark">{t("stock.current-balance-title")}</h2>
-              <span dir="ltr" className="text-lg font-extrabold text-united-green">
-                {fmtKg(data.totalStockKg)} {t("stock.unit-kg")}
+              {/* One total per unit (UXO-10): kg and pieces are never added together. */}
+              <span dir="ltr" className="text-lg font-extrabold text-united-green text-end">
+                {data.stockTotalsByUnit.length > 0 ? perUnit(data.stockTotalsByUnit, (u) => u.balance) : `0 ${unitLabel("KG")}`}
               </span>
             </div>
             {data.currentStock.length === 0 ? (
               <EmptyState icon="📦" title={t("stock.empty-no-stock-recorded")} />
             ) : (
               <ul className="flex flex-col divide-y divide-united-border">
-                {data.currentStock.map((s) => (
-                  <li key={s.productId} className="flex items-center justify-between py-2.5">
-                    <span className="font-bold text-united-dark">
-                      {localName({ name: s.productName, nameAr: s.productNameAr }, locale)}
-                      {!s.active && <span className="text-xs font-bold text-united-muted ms-2">{t("stock.suspended-badge")}</span>}
-                    </span>
-                    <span dir="ltr" className={`font-extrabold ${s.balanceKg > 0 ? "text-united-dark" : "text-united-muted"}`}>
-                      {fmtKg(s.balanceKg)} {unitLabel(s.unit)}
-                    </span>
-                  </li>
-                ))}
+                {data.currentStock.map((s) => {
+                  // ARC-5: what can be sold is the main figure (the inventory module's rule);
+                  // the ledger balance, and what it holds that is not for sale, under it.
+                  const sell = data.sellable?.[s.productId];
+                  const differs = !!sell && sell.available !== s.balanceKg;
+                  return (
+                    <li key={s.productId} className="flex items-center justify-between gap-3 py-2.5">
+                      <span className="font-bold text-united-dark">
+                        {localName({ name: s.productName, nameAr: s.productNameAr }, locale)}
+                        {!s.active && <span className="text-xs font-bold text-united-muted ms-2">{t("stock.suspended-badge")}</span>}
+                      </span>
+                      {sell ? (
+                        <span className="flex flex-col items-end text-end">
+                          <span className="font-extrabold">
+                            <span className="text-xs font-bold text-united-muted">{t("stock.available-label")} </span>
+                            <span dir="ltr" className={sell.available > 0 ? "text-united-dark" : "text-united-muted"}>
+                              {fmtKg(sell.available)} {unitLabel(s.unit)}
+                            </span>
+                          </span>
+                          {differs && (
+                            <span className="text-xs font-bold text-united-muted">
+                              {[
+                                t("stock.balance-on-hand", { qty: fmtKg(s.balanceKg) }),
+                                sell.reserved !== 0 ? t("stock.balance-reserved", { qty: fmtKg(sell.reserved) }) : null,
+                                sell.unsellable !== 0 ? t("stock.balance-unsellable", { qty: fmtKg(sell.unsellable) }) : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span dir="ltr" className={`font-extrabold ${s.balanceKg > 0 ? "text-united-dark" : "text-united-muted"}`}>
+                          {fmtKg(s.balanceKg)} {unitLabel(s.unit)}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
             <p className="text-[11px] font-bold text-united-muted mt-3">
               {t("stock.balance-explanation")}
             </p>
+            {data.sellable && (
+              <p className="text-[11px] font-bold text-united-muted mt-1">
+                {t("stock.available-explanation")}{" "}
+                <Link href="/stock/inventory" className="inline-flex min-h-10 items-center font-extrabold text-united-green">
+                  {t("stock.available-details-link")}
+                </Link>
+              </p>
+            )}
           </section>
 
           {data.todayByProduct.length > 0 && (
@@ -109,7 +146,7 @@ export function StockDashboard() {
                     <div className="flex items-center justify-between text-sm font-bold mb-1">
                       <span className="text-united-dark">{localName({ name: p.productName, nameAr: p.productNameAr }, locale)}</span>
                       <span dir="ltr" className="text-united-muted">
-                        {fmtKg(p.goodKg)} / {fmtKg(p.receivedKg)} {t("stock.unit-kg")}
+                        {fmtKg(p.goodKg)} / {fmtKg(p.receivedKg)} {unitLabel(p.unit)}
                       </span>
                     </div>
                     <YieldMeter pct={p.yieldPct} label={`${p.intakeCount} ${t("stock.stat-intake-count")}`} />
@@ -187,11 +224,16 @@ function PeriodCard({ title, totals }: { title: string; totals: StockDashboardDT
         <span className="text-xs font-bold text-united-muted">{totals.intakeCount} {t("stock.stat-intake-count")}</span>
       </div>
       <div className="grid grid-cols-3 gap-2 text-center">
-        <Metric label={t("stock.stat-label-received")} value={fmtKg(totals.receivedKg)} />
-        <Metric label={t("stock.stat-label-good")} value={fmtKg(totals.goodKg)} tone="text-united-green" />
-        <Metric label={t("stock.stat-label-rejected")} value={fmtKg(totals.rejectedKg)} tone={totals.rejectedKg > 0 ? "text-united-warn" : "text-united-muted"} />
+        <Metric label={t("stock.stat-label-received")} value={perUnitOrZero(totals.byUnit, (u) => u.received)} />
+        <Metric label={t("stock.stat-label-good")} value={perUnitOrZero(totals.byUnit, (u) => u.good)} tone="text-united-green" />
+        <Metric label={t("stock.stat-label-rejected")} value={perUnitOrZero(totals.byUnit, (u) => u.rejected)} tone={totals.rejectedKg > 0 ? "text-united-warn" : "text-united-muted"} />
       </div>
-      <YieldMeter pct={totals.yieldPct} />
+      {/* Yield per unit (UXO-10): one ratio over kg and pieces together means nothing. */}
+      {totals.byUnit.length > 1 ? (
+        totals.byUnit.map((u) => <YieldMeter key={u.unit} pct={u.yieldPct} label={`${t("stock.yield-percentage")} · ${unitLabel(u.unit)}`} />)
+      ) : (
+        <YieldMeter pct={totals.byUnit[0]?.yieldPct ?? null} />
+      )}
     </div>
   );
 }
@@ -204,5 +246,47 @@ function Metric({ label, value, tone = "text-united-dark" }: { label: string; va
       </div>
       <div className="text-[11px] font-bold text-united-muted">{label}</div>
     </div>
+  );
+}
+
+type UnitRow = StockDashboardDTO["today"]["byUnit"][number];
+
+/** "300 كجم · 200 قطعة": one figure per unit, never one sum across units (UXO-10). */
+function perUnit<U extends { unit: string }>(rows: readonly U[], pick: (u: U) => number) {
+  return rows.map((u) => `${fmtKg(pick(u))} ${unitLabel(u.unit)}`).join(" · ");
+}
+
+function perUnitOrZero(rows: readonly UnitRow[], pick: (u: UnitRow) => number) {
+  return rows.length > 0 ? perUnit(rows, pick) : `0 ${unitLabel("KG")}`;
+}
+
+/** Yield per unit, like the other tiles: the first unit's ratio as the figure (with its unit
+ * when there are several), the others under it — never one ratio over kg and pieces (UXO-10). */
+function YieldStatTile({ label, byUnit, sub }: { label: string; byUnit: readonly UnitRow[]; sub?: string }) {
+  const [first, ...rest] = byUnit;
+  const pct = first?.yieldPct ?? null;
+  const units = rest.length > 0 ? [unitLabel(first.unit), ...rest.map((u) => `${unitLabel(u.unit)} ${fmtYield(u.yieldPct)}`)].join(" · ") : "";
+  return (
+    <StatTile
+      label={label}
+      value={fmtYield(pct)}
+      tone={({ good: "good", warn: "warn", bad: "bad", none: "muted" } as const)[yieldTone(pct)]}
+      sub={[units, sub].filter(Boolean).join(" · ") || undefined}
+    />
+  );
+}
+
+/** A KPI tile per unit: the first unit (kg when there is any) as the figure, the others under it. */
+function UnitStatTile({ label, byUnit, pick, sub, tone }: { label: string; byUnit: readonly UnitRow[]; pick: (u: UnitRow) => number; sub?: string; tone?: "default" | "good" | "warn" | "bad" | "muted" }) {
+  const [first, ...rest] = byUnit;
+  const others = rest.length > 0 ? perUnit(rest, pick) : "";
+  return (
+    <StatTile
+      label={label}
+      value={fmtKg(first ? pick(first) : 0)}
+      unit={first?.unit ?? "KG"}
+      sub={[others, sub].filter(Boolean).join(" · ") || undefined}
+      tone={tone}
+    />
   );
 }

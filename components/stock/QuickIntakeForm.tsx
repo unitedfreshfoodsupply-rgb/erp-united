@@ -142,18 +142,24 @@ export function QuickIntakeForm({ date }: { date: string }) {
     e.preventDefault();
     if (busy) return;
     setError(null);
+    // A refusal is shown at the top of the form and, on a phone where the top is scrolled
+    // away, as a toast next to the button that was tapped (UXO-12).
+    const refuse = (msg: string) => {
+      setError(msg);
+      toast.show(msg, "error");
+    };
 
-    if (!supplierId) return setError(t("stock.required-supplier"));
-    if (!productId) return setError(t("stock.required-product"));
+    if (!supplierId) return refuse(t("stock.required-supplier"));
+    if (!productId) return refuse(t("stock.required-product"));
     const r = Number(receivedKg);
-    if (!Number.isFinite(r) || r <= 0) return setError(t("stock.enter-received-qty"));
+    if (!Number.isFinite(r) || r <= 0) return refuse(t("stock.enter-received-qty"));
     const x = rejectedKg === "" ? 0 : Number(rejectedKg);
-    if (!Number.isFinite(x) || x < 0) return setError(t("stock.sorting-qty-positive"));
-    if (x > r * factor) return setError(t("stock.rejected-too-high"));
+    if (!Number.isFinite(x) || x < 0) return refuse(t("stock.sorting-qty-positive"));
+    if (x > r * factor) return refuse(t("stock.rejected-too-high"));
     const gb = gradeBKg === "" ? 0 : Number(gradeBKg);
     const wst = wasteKg === "" ? 0 : Number(wasteKg);
-    if (!Number.isFinite(gb) || gb < 0 || !Number.isFinite(wst) || wst < 0) return setError(t("stock.split-quantities-positive"));
-    if (x + gb + wst > r * factor) return setError(t("stock.split-exceeds-received"));
+    if (!Number.isFinite(gb) || gb < 0 || !Number.isFinite(wst) || wst < 0) return refuse(t("stock.split-quantities-positive"));
+    if (x + gb + wst > r * factor) return refuse(t("stock.split-exceeds-received"));
 
     setBusy(true);
     try {
@@ -237,12 +243,12 @@ export function QuickIntakeForm({ date }: { date: string }) {
           type="date"
           value={receivedDate}
           onChange={(e) => setReceivedDate(e.target.value || todayLocalISO())}
-          className="tap-target border-2 border-united-dark/10 rounded-xl px-3 font-bold text-sm bg-white focus:border-united-green outline-none"
+          className="tap-target border-2 border-united-field rounded-xl px-3 font-bold text-sm bg-white focus:border-united-green focus:ring-2 focus:ring-united-green/25 outline-none"
           aria-label={t("stock.date")}
         />
       </div>
 
-      {error && <p className="text-united-danger font-bold text-sm">{error}</p>}
+      {error && <p role="alert" className="text-united-danger font-bold text-sm">{error}</p>}
 
       <ChipPicker label={t("stock.supplier")} items={suppliers} value={supplierId} onChange={pickSupplier} />
       {supplierId && openLines.length > 0 && (
@@ -476,8 +482,9 @@ const NumberField = forwardRef<
         autoFocus={autoFocusable}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`tap-target w-full text-center text-2xl font-extrabold border-2 rounded-xl outline-none transition ${
-          invalid ? "border-united-danger bg-red-50" : "border-united-dark/10 focus:border-united-green"
+        aria-invalid={invalid || undefined}
+        className={`tap-target w-full text-center text-2xl font-extrabold border-2 rounded-xl outline-none transition focus:ring-2 focus:ring-united-green/25 ${
+          invalid ? "border-united-danger bg-[#FDECEA]" : "border-united-field focus:border-united-green"
         }`}
       />
     </label>

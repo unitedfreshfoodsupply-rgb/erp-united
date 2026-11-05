@@ -132,13 +132,13 @@ export function SupervisorBoard() {
       <div className="page-header">
         <div className="flex flex-col gap-0.5">
           <h1 className="page-title">{t("supervisor.page-title")}</h1>
-          <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
+          <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} stale={isError && !!data} />
         </div>
         <div className="flex gap-2 shrink-0">
           <Link href="/supervisor/audit" className="btn-ghost btn-sm">
             {t("supervisor.btn.audit-log")}
           </Link>
-          <button onClick={toggleCreate} className="btn-primary btn-sm">
+          <button type="button" onClick={toggleCreate} aria-expanded={showCreate} className="btn-primary btn-sm">
             {showCreate ? t("supervisor.btn.cancel") : t("supervisor.btn.manual-order")}
           </button>
         </div>
@@ -158,7 +158,9 @@ export function SupervisorBoard() {
         </div>
       )}
 
-      {!isLoading && !isError && (
+      {/* Gated on data, not on the last poll (PM-4): a failed background refresh keeps the board
+          it had, and the cue above says the figures are not current. */}
+      {data && (
         <div className="mt-4">
           <PipelineFunnel
             orders={all}
@@ -177,7 +179,7 @@ export function SupervisorBoard() {
         </div>
       )}
 
-      {!isLoading && !isError && data?.intelligence && (
+      {data?.intelligence && (
         <div className="mt-5 flex flex-col gap-3">
           <OperationalHealthBanner health={data.intelligence.health} />
           <NeedsAttentionQueue items={data.intelligence.needsAttention} />
@@ -240,8 +242,8 @@ export function SupervisorBoard() {
 
       <div className="mt-4">
         {isLoading && <LoadingState />}
-        {isError && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
-        {!isLoading && !isError && orders.length === 0 && (
+        {isError && !data && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
+        {data && orders.length === 0 && (
           <EmptyState
             icon="📭"
             title={

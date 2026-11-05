@@ -12,6 +12,7 @@ import { nextDocumentNumber } from "@/lib/core/sequences";
 import { D, num, parseMoney, parseQty, type Dec } from "@/lib/inventory/decimal";
 import { bucketBalance, lockForMoves, postMovements, productValuation, type MoveInput } from "@/lib/inventory/ledger";
 import { receivingLocation, resolveLocation, resolveWarehouse } from "@/lib/inventory/context";
+import { productsAvailability } from "@/lib/inventory/balances";
 import { cancelPendingApproval, requestApproval } from "@/lib/core/approvals";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { createAdjustment as createAdjustmentDocument } from "@/lib/inventory/documents";
@@ -1059,46 +1060,103 @@ export async function currentStock() {
 // Aggregation
 // ---------------------------------------------------------------------------
 
+/** One base unit's share of a window's receipts (UXO-10: kg and pieces are never added up). */
+export type UnitTotals = { unit: string; received: number; good: number; rejected: number; intakeCount: number; yieldPct: number | null };
+
 export type PeriodTotals = {
   from: string;
   to: string;
+  /** Sums over every receipt whatever its unit (the figures existing readers use; a screen
+   * shows `byUnit`). */
   receivedKg: number;
   rejectedKg: number;
   goodKg: number;
   crates: number;
   yieldPct: number | null;
   intakeCount: number;
+  /** The same sums per base unit, kg first. */
+  byUnit: UnitTotals[];
 };
 
-/** Totals are summed over posted receipts only — a voided receipt never happened as far as the
- * day's production numbers are concerned. Several windows in one query (PM-9): the receipts of
- * the widest window summed per day by the database, then the days added up per window (exact
- * decimals, the sums one aggregate per window would make). */
-async function totalsForWindows(windows: { from: string; to: string }[]): Promise<PeriodTotals[]> {
-  const from = windows.reduce((m, w) => (w.from < m ? w.from : m), windows[0].from);
-  const to = windows.reduce((m, w) => (w.to > m ? w.to : m), windows[0].to);
-  const days = await prisma.stockIntake.groupBy({
-    by: ["receivedDate"],
-    where: { status: "posted", receivedDate: { gte: from, lte: to } },
-    _sum: { receivedQty: true, rejectedQty: true, goodQty: true, crateCount: true },
-    _count: { _all: true },
-  });
-  return windows.map((w) => {
-    const inside = days.filter((d) => d.receivedDate >= w.from && d.receivedDate <= w.to);
-    const sum = (f: "receivedQty" | "rejectedQty" | "goodQty") => (inside.length ? inside.reduce((s, d) => s.plus(D(d._sum[f])), D(0)) : null);
-    const receivedKg = num(sum("receivedQty"));
-    const goodKg = num(sum("goodQty"));
-    return {
-      from: w.from,
-      to: w.to,
-      receivedKg,
-      rejectedKg: num(sum("rejectedQty")),
-      goodKg,
-      crates: inside.reduce((s, d) => s + (d._sum.crateCount ?? 0), 0),
-      yieldPct: yieldPct(receivedKg, goodKg),
-      intakeCount: inside.reduce((s, d) => s + d._count._all, 0),
-    };
-  });
+type IntakeDayUnitSums = { day: string; unit: string; received: Prisma.Decimal | null; good: Prisma.Decimal | null; rejected: Prisma.Decimal | null; crates: bigint | null; count: number };
+
+/** Posted receipts summed per receiving day and base unit — one statement for a whole window,
+ * so the dashboard's today, 7-day and month figures come from a single read. Totals are summed
+ * by the database over posted receipts only — a voided receipt never happened as far as the
+ * day's production numbers are concerned. */
+async function intakeSumsByDayAndUnit(from: string, to: string) {
+  return prisma.$queryRaw<IntakeDayUnitSums[]>`
+    SELECT i."receivedDate" AS day, p."unit" AS unit,
+           SUM(i."receivedQty") AS received, SUM(i."goodQty") AS good, SUM(i."rejectedQty") AS rejected,
+           SUM(i."crateCount") AS crates, COUNT(*)::int AS count
+      FROM "StockIntake" i JOIN "StockProduct" p ON p."id" = i."productId"
+     WHERE i."status" = 'posted' AND i."receivedDate" >= ${from} AND i."receivedDate" <= ${to}
+     GROUP BY i."receivedDate", p."unit"`;
+}
+
+const byUnitOrder = (a: { unit: string }, b: { unit: string }) => (a.unit === "KG" ? -1 : b.unit === "KG" ? 1 : a.unit.localeCompare(b.unit));
+
+/** A window's totals from the per-day sums (rows outside the window are ignored). */
+function periodTotals(rows: readonly IntakeDayUnitSums[], from: string, to: string): PeriodTotals {
+  let received = D(0), good = D(0), rejected = D(0), crates = 0, count = 0;
+  const units = new Map<string, { received: Dec; good: Dec; rejected: Dec; count: number }>();
+  for (const r of rows) {
+    if (r.day < from || r.day > to) continue;
+    received = received.plus(D(r.received));
+    good = good.plus(D(r.good));
+    rejected = rejected.plus(D(r.rejected));
+    crates += Number(r.crates ?? 0);
+    count += r.count;
+    const u = units.get(r.unit) ?? { received: D(0), good: D(0), rejected: D(0), count: 0 };
+    units.set(r.unit, { received: u.received.plus(D(r.received)), good: u.good.plus(D(r.good)), rejected: u.rejected.plus(D(r.rejected)), count: u.count + r.count });
+  }
+  const receivedKg = num(received);
+  const goodKg = num(good);
+  return {
+    from,
+    to,
+    receivedKg,
+    rejectedKg: num(rejected),
+    goodKg,
+    crates,
+    yieldPct: yieldPct(receivedKg, goodKg),
+    intakeCount: count,
+    byUnit: [...units]
+      .map(([unit, u]) => ({ unit, received: num(u.received), good: num(u.good), rejected: num(u.rejected), intakeCount: u.count, yieldPct: yieldPct(num(u.received), num(u.good)) }))
+      .sort(byUnitOrder),
+  };
+}
+
+/** The current balance summed per base unit, kg first (UXO-10). */
+function stockTotalsByUnit(stock: readonly { unit: string; balance: string }[]) {
+  const units = new Map<string, Dec>();
+  for (const p of stock) units.set(p.unit, (units.get(p.unit) ?? D(0)).plus(D(p.balance)));
+  return [...units].map(([unit, balance]) => ({ unit, balance: num(balance) })).sort(byUnitOrder);
+}
+
+/**
+ * What can be sold of each product (ARC-5), by the inventory module's one rule (isSellableStock,
+ * through productsAvailability): in the default warehouse, available = sellable on hand minus
+ * reserved; `unsellable` is what sits in waste awaiting write-off, quarantine, the legacy second
+ * grade or expired lots. Four statements whatever the number of products. null when the
+ * default warehouse is not set up — the balance from the ledger still shows.
+ */
+async function sellableByProduct(productIds: string[], warehouseId: string | null) {
+  if (!warehouseId) return null;
+  const availability = await productsAvailability(prisma, productIds, warehouseId);
+  return Object.fromEntries(
+    [...availability].map(([id, a]) => [id, { available: num(a.available), reserved: num(a.reserved), unsellable: num(a.onHand.minus(a.sellableOnHand)) }])
+  );
+}
+
+/** The default warehouse's id, or null when none is set up (resolveWarehouse refuses). */
+async function defaultWarehouseId(): Promise<string | null> {
+  try {
+    return (await resolveWarehouse(prisma, null)).id;
+  } catch (err) {
+    if (err instanceof ApiError) return null;
+    throw err;
+  }
 }
 
 /** Calendar-day arithmetic on the YYYY-MM-DD strings the receipts are keyed by. Done
@@ -1200,15 +1258,24 @@ export async function productTotals(from: string, to: string) {
 export async function stockDashboard(todayISO = todayLocalISO()) {
   const weekFrom = shiftDate(todayISO, -6); // rolling 7 days, today inclusive
   const monthFrom = startOfMonth(todayISO);
+  // One read of the receipts for all three windows (was one aggregate per window).
+  const intakeSums = intakeSumsByDayAndUnit(weekFrom < monthFrom ? weekFrom : monthFrom, todayISO);
+  // The sellable figures start with the other reads (not after all of them): the warehouse
+  // lookup runs alongside, and the availability reads follow the balance as soon as it is in.
+  const stockP = currentStock();
+  const sellableP = Promise.all([stockP, defaultWarehouseId()]).then(([s, warehouseId]) => sellableByProduct(s.map((p) => p.productId), warehouseId));
 
   // The day's receipt list is not here: the dashboard never showed it, and it cost up to eight
   // queries on every poll (PS-5). The three period totals come from one query.
-  const [[today, week, month], stock, movements, suppliers, todayByProduct] = await Promise.all([
-    totalsForWindows([{ from: todayISO, to: todayISO }, { from: weekFrom, to: todayISO }, { from: monthFrom, to: todayISO }]),
-    currentStock(),
+  const [today, week, month, stock, movements, suppliers, todayByProduct, sellable] = await Promise.all([
+    intakeSums.then((rows) => periodTotals(rows, todayISO, todayISO)),
+    intakeSums.then((rows) => periodTotals(rows, weekFrom, todayISO)),
+    intakeSums.then((rows) => periodTotals(rows, monthFrom, todayISO)),
+    stockP,
     listMovements({ limit: 20 }),
     supplierPerformance(monthFrom, todayISO),
     productTotals(todayISO, todayISO),
+    sellableP,
   ]);
 
   return {
@@ -1219,6 +1286,8 @@ export async function stockDashboard(todayISO = todayLocalISO()) {
     month,
     currentStock: stock,
     totalStockKg: num(stock.reduce((sum, p) => sum.plus(D(p.balance)), D(0))),
+    stockTotalsByUnit: stockTotalsByUnit(stock),
+    sellable,
     recentMovements: movements,
     supplierPerformance: suppliers,
     todayByProduct,

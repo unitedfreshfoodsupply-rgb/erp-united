@@ -42,6 +42,7 @@ import { ORDER_REFUSAL } from "@/lib/orderActions";
 import { searchWhere } from "@/lib/core/search";
 import { storedOrderCustomerName } from "@/lib/locale/names";
 import { fitsDecimals } from "@/lib/quantity";
+import { aggregateProduction, type ProductionItemInput } from "@/lib/production";
 
 function assertValidQuantity(quantity: unknown, label: string): asserts quantity is number {
   // At most three decimals as typed (LOG-2): 16.1 is valid, though 16.1 × 1000 is not an integer in floating point.
@@ -1620,46 +1621,15 @@ export async function dailyProduction() {
     where: { order: productionScope() },
     select: { orderId: true, productName: true, unit: true, stockProductId: true, requiredQuantity: true, preparedQuantity: true, stockProduct: { select: { name: true, nameAr: true } } },
   });
-
-  const byProduct = new Map<
-    string,
-    { productName: string; productId: string | null; product: { name: string; nameAr: string | null } | null; unit: string; required: number; prepared: number; orders: Set<string> }
-  >();
-
+  // The board computes the same totals from /api/orders?scope=production with the same helper
+  // (PC-5), so the two cannot drift.
+  const byOrder = new Map<string, ProductionItemInput[]>();
   for (const item of items) {
-    const key = `${item.productName}__${item.unit}`;
-    if (!byProduct.has(key)) {
-      byProduct.set(key, {
-        productName: item.productName,
-        productId: null,
-        product: null,
-        unit: item.unit,
-        required: 0,
-        prepared: 0,
-        orders: new Set(),
-      });
-    }
-    const agg = byProduct.get(key)!;
-    if (agg.productId == null && item.stockProductId) { // any linked line names the product
-      agg.productId = item.stockProductId;
-      agg.product = item.stockProduct;
-    }
-    agg.required += item.requiredQuantity;
-    agg.prepared += item.preparedQuantity ?? 0;
-    agg.orders.add(item.orderId);
+    const list = byOrder.get(item.orderId);
+    if (list) list.push(item);
+    else byOrder.set(item.orderId, [item]);
   }
-
-  return Array.from(byProduct.values())
-    .map((v) => ({
-      productName: v.productName,
-      productNameEn: v.product?.name || null,
-      productNameAr: v.product?.nameAr || null,
-      unit: v.unit,
-      required: v.required,
-      prepared: v.prepared,
-      orderCount: v.orders.size,
-    }))
-    .sort((a, b) => b.required - a.required);
+  return aggregateProduction([...byOrder].map(([id, list]) => ({ id, items: list })));
 }
 
 // ---------------------------------------------------------------------------
