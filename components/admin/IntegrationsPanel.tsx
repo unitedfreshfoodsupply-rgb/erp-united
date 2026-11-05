@@ -25,7 +25,8 @@ export function IntegrationsPanel() {
   const fail = (err: unknown) => toast.show(err instanceof ApiClientError ? err.message : t("ui.error"), "error");
   if (q.isLoading) return <LoadingState />;
   // Without the list, an empty panel would read as "no integrations" (and hide live keys).
-  if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />;
+  // A failed background refresh keeps the panel, so a just-created key is not hidden.
+  if (q.isError && !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />;
   return (
     <div className="flex flex-col gap-3">
       <section className="card p-4 grid grid-cols-2 sm:grid-cols-6 gap-2 items-center">
@@ -49,6 +50,12 @@ export function IntegrationsPanel() {
           <code dir="ltr" className="break-all font-bold select-all">{key}</code>
           <button type="button" className="btn-secondary self-start" onClick={() => setKey(null)}>{t("admin.integrations.copy-key")}</button>
         </section>
+      )}
+      {q.isError && (
+        <div className="card p-3 border-s-4 !border-s-united-warn flex items-center justify-between gap-2" role="alert">
+          <p className="text-sm font-semibold text-united-warn">{t("ui.refresh-failed")}</p>
+          <button type="button" className="btn-secondary btn-sm shrink-0" onClick={() => void q.refetch()}>{t("ui.retry")}</button>
+        </div>
       )}
       <ul className="flex flex-col gap-2">
         {q.data?.integrations.map((i) => (

@@ -32,8 +32,9 @@ const fail = (toast: ReturnType<typeof useToast>, err: unknown, t: (key: string)
   toast.show(err instanceof ApiClientError && err.message ? err.message : t("ui.error"), "error");
 const fallbackKey = (key: string) => key;
 
-/** A trip's states in the shared tones (components/ui/StatusPill.tsx): planning and loading
- * read like an order's stages (StatusBadge), the road is "in progress", cancelled is neutral. */
+/** A trip's states in the shared tones (components/ui/StatusPill.tsx). Loading and loaded read
+ * like an order's stages (StatusBadge). A dispatched trip is deliberately warn, not an order's
+ * neutral: the warehouse is done with the order, but the trip still has deliveries to record. */
 const TRIP_STATUS: Record<string, { label: string; tone: Tone }> = {
   planned: { label: fallbackKey("ops.trip.status.planned"), tone: "info" },
   loading: { label: fallbackKey("ops.trip.status.loading"), tone: "warn" },
@@ -215,13 +216,16 @@ function TripView({ id, onClose }: { id: string; onClose: () => void }) {
         </div>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("ops.detail.back")}</button>
       </div>
-      <span className="self-start"><StatusPill tone={TRIP_STATUS[trip.status]?.tone ?? "neutral"} size="md">{TRIP_STATUS[trip.status] ? t(TRIP_STATUS[trip.status].label) : trip.status}{trip.cancelReason ? ` · ${trip.cancelReason}` : ""}</StatusPill></span>
+      <div className="self-start flex flex-wrap items-center gap-2">
+        <StatusPill tone={TRIP_STATUS[trip.status]?.tone ?? "neutral"} size="md">{TRIP_STATUS[trip.status] ? t(TRIP_STATUS[trip.status].label) : trip.status}</StatusPill>
+        {trip.cancelReason && <span className="text-sm font-bold text-united-muted break-words">{trip.cancelReason}</span>}
+      </div>
       <ol className="flex flex-col gap-2">
         {trip.stops.map((s) => (
           <li key={s.id} className="card p-3 flex flex-col gap-2">
             <div className="flex justify-between gap-2">
-              <div className="font-extrabold">{s.sequence}. <span dir="ltr">{s.order.orderNumber}</span> · {orderCustomerName(s.order, locale)}</div>
-              <span className="flex shrink-0 flex-wrap items-start justify-end gap-1"><StatusBadge status={s.order.status as OrderStatus} size="sm" /><StatusPill tone={docTone(s.status)}>{STOP_STATUS[s.status] ? t(STOP_STATUS[s.status]) : s.status}</StatusPill></span>
+              <div className="min-w-0 break-words font-extrabold">{s.sequence}. <span dir="ltr">{s.order.orderNumber}</span> · {orderCustomerName(s.order, locale)}</div>
+              <span className="flex min-w-0 max-w-[50%] flex-wrap items-start justify-end gap-1"><StatusBadge status={s.order.status as OrderStatus} size="sm" /><StatusPill tone={docTone(s.status)}>{STOP_STATUS[s.status] ? t(STOP_STATUS[s.status]) : s.status}</StatusPill></span>
             </div>
             <ul className="text-sm font-bold text-united-muted">
               {s.order.items.map((i) => {

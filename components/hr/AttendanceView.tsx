@@ -362,10 +362,11 @@ type MonthData = {
   rows: { employee: { id: string; code: string; name: string }; cells: { date: string; employed: boolean; status?: string | null; state?: string | null; suggested?: string | null }[]; totals: { present: number; absent: number; absentUnpaid: number; leave: number; lateMinutes: number; overtimeMinutes: number; missing: number; draft: number } }[];
 };
 
-// The status pill fills (app/globals.css .pill-*), so each letter keeps at least 4.5:1.
+// The status pill fills (app/globals.css .pill-*), so each letter keeps at least 4.5:1. Leave
+// keeps a deeper info tint (5.25:1) than holiday (5.66:1) so the two days stay apart.
 const CELL_CLASS: Record<string, string> = {
   present: "bg-[#E7F3EA] text-united-green", absent: "bg-[#FDECEA] text-united-danger", absent_unpaid: "bg-united-danger/20 text-united-danger",
-  leave: "bg-[#E8F0F9] text-united-info", holiday: "bg-united-info/10 text-united-info", rest_day: "bg-united-subtle text-united-muted", suspended: "bg-[#FDF3E2] text-united-warn",
+  leave: "bg-united-info/15 text-united-info", holiday: "bg-united-info/10 text-united-info", rest_day: "bg-united-subtle text-united-muted", suspended: "bg-[#FDF3E2] text-united-warn",
 };
 
 function MonthTab({ onOpenDay }: { onOpenDay: (d: string) => void }) {

@@ -65,12 +65,15 @@ test("data-import preview: every error row is shown, wherever it is in the file"
   assert.equal(all.length, errors);
   assert.ok(all.every((r) => r.errors.length));
 
+  // A file that fits in the table keeps its file order.
   const small = [row(2, false), row(3, true)];
-  assert.deepEqual(previewRows({ rows: small }).map((r) => r.rowNumber), [3, 2]);
+  assert.deepEqual(previewRows({ rows: small }).map((r) => r.rowNumber), [2, 3]);
+  const fifty = Array.from({ length: 50 }, (_, i) => row(i + 2, i === 40));
+  assert.deepEqual(previewRows({ rows: fifty }).map((r) => r.rowNumber), fifty.map((r) => r.rowNumber));
 });
 
 // Screens migrated to the shared vocabulary keep using it: no hardcoded Tailwind palette
-// colours and no undefined `.input` class in these modules.
+// colours, no undefined `.input` class and no sub-AA status tints in these modules.
 function tsx(dir: string, acc: string[] = []): string[] {
   for (const f of readdirSync(dir)) {
     const p = path.join(dir, f);
@@ -86,6 +89,9 @@ test("hr, admin, operations, assets and security screens use the kit's status co
     for (const file of tsx(path.join("components", dir))) {
       readFileSync(file, "utf8").split("\n").forEach((line, i) => {
         if (/\b(bg|text|border)-(blue|red|green|amber|yellow|orange|purple)-\d{2,3}\b/.test(line) || /className="input\b/.test(line)) offenders.push(`${file}:${i + 1}`);
+        // Tinted text on its own light tint below 4.5:1: warn on warn/10 (4.39) or /15 (4.08),
+        // green on green/15 (4.24). Use the pill fills (#FDF3E2, #E7F3EA) instead.
+        if ((/\bbg-united-warn\/(10|15)\b/.test(line) && /\btext-united-warn(?!\/)\b/.test(line)) || (/\bbg-united-green\/15\b/.test(line) && /\btext-united-green(?!\/)\b/.test(line))) offenders.push(`${file}:${i + 1} (sub-AA tint)`);
       });
     }
   }

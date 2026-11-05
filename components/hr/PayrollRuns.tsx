@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Calculator, ChevronDown, ChevronUp, FileSpreadsheet, Plus, Send, ShieldCheck } from "lucide-react";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
@@ -49,6 +49,15 @@ export function PayrollRuns() {
   const q = useQuery({ queryKey: ["hr", "payroll", "runs"], queryFn: () => apiFetch<{ runs: RunSummary[] }>("/api/hr/payroll/runs").then((r) => r.runs) });
   const [open, setOpen] = useState<string | null>(null);
   const [period, setPeriod] = useState(todayLocalISO().slice(0, 7));
+  // Back from a run returns keyboard focus to that run's row instead of the top of the page.
+  const lastOpened = useRef<string | null>(null);
+  const listRef = useRef<HTMLTableSectionElement>(null);
+  const listShown = !open && !!q.data?.length;
+  useEffect(() => {
+    if (!listShown || !lastOpened.current) return;
+    listRef.current?.querySelector<HTMLButtonElement>(`[data-run-id="${lastOpened.current}"]`)?.focus();
+    lastOpened.current = null;
+  }, [listShown]);
   const create = async () => {
     try {
       const r = await apiPost<{ run: { id: string } }>("/api/hr/payroll/runs", { period });
@@ -58,7 +67,7 @@ export function PayrollRuns() {
       toast.show(fail(t, err), "error");
     }
   };
-  if (open) return <RunDetail id={open} onBack={() => setOpen(null)} />;
+  if (open) return <RunDetail id={open} onBack={() => { lastOpened.current = open; setOpen(null); }} />;
   return (
     <section className="card overflow-hidden">
       <div className="card-header flex-wrap gap-3">
@@ -73,10 +82,10 @@ export function PayrollRuns() {
       {q.isLoading ? <LoadingState /> : q.isError ? <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} /> : !q.data!.length ? <EmptyState title={t("pay.runs_empty")} /> : (
         <table className="data-table">
           <thead><tr><th>{t("pay.period")}</th><th>{t("pay.number")}</th><th>{t("pay.state")}</th><th className="num">{t("pay.headcount")}</th><th className="num">{t("pay.net_payable")}</th><th>{t("pay.prepared_by")}</th></tr></thead>
-          <tbody>
+          <tbody ref={listRef}>
             {q.data!.map((r) => (
               <tr key={r.id} className="cursor-pointer hover:bg-united-subtle" onClick={() => setOpen(r.id)}>
-                <td dir="ltr"><button type="button" className="font-semibold text-united-green hover:underline" onClick={(e) => { e.stopPropagation(); setOpen(r.id); }}>{r.period}</button></td>
+                <td dir="ltr"><button type="button" data-run-id={r.id} className="font-semibold text-united-green hover:underline" onClick={(e) => { e.stopPropagation(); setOpen(r.id); }}>{r.period}</button></td>
                 <td dir="ltr">{r.number}</td>
                 <td><StatusPill tone={docTone(r.status, RUN_TONE)}>{t(`pay.run.${r.status}`)}</StatusPill></td>
                 <td className="num" dir="ltr">{r.headcount}</td>
@@ -107,6 +116,10 @@ function RunDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
+  // Opening a run moves keyboard focus to its heading (the list it came from is gone).
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const loaded = !!q.data;
+  useEffect(() => { if (loaded) headingRef.current?.focus(); }, [loaded]);
   const refresh = () => void qc.invalidateQueries({ queryKey: ["hr"] });
   const act = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true);
@@ -128,7 +141,7 @@ function RunDetail({ id, onBack }: { id: string; onBack: () => void }) {
         <div className="card-header flex-wrap gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" className="btn-ghost btn-sm" onClick={onBack}>{t("pay.all_runs")}</button>
-            <h2 className="section-title" dir="ltr">{run.number} · {run.period}</h2>
+            <h2 ref={headingRef} tabIndex={-1} className="section-title focus:outline-none" dir="ltr">{run.number} · {run.period}</h2>
             <StatusPill tone={docTone(run.status, RUN_TONE)} size="md">{t(`pay.run.${run.status}`)}</StatusPill>
           </div>
           <div className="flex flex-wrap gap-2">

@@ -41,10 +41,12 @@ const STATUS_KEYS: Record<string, string> = {
   "تم تسجيل مستند الرصيد الافتتاحي": "admin.data-import.status.opening-stock",
 };
 
-/** The preview table: every row that needs fixing first (so none is hidden behind row 50),
- * then the ready rows in file order, up to PREVIEW_ROWS rows in all. */
+/** The preview table. A file that fits keeps its order. A longer one shows every row that
+ * needs fixing first (so none is hidden behind row 50), then the ready rows in file order,
+ * up to PREVIEW_ROWS rows in all (more when more rows need fixing). */
 const PREVIEW_ROWS = 50;
 export function previewRows(preview: Pick<Preview, "rows">) {
+  if (preview.rows.length <= PREVIEW_ROWS) return preview.rows;
   const errors = preview.rows.filter((r) => r.errors.length);
   const ready = preview.rows.filter((r) => !r.errors.length);
   return [...errors, ...ready].slice(0, Math.max(PREVIEW_ROWS, errors.length));

@@ -68,7 +68,6 @@ export function HrView({ initialTab }: { initialTab?: string } = {}) {
 
 const failMsg = (t: (k: string) => string, err: unknown) => (err instanceof ApiClientError ? err.message : t("hr.error"));
 
-
 // ── Expenses ───────────────────────────────────────────────────────────────
 
 function Expenses() {
