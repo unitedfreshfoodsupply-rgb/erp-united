@@ -68,12 +68,7 @@ export function StockDashboard() {
             <UnitStatTile label={t("stock.stat-today-received")} byUnit={data.today.byUnit} pick={(u) => u.received} sub={`${data.today.intakeCount} ${t("stock.stat-intake-count")}`} />
             <UnitStatTile label={t("stock.stat-net-good")} byUnit={data.today.byUnit} pick={(u) => u.good} tone="good" />
             <UnitStatTile label={t("stock.stat-sort-rejected")} byUnit={data.today.byUnit} pick={(u) => u.rejected} tone={data.today.rejectedKg > 0 ? "warn" : "muted"} />
-            <StatTile
-              label={t("stock.stat-yield-pct")}
-              value={fmtYield(data.today.yieldPct)}
-              tone={({ good: "good", warn: "warn", bad: "bad", none: "muted" } as const)[yieldTone(data.today.yieldPct)]}
-              sub={data.today.crates > 0 ? `${data.today.crates} ${t("stock.stat-crates")}` : undefined}
-            />
+            <YieldStatTile label={t("stock.stat-yield-pct")} byUnit={data.today.byUnit} sub={data.today.crates > 0 ? `${data.today.crates} ${t("stock.stat-crates")}` : undefined} />
           </section>
 
           <section className="card p-4">
@@ -233,7 +228,12 @@ function PeriodCard({ title, totals }: { title: string; totals: StockDashboardDT
         <Metric label={t("stock.stat-label-good")} value={perUnitOrZero(totals.byUnit, (u) => u.good)} tone="text-united-green" />
         <Metric label={t("stock.stat-label-rejected")} value={perUnitOrZero(totals.byUnit, (u) => u.rejected)} tone={totals.rejectedKg > 0 ? "text-united-warn" : "text-united-muted"} />
       </div>
-      <YieldMeter pct={totals.yieldPct} />
+      {/* Yield per unit (UXO-10): one ratio over kg and pieces together means nothing. */}
+      {totals.byUnit.length > 1 ? (
+        totals.byUnit.map((u) => <YieldMeter key={u.unit} pct={u.yieldPct} label={`${t("stock.yield-percentage")} · ${unitLabel(u.unit)}`} />)
+      ) : (
+        <YieldMeter pct={totals.byUnit[0]?.yieldPct ?? null} />
+      )}
     </div>
   );
 }
@@ -258,6 +258,22 @@ function perUnit<U extends { unit: string }>(rows: readonly U[], pick: (u: U) =>
 
 function perUnitOrZero(rows: readonly UnitRow[], pick: (u: UnitRow) => number) {
   return rows.length > 0 ? perUnit(rows, pick) : `0 ${unitLabel("KG")}`;
+}
+
+/** Yield per unit, like the other tiles: the first unit's ratio as the figure (with its unit
+ * when there are several), the others under it — never one ratio over kg and pieces (UXO-10). */
+function YieldStatTile({ label, byUnit, sub }: { label: string; byUnit: readonly UnitRow[]; sub?: string }) {
+  const [first, ...rest] = byUnit;
+  const pct = first?.yieldPct ?? null;
+  const units = rest.length > 0 ? [unitLabel(first.unit), ...rest.map((u) => `${unitLabel(u.unit)} ${fmtYield(u.yieldPct)}`)].join(" · ") : "";
+  return (
+    <StatTile
+      label={label}
+      value={fmtYield(pct)}
+      tone={({ good: "good", warn: "warn", bad: "bad", none: "muted" } as const)[yieldTone(pct)]}
+      sub={[units, sub].filter(Boolean).join(" · ") || undefined}
+    />
+  );
 }
 
 /** A KPI tile per unit: the first unit (kg when there is any) as the figure, the others under it. */

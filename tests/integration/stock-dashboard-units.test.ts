@@ -6,13 +6,17 @@
      awaiting write-off is on hand but not available.
    - The dashboard reads in a constant number of statements however many products hold stock.
    Synthetic receipts on the test database (today and the days before: a receipt cannot be
-   dated in the future); the totals are compared with the old aggregates over the same windows. */
+   dated in the future); the totals are compared with the old aggregates over the same windows,
+   so rows left by earlier runs do not change the outcome. Like the other receipt suites
+   (stock-arrival, stock-receipt-idempotency), the posted receipts — with their movements and
+   journal entries — stay on the test database: "UNITED_TEST_DB=1 npm run test:reset" returns it
+   to the fixtures. */
 import { countQueries } from "./_query-count";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { prisma, actor } from "./_db";
 import { ROLE_PERMISSIONS } from "@/lib/permissions";
-import { recordIntake, shiftDate, startOfMonth, stockDashboard } from "@/lib/stock-service";
+import { recordIntake, shiftDate, startOfMonth, stockDashboard, yieldPct } from "@/lib/stock-service";
 import { todayLocalISO } from "@/lib/localDate";
 
 const TAG = `ZZSDU${Date.now()}`;
@@ -65,6 +69,8 @@ test("receipts and the balance are totalled per unit; the all-unit figures are u
     // Per unit, the parts add up to the old figures.
     assert.equal(p.byUnit.reduce((s, u) => s + u.received, 0), old.receivedKg, period);
     assert.equal(p.byUnit.reduce((s, u) => s + u.intakeCount, 0), old.intakeCount, period);
+    // Yield is per unit too: each unit's own good over its own received, never a ratio over both.
+    for (const u of p.byUnit) assert.equal(u.yieldPct, yieldPct(u.received, u.good), `${period} ${u.unit}`);
   }
   const today = new Map(d.today.byUnit.map((u) => [u.unit, u]));
   assert.equal(d.today.byUnit[0]?.unit, "KG", "kg first");

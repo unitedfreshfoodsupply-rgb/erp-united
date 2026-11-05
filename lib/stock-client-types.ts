@@ -139,7 +139,7 @@ export type PeriodTotalsDTO = {
   yieldPct: number | null;
   intakeCount: number;
   /** The same sums per base unit, kg first — what a screen shows (kg and pieces never add up). */
-  byUnit: { unit: string; received: number; good: number; rejected: number; intakeCount: number }[];
+  byUnit: { unit: string; received: number; good: number; rejected: number; intakeCount: number; yieldPct: number | null }[];
 };
 
 export type SupplierPerformanceDTO = {

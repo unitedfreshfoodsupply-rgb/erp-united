@@ -4847,7 +4847,6 @@ export const DICTIONARY = {
   "intake.title": { ar: "الاستلامات", en: "Receipts" },
   "intake.date": { ar: "تاريخ", en: "Date" },
   "intake.include-voided": { ar: "يشمل الملغي", en: "Include voided" },
-  "intake.summary": { ar: "{good} / {received} كجم · {count} استلام", en: "{good} / {received} kg · {count} receipts" },
   "intake.summary-by-unit": { ar: "صالح / مستلم: {figures} · {count} استلام", en: "Good / received: {figures} · {count} receipts" },
   "intake.empty": { ar: "مفيش استلامات مسجلة في اليوم ده", en: "No receipts recorded on this day" },
   "intake.toast-edited": { ar: "اتعدّل {number}", en: "{number} updated" },

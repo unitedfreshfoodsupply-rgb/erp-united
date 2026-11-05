@@ -35,6 +35,7 @@ export function LoadBoard() {
   const [busy, setBusy] = useState(false);
   // Dispatch-all runs the orders one after another (PC-7): which one is going out now.
   const [progress, setProgress] = useState<{ current: number; total: number; order: string } | null>(null);
+  const progressText = progress ? t("orders.load-board.dispatch-progress", { current: String(progress.current), total: String(progress.total), order: progress.order }) : null;
 
   // Fetch every non-final order so a brand-new order is visible here the instant it
   // arrives (read-only until it's actually ready to load), not just once it reaches
@@ -195,9 +196,11 @@ export function LoadBoard() {
             <input value={vehicle} onChange={(e) => setVehicle(e.target.value)} className="field" autoComplete="off" />
           </Field>
           {error && <p role="alert" className="text-united-danger font-bold mb-2">{error}</p>}
-          <button disabled={busy || !canDispatch} onClick={dispatchAll} className="btn-dark w-full text-xl" aria-live="polite">
-            {progress ? t("orders.load-board.dispatch-progress", { current: String(progress.current), total: String(progress.total), order: progress.order }) : t("orders.load-board.dispatch-btn")}
+          <button disabled={busy || !canDispatch} onClick={dispatchAll} className="btn-dark w-full text-xl">
+            {progressText ?? t("orders.load-board.dispatch-btn")}
           </button>
+          {/* Announced from a status region beside the button, not from the control itself. */}
+          <span role="status" className="sr-only">{progressText ?? ""}</span>
         </div>
       )}
     </div>

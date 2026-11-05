@@ -1060,7 +1060,7 @@ export async function currentStock() {
 // ---------------------------------------------------------------------------
 
 /** One base unit's share of a window's receipts (UXO-10: kg and pieces are never added up). */
-export type UnitTotals = { unit: string; received: number; good: number; rejected: number; intakeCount: number };
+export type UnitTotals = { unit: string; received: number; good: number; rejected: number; intakeCount: number; yieldPct: number | null };
 
 export type PeriodTotals = {
   from: string;
@@ -1120,7 +1120,9 @@ function periodTotals(rows: readonly IntakeDayUnitSums[], from: string, to: stri
     crates,
     yieldPct: yieldPct(receivedKg, goodKg),
     intakeCount: count,
-    byUnit: [...units].map(([unit, u]) => ({ unit, received: num(u.received), good: num(u.good), rejected: num(u.rejected), intakeCount: u.count })).sort(byUnitOrder),
+    byUnit: [...units]
+      .map(([unit, u]) => ({ unit, received: num(u.received), good: num(u.good), rejected: num(u.rejected), intakeCount: u.count, yieldPct: yieldPct(num(u.received), num(u.good)) }))
+      .sort(byUnitOrder),
   };
 }
 
@@ -1138,18 +1140,22 @@ function stockTotalsByUnit(stock: readonly { unit: string; balance: string }[]) 
  * grade or expired lots. Four statements whatever the number of products. null when the
  * default warehouse is not set up — the balance from the ledger still shows.
  */
-async function sellableByProduct(productIds: string[]) {
-  let warehouseId: string;
-  try {
-    warehouseId = (await resolveWarehouse(prisma, null)).id;
-  } catch (err) {
-    if (err instanceof ApiError) return null;
-    throw err;
-  }
+async function sellableByProduct(productIds: string[], warehouseId: string | null) {
+  if (!warehouseId) return null;
   const availability = await productsAvailability(prisma, productIds, warehouseId);
   return Object.fromEntries(
     [...availability].map(([id, a]) => [id, { available: num(a.available), reserved: num(a.reserved), unsellable: num(a.onHand.minus(a.sellableOnHand)) }])
   );
+}
+
+/** The default warehouse's id, or null when none is set up (resolveWarehouse refuses). */
+async function defaultWarehouseId(): Promise<string | null> {
+  try {
+    return (await resolveWarehouse(prisma, null)).id;
+  } catch (err) {
+    if (err instanceof ApiError) return null;
+    throw err;
+  }
 }
 
 /** Calendar-day arithmetic on the YYYY-MM-DD strings the receipts are keyed by. Done
@@ -1253,16 +1259,21 @@ export async function stockDashboard(todayISO = todayLocalISO()) {
   const monthFrom = startOfMonth(todayISO);
   // One read of the receipts for all three windows (was one aggregate per window).
   const intakeSums = intakeSumsByDayAndUnit(weekFrom < monthFrom ? weekFrom : monthFrom, todayISO);
+  // The sellable figures start with the other reads (not after all of them): the warehouse
+  // lookup runs alongside, and the availability reads follow the balance as soon as it is in.
+  const stockP = currentStock();
+  const sellableP = Promise.all([stockP, defaultWarehouseId()]).then(([s, warehouseId]) => sellableByProduct(s.map((p) => p.productId), warehouseId));
 
-  const [today, week, month, stock, movements, suppliers, todayByProduct, todayIntakes] = await Promise.all([
+  const [today, week, month, stock, movements, suppliers, todayByProduct, todayIntakes, sellable] = await Promise.all([
     intakeSums.then((rows) => periodTotals(rows, todayISO, todayISO)),
     intakeSums.then((rows) => periodTotals(rows, weekFrom, todayISO)),
     intakeSums.then((rows) => periodTotals(rows, monthFrom, todayISO)),
-    currentStock(),
+    stockP,
     listMovements({ limit: 20 }),
     supplierPerformance(monthFrom, todayISO),
     productTotals(todayISO, todayISO),
     listIntakes({ date: todayISO, limit: 50 }),
+    sellableP,
   ]);
 
   return {
@@ -1274,7 +1285,7 @@ export async function stockDashboard(todayISO = todayLocalISO()) {
     currentStock: stock,
     totalStockKg: num(stock.reduce((sum, p) => sum.plus(D(p.balance)), D(0))),
     stockTotalsByUnit: stockTotalsByUnit(stock),
-    sellable: await sellableByProduct(stock.map((p) => p.productId)),
+    sellable,
     recentMovements: movements,
     supplierPerformance: suppliers,
     todayByProduct,

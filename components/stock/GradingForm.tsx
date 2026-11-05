@@ -206,7 +206,7 @@ export function GradingForm({
               {t("grading.title", { number: intake.receiptNumber, product: localName(intake.product, locale) })}
             </div>
             <span dir="ltr" className="text-xs font-bold text-united-muted">
-              {remainingKnown ? t("grading.remaining", { qty: fmtKg(remaining) }) : t("ui.loading")}
+              {remainingKnown ? t("grading.remaining", { qty: fmtKg(remaining) }) : ledgerQ.isError ? "—" : t("ui.loading")}
             </span>
           </div>
 
