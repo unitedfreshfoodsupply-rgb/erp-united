@@ -75,7 +75,8 @@ export async function GET(req: NextRequest) {
       }));
     }
 
-    const { total, rows } = await auditPage(where, limit, offset);
+    // A search or one order's timeline usually fits on one page, so its count is usually skipped.
+    const { total, rows } = await auditPage(where, limit, offset, { likelyShort: !!q || !!orderId });
 
     const logs = visibleAuditRows(rows, can);
 

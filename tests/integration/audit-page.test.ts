@@ -53,6 +53,25 @@ test("the same total as a count, and the count is run only for a full page or on
   }
 });
 
+test("a page expected to be full counts alongside it, with the same rows and total", async () => {
+  await prisma.auditLog.createMany({
+    data: Array.from({ length: 3 }, (_, i) => ({ userName: "audit-page-test", role: "ADMIN", action: "test_recorded", entityType: "settings", entityId: `${TAG}-p${i}`, reason: `${TAG} parallel ${i}`, source: "system", timestamp: new Date(Date.now() - i * 1000) })),
+  });
+  const pw = { reason: { contains: `${TAG} parallel`, mode: "insensitive" as const } };
+  try {
+    for (const [limit, offset] of [[50, 0], [2, 0], [2, 2], [2, 10]] as const) {
+      const pageFirst = await auditPage(pw, limit, offset);
+      const together = await countQueries(() => auditPage(pw, limit, offset, { likelyShort: false }));
+      assert.equal(together.result.total, 3);
+      assert.equal(together.result.total, pageFirst.total, `same total (limit ${limit}, offset ${offset})`);
+      assert.deepEqual(together.result.rows.map((r) => r.id), pageFirst.rows.map((r) => r.id), "same rows, same order");
+      assert.equal(together.queries, 2, "the count always runs, sent with the page");
+    }
+  } finally {
+    await prisma.auditLog.deleteMany({ where: { reason: { contains: `${TAG} parallel` } } });
+  }
+});
+
 test("rows linked to an order carry its number and customer, as before", async () => {
   const order = await prisma.order.findFirst({ select: { id: true, orderNumber: true, customerName: true } });
   assert.ok(order, "the seed (prisma/seed.ts) has orders");

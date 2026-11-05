@@ -295,6 +295,8 @@ export function Nav() {
           <AccountMenu
             label={t("ui.account-menu")}
             triggerClassName="flex h-10 items-center gap-2 rounded-xl ps-1 pe-2 hover:bg-united-subtle"
+            // As wide as the menu it replaced (14rem): the profile label fits on one line.
+            menuClassName="w-56"
             trigger={
               <>
                 <Avatar name={user.name} seed={user.id} size="sm" />

@@ -45,6 +45,10 @@ export function AuditLogView() {
   // The search goes to the server once typing pauses — each request scans the whole log
   // (every word against eight fields) — not once per letter.
   const q = useDebouncedValue(search.trim(), 400);
+  // A new search goes back to the first page when it is sent, not on each keystroke: resetting
+  // per letter asked for the unfiltered first page while the debounced search still lagged.
+  const [pagedFor, setPagedFor] = useState(q);
+  if (pagedFor !== q) { setPagedFor(q); setPage(1); }
   // Server-side filtering and paging; any filter change goes back to the first page.
   const qs = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String((page - 1) * PAGE_SIZE) });
   if (q) qs.set("q", q);
@@ -82,7 +86,7 @@ export function AuditLogView() {
 
       <input
         value={search}
-        onChange={(e) => reset(setSearch)(e.target.value)}
+        onChange={(e) => setSearch(e.target.value)}
         placeholder={t("audit.search-placeholder")}
         className="field mb-3"
        aria-label={t("audit.search-placeholder")}/>

@@ -4,8 +4,8 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
 
-/** An action (`onSelect`) or a page to open (`href`). */
-export type MenuItem = { key: string; label: string; onSelect?: () => void; href?: string; icon?: ReactNode; tone?: "danger"; disabled?: boolean; hint?: string };
+/** An action (`onSelect`) or a page to open (`href`): exactly one of the two, so no item is dead. */
+export type MenuItem = ({ onSelect: () => void; href?: never } | { href: string; onSelect?: never }) & { key: string; label: string; icon?: ReactNode; tone?: "danger"; disabled?: boolean; hint?: string };
 
 /**
  * A row's secondary actions behind one "more" button (menu button pattern): opens below at the
@@ -15,9 +15,10 @@ export type MenuItem = { key: string; label: string; onSelect?: () => void; href
  *
  * `trigger` gives the button its own visible content (the account button: avatar, name, role);
  * that content then names the button, and `label` names the menu. `header` is shown above the
- * items and is not one of them.
+ * items, outside the role="menu" list (a menu owns only its items), and is not one of them.
+ * `menuClassName` sets the popup's width when the 12rem minimum is too narrow for its labels.
  */
-export function Menu({ label, items, icon, trigger, triggerClassName, header }: { label: string; items: MenuItem[]; icon?: ReactNode; trigger?: ReactNode; triggerClassName?: string; header?: ReactNode }) {
+export function Menu({ label, items, icon, trigger, triggerClassName, header, menuClassName }: { label: string; items: MenuItem[]; icon?: ReactNode; trigger?: ReactNode; triggerClassName?: string; header?: ReactNode; menuClassName?: string }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -47,8 +48,9 @@ export function Menu({ label, items, icon, trigger, triggerClassName, header }: 
         {trigger ?? icon ?? <MoreHorizontal size={18} aria-hidden />}
       </button>
       {open && (
-        <div id={id} role="menu" aria-label={label} className="absolute end-0 top-full z-30 mt-1 min-w-[12rem] rounded-xl border border-united-border bg-white py-1 shadow-pop">
+        <div className={`absolute end-0 top-full z-30 mt-1 min-w-[12rem] rounded-xl border border-united-border bg-white py-1 shadow-pop ${menuClassName ?? ""}`}>
           {header}
+          <div id={id} role="menu" aria-label={label}>
           {items.map((it) =>
             it.href && !it.disabled ? (
               <Link key={it.key} href={it.href} role="menuitem" title={it.hint} className={itemClass(it)} onClick={() => setOpen(false)}>
@@ -61,6 +63,7 @@ export function Menu({ label, items, icon, trigger, triggerClassName, header }: 
               </button>
             )
           )}
+          </div>
         </div>
       )}
     </div>

@@ -36,6 +36,7 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const bell = useRef<HTMLButtonElement>(null);
+  const title = useRef<HTMLSpanElement>(null);
   const panelId = useId();
   const { t, dir, isRTL, locale: curLocale, locale } = useLocale();
 
@@ -49,19 +50,20 @@ export function NotificationBell() {
     staleTime: 15_000,
   });
 
-  // The panel closes on a click elsewhere, or on Esc with focus back on the bell.
+  // Opening moves focus to the panel's title (a dialog takes focus; the title names it). The panel
+  // closes on a click elsewhere, or on Esc inside the bell or panel, with focus back on the bell.
   useEffect(() => {
     if (!open) return;
+    title.current?.focus();
     const close = (e: MouseEvent) => {
       if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setOpen(false); bell.current?.focus(); }
-    };
     document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", onKey); };
+    return () => document.removeEventListener("mousedown", close);
   }, [open]);
+  const onKey = (e: React.KeyboardEvent) => {
+    if (open && e.key === "Escape") { e.preventDefault(); setOpen(false); bell.current?.focus(); }
+  };
 
   const unread = q.data?.unread ?? 0;
 
@@ -80,7 +82,7 @@ export function NotificationBell() {
   }
 
   return (
-    <div className="relative" ref={box}>
+    <div className="relative" ref={box} onKeyDown={onKey}>
       <button
         ref={bell}
         type="button"
@@ -106,7 +108,7 @@ export function NotificationBell() {
       {open && (
         <div id={panelId} role="dialog" aria-labelledby={`${panelId}-title`} className="fixed inset-x-4 top-14 sm:absolute sm:inset-x-auto sm:top-auto sm:end-0 sm:w-[22rem] mt-2 card shadow-pop p-2 z-40">
           <div className="flex items-center justify-between px-2 py-1">
-            <span id={`${panelId}-title`} className="font-extrabold text-united-dark">{t("ui.notifications")}</span>
+            <span ref={title} id={`${panelId}-title`} tabIndex={-1} className="font-extrabold text-united-dark outline-none">{t("ui.notifications")}</span>
             {unread > 0 && (
               <button type="button" onClick={readAll} className="text-xs font-bold text-united-green">
                 {t("ui.notifications.mark-read")}
