@@ -5,7 +5,8 @@
      numbers the board shows;
    - the route reads in a constant number of statements (no extra product-name query), whether
      the day has 5 lines or 50;
-   - the same product ordered in kg and in crates stays two rows (UXO-13).
+   - the same product ordered in kg and in crates stays two rows (UXO-13);
+   - the picking sheet's summary gives totals per unit next to the old all-unit sums (UXO-10).
    Synthetic orders on the test database. */
 import { countQueries } from "./_query-count";
 import { test, before, after } from "node:test";
@@ -13,6 +14,7 @@ import assert from "node:assert/strict";
 import { prisma } from "./_db";
 import { dailyProduction, listOrders } from "@/lib/orders-service";
 import { aggregateProduction } from "@/lib/production";
+import { dailyConsolidatedSheet } from "@/lib/picking-sheet";
 
 const TAG = `ZZPROD${Date.now()}`;
 const orderIds: string[] = [];
@@ -85,4 +87,22 @@ test("the daily totals read in a constant number of statements (5 lines or 50), 
   // second lookup as before.
   assert.equal(smallTables.filter((t) => t === "StockProduct").length, 1, smallTables.join(", "));
   assert.equal(smallTables.length, small.queries, smallTables.join(", "));
+});
+
+test("the picking sheet totals per unit; the all-unit sums stay as they were", async () => {
+  const name = `${TAG} خس`;
+  await order([{ name, unit: "KG", qty: 300 }, { name, unit: "PIECE", qty: 200, prepared: 50 }]);
+  const sheet = await dailyConsolidatedSheet("2099-01-01");
+  const units = new Map(sheet.summary.byUnit.map((u) => [u.unit, u]));
+  for (const unit of new Set(sheet.lines.map((l) => l.unit))) {
+    const lines = sheet.lines.filter((l) => l.unit === unit);
+    const sum = (k: "totalRequired" | "totalPrepared" | "totalLoaded" | "totalRemaining") => lines.reduce((s, l) => s + l[k], 0);
+    assert.equal(units.get(unit)?.totalRequired, sum("totalRequired"), unit);
+    assert.equal(units.get(unit)?.totalPrepared, sum("totalPrepared"), unit);
+    assert.equal(units.get(unit)?.totalLoaded, sum("totalLoaded"), unit);
+    assert.equal(units.get(unit)?.totalRemaining, sum("totalRemaining"), unit);
+  }
+  assert.ok(units.has("KG") && units.has("PIECE"), [...units.keys()].join(","));
+  assert.equal(sheet.summary.byUnit.reduce((s, u) => s + u.totalRequired, 0), sheet.summary.totalRequired);
+  assert.equal(sheet.summary.byUnit.reduce((s, u) => s + u.totalPrepared, 0), sheet.summary.totalPrepared);
 });

@@ -53,17 +53,46 @@ export interface ConsolidatedLine {
   }[];
 }
 
+/** One unit's totals over the sheet's lines. */
+export interface SheetUnitTotals {
+  unit: string;
+  totalRequired: number;
+  totalPrepared: number;
+  totalApproved: number;
+  totalLoaded: number;
+  totalRemaining: number;
+}
+
 export interface DailySheetDTO {
   date: string;
   lines: ConsolidatedLine[];
   summary: {
     orderCount: number;
+    /** Sums over every line whatever its unit (kept for existing readers; a screen shows
+     * `byUnit`, since kg and pieces do not add up). */
     totalRequired: number;
     totalPrepared: number;
     totalApproved: number;
     totalLoaded: number;
     totalRemaining: number;
+    /** The same totals per unit, in the order the units first appear on the sheet (UXO-10). */
+    byUnit: SheetUnitTotals[];
   };
+}
+
+/** Per-unit totals of consolidated lines: kg are added to kg, pieces to pieces. */
+export function sheetTotalsByUnit(lines: readonly Pick<ConsolidatedLine, "unit" | "totalRequired" | "totalPrepared" | "totalApproved" | "totalLoaded" | "totalRemaining">[]): SheetUnitTotals[] {
+  const byUnit = new Map<string, SheetUnitTotals>();
+  for (const l of lines) {
+    const u = byUnit.get(l.unit) ?? { unit: l.unit, totalRequired: 0, totalPrepared: 0, totalApproved: 0, totalLoaded: 0, totalRemaining: 0 };
+    u.totalRequired += l.totalRequired;
+    u.totalPrepared += l.totalPrepared;
+    u.totalApproved += l.totalApproved;
+    u.totalLoaded += l.totalLoaded;
+    u.totalRemaining += l.totalRemaining;
+    byUnit.set(l.unit, u);
+  }
+  return [...byUnit.values()];
 }
 
 /**
@@ -171,6 +200,7 @@ export async function dailyConsolidatedSheet(date: string): Promise<DailySheetDT
     totalApproved: lines.reduce((s, l) => s + l.totalApproved, 0),
     totalLoaded: lines.reduce((s, l) => s + l.totalLoaded, 0),
     totalRemaining: lines.reduce((s, l) => s + l.totalRemaining, 0),
+    byUnit: sheetTotalsByUnit(lines),
   };
 
   return { date, lines, summary };

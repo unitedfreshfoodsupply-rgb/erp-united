@@ -1183,6 +1183,9 @@ const orders = {
   },
   "orders.load-board.toast-success": { ar: "العربية خرجت ({count} أوردر)", en: "Vehicle dispatched ({count} orders)" },
   "orders.load-board.error": { ar: "حصل خطأ", en: "An error occurred" },
+  "orders.load-board.dispatch-progress": { ar: "جاري خروج {current} من {total} — {order}", en: "Dispatching {current} of {total} — {order}" },
+  "orders.load-board.dispatch-failed": { ar: "وقف عند أوردر {order} ({customer}) — خرج {done} من {total} قبله. السبب: {reason}", en: "Stopped at order {order} ({customer}) — {done} of {total} were dispatched before it. Reason: {reason}" },
+  "orders.load-board.toast-partial": { ar: "خرج {done} من {total} أوردر بس — الباقي لسه على البورد", en: "Only {done} of {total} orders dispatched — the rest are still on the board" },
 
   // Prep Board specific strings
   "orders.board-title": { ar: "أوردرات التجهيز", en: "Prep Orders" },
@@ -4823,6 +4826,7 @@ export const DICTIONARY = {
   "picking.loaded": { ar: "اتحمل", en: "Loaded" },
   "picking.remaining": { ar: "المتبقي", en: "Remaining" },
   "picking.remaining-qty": { ar: "باقي {qty}", en: "{qty} left" },
+  "picking.required-qty": { ar: "مطلوب {qty}", en: "{qty} required" },
   "picking.customers-count": { ar: "{count} عميل", en: "{count} customers" },
   "picking.no-allocations": { ar: "مفيش توزيعات", en: "No allocations" },
   "picking.col.customer": { ar: "العميل", en: "Customer" },

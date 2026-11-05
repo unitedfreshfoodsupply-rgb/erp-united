@@ -33,6 +33,8 @@ export function LoadBoard() {
   const [crateCounts, setCrateCounts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Dispatch-all runs the orders one after another (PC-7): which one is going out now.
+  const [progress, setProgress] = useState<{ current: number; total: number; order: string } | null>(null);
 
   // Fetch every non-final order so a brand-new order is visible here the instant it
   // arrives (read-only until it's actually ready to load), not just once it reaches
@@ -76,8 +78,13 @@ export function LoadBoard() {
     if (!ok) return;
     setError(null);
     setBusy(true);
+    const total = readyToDispatch.length;
+    let done = 0;
+    let current: OrderDTO | null = null;
     try {
       for (const o of readyToDispatch) {
+        current = o;
+        setProgress({ current: done + 1, total, order: o.orderNumber });
         const { order } = await apiPost<{ order: OrderDTO }>(`/api/orders/${o.id}/status`, {
           to: "dispatched",
           expected_version: o.version,
@@ -88,18 +95,36 @@ export function LoadBoard() {
         // Each dispatch is applied as it returns, so the board empties order by order
         // instead of sitting still until the whole run finishes and then reloading.
         applyOrderToCache(qc, order);
+        done++;
       }
       invalidateDerivedOrderData(qc);
-      toast.show(t("orders.load-board.toast-success", { count: String(readyToDispatch.length) }), "success");
+      toast.show(t("orders.load-board.toast-success", { count: String(total) }), "success");
       setVehicle("");
       setDriverName("");
       setCrateCounts({});
     } catch (err) {
-      const msg = err instanceof ApiClientError ? err.message : t("orders.load-board.error");
+      // The run stops at the first refusal, as before; the message now says which order
+      // stopped it and how many had already left. Vehicle, driver and crates stay filled.
+      const reason = err instanceof ApiClientError ? err.message : t("orders.load-board.error");
+      const msg = current
+        ? t("orders.load-board.dispatch-failed", {
+            order: current.orderNumber,
+            customer: orderCustomerName(current, locale === "en" ? "en" : "ar"),
+            done: String(done),
+            total: String(total),
+            reason,
+          })
+        : reason;
       setError(msg);
-      toast.show(msg, "error");
+      if (done > 0) {
+        invalidateDerivedOrderData(qc);
+        toast.show(t("orders.load-board.toast-partial", { done: String(done), total: String(total) }), "error");
+      } else {
+        toast.show(msg, "error");
+      }
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   }
 
@@ -155,7 +180,7 @@ export function LoadBoard() {
                     inputMode="numeric"
                     value={crateCounts[o.id] ?? ""}
                     onChange={(e) => setCrateCounts((c) => ({ ...c, [o.id]: e.target.value }))}
-                    className="w-20 tap-target border-2 border-united-dark/10 rounded-lg px-2 text-center focus:border-united-green outline-none"
+                    className="w-20 tap-target border-2 border-united-field rounded-lg px-2 text-center focus:border-united-green focus:ring-2 focus:ring-united-green/25 outline-none"
                   />
                   {t("orders.load-board.crate-count-placeholder")}
                 </label>
@@ -169,9 +194,9 @@ export function LoadBoard() {
           <Field label={t("orders.load-board.vehicle-placeholder")} className="mb-3">
             <input value={vehicle} onChange={(e) => setVehicle(e.target.value)} className="field" autoComplete="off" />
           </Field>
-          {error && <p className="text-united-danger font-bold mb-2">{error}</p>}
-          <button disabled={busy || !canDispatch} onClick={dispatchAll} className="btn-dark w-full text-xl">
-            {t("orders.load-board.dispatch-btn")}
+          {error && <p role="alert" className="text-united-danger font-bold mb-2">{error}</p>}
+          <button disabled={busy || !canDispatch} onClick={dispatchAll} className="btn-dark w-full text-xl" aria-live="polite">
+            {progress ? t("orders.load-board.dispatch-progress", { current: String(progress.current), total: String(progress.total), order: progress.order }) : t("orders.load-board.dispatch-btn")}
           </button>
         </div>
       )}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Ban, Check } from "lucide-react";
+import { Ban, Check, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
@@ -21,11 +21,12 @@ const STATUS_LABEL: Record<string, string> = {
   loading: "picking.status.loading",
 };
 
+// The order-status tones of StatusBadge, as the kit's pills (AA text on their fills).
 const STATUS_COLOR: Record<string, string> = {
-  new: "text-blue-600 bg-blue-50",
-  preparing: "text-amber-600 bg-amber-50",
-  ready_for_loading: "text-emerald-600 bg-emerald-50",
-  loading: "text-purple-600 bg-purple-50",
+  new: "pill-info",
+  preparing: "pill-warn",
+  ready_for_loading: "pill-success",
+  loading: "pill-warn",
 };
 
 export function PickingSheet() {
@@ -98,17 +99,15 @@ export function PickingSheet() {
           />
         </label>
 
-        {/* Filter chips */}
-        <div className="flex gap-1">
+        {/* Filter chips — the kit's chip: the pressed state is announced, not colour only (A11Y-7). */}
+        <div className="flex flex-wrap gap-1">
           {(["all", "pending", "done", "rejected"] as const).map((f) => (
             <button
               key={f}
+              type="button"
+              aria-pressed={filterPrepStatus === f}
               onClick={() => setFilterPrepStatus(f)}
-              className={`text-xs font-bold px-3 py-1.5 rounded-lg tap-target ${
-                filterPrepStatus === f
-                  ? "bg-united-green text-white"
-                  : "bg-united-dark/5 text-united-muted"
-              }`}
+              className="chip"
             >
               {t(`picking.filter.${f}`)}
             </button>
@@ -116,6 +115,7 @@ export function PickingSheet() {
         </div>
 
         <button
+          type="button"
           onClick={() => window.print()}
           className="btn-secondary text-xs px-3 py-1.5 ms-auto"
         >
@@ -131,50 +131,20 @@ export function PickingSheet() {
         <EmptyState icon="📦" title={t("picking.empty")} />
       )}
 
-      {/* Summary bar */}
+      {/* Summary bar — per unit (UXO-10): kg and pieces are never added together. Printed in
+          ink on white, since browsers leave background colours out of a printout. */}
       {summary && lines.length > 0 && (
-        <div className="bg-united-dark text-white rounded-2xl p-4 mb-4 flex flex-wrap gap-x-6 gap-y-2 print:bg-gray-800">
-          <div>
-            <div className="text-xs text-white/60 font-bold">{t("picking.orders")}</div>
-            <div className="text-xl font-extrabold">{summary.orderCount}</div>
-          </div>
-          <div>
-            <div className="text-xs text-white/60 font-bold">{t("picking.required")}</div>
-            <div dir="ltr" className="text-xl font-extrabold">
-              {qty(summary.totalRequired)}
+        <div className="bg-united-dark text-white rounded-2xl p-4 mb-4 flex flex-wrap items-start gap-x-6 gap-y-3 print:bg-white print:text-united-dark print:border print:border-gray-300">
+          <SummaryFigure label={t("picking.orders")} value={String(summary.orderCount)} />
+          {summary.byUnit.map((u) => (
+            <div key={u.unit} className="flex flex-wrap gap-x-6 gap-y-2">
+              <SummaryFigure label={t("picking.required")} value={qty(u.totalRequired)} unit={u.unit} />
+              <SummaryFigure label={t("picking.prepared")} value={qty(u.totalPrepared)} unit={u.unit} tone="text-emerald-300" />
+              <SummaryFigure label={t("picking.approved")} value={qty(u.totalApproved)} unit={u.unit} tone="text-emerald-300" />
+              <SummaryFigure label={t("picking.loaded")} value={qty(u.totalLoaded)} unit={u.unit} tone="text-emerald-300" />
+              <SummaryFigure label={t("picking.remaining")} value={qty(u.totalRemaining)} unit={u.unit} tone={u.totalRemaining > 0 ? "text-amber-300" : "text-emerald-300"} />
             </div>
-          </div>
-          <div>
-            <div className="text-xs text-white/60 font-bold">{t("picking.prepared")}</div>
-            <div dir="ltr" className="text-xl font-extrabold text-emerald-300">
-              {qty(summary.totalPrepared)}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs text-white/60 font-bold">{t("picking.approved")}</div>
-            <div dir="ltr" className="text-xl font-extrabold text-emerald-300">
-              {qty(summary.totalApproved)}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs text-white/60 font-bold">{t("picking.loaded")}</div>
-            <div dir="ltr" className="text-xl font-extrabold text-emerald-300">
-              {qty(summary.totalLoaded)}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs text-white/60 font-bold">{t("picking.remaining")}</div>
-            <div
-              dir="ltr"
-              className={`text-xl font-extrabold ${
-                summary.totalRemaining > 0
-                  ? "text-amber-300"
-                  : "text-emerald-300"
-              }`}
-            >
-              {qty(summary.totalRemaining)}
-            </div>
-          </div>
+          ))}
         </div>
       )}
 
@@ -195,15 +165,17 @@ export function PickingSheet() {
 
           return (
             <div
-              key={line.productKey}
+              key={`${line.productKey}__${line.unit}`}
               className={`card p-4 border-2 ${
                 line.totalRemaining > 0
-                  ? "border-amber-200"
-                  : "border-emerald-200"
+                  ? "border-[#F3D9AE]"
+                  : "border-[#C3E2CC]"
               } print:border-gray-300 print:shadow-none print:break-inside-avoid`}
             >
               {/* Product header */}
               <button
+                type="button"
+                aria-expanded={isExpanded}
                 className="w-full text-start flex items-center justify-between gap-2"
                 onClick={() =>
                   setExpandedProduct(
@@ -220,28 +192,30 @@ export function PickingSheet() {
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 min-w-0">
-                  {/* Mini quantity summary */}
-                  <div className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-xs font-bold print:hidden">
+                  {/* Mini quantity summary — printed too: the required total is what the
+                      picker works from (UXO-6). */}
+                  <div className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-xs font-bold">
+                    <span className="text-united-dark">
+                      {t("picking.required-qty", { qty: qty(line.totalRequired) })}
+                    </span>
                     {line.totalPrepared > 0 && (
                       <span className="inline-flex items-center gap-1 text-united-green">
-                        <Check size={13} aria-hidden /> {qty(line.totalPrepared)}
+                        <Check size={13} aria-hidden /><span className="sr-only">{t("picking.prepared")}</span> {qty(line.totalPrepared)}
                       </span>
                     )}
                     {line.totalRejected > 0 && (
                       <span className="inline-flex items-center gap-1 text-united-danger">
-                        <Ban size={13} aria-hidden /> {qty(line.totalRejected)}
+                        <Ban size={13} aria-hidden /><span className="sr-only">{t("picking.rejected-badge")}</span> {qty(line.totalRejected)}
                       </span>
                     )}
-                    <span className={remaining > 0 ? "text-amber-600" : "text-emerald-600"}>
+                    <span className={remaining > 0 ? "text-united-warn" : "text-united-green"}>
                       {t("picking.remaining-qty", { qty: qty(remaining) })}
                     </span>
                   </div>
                   <span className="text-sm font-bold text-united-muted">
                     {t("picking.customers-count", { count: allocationSet.size })}
                   </span>
-                  <span className="text-united-muted">
-                    {isExpanded ? "▲" : "▼"}
-                  </span>
+                  <ChevronDown size={18} aria-hidden className={`shrink-0 text-united-muted transition-transform print:hidden ${isExpanded ? "rotate-180" : ""}`} />
                 </div>
               </button>
 
@@ -250,18 +224,18 @@ export function PickingSheet() {
                 <div
                   className={`h-full ${
                     prepPct >= 100
-                      ? "bg-emerald-500"
-                      : "bg-amber-500"
+                      ? "bg-united-green"
+                      : "bg-united-warn"
                   }`}
                   style={{ width: `${Math.min(100, prepPct)}%` }}
                 />
               </div>
 
-              {/* Expanded per-customer allocations */}
-              {isExpanded && (
-                <div className="mt-3 border-t border-united-dark/5 pt-3 space-y-2">
+              {/* Per-customer allocations: on screen for the expanded product, on paper for
+                  every product (UXO-6) — a printed sheet is what the warehouse picks from. */}
+                <div className={`mt-3 border-t border-united-dark/5 pt-3 space-y-2 ${isExpanded ? "" : "hidden print:block"}`}>
                   {line.allocations.length === 0 && (
-                    <p className="text-sm text-united-dark/40">
+                    <p className="text-sm text-united-muted">
                       {t("picking.no-allocations")}
                     </p>
                   )}
@@ -292,10 +266,10 @@ export function PickingSheet() {
                             key={`${a.orderId}-${line.productKey}`}
                             className={`rounded-xl p-2 ${
                               a.rejected
-                                ? "bg-red-50 border border-red-200"
+                                ? "bg-[#FDECEA] border border-[#F5C6C1]"
                                 : allocatedRemaining > 0
-                                ? "bg-amber-50/50"
-                                : "bg-emerald-50/50"
+                                ? "bg-[#FDF3E2]"
+                                : "bg-[#E7F3EA]"
                             }`}
                           >
                             {/* Compact row */}
@@ -317,9 +291,9 @@ export function PickingSheet() {
                                 className={`font-bold text-center ${
                                   a.preparedQuantity != null
                                     ? a.rejected
-                                      ? "text-red-500 line-through"
-                                      : "text-emerald-600"
-                                    : "text-united-dark/30"
+                                      ? "text-united-danger line-through"
+                                      : "text-united-green"
+                                    : "text-united-muted"
                                 }`}
                               >
                                 {a.preparedQuantity != null
@@ -330,8 +304,8 @@ export function PickingSheet() {
                                 dir="ltr"
                                 className={`font-bold text-center ${
                                   a.loadedQuantity != null
-                                    ? "text-emerald-600"
-                                    : "text-united-dark/30"
+                                    ? "text-united-green"
+                                    : "text-united-muted"
                                 }`}
                               >
                                 {a.loadedQuantity != null
@@ -342,23 +316,23 @@ export function PickingSheet() {
                                 dir="ltr"
                                 className={`font-bold text-center ${
                                   allocatedRemaining > 0
-                                    ? "text-amber-600"
-                                    : "text-emerald-600"
+                                    ? "text-united-warn"
+                                    : "text-united-green"
                                 }`}
                               >
                                 {qty(allocatedRemaining)}
                               </span>
                               <span className="text-center">
                                 {a.rejected ? (
-                                  <span className="text-xs font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded">
+                                  <span className="pill-danger">
                                     {t("picking.rejected-badge")}
                                   </span>
                                 ) : (
                                   <span
-                                    className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                                    className={
                                       STATUS_COLOR[a.status] ??
-                                      "text-gray-500 bg-gray-50"
-                                    }`}
+                                      "pill-neutral"
+                                    }
                                   >
                                     {STATUS_LABEL[a.status] ? t(STATUS_LABEL[a.status]) : a.status}
                                   </span>
@@ -371,7 +345,6 @@ export function PickingSheet() {
                     </div>
                   </div>
                 </div>
-              )}
             </div>
           );
         })}
@@ -380,6 +353,18 @@ export function PickingSheet() {
       {/* Print footer */}
       <div className="hidden print:block text-xs text-gray-400 mt-4 text-center">
         {t("picking.footer", { date })}
+      </div>
+    </div>
+  );
+}
+
+function SummaryFigure({ label, value, unit, tone = "" }: { label: string; value: string; unit?: string; tone?: string }) {
+  return (
+    <div>
+      <div className="text-xs text-white/60 font-bold print:text-gray-600">{label}</div>
+      <div dir="ltr" className={`text-xl font-extrabold ${tone} print:text-united-dark`}>
+        {value}
+        {unit && <span className="text-sm font-bold text-white/70 print:text-gray-600"> {unitLabel(unit)}</span>}
       </div>
     </div>
   );
