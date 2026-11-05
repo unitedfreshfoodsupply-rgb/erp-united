@@ -878,6 +878,16 @@ export async function matchStatement(id: string, input: unknown, actor: ServiceA
       include: { entry: { select: { number: true, date: true, description: true } } },
     });
     const day = (d: string) => Date.parse(`${d}T00:00:00Z`) / 86_400_000;
+    // Each book line's signed amount and day, worked out once and indexed by amount (equal
+    // decimals print the same), so a statement line looks only at the lines of its amount —
+    // in book order, as the full scan saw them — instead of every book line (Nov 2026).
+    const byAmount = new Map<string, { b: (typeof book)[number]; day: number; text?: string }[]>();
+    for (const b of book) {
+      const key = b.debit.minus(b.credit).toString();
+      const bucket = byAmount.get(key);
+      const row = { b, day: day(b.entry.date) };
+      if (bucket) bucket.push(row); else byAmount.set(key, [row]);
+    }
     const used = new Set<string>();
     const matched: { statementRow: number; lineId: string; number: string; date: string; amount: string }[] = [];
     const alreadyCleared: { statementRow: number; lineId: string; number: string }[] = [];
@@ -887,9 +897,14 @@ export async function matchStatement(id: string, input: unknown, actor: ServiceA
     for (const { l, i } of order) {
       const amt = D(l.amount);
       const ref = (l.reference ?? "").toLowerCase();
-      const cands = book
-        .filter((b) => !used.has(b.id) && b.debit.minus(b.credit).equals(amt) && Math.abs(day(b.entry.date) - day(l.date)) <= tol)
-        .map((b) => ({ b, gap: Math.abs(day(b.entry.date) - day(l.date)), refHit: !!ref && (`${b.entry.number} ${b.description ?? ""} ${b.entry.description}`).toLowerCase().includes(ref) ? 0 : 1, cleared: b.reconciliationId === rec.id ? 0 : 1 }))
+      const at = day(l.date);
+      const cands = (byAmount.get(amt.toString()) ?? [])
+        .filter((x) => !used.has(x.b.id) && Math.abs(x.day - at) <= tol)
+        .map((x) => {
+          const b = x.b;
+          const refHit = !!ref && (x.text ??= `${b.entry.number} ${b.description ?? ""} ${b.entry.description}`.toLowerCase()).includes(ref) ? 0 : 1;
+          return { b, gap: Math.abs(x.day - at), refHit, cleared: b.reconciliationId === rec.id ? 0 : 1 };
+        })
         .sort((x, y) => x.refHit - y.refHit || x.gap - y.gap || x.cleared - y.cleared);
       if (!cands.length) { unmatched.push({ statementRow: i + 1, date: l.date, amount: amt.toFixed(2), reference: l.reference ?? null }); continue; }
       const best = cands[0];

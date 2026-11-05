@@ -91,8 +91,37 @@ export async function lockPoForReceipt(tx: Tx, lineId: string) {
  */
 export async function afterPoReceipt(tx: Tx, poId: string, actor: { id: string | null; name: string; role: string; deviceId?: string }) {
   const status = await refreshPoReceiptStatus(tx, poId, actor);
-  if (!afterCommit(tx, `po-coverage:${poId}`, () => inTx((t) => syncPoCoverage(t, poId, actor)))) await syncPoCoverage(tx, poId, actor);
+  if (!afterCommit(tx, `po-coverage:${poId}`, () => syncPoCoverageByOrder(poId, actor))) await syncPoCoverage(tx, poId, actor);
   return status;
+}
+
+/**
+ * syncPoCoverage once the receipt has committed, in steps (Nov 2026): the PO's own part in one
+ * transaction, then each order it serves in its own, under the PO's lock as before. One
+ * transaction for every order of a large PO could run past the 20 s limit, and the failure was
+ * only logged — every order's suggestions stayed stale. Now an order that fails is logged and
+ * the others are still re-sized; the next re-size corrects it. Any after-commit re-size of a
+ * PO's coverage (a receipt here; a grading or other inventory document) should register this.
+ */
+export async function syncPoCoverageByOrder(poId: string, actor: { id: string | null; name: string; role: string; deviceId?: string }) {
+  const orderIds = await inTx(async (t) => {
+    await advisoryXactLock(t, `purchasing:po:${poId}`);
+    const po = await t.purchaseOrder.findUniqueOrThrow({ where: { id: poId } });
+    const released = po.status === "closed" ? await releasePoCoverage(t, po, "closed", "استلام اتلغى أو اتعدّل بعد قفل أمر الشراء", actor, { noteKept: false, resync: false }) : [];
+    const served = await t.purchaseRequest.findMany({ where: { purchaseOrderId: poId, status: "ordered", orderItemId: { not: null } }, select: { orderId: true } });
+    return [...new Set([...released, ...served.map((r) => r.orderId).filter((x): x is string => !!x)])];
+  });
+  const { syncOrderSuggestions } = await import("@/lib/purchasing/requests");
+  for (const orderId of orderIds) {
+    try {
+      await inTx(async (t) => {
+        await advisoryXactLock(t, `purchasing:po:${poId}`);
+        await syncOrderSuggestions(t, orderId, actor, { forOrder: true });
+      });
+    } catch (err) {
+      console.error(`[purchasing] re-sizing the suggestions of order ${orderId} after a receipt on PO ${poId} failed`, err);
+    }
+  }
 }
 
 export async function syncPoCoverage(tx: Tx, poId: string, actor: { id: string | null; name: string; role: string; deviceId?: string }) {

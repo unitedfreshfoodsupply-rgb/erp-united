@@ -1,11 +1,11 @@
-import { Prisma, type PurchaseOrder } from "@prisma/client";
+import { Prisma, type PurchaseOrder, type PurchaseRequest } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
 import { assertEgpCurrency } from "@/lib/core/currency";
-import { writeAudit } from "@/lib/audit";
+import { writeAudit, writeAuditMany, type AuditInput } from "@/lib/audit";
 import { actorCan, assertPermission } from "@/lib/authz-core";
-import { advisoryXactLock } from "@/lib/dbLock";
+import { advisoryXactLock, advisoryXactLocksInOrder } from "@/lib/dbLock";
 import { inTx, type Tx } from "@/lib/tx";
 import { todayLocalISO } from "@/lib/localDate";
 import { isValidISODate } from "@/lib/dates";
@@ -327,51 +327,70 @@ export async function cancelPurchaseOrder(id: string, input: unknown, actor: Ser
  * nothing more. Either way each order's suggestions are re-sized to the line's current shortage
  * (syncOrderSuggestions): what the PO will not bring is raised again, once.
  */
-export async function releasePoCoverage(tx: Tx, po: PurchaseOrder, how: "cancelled" | "closed", reason: string, actor: { id: string | null; name: string; role: string; deviceId?: string }, opts: { noteKept?: boolean } = {}) {
+export async function releasePoCoverage(tx: Tx, po: PurchaseOrder, how: "cancelled" | "closed", reason: string, actor: { id: string | null; name: string; role: string; deviceId?: string }, opts: { noteKept?: boolean; resync?: boolean } = {}): Promise<string[]> {
   const rows = await tx.purchaseRequest.findMany({ where: { purchaseOrderId: po.id, status: "ordered" }, orderBy: { createdAt: "asc" } });
-  const got = rows.length ? await receivedSoFar(tx, po.id) : new Map();
+  if (!rows.length) return [];
+  // Each request's lock, then — before its line can gain an open request again — its order's
+  // suggestion lock: two POs of one line released at once, or a receipt re-sizing the same
+  // order, wait for each other instead of both reopening (the one-open-request index would
+  // refuse the second). Taken in that same sequence, in one statement (Nov 2026: the requests
+  // were released one by one, 4–5 statements each, inside the PO's transaction).
+  const keys = rows.flatMap((r) => [`purchasing:request:${r.id}`, ...(r.orderId && r.orderItemId ? [`purchasing:order-suggestions:${r.orderId}`] : [])]);
+  await advisoryXactLocksInOrder(tx, keys);
+  const lineIds = [...new Set(rows.map((r) => r.orderItemId).filter((x): x is string => !!x))];
+  const [got, open] = await Promise.all([
+    receivedSoFar(tx, po.id),
+    lineIds.length ? tx.purchaseRequest.groupBy({ by: ["orderItemId"], where: { orderItemId: { in: lineIds }, status: { in: ["pending_approval", "approved"] } }, _count: { _all: true } }) : [],
+  ]);
+  // Open requests per order line, kept up to date as earlier requests of this PO reopen.
+  const openOn = new Map(open.map((g) => [g.orderItemId!, g._count._all]));
   const resync = new Set<string>();
+  const audits: AuditInput[] = [];
+  const cancel: PurchaseRequest[] = [], reopen: PurchaseRequest[] = [];
   for (const r of rows) {
-    await advisoryXactLock(tx, `purchasing:request:${r.id}`);
-    // The order's suggestion lock before its line can gain an open request again: two POs of
-    // one line released at once, or a receipt re-sizing the same order, wait for each other
-    // instead of both reopening (the one-open-request index would refuse the second).
-    if (r.orderId && r.orderItemId) await advisoryXactLock(tx, `purchasing:order-suggestions:${r.orderId}`);
     // A cancelled PO has received nothing (cancelling is refused once anything came).
     const accepted = (r.purchaseOrderLineId ? got.get(r.purchaseOrderLineId)?.accepted : undefined) ?? D(0);
     if (accepted.gt(0)) {
       // Noted once, at the close itself (not again on each later correction of its receipts).
-      if (opts.noteKept !== false) await writeAudit({
+      if (opts.noteKept !== false) audits.push({
         userId: actor.id, userName: actor.name, role: actor.role,
         action: "purchase_request_po_closed",
         entityType: "purchase_request", entityId: r.id, orderId: r.orderId,
         fieldChanged: "purchaseOrder", oldValue: po.number, newValue: `${r.number} · ${po.number} اتقفل بعد استلام ${accepted.toFixed()} من ${r.quantity.toFixed()} ${r.uomCode}`,
         reason, source: "user", deviceId: actor.deviceId,
-      }, tx);
+      });
       if (r.orderId && r.orderItemId) resync.add(r.orderId);
       continue;
     }
-    const otherOpen = r.orderItemId
-      ? await tx.purchaseRequest.count({ where: { orderItemId: r.orderItemId, id: { not: r.id }, status: { in: ["pending_approval", "approved"] } } })
-      : 0;
-    const data = otherOpen
-      ? { status: "cancelled", cancelReason: `أمر الشراء ${po.number} ${how === "closed" ? "اتقفل" : "اتلغى"}: ${reason}`, purchaseOrderId: null, purchaseOrderLineId: null }
-      : { status: "approved", purchaseOrderId: null, purchaseOrderLineId: null };
-    const res = await tx.purchaseRequest.updateMany({ where: { id: r.id, version: r.version, status: "ordered" }, data: { ...data, version: { increment: 1 } } });
-    if (res.count !== 1) throw new ApiError(409, "طلب الشراء اتغيّر، حدّث الشاشة");
-    await writeAudit({
+    const otherOpen = r.orderItemId ? openOn.get(r.orderItemId) ?? 0 : 0;
+    if (otherOpen) cancel.push(r);
+    else {
+      reopen.push(r);
+      if (r.orderItemId) openOn.set(r.orderItemId, 1);
+    }
+    audits.push({
       userId: actor.id, userName: actor.name, role: actor.role,
       action: otherOpen ? "purchase_request_cancelled" : "purchase_request_reopened",
       entityType: "purchase_request", entityId: r.id, orderId: r.orderId,
       fieldChanged: "status", oldValue: "ordered", newValue: `${r.number} · ${otherOpen ? "cancelled" : "approved"} · ${po.number}`,
       reason, source: "user", deviceId: actor.deviceId,
-    }, tx);
+    });
     if (r.orderId && r.orderItemId) resync.add(r.orderId);
   }
-  if (resync.size) {
+  const release = async (group: PurchaseRequest[], data: Prisma.PurchaseRequestUncheckedUpdateManyInput) => {
+    if (!group.length) return;
+    const res = await tx.purchaseRequest.updateMany({ where: { status: "ordered", OR: group.map((r) => ({ id: r.id, version: r.version })) }, data: { ...data, version: { increment: 1 } } });
+    if (res.count !== group.length) throw new ApiError(409, "طلب الشراء اتغيّر، حدّث الشاشة");
+  };
+  await release(cancel, { status: "cancelled", cancelReason: `أمر الشراء ${po.number} ${how === "closed" ? "اتقفل" : "اتلغى"}: ${reason}`, purchaseOrderId: null, purchaseOrderLineId: null });
+  await release(reopen, { status: "approved", purchaseOrderId: null, purchaseOrderLineId: null });
+  await writeAuditMany(audits, tx);
+  // `resync: false`: the caller re-sizes the returned orders itself (after commit, one by one).
+  if (resync.size && opts.resync !== false) {
     const { syncOrderSuggestions } = await import("@/lib/purchasing/requests");
     for (const orderId of resync) await syncOrderSuggestions(tx, orderId, actor, { forOrder: true });
   }
+  return [...resync];
 }
 
 /** Stop waiting for what has not come (a short delivery the supplier will not make up). */

@@ -191,6 +191,82 @@ export async function writeDay(
   return updated;
 }
 
+// Writing many days at once (Nov 2026): a payroll run locks and unlocks a whole month of days,
+// and a device compile writes up to 62 days per employee. One statement per day ran past the
+// 20 s transaction limit at ~10 employees on production latency. These write the same rows
+// writeDay writes day by day — the same version check, values, revisions and 409 — in a few
+// statements whatever the number of days.
+const STALE_DAY = "اليوم ده اتغيّر من واحد تاني، حدّث الشاشة";
+const DAY_CHUNK = 500;
+
+function chunks<T>(rows: T[], size = DAY_CHUNK): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size));
+  return out;
+}
+
+type DayRev = { action: string; reason?: string | null; correctionId?: string | null };
+
+function revisionRow(day: { id: string }, revision: number, before: AttendanceDay | null, after: Partial<AttendanceDay>, rev: DayRev, actor: Actorish): Prisma.AttendanceDayRevisionCreateManyInput {
+  return {
+    attendanceDayId: day.id, revision, action: rev.action, before: before ? snapshot(before) : Prisma.JsonNull, after: snapshot(after),
+    reason: rev.reason ?? null, correctionId: rev.correctionId ?? null, changedById: actor.id, changedBy: actor.name,
+  };
+}
+
+/** writeDay for days that move only their state (lock, unlock, confirm): who entered them is kept. */
+export async function writeDayStates(tx: Tx, days: AttendanceDay[], data: { state: string; lockedRunId?: string | null }, rev: DayRev, actor: Actorish) {
+  if (!days.length) return;
+  for (const part of chunks(days)) {
+    const res = await tx.attendanceDay.updateMany({ where: { OR: part.map((d) => ({ id: d.id, version: d.version })) }, data: { ...data, version: { increment: 1 } } });
+    if (res.count !== part.length) throw new ApiError(409, STALE_DAY);
+  }
+  await tx.attendanceDayRevision.createMany({ data: days.map((d) => revisionRow(d, d.version + 1, d, { ...d, ...data }, rev, actor)) });
+}
+
+/** writeDay for many entered or compiled values: new days are created, existing ones updated. */
+export async function writeDayValues(
+  tx: Tx,
+  rows: { existing: AttendanceDay | null; target: { employeeId: string; date: string }; values: DayValues }[],
+  rev: DayRev,
+  actor: Actorish
+) {
+  const revisions: Prisma.AttendanceDayRevisionCreateManyInput[] = [];
+  const fresh = rows.filter((r) => !r.existing);
+  if (fresh.length) {
+    const created = await tx.attendanceDay.createManyAndReturn({
+      data: fresh.map(({ target, values }) => ({
+        employeeId: target.employeeId, date: target.date, status: values.status, source: values.source,
+        firstIn: values.firstIn, lastOut: values.lastOut, notes: values.notes, state: "draft", leaveRequestId: null,
+        ...pickMinutes(values), version: 1, enteredById: actor.id, enteredBy: actor.name,
+      })),
+    });
+    for (const c of created) revisions.push(revisionRow(c, 1, null, c, rev, actor));
+  }
+  const changed = rows.flatMap((r) => (r.existing ? [{ d: r.existing, v: r.values }] : []));
+  // Prisma stores DateTime as UTC in timestamp(3): an ISO string cast to it keeps that value.
+  const ts = (x: Date | null) => (x ? x.toISOString() : null);
+  const at = new Date().toISOString();
+  for (const part of chunks(changed)) {
+    const values = part.map(({ d, v }) => {
+      const m = pickMinutes(v);
+      return Prisma.sql`(${d.id}::text, ${d.version}::int, ${v.status}::text, ${ts(v.firstIn)}::timestamp(3), ${ts(v.lastOut)}::timestamp(3), ${v.notes}::text, ${v.source}::text,
+        ${m.workedMinutes}::int, ${m.lateMinutes}::int, ${m.earlyLeaveMinutes}::int, ${m.overtimeDayMinutes}::int, ${m.overtimeNightMinutes}::int, ${m.overtimeRestDayMinutes}::int, ${m.overtimeHolidayMinutes}::int)`;
+    });
+    const count = await tx.$executeRaw`
+      UPDATE "AttendanceDay" AS d SET
+        "status" = v.status, "firstIn" = v.first_in, "lastOut" = v.last_out, "notes" = v.notes, "source" = v.source,
+        "workedMinutes" = v.worked, "lateMinutes" = v.late, "earlyLeaveMinutes" = v.early, "overtimeDayMinutes" = v.ot_day,
+        "overtimeNightMinutes" = v.ot_night, "overtimeRestDayMinutes" = v.ot_rest, "overtimeHolidayMinutes" = v.ot_holiday,
+        "version" = d."version" + 1, "enteredById" = ${actor.id}::text, "enteredBy" = ${actor.name}::text, "updatedAt" = ${at}::timestamp(3)
+      FROM (VALUES ${Prisma.join(values)}) AS v(id, version, status, first_in, last_out, notes, source, worked, late, early, ot_day, ot_night, ot_rest, ot_holiday)
+      WHERE d."id" = v.id AND d."version" = v.version`;
+    if (count !== part.length) throw new ApiError(409, STALE_DAY);
+  }
+  for (const { d, v } of changed) revisions.push(revisionRow(d, d.version + 1, d, { ...d, ...v }, rev, actor));
+  if (revisions.length) await tx.attendanceDayRevision.createMany({ data: revisions });
+}
+
 function pickMinutes(d: Partial<DayMinutes>): DayMinutes {
   return {
     workedMinutes: d.workedMinutes ?? 0, lateMinutes: d.lateMinutes ?? 0, earlyLeaveMinutes: d.earlyLeaveMinutes ?? 0,
@@ -380,15 +456,17 @@ export async function saveAttendanceDays(input: unknown, actor: ServiceActor) {
     const ctx = await loadContext(tx, v.date, v.date, ids);
     const existing = new Map((await tx.attendanceDay.findMany({ where: { date: v.date, employeeId: { in: ids } } })).map((d) => [d.employeeId, d]));
     let created = 0, updated = 0, unchanged = 0;
+    const writes: Parameters<typeof writeDayValues>[1] = [];
     for (const r of v.rows) {
       const cur = existing.get(r.employee_id) ?? null;
       if (cur && cur.state !== "draft") throw new ApiError(409, `حضور يوم ${v.date} لموظف اتأكد — اطلب تصحيح`);
       if (cur && r.expected_version !== undefined && r.expected_version !== cur.version) throw new ApiError(409, "اليوم ده اتغيّر من واحد تاني، حدّث الشاشة");
       const values = valuesFor(ctx, r.employee_id, v.date, r, "manual");
       if (cur && sameValues(cur, values)) { unchanged++; continue; }
-      await writeDay(tx, cur, { employeeId: r.employee_id, date: v.date }, values, { action: "entered" }, actor);
+      writes.push({ existing: cur, target: { employeeId: r.employee_id, date: v.date }, values });
       if (cur) updated++; else created++;
     }
+    await writeDayValues(tx, writes, { action: "entered" }, actor);
     if (created + updated > 0) {
       await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "attendance_saved", entityType: "attendance_day", entityId: v.date, fieldChanged: "register", newValue: `${created} new · ${updated} changed`, source: "user", deviceId: actor.deviceId }, tx);
     }
@@ -406,7 +484,7 @@ export async function confirmAttendance(input: unknown, actor: ServiceActor) {
   return inTx(async (tx) => {
     await advisoryXactLock(tx, `hr-attendance-date:${v.date}`);
     const drafts = await tx.attendanceDay.findMany({ where: { date: v.date, state: "draft", ...(v.employee_ids ? { employeeId: { in: v.employee_ids } } : {}) } });
-    for (const d of drafts) await writeDay(tx, d, d, { state: "confirmed" }, { action: "confirmed" }, actor);
+    await writeDayStates(tx, drafts, { state: "confirmed" }, { action: "confirmed" }, actor);
     if (drafts.length) {
       await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "attendance_confirmed", entityType: "attendance_day", entityId: v.date, fieldChanged: "state", oldValue: "draft", newValue: `confirmed · ${drafts.length}`, source: "user", deviceId: actor.deviceId }, tx);
     }
@@ -580,6 +658,7 @@ export async function compileDeviceAttendance(input: unknown, actor: ServiceActo
     const ctx = await loadContext(tx, v.from, v.to, employeeIds);
     const existing = new Map((await tx.attendanceDay.findMany({ where: { date: { gte: v.from, lte: v.to }, employeeId: { in: employeeIds } } })).map((d) => [`${d.employeeId}|${d.date}`, d]));
     let created = 0, updated = 0, kept = 0, incomplete = 0, notEmployed = 0;
+    const writes: Parameters<typeof writeDayValues>[1] = [];
     for (const [k, punches] of groups) {
       const [employeeId, date] = k.split("|");
       if (punches.length < 2) { incomplete++; continue; }
@@ -593,9 +672,10 @@ export async function compileDeviceAttendance(input: unknown, actor: ServiceActo
       const minutes = measureDay({ ...shiftMinutes(date, firstIn, lastOut), schedule: sd, holiday: !!ctx.holiday(date) });
       const values: DayValues = { status: "present", firstIn, lastOut, notes: cur?.notes ?? null, source: "device", ...minutes };
       if (cur && sameValues(cur, values)) { kept++; continue; }
-      await writeDay(tx, cur, { employeeId, date }, values, { action: "compiled" }, actor);
+      writes.push({ existing: cur, target: { employeeId, date }, values });
       if (cur) updated++; else created++;
     }
+    await writeDayValues(tx, writes, { action: "compiled" }, actor);
     await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "attendance_compiled", entityType: "attendance_day", entityId: `${v.from}..${v.to}`, fieldChanged: "device", newValue: `${created} new · ${updated} changed · ${kept} kept · ${incomplete} incomplete · ${unmapped} unmapped`, source: "user", deviceId: actor.deviceId }, tx);
     return { from: v.from, to: v.to, events: events.length, created, updated, kept, incomplete, unmapped, notEmployed };
   });

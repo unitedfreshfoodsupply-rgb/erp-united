@@ -13,7 +13,7 @@ import { nextDocumentNumber } from "@/lib/core/sequences";
 import { cancelPendingApproval, requestApproval, type Decider } from "@/lib/core/approvals";
 import type { ServiceActor } from "@/lib/core/actor";
 import type { Permission } from "@/lib/permissions";
-import { writeDay } from "@/lib/hr/attendance";
+import { writeDayStates } from "@/lib/hr/attendance";
 import { ENGINE_VERSION, calculatePayroll, type Calculation } from "@/lib/hr/payroll-engine";
 
 /**
@@ -296,19 +296,18 @@ async function lockAttendance(tx: Tx, run: { id: string; attendanceFrom: string;
   if (draft) throw new ApiError(409, `فيه أيام حضور لسه مسودة (${draft.date}) — أكدها الأول`);
   const lockedElsewhere = days.find((d) => d.state === "locked" && d.lockedRunId !== run.id);
   if (lockedElsewhere) throw new ApiError(409, `يوم ${lockedElsewhere.date} مقفول في مسير تاني`);
-  for (const d of days.filter((x) => x.state === "confirmed")) {
-    await writeDay(tx, d, d, { state: "locked", lockedRunId: run.id }, { action: "locked", reason: run.id }, actor);
-  }
+  await writeDayStates(tx, days.filter((x) => x.state === "confirmed"), { state: "locked", lockedRunId: run.id }, { action: "locked", reason: run.id }, actor);
 }
 
 /** Unlocks the run's days. A correction applied while they were locked is absorbed by this
  * still-unposted run's next calculation, so it no longer needs a retro adjustment. */
 export async function unlockAttendance(tx: Tx, runId: string, actor: { id: string | null; name: string; role: string }) {
   const days = await tx.attendanceDay.findMany({ where: { lockedRunId: runId } });
-  for (const d of days) {
-    await tx.attendanceCorrection.updateMany({ where: { employeeId: d.employeeId, date: d.date, status: "approved", retroStatus: "pending" }, data: { retroStatus: "none" } });
-    await writeDay(tx, d, d, { state: "confirmed", lockedRunId: null }, { action: "unlocked", reason: runId }, actor);
+  for (let i = 0; i < days.length; i += 500) {
+    const part = days.slice(i, i + 500);
+    await tx.attendanceCorrection.updateMany({ where: { status: "approved", retroStatus: "pending", OR: part.map((d) => ({ employeeId: d.employeeId, date: d.date })) }, data: { retroStatus: "none" } });
   }
+  await writeDayStates(tx, days, { state: "confirmed", lockedRunId: null }, { action: "unlocked", reason: runId }, actor);
 }
 
 /** POST /api/hr/payroll/runs/:id/submit — freezes the figures and sends them for approval. */

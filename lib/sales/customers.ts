@@ -12,7 +12,7 @@ import { nextDocumentNumber } from "@/lib/core/sequences";
 import { normalizeProductName as normalizeName } from "@/lib/productIdentity";
 import { active, optDecimal, optText, parse, text, version } from "@/lib/core/validation";
 import type { ServiceActor } from "@/lib/core/actor";
-import { applyListPrices } from "@/lib/sales/pricing";
+import { applyListPricesToOrders } from "@/lib/sales/reprice-orders";
 import { listLimit } from "@/lib/core/list-window";
 import { searchIds } from "@/lib/core/search";
 
@@ -577,7 +577,7 @@ export async function mapOrderCustomerName(rawName: unknown, customerId: unknown
     const ids = candidates.filter((o) => normalizeName(o.customerName) === normalized).map((o) => o.id);
     if (ids.length) await tx.order.updateMany({ where: { id: { in: ids }, customerAccountId: null }, data: { customerAccountId: c.id } });
     // The customer may have its own price list: list prices are refreshed for it.
-    for (const orderId of ids) await applyListPrices(tx, orderId, actor, { refresh: true });
+    await applyListPricesToOrders(tx, ids, actor, { refresh: true });
     await writeAudit(
       audit(actor, { action: "order_customer_mapped", entityType: "customer", entityId: c.id, fieldChanged: "customerAccountId", oldValue: name, newValue: `${c.code} · ${ids.length} أوردر` }),
       tx
