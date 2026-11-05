@@ -2,6 +2,7 @@ import { Prisma, type PriceList, type PriceListItem } from "@prisma/client";
 import { writeAuditMany, type AuditInput } from "@/lib/audit";
 import type { Tx } from "@/lib/tx";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
+import { ApiError } from "@/lib/rbac";
 
 /**
  * applyListPrices (lib/sales/pricing.ts) for many orders at once (Nov 2026). Mapping a customer
@@ -13,7 +14,12 @@ import { toBaseQuantity } from "@/lib/inventory/packaging";
  * only with `refresh`; a cancelled or invoiced order is left alone; the customer's own list
  * first, then the default; a price that no longer applies is removed on refresh; an
  * unchanged price is not rewritten; one "order_priced" audit row per order that changed.
+ * These are applyListPrices' rules: a change to one must be made to the other (until one of
+ * them calls the other).
  */
+const PRICE_CHUNK = 1000;
+const STALE = "السجل اتغيّر من واحد تاني في نفس اللحظة — حدّث الشاشة وجرّب تاني";
+
 type Actorish = { id: string | null; name: string; role: string; deviceId?: string };
 type Found = { item: PriceListItem; unitPrice: Prisma.Decimal };
 
@@ -124,13 +130,19 @@ export async function applyListPricesToOrders(tx: Tx, orderIds: string[], actor:
   }
   if (removed.length) await tx.orderItemPrice.deleteMany({ where: { orderItemId: { in: removed } } });
   if (created.length) await tx.orderItemPrice.createMany({ data: created });
-  if (updated.length) {
-    await tx.$executeRaw`
+  // In chunks: one statement takes at most 32,767 bind parameters (7 per line here), and Prisma
+  // does not split a raw statement. Each row was read in this transaction; one gone meanwhile
+  // is the 409 the one-row update (P2025) answered.
+  const now = new Date().toISOString();
+  for (let i = 0; i < updated.length; i += PRICE_CHUNK) {
+    const chunk = updated.slice(i, i + PRICE_CHUNK);
+    const count = await tx.$executeRaw`
       UPDATE "OrderItemPrice" AS p SET "unitPrice" = v.unit_price, "discountPct" = 0, "taxCode" = v.tax_code, "taxRate" = v.tax_rate, "currencyCode" = v.currency,
         "source" = 'list', "priceListId" = v.list_id, "priceListItemId" = v.item_id, "reason" = NULL, "setById" = ${actor.id}::text, "setBy" = ${actor.name}::text,
-        "version" = p."version" + 1, "updatedAt" = ${new Date().toISOString()}::timestamp(3)
-      FROM (VALUES ${Prisma.join(updated)}) AS v(order_item_id, unit_price, tax_code, tax_rate, currency, list_id, item_id)
+        "version" = p."version" + 1, "updatedAt" = ${now}::timestamp(3)
+      FROM (VALUES ${Prisma.join(chunk)}) AS v(order_item_id, unit_price, tax_code, tax_rate, currency, list_id, item_id)
       WHERE p."orderItemId" = v.order_item_id`;
+    if (count !== chunk.length) throw new ApiError(409, STALE);
   }
   await writeAuditMany(audits, tx);
   return result;

@@ -5,7 +5,7 @@ import { ApiError } from "@/lib/rbac";
 import { assertEgpCurrency } from "@/lib/core/currency";
 import { writeAudit, writeAuditMany, type AuditInput } from "@/lib/audit";
 import { actorCan, assertPermission } from "@/lib/authz-core";
-import { advisoryXactLock } from "@/lib/dbLock";
+import { advisoryXactLock, advisoryXactLocksInOrder } from "@/lib/dbLock";
 import { inTx, type Tx } from "@/lib/tx";
 import { todayLocalISO } from "@/lib/localDate";
 import { isValidISODate } from "@/lib/dates";
@@ -336,8 +336,7 @@ export async function releasePoCoverage(tx: Tx, po: PurchaseOrder, how: "cancell
   // refuse the second). Taken in that same sequence, in one statement (Nov 2026: the requests
   // were released one by one, 4–5 statements each, inside the PO's transaction).
   const keys = rows.flatMap((r) => [`purchasing:request:${r.id}`, ...(r.orderId && r.orderItemId ? [`purchasing:order-suggestions:${r.orderId}`] : [])]);
-  await tx.$queryRaw`SELECT count(pg_advisory_xact_lock(hashtext(k.key)))::int AS locked
-    FROM (SELECT key FROM unnest(${keys}::text[]) WITH ORDINALITY AS u(key, ord) ORDER BY ord) k`;
+  await advisoryXactLocksInOrder(tx, keys);
   const lineIds = [...new Set(rows.map((r) => r.orderItemId).filter((x): x is string => !!x))];
   const [got, open] = await Promise.all([
     receivedSoFar(tx, po.id),

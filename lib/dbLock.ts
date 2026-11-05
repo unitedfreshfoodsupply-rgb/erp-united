@@ -39,3 +39,20 @@ export async function advisoryXactLocks(tx: LockableTx, keys: Iterable<string>) 
   await tx.$queryRaw`SELECT count(pg_advisory_xact_lock(hashtext(k.key)))::int AS locked
     FROM (SELECT key FROM unnest(${sorted}::text[]) WITH ORDINALITY AS u(key, ord) ORDER BY ord) k`;
 }
+
+/**
+ * Several transaction-scoped advisory locks in ONE round trip, in the order given (not sorted).
+ *
+ * For a caller whose lock sequence is already fixed by the rest of the code — e.g. releasing a
+ * PO's requests takes each request's lock, then its order's suggestion lock, the same sequence
+ * other writers of those rows follow. `WITH ORDINALITY` + ORDER BY keeps the given order inside
+ * the statement. Repeated keys are taken where they first appear (re-locking a held key is a
+ * no-op). Everything else should use advisoryXactLocks, whose sorted order is the global one.
+ */
+export async function advisoryXactLocksInOrder(tx: LockableTx, keys: Iterable<string>) {
+  const ordered = [...new Set(keys)];
+  if (ordered.length === 0) return;
+  if (ordered.length === 1) return advisoryXactLock(tx, ordered[0]);
+  await tx.$queryRaw`SELECT count(pg_advisory_xact_lock(hashtext(k.key)))::int AS locked
+    FROM (SELECT key FROM unnest(${ordered}::text[]) WITH ORDINALITY AS u(key, ord) ORDER BY ord) k`;
+}

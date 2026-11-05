@@ -100,9 +100,10 @@ export async function afterPoReceipt(tx: Tx, poId: string, actor: { id: string |
  * transaction, then each order it serves in its own, under the PO's lock as before. One
  * transaction for every order of a large PO could run past the 20 s limit, and the failure was
  * only logged — every order's suggestions stayed stale. Now an order that fails is logged and
- * the others are still re-sized; the next re-size corrects it.
+ * the others are still re-sized; the next re-size corrects it. Any after-commit re-size of a
+ * PO's coverage (a receipt here; a grading or other inventory document) should register this.
  */
-async function syncPoCoverageByOrder(poId: string, actor: { id: string | null; name: string; role: string; deviceId?: string }) {
+export async function syncPoCoverageByOrder(poId: string, actor: { id: string | null; name: string; role: string; deviceId?: string }) {
   const orderIds = await inTx(async (t) => {
     await advisoryXactLock(t, `purchasing:po:${poId}`);
     const po = await t.purchaseOrder.findUniqueOrThrow({ where: { id: poId } });

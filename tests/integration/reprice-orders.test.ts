@@ -132,3 +132,19 @@ test("statements are constant in the number of orders: 4 vs 20", async () => {
   assert.equal(large, small, `6 orders ${small}, 24 orders ${large}`);
   assert.ok(large <= 16, String(large));
 });
+
+test("more lines than one statement can carry are re-priced in chunks (PostgreSQL takes at most 32,767 bind parameters)", async () => {
+  await rolledBack(async (tx) => {
+    const c = await catalogue(tx);
+    const o = await tx.order.create({ data: { orderNumber: `${TAG}-BIG-${next()}`, customerName: `${TAG} big`, customerAccountId: null, deliveryDate: today, status: "new" } });
+    const n = 4800; // 7 parameters per line: one statement for all of them would need 33,600
+    await tx.orderItem.createMany({ data: Array.from({ length: n }, (_, k) => ({ orderId: o.id, productName: `${TAG} ${k}`, unit: "KG", requiredQuantity: 1, stockProductId: c.kg.id })) });
+    const items = await tx.orderItem.findMany({ where: { orderId: o.id }, select: { id: true } });
+    const stale = await tx.priceListItem.findFirstOrThrow({ where: { priceListId: c.def.id, productId: c.kg.id, unitPrice: D(20) } });
+    await tx.orderItemPrice.createMany({ data: items.map((i) => ({ orderItemId: i.id, unitPrice: D(20), taxCode: "VAT14", taxRate: D(14), source: "list", priceListId: c.def.id, priceListItemId: stale.id, setBy: "earlier" })) });
+    const out = await applyListPricesToOrders(tx, [o.id], sales, { refresh: true });
+    assert.equal(out.get(o.id)?.priced, n);
+    const prices = await tx.orderItemPrice.groupBy({ by: ["unitPrice", "version"], where: { orderItemId: { in: items.map((i) => i.id) } }, _count: { _all: true } });
+    assert.deepEqual(prices.map((p) => [p.unitPrice.toFixed(), p.version, p._count._all]), [["22", 2, n]], "every line now at today's default price, one version up");
+  });
+});

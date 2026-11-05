@@ -336,11 +336,13 @@ export async function setSupplierPrices(supplierId: string, input: unknown, acto
     const corrected = [...rows.values()].filter((r) => r.dirty && r.id);
     if (corrected.length) {
       const values = corrected.map((r) => Prisma.sql`(${r.id}::text, ${r.unitPrice.toString()}::numeric, ${r.validTo}::text, ${r.leadTimeDays}::int, ${r.notes}::text)`);
-      await tx.$executeRaw`
+      const count = await tx.$executeRaw`
         UPDATE "SupplierPrice" AS p SET "unitPrice" = v.unit_price, "validTo" = v.valid_to, "leadTimeDays" = v.lead_time_days, "notes" = v.notes,
           "createdById" = ${actor.id}::text, "createdBy" = ${actor.name}::text
         FROM (VALUES ${Prisma.join(values)}) AS v(id, unit_price, valid_to, lead_time_days, notes)
         WHERE p."id" = v.id`;
+      // Read in this transaction; a row gone meanwhile is the 409 the one-row update (P2025) answered.
+      if (count !== corrected.length) throw new ApiError(409, "السجل اتغيّر من واحد تاني في نفس اللحظة — حدّث الشاشة وجرّب تاني");
     }
     await writeAuditMany(audits, tx);
     return { created, replaced };
