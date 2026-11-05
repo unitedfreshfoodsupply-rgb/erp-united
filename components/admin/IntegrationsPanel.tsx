@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, apiPost, ApiClientError } from "@/lib/api-client";
-import { LoadingState } from "@/components/States";
+import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
+import { ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { useLocale } from "@/lib/locale";
 import { useDialogs } from "@/components/ui/Dialog";
@@ -24,6 +24,8 @@ export function IntegrationsPanel() {
   const [key, setKey] = useState<string | null>(null);
   const fail = (err: unknown) => toast.show(err instanceof ApiClientError ? err.message : t("ui.error"), "error");
   if (q.isLoading) return <LoadingState />;
+  // Without the list, an empty panel would read as "no integrations" (and hide live keys).
+  if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />;
   return (
     <div className="flex flex-col gap-3">
       <section className="card p-4 grid grid-cols-2 sm:grid-cols-6 gap-2 items-center">

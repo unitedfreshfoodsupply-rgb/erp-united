@@ -2873,7 +2873,7 @@ const admin = {
   "admin.data-import.table-row": { ar: "الصف", en: "Row" },
   "admin.data-import.table-label": { ar: "البيان", en: "Description" },
   "admin.data-import.table-status": { ar: "الحالة", en: "Status" },
-  "admin.data-import.preview-truncated": { ar: "معروض أول 50 صف؛ فحص الملف شمل كل الصفوف.", en: "First 50 rows shown; the full scan covered all rows." },
+  "admin.data-import.preview-truncated": { ar: "الصفوف اللي محتاجة تصحيح معروضة كلها الأول، وبعدها الصفوف الجاهزة لحد 50 صف؛ فحص الملف شمل كل الصفوف.", en: "Every row that needs fixing is shown first, then ready rows up to 50 in all; the full scan covered all rows." },
   "admin.data-import.ready": { ar: "جاهز", en: "Ready" },
   "admin.data-import.help.names": { ar: "الأسماء: عمود name (أو name_en) للاسم الإنجليزي وname_ar للاسم العربي — الاتنين بيتحفظوا كما هم، وname_ar لازم يكون بحروف عربية. الكود معرّف منفصل ومش بديل للاسم: للأصناف هو sku (أو code)، وللمجموعات والكيانات القانونية code، وأكواد العملاء والموردين بيديها النظام.", en: "Names: the name (or name_en) column is the English name and name_ar the Arabic name — both are stored as written, and name_ar must be in Arabic script. A code is a separate identifier, never a substitute for a name: sku (or code) for products, code for groups and legal entities; customer and supplier codes are assigned by the system." },
   "admin.data-import.status.done": { ar: "تم", en: "Done" },
