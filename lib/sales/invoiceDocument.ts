@@ -28,6 +28,7 @@ export const INVOICE_LABELS = {
     totalTax: "إجمالي الضريبة", grandTotal: "إجمالي الفاتورة", taxSummary: "ملخص الضريبة", taxBase: "الوعاء", rate: "النسبة", payment: "السداد",
     terms: "شروط الدفع", cash: "نقدي عند التسليم", days: (n: number) => `آجل ${n} يوم`, paid: "المدفوع", balance: "المتبقي", paidInFull: "مدفوعة بالكامل",
     status: "حالة السداد", statusPaid: "مسددة", statusPartial: "مدفوعة جزئيًا", statusUnpaid: "غير مدفوعة",
+    statusCredited: "ملغاة بإشعار دائن", creditNotes: "إشعارات دائنة",
     receipts: "إيصالات التحصيل", bank: "التحويل البنكي", bankName: "البنك", bankAccountName: "اسم الحساب", bankAccount: "رقم الحساب", iban: "IBAN",
     commercialTerms: "الشروط", notes: "ملاحظات", capital: "رأس المال المصدر", preparedBy: "أعدّها", receivedBy: "استلام العميل (الاسم / التوقيع / التاريخ)", authorized: "التوقيع المعتمد",
     eta: "الفاتورة الإلكترونية — مصلحة الضرائب", etaUuid: "الرقم الإلكتروني (UUID)", etaLongId: "الرقم المرجعي",
@@ -43,6 +44,7 @@ export const INVOICE_LABELS = {
     totalTax: "Total tax", grandTotal: "Invoice total", taxSummary: "Tax summary", taxBase: "Taxable amount", rate: "Rate", payment: "Payment",
     terms: "Payment terms", cash: "Cash on delivery", days: (n: number) => `Net ${n} days`, paid: "Paid", balance: "Balance due", paidInFull: "Paid in full",
     status: "Payment status", statusPaid: "Settled", statusPartial: "Partly paid", statusUnpaid: "Unpaid",
+    statusCredited: "Credited in full", creditNotes: "Credit notes",
     receipts: "Receipts", bank: "Bank transfer", bankName: "Bank", bankAccountName: "Account name", bankAccount: "Account no.", iban: "IBAN",
     commercialTerms: "Terms", notes: "Notes", capital: "Issued capital", preparedBy: "Prepared by", receivedBy: "Received by the customer (name / signature / date)", authorized: "Authorised signature",
     eta: "E-invoice — Egyptian Tax Authority", etaUuid: "Document UUID", etaLongId: "Long ID",
@@ -74,6 +76,9 @@ export type InvoiceDocInput = {
     number: string | null; status: string; issueDate: string | null; dueDate: string | null; issuedAt: Date | string | null; issuedBy?: string | null; currencyCode: string;
     buyerName: string | null; buyerTaxId: string | null; buyerAddress: string | null; notes: string | null;
     gross: Num; discountTotal: Num; net: Num; taxTotal: Num; total: Num; paid: Num; open: Num | null;
+    /** What credit notes took off the invoice, and the notes themselves (getInvoice returns both). */
+    credited?: Num;
+    creditNotes?: { number: string; issueDate: string; total: Num }[];
     customer: { code: string; paymentTermsDays: number } | null;
     order: { orderNumber: string; deliveryDate: string; customerPoRef?: string | null } | null;
     lines: { lineNo: number; description: string; uomCode: string; quantity: Num; unitPrice: Num; discountPct: Num; discount: Num; net: Num; taxCode: string; taxRate: Num; tax: Num; total: Num }[];
@@ -114,6 +119,9 @@ export function invoiceDocument(input: InvoiceDocInput) {
   const terms = termDays === null || Number.isNaN(termDays) ? null : termDays > 0 ? L.days(termDays) : L.cash;
   const open = inv.open === null ? null : Number(inv.open.toString());
   const paid = Number(inv.paid.toString());
+  const credited = inv.credited === undefined ? 0 : Number(inv.credited.toString());
+  // Cleared by credit notes, not by money: never printed as paid (LOG-9).
+  const fullyCredited = open !== null && credited > 0 && credited >= Number(inv.total.toString());
   const etaFacts = eta && PRINTABLE_ETA.has(eta.status) && eta.uuid
     ? {
         status: ETA_STATUS_LABEL[lang][eta.status] ?? eta.status,
@@ -167,9 +175,11 @@ export function invoiceDocument(input: InvoiceDocInput) {
     totals: { gross: money(inv.gross), discount: money(inv.discountTotal), net: money(inv.net), tax: money(inv.taxTotal), total: money(inv.total), hasDiscount: Number(inv.discountTotal.toString()) !== 0 },
     taxSummary: [...taxes.values()].map((t) => ({ label: t.label, rate: t.rate, base: money(t.base), tax: money(t.tax) })),
     payment: {
-      terms, dueDate: inv.dueDate, paid: money(inv.paid), balance: open === null ? null : money(open), paidInFull: open !== null && open <= 0,
-      status: open === null ? null : open <= 0 ? L.statusPaid : paid > 0 ? L.statusPartial : L.statusUnpaid,
+      terms, dueDate: inv.dueDate, paid: money(inv.paid), balance: open === null ? null : money(open), paidInFull: open !== null && open <= 0 && !fullyCredited,
+      status: open === null ? null : fullyCredited ? L.statusCredited : open <= 0 ? L.statusPaid : paid > 0 ? L.statusPartial : L.statusUnpaid,
       receipts: inv.payments.map((p) => ({ number: p.number, date: p.date, amount: money(p.amount) })),
+      credited: credited > 0 ? money(credited) : null,
+      creditNotes: (inv.creditNotes ?? []).map((c) => ({ number: c.number, date: c.issueDate, amount: money(c.total) })),
     },
     bank: company?.bank ?? null,
     commercialTerms: company?.invoiceTerms ?? null,
