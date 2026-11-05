@@ -83,6 +83,16 @@ export async function assertQuantityFitsUnit(db: Pick<Tx, "unitOfMeasure">, unit
   }
 }
 
+/** assertQuantityFitsUnit for many lines with the units read once (PW-2, Nov 2026): the same
+ * checks in the same order, so the first line that does not fit is refused with the same message. */
+export async function assertQuantitiesFitUnits(db: Pick<Tx, "unitOfMeasure">, lines: { unit: string; qty: number | Dec; label: string }[]) {
+  if (!lines.length) return;
+  const units = await db.unitOfMeasure.findMany({ where: { code: { in: [...new Set(lines.map((l) => l.unit))] } } });
+  const byCode = new Map(units.map((u) => [u.code, u]));
+  const one = { unitOfMeasure: { findUnique: async ({ where }: { where: { code: string } }) => byCode.get(where.code) ?? null } } as unknown as Pick<Tx, "unitOfMeasure">;
+  for (const l of lines) await assertQuantityFitsUnit(one, l.unit, l.qty, l.label);
+}
+
 type CommitLine = { itemId: string; line: number; productId: string; productName: string; unit: string; baseUnit: string; requested: Dec; base: Dec };
 
 /** One stock-tracked line as the plan sees it: what it asks (base unit) and what is left

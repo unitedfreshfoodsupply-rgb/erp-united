@@ -33,16 +33,18 @@ import { releaseAllForSource } from "@/lib/inventory/reservations";
 import { resolveCustomer } from "@/lib/sales/customers";
 import { applyListPrices, setAgreedLinePriceInTx } from "@/lib/sales/pricing";
 import { evaluateOrderCredit } from "@/lib/sales/credit";
-import { assertQuantityFitsUnit, commitOrderStock } from "@/lib/sales/stock-commitment";
+import { assertQuantitiesFitUnits, assertQuantityFitsUnit, commitOrderStock } from "@/lib/sales/stock-commitment";
 import { holdable, holdOrderForStockInTx } from "@/lib/sales/stock-hold";
 import { settleOrderSuggestions, syncOrderSuggestions } from "@/lib/purchasing/requests";
 import { assertPricingCleared, evaluateOrderPricing } from "@/lib/sales/price-exceptions";
 import { releaseOrderInvoiceForReopen } from "@/lib/sales/invoicing";
 import { searchWhere } from "@/lib/core/search";
 import { storedOrderCustomerName } from "@/lib/locale/names";
+import { fitsDecimals } from "@/lib/quantity";
 
 function assertValidQuantity(quantity: unknown, label: string): asserts quantity is number {
-  if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity < 0 || quantity > 999_999_999_999 || !Number.isInteger(quantity * 1000)) {
+  // At most three decimals as typed (LOG-2): 16.1 is valid, though 16.1 × 1000 is not an integer in floating point.
+  if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity < 0 || quantity > 999_999_999_999 || !fitsDecimals(quantity, 3)) {
     throw new ApiError(400, `${label} لازم يكون من صفر إلى 999,999,999,999 وبحد أقصى 3 خانات عشرية`);
   }
 }
@@ -235,7 +237,7 @@ export async function createOrder(
     throw new ApiError(403, "مالكش صلاحية تحدد سعر السطر — السعر بيتاخد من قائمة الأسعار");
   }
   const validatedItems = await validateProducts(input.items);
-  for (const [idx, i] of validatedItems.entries()) await assertQuantityFitsUnit(prisma, i.unit, i.quantity, `الصنف رقم ${idx + 1} (${i.productName})`);
+  await assertQuantitiesFitUnits(prisma, validatedItems.map((i, idx) => ({ unit: i.unit, qty: i.quantity, label: `الصنف رقم ${idx + 1} (${i.productName})` })));
   // Sales policies, read before the transaction opens.
   const creditMode = await getSetting("sales.credit_check_mode");
   // Exact customer resolution (explicit account → integration id → name/alias);
@@ -1053,8 +1055,11 @@ export async function editRequiredQuantity(
       // new shortage instead (a line set to 0 closes it).
       await syncOrderSuggestions(tx, orderId, actor);
     } else {
-      // A larger quantity must be reservable now, or the edit is refused (WF-01).
-      await commitOrderStock(tx, orderId, stockActor(actor));
+      // A larger quantity must be reservable now, or the edit is refused (WF-01). Only this line
+      // is re-committed (PW-2): the order's other lines already hold their stock in full and are
+      // left exactly as they are — re-reading and re-locking every line made a one-line
+      // correction cost ~10 round trips per line of the order.
+      await commitOrderStock(tx, orderId, stockActor(actor), { lines: [itemId] });
     }
 
     await writeAudit({
