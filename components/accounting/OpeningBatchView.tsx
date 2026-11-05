@@ -13,6 +13,8 @@ import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, fmtMoney } from "@/components/stock/inventory/shared";
+import { AwaitingApproval } from "@/components/approvals/AwaitingApproval";
+import { APPROVAL_TYPE } from "@/lib/core/approval-presentation";
 
 /**
  * The go-live opening batch: prepare every opening figure (GL accounts, customers,
@@ -185,6 +187,8 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
           {b.kind === "phase" && <div className="sm:col-span-2"><dt className="font-bold text-united-muted">{t("openmig.batch-clearing")}</dt><dd className="font-extrabold text-united-warn" dir="ltr">{fmtMoney(v.clearing ?? "0")}</dd></div>}
           {(["customers", "suppliers", "stock", "assetsCost", "assetsAccumulated"] as const).map((k) => <div key={k}><dt className="font-bold text-united-muted">{t(`opening.sub.${k}`)}</dt><dd className="font-extrabold" dir="ltr">{fmtMoney(v.subledgers[k] ?? "0")}</dd></div>)}
         </dl>
+        {/* Who approves it and where (and, for the approver, the decision itself). */}
+        {b.status === "pending_approval" && <AwaitingApproval type={APPROVAL_TYPE.openingBatch} entityId={b.id} />}
         {v.problems.length > 0 && <ul className="text-sm font-bold text-united-danger">{v.problems.map((p) => <li key={p.code}>{t(`opening.problem.${p.code}`, p.params ?? {})}</li>)}</ul>}
         {v.warnings.length > 0 && <ul className="text-sm font-bold text-united-warn">{v.warnings.map((p) => <li key={p.code}>{t(`opening.warning.${p.code}`, p.params ?? {})}</li>)}</ul>}
         {v.lineProblems.length > 0 && <ul className="text-sm text-united-danger">{v.lineProblems.map((p) => <li key={p.lineNo}>{t("opening.line-n", { n: String(p.lineNo) })}: {p.message}</li>)}</ul>}
@@ -192,7 +196,7 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-primary" disabled={v.problems.length > 0} onClick={async () => {
               if (!(await dialogs.confirm({ title: t("opening.confirm-submit", { number: b.number }), body: t("opening.confirm-submit-body"), confirmLabel: t("opening.submit") }))) return;
-              try { await apiPost(`/api/accounting/opening-batches/${id}/submit`, {}); toast.show(t("opening.toast-submitted"), "success"); refresh(); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
+              try { await apiPost(`/api/accounting/opening-batches/${id}/submit`, {}); toast.show(t("opening.toast-submitted"), "success"); refresh(); void qc.invalidateQueries({ queryKey: ["approvals"] }); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
             }}>{t("opening.submit")}</button>
           </div>
         )}

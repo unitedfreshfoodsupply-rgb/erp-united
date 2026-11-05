@@ -12,6 +12,9 @@ import { usePermissions } from "@/lib/use-session";
 import { useLocale } from "@/lib/locale";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, fmtMoney } from "@/components/stock/inventory/shared";
+import Link from "next/link";
+import { AwaitingApproval } from "@/components/approvals/AwaitingApproval";
+import { APPROVAL_TYPE } from "@/lib/core/approval-presentation";
 
 /**
  * The opening migration control center (phased opening balances, Nov 2026). Suppliers first,
@@ -92,6 +95,8 @@ export function OpeningMigrationView({ onOpenBatch }: { onOpenBatch: (id: string
 
   const m = o.migration;
   const closed = o.status === "closed";
+  // Decided in the approvals inbox: the count links there.
+  const pendingApprovals = (o.pendingApprovals?.batches.length ?? 0) + (o.pendingApprovals?.closure ? 1 : 0);
   const newBatch = (segment: string) => act(async () => { const r = await apiPost<{ batch: { id: string } }>("/api/accounting/opening-batches", { kind: "phase", segment, idempotency_key: newClientKey() }); onOpenBatch(r.batch.id); }, t("openmig.toast-batch-created"));
   return (
     <section className="flex flex-col gap-3" aria-labelledby="openmig-title">
@@ -107,7 +112,7 @@ export function OpeningMigrationView({ onOpenBatch }: { onOpenBatch: (id: string
           <div><dt className="font-bold text-united-muted">{t("openmig.open-exceptions")}</dt><dd className={`font-extrabold ${o.exceptions?.open ? "text-united-danger" : "text-united-green"}`}>{o.exceptions?.open ?? 0} · <span dir="ltr">{fmtMoney(o.exceptions?.openAmount ?? "0")}</span></dd></div>
           <div><dt className="font-bold text-united-muted">{t("openmig.posted-debit")}</dt><dd className="font-extrabold" dir="ltr">{fmtMoney(o.totals?.debit ?? "0")}</dd></div>
           <div><dt className="font-bold text-united-muted">{t("openmig.posted-credit")}</dt><dd className="font-extrabold" dir="ltr">{fmtMoney(o.totals?.credit ?? "0")}</dd></div>
-          <div><dt className="font-bold text-united-muted">{t("openmig.pending-approvals")}</dt><dd className="font-extrabold">{(o.pendingApprovals?.batches.length ?? 0) + (o.pendingApprovals?.closure ? 1 : 0)}</dd></div>
+          <div><dt className="font-bold text-united-muted">{t("openmig.pending-approvals")}</dt><dd className="font-extrabold">{pendingApprovals > 0 ? <Link href="/approvals" className="underline">{pendingApprovals}</Link> : 0}</dd></div>
           <div><dt className="font-bold text-united-muted">{t("openmig.export")}</dt><dd className="flex flex-col gap-1 text-sm font-bold"><a className="underline" href="/api/accounting/opening-migration/export?part=accounts">{t("openmig.export-accounts")}</a><a className="underline" href="/api/accounting/opening-migration/export?part=parties">{t("openmig.export-parties")}</a></dd></div>
         </dl>
         {!closed && <p role="note" className="rounded-xl border border-united-warn/40 bg-united-warn/10 p-3 text-sm font-bold text-united-warn">{t("openmig.provisional-banner", { amount: signed(o.clearing?.balance) })}</p>}
@@ -195,9 +200,11 @@ export function OpeningMigrationView({ onOpenBatch }: { onOpenBatch: (id: string
             <button type="button" className="btn-primary" disabled={!o.readyForClosure} onClick={async () => {
               if (!(await dialogs.confirm({ title: t("openmig.confirm-close"), body: t("openmig.confirm-close-body"), confirmLabel: t("openmig.request-close") }))) return;
               await act(() => apiPost("/api/accounting/opening-migration/close", { expected_version: m.version }), t("openmig.toast-close-requested"));
+              void qc.invalidateQueries({ queryKey: ["approvals"] });
             }}>{t("openmig.request-close")}</button>
           )}
           {m.state === "closing" && <span className="text-sm font-bold text-united-warn">{t("openmig.close-pending", { by: m.closeRequestedBy ?? "" })}</span>}
+          {m.state === "closing" && <div className="w-full"><AwaitingApproval type={APPROVAL_TYPE.openingMigrationClose} entityId={m.id} /></div>}
           {manage && m.state === "closing" && (
             <button type="button" className="btn-secondary btn-sm" onClick={async () => {
               const reason = await dialogs.prompt({ title: t("openmig.withdraw-close"), label: t("ui.reason-label"), required: true, confirmLabel: t("openmig.withdraw") });

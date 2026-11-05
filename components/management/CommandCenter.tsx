@@ -151,7 +151,7 @@ export function CommandCenter() {
               <Head id="cc-appr" title={t("cc.approvals")} href="/approvals" />
               <ul className="flex flex-wrap gap-2">
                 {Object.entries(d.approvals).map(([type, count]) => (
-                  <li key={type}><Link href="/approvals" className="filter-pill-inactive">{t(`approvals.type.${type}`) === `approvals.type.${type}` ? t("cc.approval.other") : t(`approvals.type.${type}`)} <span className="num rounded-full bg-united-warn/10 px-2 text-united-warn" dir="ltr">{count}</span></Link></li>
+                  <li key={type}><Link href={`/approvals?type=${encodeURIComponent(type)}`} className="filter-pill-inactive">{t(`approvals.type.${type}`) === `approvals.type.${type}` ? t("cc.approval.other") : t(`approvals.type.${type}`)} <span className="num rounded-full bg-united-warn/10 px-2 text-united-warn" dir="ltr">{count}</span></Link></li>
                 ))}
               </ul>
             </section>
