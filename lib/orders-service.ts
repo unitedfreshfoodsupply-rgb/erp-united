@@ -1100,8 +1100,11 @@ async function recordItemStage(
     const updated = await casItemUpdate(itemId, item.version, (where) =>
       tx.orderItem.update({ where, data: { ...change.data, notes: note ?? item.notes, version: { increment: 1 } } })
     );
+    // One insert, one millisecond apart: the trail is sorted by timestamp, so the tap's rows
+    // keep their order (quantity, then done) as when they were two separate actions.
+    const at = Date.now();
     await writeAuditMany(
-      change.audit.map((a) => ({ ...a, userId: actor.id, userName: actor.name, role: actor.role, entityType: "order_item" as const, entityId: itemId, orderId, source: actor.source, deviceId: actor.deviceId })),
+      change.audit.map((a, i) => ({ ...a, userId: actor.id, userName: actor.name, role: actor.role, entityType: "order_item" as const, entityId: itemId, orderId, source: actor.source, deviceId: actor.deviceId, timestamp: new Date(at + i) })),
       tx
     );
     await recomputeOrderFlags(tx, orderId, thresholdPct, actor);

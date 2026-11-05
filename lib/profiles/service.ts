@@ -74,7 +74,7 @@ async function customerOrders(id: string, can: Can, w: Window): Promise<Source> 
   const priced = can(MONEY.salesPrice);
   // A priced viewer gets each order's value from its lines read here, with orderValue's own
   // arithmetic — one query for every order's prices instead of two per order (PS-7).
-  const itemSelect = { preparationStatus: true, loadingStatus: true, ...(priced ? { requiredQuantity: true, preparedQuantity: true, loadedQuantity: true, price: { select: { unitPrice: true, discountPct: true, taxRate: true } } } : {}) } as const;
+  const itemSelect = { preparationStatus: true, loadingStatus: true, ...(priced ? PRICED_LINE : {}) };
   const [total, orders] = await Promise.all([
     prisma.order.count({ where }),
     prisma.order.findMany({ where, orderBy: [{ deliveryDate: "desc" }, { createdAt: "desc" }], take: w.limit, select: { id: true, orderNumber: true, deliveryDate: true, deliveryTime: true, status: true, createdAt: true, items: { select: itemSelect }, tripStops: { where: { active: true }, select: { status: true, trip: { select: { number: true } } }, take: 1 } } }),
@@ -86,14 +86,16 @@ async function customerOrders(id: string, can: Can, w: Window): Promise<Source> 
       key: `order:${o.id}`, kind: "order", id: o.id, number: o.orderNumber, date: o.deliveryDate, status: o.status, at: o.createdAt.getTime(),
       // lines | prepared | loaded | trip | delivery (the screen spells these out)
       detail: [o.items.length, prepared, loaded, o.tripStops[0]?.trip.number ?? "", o.tripStops[0]?.status ?? ""].join("|"),
-      amount: priced ? m2(valueOfLines(o.items as unknown as PricedLine[])) : null,
+      amount: priced ? m2(valueOfLines(o.items)) : null,
       href: linkFor(can, href.order(o.id)),
     });
   }
   return { rows, total };
 }
 
-type PricedLine = { requiredQuantity: number; preparedQuantity: number | null; loadedQuantity: number | null; price: { unitPrice: Prisma.Decimal; discountPct: Prisma.Decimal; taxRate: Prisma.Decimal } | null };
+/** The line fields valueOfLines reads; PricedLine is derived from this select, so the two cannot drift. */
+const PRICED_LINE = { requiredQuantity: true, preparedQuantity: true, loadedQuantity: true, price: { select: { unitPrice: true, discountPct: true, taxRate: true } } } satisfies Prisma.OrderItemSelect;
+type PricedLine = Prisma.OrderItemGetPayload<{ select: typeof PRICED_LINE }>;
 /** orderValue(...).total from lines already read: lines without a price count as nothing. */
 const valueOfLines = (items: PricedLine[]) =>
   sumAmounts(items.filter((i) => i.price).map((i) => lineAmounts({ quantity: valuedQuantity(i), unitPrice: i.price!.unitPrice, discountPct: i.price!.discountPct, taxRate: i.price!.taxRate }))).total;

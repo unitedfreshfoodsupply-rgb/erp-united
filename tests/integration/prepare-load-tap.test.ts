@@ -73,6 +73,8 @@ for (const [label, qty] of [["within tolerance", 10], ["a shortage that needs th
     assert.deepEqual([item.preparedQuantity, item.preparationStatus, item.notes], [qty, "done", `${TAG} ملاحظة`], "the route returns the updated line");
     const rows = await prisma.auditLog.findMany({ where: { orderId: a.id, entityType: "order_item" }, orderBy: { id: "asc" }, select: { action: true, timestamp: true } });
     assert.deepEqual(rows.map((x) => x.action), ["prepared_quantity_set", "item_marked_prepared"], "both rows, in the tap's order");
+    // The screens sort the trail by timestamp alone, so the two rows must not tie.
+    assert.ok(rows[0].timestamp < rows[1].timestamp, "the done row is later than the quantity row");
   });
 
   test(`load tap, ${label}: the same result as quantity-then-done`, async () => {
@@ -83,6 +85,8 @@ for (const [label, qty] of [["within tolerance", 10], ["a shortage that needs th
     await markItemLoaded(b.id, ib.id, loader);
     assert.deepEqual(await outcome(a.id, ia.id), await outcome(b.id, ib.id));
     assert.deepEqual([item.loadedQuantity, item.loadingStatus, item.version], [qty, "done", ia.version + 1]);
+    const rows = await prisma.auditLog.findMany({ where: { orderId: a.id, entityType: "order_item" }, orderBy: { timestamp: "desc" }, select: { action: true } });
+    assert.deepEqual(rows.map((x) => x.action), ["item_marked_loaded", "loaded_quantity_set"], "newest first, as the timeline shows them");
   });
 }
 

@@ -113,6 +113,9 @@ export type AuditInput = {
   reason?: string;
   source: "user" | "manual" | "system" | "n8n" | "hermes";
   deviceId?: string;
+  /** Normally left out (the row's default, now). Set only to keep the order of several rows
+   * written in one insert, since the screens sort the trail by timestamp. */
+  timestamp?: Date;
 };
 
 /** Immutable append-only audit trail. Never expose update/delete for this model. */
@@ -156,6 +159,7 @@ export async function writeAuditMany(inputs: AuditInput[], db: AuditDb) {
       reason: input.reason,
       source: input.source,
       deviceId: input.deviceId,
+      timestamp: input.timestamp,
     })),
   });
 }

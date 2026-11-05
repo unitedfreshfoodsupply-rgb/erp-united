@@ -83,8 +83,9 @@ export function applyOrderItemToCache(qc: QueryClient, orderId: string, item: Or
 /**
  * The order as the boards last saw it, used to render the detail page instantly on
  * navigation instead of showing a spinner for data we are already holding. The list
- * rows carry the full order including items, so this is the real record, not a stub —
- * the detail query still refetches in the background and replaces it.
+ * rows carry the order and its lines but not each line's catalogue product (the boards
+ * never show it), so until the detail query's background refetch replaces this, a line
+ * shows its as-ordered product name instead of the catalogue name.
  */
 export function cachedOrderFromLists(qc: QueryClient, orderId: string): OrderDTO | undefined {
   const lists = qc.getQueriesData({ queryKey: ORDERS_PREFIX });
