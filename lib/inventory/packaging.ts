@@ -45,3 +45,22 @@ export async function toBaseQuantity(
   }
   return rounded;
 }
+
+/**
+ * The two lookups toBaseQuantity makes (units by code, a product's packaging by unit), read once
+ * for many lines (PW-1, Nov 2026): pass the result to toBaseQuantity in place of the database and
+ * every line converts — or is refused — exactly as it would reading them itself.
+ */
+export async function preloadedUnits(db: Db, lines: { productId: string; units: string[] }[]): Promise<Db> {
+  const codes = [...new Set(lines.flatMap((l) => l.units))];
+  const [uoms, packs] = await Promise.all([
+    db.unitOfMeasure.findMany({ where: { code: { in: codes } } }),
+    db.productPackaging.findMany({ where: { productId: { in: [...new Set(lines.map((l) => l.productId))] }, uomCode: { in: codes } } }),
+  ]);
+  const uomBy = new Map(uoms.map((u) => [u.code, u]));
+  const packBy = new Map(packs.map((p) => [`${p.productId}|${p.uomCode}`, p]));
+  return {
+    unitOfMeasure: { findUnique: async ({ where }: { where: { code: string } }) => uomBy.get(where.code) ?? null },
+    productPackaging: { findUnique: async ({ where }: { where: { productId_uomCode: { productId: string; uomCode: string } } }) => packBy.get(`${where.productId_uomCode.productId}|${where.productId_uomCode.uomCode}`) ?? null },
+  } as unknown as Db;
+}

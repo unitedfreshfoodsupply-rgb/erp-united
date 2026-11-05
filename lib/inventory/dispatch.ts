@@ -9,10 +9,10 @@ import { advisoryXactLock } from "@/lib/dbLock";
 import { requestApproval } from "@/lib/core/approvals";
 import type { ServiceActor } from "@/lib/core/actor";
 import { D, ZERO, type Dec } from "@/lib/inventory/decimal";
-import { productAvailability } from "@/lib/inventory/balances";
-import { lockAvailability } from "@/lib/inventory/picking";
+import { productAvailability, productsAvailability } from "@/lib/inventory/balances";
+import { lockAvailability, lockAvailabilities } from "@/lib/inventory/picking";
 import { resolveWarehouse } from "@/lib/inventory/context";
-import { toBaseQuantity } from "@/lib/inventory/packaging";
+import { preloadedUnits, toBaseQuantity } from "@/lib/inventory/packaging";
 import { issueStock, releaseAllForSource } from "@/lib/inventory/reservations";
 import { reverseDocumentInTx } from "@/lib/inventory/documents";
 
@@ -67,6 +67,10 @@ export async function issueForDispatch(tx: Tx, orderId: string, actor: ServiceAc
     include: { items: { include: { stockProduct: true }, orderBy: { id: "asc" } } },
   });
   const warehouse = await resolveWarehouse(tx, undefined);
+  // The unit and packaging lookups toBaseQuantity makes, read once for every line sold in
+  // another unit than its product's (a crate, a box); none when every line is in base units.
+  const converted = order.items.filter((i) => i.stockProduct && i.unit !== i.stockProduct.unit);
+  const units = converted.length ? await preloadedUnits(tx, converted.map((i) => ({ productId: i.stockProduct!.id, units: [i.unit, i.stockProduct!.unit] }))) : tx;
 
   const planned: PlannedLine[] = [];
   const shortfalls: Shortfall[] = [];
@@ -81,7 +85,7 @@ export async function issueForDispatch(tx: Tx, orderId: string, actor: ServiceAc
     if (!product.stockTracked) continue;
     let base: Dec;
     try {
-      base = await toBaseQuantity(tx, product, requested, item.unit);
+      base = await toBaseQuantity(units, product, requested, item.unit);
     } catch (err) {
       if (!(err instanceof ApiError)) throw err;
       shortfalls.push({ itemId: item.id, productId: product.id, productName: product.name, unit: item.unit, requested, issued: ZERO, reason: "unit_mismatch" });
@@ -92,20 +96,24 @@ export async function issueForDispatch(tx: Tx, orderId: string, actor: ServiceAc
 
   // Availability locks for every product up front, in one global order, so two
   // dispatches sharing products cannot deadlock (and nothing can reserve or remove
-  // between measuring what is issuable and issuing it).
+  // between measuring what is issuable and issuing it). One statement for all of them.
   const productIds = [...new Set(planned.map((p) => p.productId))].sort();
-  for (const id of productIds) await lockAvailability(tx, id, warehouse.id);
+  await lockAvailabilities(tx, productIds, warehouse.id);
 
   // What this order may take of each product: what is available to anyone, plus
   // what is already reserved for this very order. Shared across the order's lines.
+  // Read for every product at once (PW-1): the same sums productAvailability reads one by one.
+  const [availability, ownRows] = productIds.length
+    ? await Promise.all([
+        productsAvailability(tx, productIds, warehouse.id),
+        tx.stockReservation.groupBy({ by: ["productId"], where: { productId: { in: productIds }, warehouseId: warehouse.id, sourceType: "order", sourceId: orderId, status: "active" }, _sum: { quantity: true } }),
+      ])
+    : [new Map(), []];
+  const ownBy = new Map(ownRows.map((r) => [r.productId, D(r._sum.quantity)]));
   const issuable = new Map<string, Dec>();
   for (const id of productIds) {
-    const { available, sellableOnHand } = await productAvailability(tx, id, warehouse.id);
-    const own = await tx.stockReservation.aggregate({
-      where: { productId: id, warehouseId: warehouse.id, sourceType: "order", sourceId: orderId, status: "active" },
-      _sum: { quantity: true },
-    });
-    const free = Prisma.Decimal.min(available.plus(D(own._sum.quantity)), sellableOnHand);
+    const { available, sellableOnHand } = availability.get(id)!;
+    const free = Prisma.Decimal.min(available.plus(ownBy.get(id) ?? ZERO), sellableOnHand);
     issuable.set(id, free.gt(0) ? free : ZERO);
   }
   for (const line of planned) {

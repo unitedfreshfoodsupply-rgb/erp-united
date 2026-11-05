@@ -1,5 +1,5 @@
 import { ApiError } from "@/lib/rbac";
-import { advisoryXactLock } from "@/lib/dbLock";
+import { advisoryXactLock, advisoryXactLocks } from "@/lib/dbLock";
 import type { Tx } from "@/lib/tx";
 import { ZERO, type Dec } from "@/lib/inventory/decimal";
 import { productBuckets, reservedQty, type Bucket } from "@/lib/inventory/balances";
@@ -18,6 +18,11 @@ import { productBuckets, reservedQty, type Bucket } from "@/lib/inventory/balanc
  * BEFORE any valuation or bucket lock (global order: availability → valuation → bucket). */
 export function lockAvailability(tx: Tx, productId: string, warehouseId: string) {
   return advisoryXactLock(tx, `stock-avail:${productId}:${warehouseId}`);
+}
+
+/** lockAvailability for several products in one statement, in the same sorted order. */
+export function lockAvailabilities(tx: Tx, productIds: Iterable<string>, warehouseId: string) {
+  return advisoryXactLocks(tx, [...productIds].map((id) => `stock-avail:${id}:${warehouseId}`));
 }
 /**
  * `expiredLastOn` (a business date): lots already past their expiry on that date go
@@ -73,29 +78,46 @@ export class PickClaims {
 
 export type Pick = { locationId: string; lotId: string | null; quantity: Dec; lotNumber: string | null; locationCode: string; expiryDate: string | null };
 
-export async function allocate(
-  tx: Tx,
-  input: {
-    productId: string;
-    productName: string;
-    warehouseId: string;
-    quantity: Dec;
-    strategy: "fefo" | "fifo";
-    /** Restrict to one location (e.g. "scrap what is in COLD-2"). */
-    locationId?: string;
-    /** Leave this much untouched for active reservations (default: all of them). */
-    protectReserved?: boolean;
-    /** Picks already planned by earlier lines of the same document; updated here. */
-    claims?: PickClaims;
-    /** Display ordering only: lots expired on this date sort after sellable lots. */
-    expiredLastOn?: string;
-    /** Food-safety gate: expired lots are not eligible for customer deliveries. */
-    excludeExpiredOn?: string;
-  }
-): Promise<Pick[]> {
+type AllocateInput = {
+  productId: string;
+  productName: string;
+  warehouseId: string;
+  quantity: Dec;
+  strategy: "fefo" | "fifo";
+  /** Restrict to one location (e.g. "scrap what is in COLD-2"). */
+  locationId?: string;
+  /** Leave this much untouched for active reservations (default: all of them). */
+  protectReserved?: boolean;
+  /** Picks already planned by earlier lines of the same document; updated here. */
+  claims?: PickClaims;
+  /** Display ordering only: lots expired on this date sort after sellable lots. */
+  expiredLastOn?: string;
+  /** Food-safety gate: expired lots are not eligible for customer deliveries. */
+  excludeExpiredOn?: string;
+};
+
+export async function allocate(tx: Tx, input: AllocateInput): Promise<Pick[]> {
   if (input.protectReserved !== false) await lockAvailability(tx, input.productId, input.warehouseId);
+  const ordered = pickableBuckets(await productBuckets(tx, input.productId, input.warehouseId, { locationId: input.locationId }), input);
+  const reserved = protectsReservations(ordered, input) ? await reservedQty(tx, input.productId, input.warehouseId) : ZERO;
+  return takePicks(ordered, reserved, input);
+}
+
+/**
+ * allocate() from buckets and reservations the caller has already read (a document picking many
+ * lines reads them once for all its products). `buckets` are the product's buckets in the
+ * warehouse as productBuckets returns them; `reserved` is what is actively reserved of the product
+ * there right now. The caller holds the availability lock. Same rule, same picks, same refusal.
+ */
+export function allocateFrom(buckets: Bucket[], reserved: Dec, input: Omit<AllocateInput, "protectReserved">): Pick[] {
+  const ordered = pickableBuckets(input.locationId === undefined ? buckets : buckets.filter((b) => b.locationId === input.locationId), input);
+  return takePicks(ordered, protectsReservations(ordered, input) ? reserved : ZERO, input);
+}
+
+/** The buckets a pick may come from, best first, net of what earlier lines already claimed. */
+function pickableBuckets(buckets: Bucket[], input: AllocateInput): Bucket[] {
   const claims = input.claims;
-  const buckets = (await productBuckets(tx, input.productId, input.warehouseId, { locationId: input.locationId }))
+  const eligible = buckets
     .map((b) => (claims ? { ...b, quantity: b.quantity.minus(claims.get(input.productId, b.locationId, b.lotId)) } : b))
     // Quarantine and waste never feed automatic picking. When the operator names a location
     // explicitly (scrap what came back, move inspected goods to a cold room, dispose waste),
@@ -103,12 +125,18 @@ export async function allocate(
     .filter((b) => b.quantity.gt(0)
       && (input.locationId !== undefined || (b.locationType !== "quarantine" && b.locationType !== "waste" && b.locationId !== "loc_grade_b"))
       && !(input.excludeExpiredOn && b.expiryDate && b.expiryDate < input.excludeExpiredOn));
-  const ordered = orderBuckets(buckets, input.strategy, { expiredLastOn: input.expiredLastOn });
-  const pickable = ordered.reduce((s, b) => s.plus(b.quantity), ZERO);
-  // Reservations are held against available stock, which excludes quarantine, so goods
-  // taken out of quarantine never eat into what is reserved for orders.
+  return orderBuckets(eligible, input.strategy, { expiredLastOn: input.expiredLastOn });
+}
+
+/** Reservations are held against available stock, which excludes quarantine, so goods
+ * taken out of quarantine never eat into what is reserved for orders. */
+function protectsReservations(ordered: Bucket[], input: AllocateInput) {
   const fromQuarantine = ordered.length > 0 && ordered.every((b) => b.locationType === "quarantine");
-  const reserved = input.protectReserved === false || fromQuarantine ? ZERO : await reservedQty(tx, input.productId, input.warehouseId);
+  return !(input.protectReserved === false || fromQuarantine);
+}
+
+function takePicks(ordered: Bucket[], reserved: Dec, input: AllocateInput): Pick[] {
+  const pickable = ordered.reduce((s, b) => s.plus(b.quantity), ZERO);
   const free = pickable.minus(reserved);
   if (free.lessThan(input.quantity)) {
     throw new ApiError(
@@ -122,7 +150,7 @@ export async function allocate(
     if (left.isZero()) break;
     const take = left.lessThan(b.quantity) ? left : b.quantity;
     picks.push({ locationId: b.locationId, lotId: b.lotId, quantity: take, lotNumber: b.lotNumber, locationCode: b.locationCode, expiryDate: b.expiryDate });
-    claims?.add(input.productId, b.locationId, b.lotId, take);
+    input.claims?.add(input.productId, b.locationId, b.lotId, take);
     left = left.minus(take);
   }
   return picks;

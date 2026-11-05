@@ -39,6 +39,19 @@ export async function productBuckets(
   return toBuckets(db, sums.map((s) => ({ ...s, productId })), warehouseId);
 }
 
+/** productBuckets for many products at once (three queries whatever their number), by product. */
+export async function productsBuckets(db: Db, productIds: string[], warehouseId: string): Promise<Map<string, Bucket[]>> {
+  const out = new Map<string, Bucket[]>();
+  if (!productIds.length) return out;
+  const sums = await db.stockMovement.groupBy({ by: ["productId", "locationId", "lotId"], where: { productId: { in: [...new Set(productIds)] }, warehouseId }, _sum: { quantity: true } });
+  for (const b of await toBuckets(db, sums, warehouseId)) {
+    const list = out.get(b.productId);
+    if (list) list.push(b);
+    else out.set(b.productId, [b]);
+  }
+  return out;
+}
+
 /** Every non-zero bucket of one lot or one location, whatever the product (a lot's expiry or a
  * location's type corrected: what it holds becomes sellable, or stops being). */
 export async function bucketsWhere(db: Db, where: { lotId: string } | { locationId: string }): Promise<Bucket[]> {
@@ -116,12 +129,10 @@ export async function productsAvailability(db: Db, productIds: string[], warehou
   const ids = [...new Set(productIds)];
   const out = new Map<string, ReturnType<typeof summarize>>();
   if (!ids.length) return out;
-  const [sums, reservations] = await Promise.all([
-    db.stockMovement.groupBy({ by: ["productId", "locationId", "lotId"], where: { productId: { in: ids }, warehouseId }, _sum: { quantity: true } }),
+  const [buckets, reservations] = await Promise.all([
+    productsBuckets(db, ids, warehouseId),
     db.stockReservation.groupBy({ by: ["productId"], where: { productId: { in: ids }, warehouseId, status: "active" }, _sum: { quantity: true } }),
   ]);
-  const buckets = new Map<string, Bucket[]>();
-  for (const b of await toBuckets(db, sums, warehouseId)) buckets.set(b.productId, [...(buckets.get(b.productId) ?? []), b]);
   const reserved = new Map(reservations.map((r) => [r.productId, D(r._sum.quantity)]));
   for (const id of ids) out.set(id, summarize(buckets.get(id) ?? [], reserved.get(id) ?? ZERO, asOf));
   return out;

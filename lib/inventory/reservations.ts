@@ -1,15 +1,15 @@
-import type { StockReservation } from "@prisma/client";
+import { Prisma, type StockReservation } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
-import { writeAudit } from "@/lib/audit";
+import { writeAudit, writeAuditMany } from "@/lib/audit";
 import { assertPermission } from "@/lib/authz-core";
 import { inTx, type Tx } from "@/lib/tx";
 import { todayLocalISO } from "@/lib/localDate";
 import { nextDocumentNumber } from "@/lib/core/sequences";
 import type { ServiceActor } from "@/lib/core/actor";
-import { D, parseQty, type Dec } from "@/lib/inventory/decimal";
-import { productAvailability } from "@/lib/inventory/balances";
-import { lockAvailability, allocate, PickClaims } from "@/lib/inventory/picking";
+import { D, ZERO, parseQty, type Dec } from "@/lib/inventory/decimal";
+import { productAvailability, productsBuckets } from "@/lib/inventory/balances";
+import { lockAvailability, lockAvailabilities, allocateFrom, PickClaims } from "@/lib/inventory/picking";
 import { postMovements, type MoveInput } from "@/lib/inventory/ledger";
 import { resolveWarehouse } from "@/lib/inventory/context";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
@@ -29,24 +29,37 @@ import { availabilityChanged } from "@/lib/inventory/availability-changes";
  * (the stock was issued against it, by issueStock below).
  */
 
+const reservationAudit = (r: StockReservation, actor: ServiceActor, action: string, detail: string, reason?: string) => ({
+  userId: actor.id,
+  userName: actor.name,
+  role: actor.role,
+  action,
+  entityType: "stock_reservation" as const,
+  entityId: r.id,
+  orderId: r.sourceType === "order" ? r.sourceId : null,
+  fieldChanged: r.productId,
+  newValue: detail,
+  reason,
+  source: "user" as const,
+  deviceId: actor.deviceId,
+});
+
 async function auditReservation(tx: Tx, r: StockReservation, actor: ServiceActor, action: string, detail: string, reason?: string) {
-  await writeAudit(
-    {
-      userId: actor.id,
-      userName: actor.name,
-      role: actor.role,
-      action,
-      entityType: "stock_reservation",
-      entityId: r.id,
-      orderId: r.sourceType === "order" ? r.sourceId : null,
-      fieldChanged: r.productId,
-      newValue: detail,
-      reason,
-      source: "user",
-      deviceId: actor.deviceId,
-    },
-    tx
-  );
+  await writeAudit(reservationAudit(r, actor, action, detail, reason), tx);
+}
+
+/**
+ * Closes reservations read earlier in this transaction, all in one statement, each only if it
+ * is still the version that was read — what one `update where { id, version }` per row did. A row
+ * someone else changed meanwhile fails the whole call the same way (P2025: changed meanwhile).
+ */
+async function closeReservations(tx: Tx, rows: StockReservation[], data: { status: "released" | "consumed"; closedReason: string }) {
+  if (!rows.length) return;
+  const { count } = await tx.stockReservation.updateMany({
+    where: { OR: rows.map((r) => ({ id: r.id, version: r.version })) },
+    data: { ...data, closedAt: new Date(), version: { increment: 1 } },
+  });
+  if (count !== rows.length) throw new Prisma.PrismaClientKnownRequestError("Record to update not found.", { code: "P2025", clientVersion: Prisma.prismaVersion.client });
 }
 
 /** Reserve inside an existing transaction (an order confirmation will call this). */
@@ -159,13 +172,8 @@ export async function releaseReservationInTx(tx: Tx, r: StockReservation, reason
 /** Releases every active reservation of a source (an order that was cancelled). */
 export async function releaseAllForSource(tx: Tx, sourceType: "order" | "manual", sourceId: string, reason: string, actor: ServiceActor) {
   const active = await tx.stockReservation.findMany({ where: { sourceType, sourceId, status: "active" } });
-  for (const r of active) {
-    const updated = await tx.stockReservation.update({
-      where: { id: r.id, version: r.version },
-      data: { status: "released", closedReason: reason, closedAt: new Date(), version: { increment: 1 } },
-    });
-    await auditReservation(tx, updated, actor, "stock_reservation_released", `${D(r.quantity).toFixed()}`, reason);
-  }
+  await closeReservations(tx, active, { status: "released", closedReason: reason });
+  await writeAuditMany(active.map((r) => reservationAudit(r, actor, "stock_reservation_released", `${D(r.quantity).toFixed()}`, reason)), tx);
   await availabilityChanged(tx, active.map((r) => ({ productId: r.productId, delta: D(r.quantity) })), actor);
   return active.length;
 }
@@ -207,37 +215,49 @@ export async function issueStock(
   const expiredPicks: string[] = [];
   // Every product's availability lock first, in one global order (availability →
   // valuation → bucket), so two issues sharing products cannot deadlock.
-  for (const id of [...new Set(input.lines.map((l) => l.productId))].sort()) await lockAvailability(tx, id, input.warehouseId);
-  for (const line of input.lines) {
-    if (!line.quantity.gt(0)) continue;
-    const product = await tx.stockProduct.findUniqueOrThrow({ where: { id: line.productId } });
-    await lockAvailability(tx, product.id, input.warehouseId);
-    const own = await tx.stockReservation.findFirst({
-      where: { sourceType: input.sourceType, sourceId: input.sourceId, sourceLineId: line.sourceLineId, status: "active" },
-    });
-    // Consume this line's reservation first, so the allocation below may use the
-    // stock it was holding; everyone else's reservations stay protected.
-    if (own) {
-      await tx.stockReservation.update({
-        where: { id: own.id, version: own.version },
-        data: { status: "consumed", closedReason: doc.number, closedAt: new Date(), version: { increment: 1 } },
+  await lockAvailabilities(tx, new Set(input.lines.map((l) => l.productId)), input.warehouseId);
+  const lines = input.lines.filter((l) => l.quantity.gt(0));
+  if (lines.length) {
+    // Read once for the whole document, under those locks: the products, each line's own
+    // reservation, every bucket and what is reserved of each product. Nothing moves until
+    // postMovements below, so these are what each line read for itself before (PW-1).
+    const productIds = [...new Set(lines.map((l) => l.productId))];
+    const [products, ownRows, buckets, reservedRows] = await Promise.all([
+      tx.stockProduct.findMany({ where: { id: { in: productIds } } }),
+      tx.stockReservation.findMany({ where: { sourceType: input.sourceType, sourceId: input.sourceId, sourceLineId: { in: [...new Set(lines.map((l) => l.sourceLineId))] }, status: "active" } }),
+      productsBuckets(tx, productIds, input.warehouseId),
+      tx.stockReservation.groupBy({ by: ["productId"], where: { productId: { in: productIds }, warehouseId: input.warehouseId, status: "active" }, _sum: { quantity: true } }),
+    ]);
+    const productById = new Map(products.map((p) => [p.id, p]));
+    const reserved = new Map(reservedRows.map((r) => [r.productId, D(r._sum.quantity)]));
+    const consumed: StockReservation[] = [];
+    for (const line of lines) {
+      const product = productById.get(line.productId);
+      if (!product) throw new Prisma.PrismaClientKnownRequestError("No StockProduct found", { code: "P2025", clientVersion: Prisma.prismaVersion.client });
+      // Consume this line's reservation first, so the allocation below may use the
+      // stock it was holding; everyone else's reservations stay protected.
+      const own = ownRows.find((r) => r.sourceLineId === line.sourceLineId && !consumed.includes(r));
+      if (own) {
+        consumed.push(own);
+        if (own.warehouseId === input.warehouseId && reserved.has(own.productId)) reserved.set(own.productId, reserved.get(own.productId)!.minus(D(own.quantity)));
+      }
+      const picks = allocateFrom(buckets.get(product.id) ?? [], reserved.get(product.id) ?? ZERO, {
+        productId: product.id,
+        productName: product.name,
+        warehouseId: input.warehouseId,
+        quantity: line.quantity,
+        strategy: product.removalStrategy as "fefo" | "fifo",
+        claims,
+        excludeExpiredOn: date,
       });
-      // Nets out against the issue movement below (stock it held leaves with it).
-      await availabilityChanged(tx, [{ productId: own.productId, delta: D(own.quantity) }], actor);
+      for (const p of picks) if (p.expiryDate && p.expiryDate < date) expiredPicks.push(`${product.name}: ${p.quantity.toFixed()} ${product.unit} من الدفعة ${p.lotNumber ?? "—"} (انتهت ${p.expiryDate})`);
+      for (const p of picks) {
+        moves.push({ productId: product.id, warehouseId: input.warehouseId, locationId: p.locationId, lotId: p.lotId, quantity: p.quantity.negated(), kind: "issue", documentId: doc.id });
+      }
     }
-    const picks = await allocate(tx, {
-      productId: product.id,
-      productName: product.name,
-      warehouseId: input.warehouseId,
-      quantity: line.quantity,
-      strategy: product.removalStrategy as "fefo" | "fifo",
-      claims,
-      excludeExpiredOn: date,
-    });
-    for (const p of picks) if (p.expiryDate && p.expiryDate < date) expiredPicks.push(`${product.name}: ${p.quantity.toFixed()} ${product.unit} من الدفعة ${p.lotNumber ?? "—"} (انتهت ${p.expiryDate})`);
-    for (const p of picks) {
-      moves.push({ productId: product.id, warehouseId: input.warehouseId, locationId: p.locationId, lotId: p.lotId, quantity: p.quantity.negated(), kind: "issue", documentId: doc.id });
-    }
+    await closeReservations(tx, consumed, { status: "consumed", closedReason: doc.number });
+    // Nets out against the issue movements below (stock it held leaves with it).
+    await availabilityChanged(tx, consumed.map((own) => ({ productId: own.productId, delta: D(own.quantity) })), actor);
   }
   await postMovements(tx, moves, { actorId: actor.id, actorName: actor.name, effectiveDate: date });
   await writeAudit(

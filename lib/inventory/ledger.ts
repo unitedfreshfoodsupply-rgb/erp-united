@@ -2,7 +2,7 @@ import { postMovementValuation } from "@/lib/accounting/ledger";
 import { asText } from "@/lib/http";
 import type { StockMovement } from "@prisma/client";
 import { ApiError } from "@/lib/rbac";
-import { advisoryXactLock } from "@/lib/dbLock";
+import { advisoryXactLocks } from "@/lib/dbLock";
 import type { Tx } from "@/lib/tx";
 import { D, ZERO, q3, q4, type Dec } from "@/lib/inventory/decimal";
 import { isSellableStock } from "@/lib/inventory/balances";
@@ -123,12 +123,13 @@ export async function productValuation(tx: Tx, productId: string) {
  */
 export async function lockForMoves(tx: Tx, moves: Pick<MoveInput, "productId" | "locationId" | "lotId">[]) {
   await lockProductValuations(tx, moves.map((m) => m.productId));
-  for (const b of [...new Set(moves.map((m) => bucketKey(m.productId, m.locationId, m.lotId)))].sort()) await advisoryXactLock(tx, b);
+  // Every bucket lock in one statement (sorted, as before), after all the valuation locks.
+  await advisoryXactLocks(tx, moves.map((m) => bucketKey(m.productId, m.locationId, m.lotId)));
 }
 
 /** Lock product-level costing state in the same global order used by all stock writes. */
 export async function lockProductValuations(tx: Tx, productIds: string[]) {
-  for (const p of [...new Set(productIds)].sort()) await advisoryXactLock(tx, `stock-valuation:${p}`);
+  await advisoryXactLocks(tx, productIds.map((p) => `stock-valuation:${p}`));
 }
 
 export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promise<StockMovement[]> {

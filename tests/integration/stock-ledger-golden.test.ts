@@ -336,11 +336,12 @@ test("dispatch and reopen issue, reverse and re-reserve the same stock at the sa
   const items2 = await prisma.orderItem.findMany({ where: { orderId: o2.id } });
   for (const i of items2) await prisma.orderItem.update({ where: { id: i.id }, data: { loadedQuantity: 40, loadingStatus: "done", preparationStatus: "done" } });
   await prisma.order.update({ where: { id: o2.id }, data: { status: "loaded" } });
-  let err: { status?: number; message?: string; code?: string; details?: { shortfalls: { productId: string; productName: string; requested: string; available: string; reason: string }[] } } | null = null;
+  type Refusal = { status?: number; message?: string; code?: string; details?: { shortfalls: { productId: string; productName: string; requested: string; available: string; reason: string }[] } };
+  let err: Refusal | null = null;
   try {
     await moveOrderStatus(o2.id, "dispatched", loader as never, ship);
   } catch (e) {
-    err = e as never;
+    err = e as Refusal;
   }
   assert.ok(err, "the over-loaded order is refused");
   results["dispatch-shortfall"] = {
