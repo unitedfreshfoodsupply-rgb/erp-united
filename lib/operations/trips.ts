@@ -408,7 +408,10 @@ export async function recordDelivery(stopId: string, input: unknown, actor: Serv
         // In the order line's own unit (a crate, a box): the return converts it to the base unit,
         // as the dispatch issue did (PW-10).
         { order_id: order.id, reason: v.result === "failed" ? `فشل تسليم ${trip.number}: ${v.failure_reason}` : `رفض العميل — ${trip.number}`, lines: returnable.map((w) => ({ product_id: items.get(w.itemId)!.stockProductId, quantity: w.rejected.toString(), uom: items.get(w.itemId)!.unit })) },
-        actor
+        actor,
+        null,
+        undefined,
+        { lineLabels: returnable.map((w) => items.get(w.itemId)!.productName) }
       );
       returnDocumentId = doc.id;
     }

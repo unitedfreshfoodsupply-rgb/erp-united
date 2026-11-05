@@ -18,8 +18,8 @@ import { syncPoCoverage } from "@/lib/purchasing/receiving";
 import { assertGradeBProduct, computeGradingCosts, type GradingCostPolicy, type WasteLossPolicy } from "@/lib/inventory/grading";
 import { gradingPrices } from "@/lib/sales/pricing";
 import { allocate, lockAvailability, PickClaims } from "@/lib/inventory/picking";
-import { resolveLocation, resolveWarehouse, receivingLocation } from "@/lib/inventory/context";
-import { preloadedUnits, toBaseQuantity } from "@/lib/inventory/packaging";
+import { checkedLocation, resolveLocation, resolveWarehouse, receivingLocation } from "@/lib/inventory/context";
+import { preloadedUnits, toBaseQuantity, type UnitLookups } from "@/lib/inventory/packaging";
 import { requestFingerprint } from "@/lib/core/idempotency";
 import { requiresAdjustmentApproval } from "@/lib/inventory/adjustment-rules";
 import { searchWhere } from "@/lib/core/search";
@@ -97,7 +97,7 @@ function checkedProduct<P extends Product>(p: P | null | undefined, id: unknown)
   return p;
 }
 
-async function lineQty(db: Pick<Tx, "unitOfMeasure" | "productPackaging">, product: Product, raw: RawLine, opts: { allowNegative?: boolean } = {}) {
+async function lineQty(db: UnitLookups, product: Product, raw: RawLine, opts: { allowNegative?: boolean } = {}) {
   const qty = parseQty(raw.quantity, `كمية "${product.name}"`, { allowNegative: opts.allowNegative });
   if (typeof raw.uom === "string" && raw.uom && raw.uom !== product.unit) {
     const sign = qty.lt(0) ? -1 : 1;
@@ -917,7 +917,9 @@ export async function createCustomerReturn(input: Record<string, unknown>, actor
  * (Phase 5) posts the rejected goods this way, in the same step as recording it.
  * The caller has already decided the actor may do this.
  */
-export async function postCustomerReturnInTx(tx: Tx, input: Record<string, unknown>, actor: ServiceActor, key: string | null = null, requestHash?: string) {
+/** `lineLabels` (by line): what a caller calls each line, so a line whose quantity cannot be
+ * booked is named in the refusal — a driver's delivery result names the order line. */
+export async function postCustomerReturnInTx(tx: Tx, input: Record<string, unknown>, actor: ServiceActor, key: string | null = null, requestHash?: string, opts: { lineLabels?: string[] } = {}) {
   const date = businessDate(input.business_date);
   const raw = lines(input);
   const wh = await resolveWarehouse(tx, input.warehouse_id as string | undefined);
@@ -935,20 +937,25 @@ export async function postCustomerReturnInTx(tx: Tx, input: Record<string, unkno
   // room to return the same goods. After the lock, enforce that cumulative
   // returned goods never exceed what was dispatched for the order — a customer
   // can only send back what actually left. Only the live issue counts: one taken back
-  // by a reopen (status reversed) shipped nothing (LOG-6).
+  // by a reopen (status reversed) shipped nothing (LOG-6) — but the order was still
+  // issued once, so its cap is what the live issue shipped (zero when none is left).
   let issuedPerProduct: Map<string, Prisma.Decimal> | null = null;
+  let everIssued = false;
   let issuedCost: Map<string, Prisma.Decimal> | null = null;
   let alreadyReturned: Map<string, Prisma.Decimal> | null = null;
   if (orderId) {
     await advisoryXactLock(tx, `inventory:customer-return:${orderId}`);
     const eligible = await tx.$queryRaw<{ productId: string; qty: Prisma.Decimal; value: Prisma.Decimal | null }[]>`
-      SELECT m."productId", -sum(m."quantity") AS qty, -sum(v."value") AS value
+      SELECT m."productId",
+             coalesce(-sum(m."quantity") FILTER (WHERE d."status" = 'posted'), 0) AS qty,
+             -sum(v."value") FILTER (WHERE d."status" = 'posted') AS value
       FROM "StockMovement" m JOIN "InventoryDocument" d ON d."id" = m."documentId"
       LEFT JOIN "StockValuationLayer" v ON v."movementId" = m."id"
-      WHERE d."type" = 'issue' AND d."status" = 'posted' AND d."reversalOfId" IS NULL
+      WHERE d."type" = 'issue' AND d."status" IN ('posted', 'reversed') AND d."reversalOfId" IS NULL
         AND d."sourceType" = 'order' AND d."sourceId" = ${orderId}
         AND m."kind" = 'issue'
       GROUP BY m."productId"`;
+    everIssued = eligible.length > 0;
     issuedPerProduct = new Map(eligible.map((r) => [r.productId, D(r.qty)]));
     // ACC-07: what each product left the order at, per unit — a return of those goods
     // comes back at that cost, not at today's average (or zero when the product is out).
@@ -991,13 +998,15 @@ export async function postCustomerReturnInTx(tx: Tx, input: Record<string, unkno
   const converted = raw.filter((l) => typeof l.uom === "string" && l.uom && productById.has(l.product_id as string) && l.uom !== productById.get(l.product_id as string)!.unit);
   const units = converted.length ? await preloadedUnits(tx, converted.map((l) => ({ productId: l.product_id as string, units: [l.uom as string, productById.get(l.product_id as string)!.unit] }))) : tx;
   const locationById = new Map(namedLocations.map((l) => [l.id, l]));
-  const locations = { storageLocation: { findUnique: async ({ where }: { where: { id: string } }) => locationById.get(where.id) ?? null } } as unknown as Tx;
   let fallback: Awaited<ReturnType<typeof receivingLocation>> | null = null;
   const moves: MoveInput[] = [];
-  for (const l of raw) {
+  for (const [n, l] of raw.entries()) {
     const product = checkedProduct(typeof l.product_id === "string" ? productById.get(l.product_id) : null, l.product_id);
-    const qty = await lineQty(units, product, l);
-    const loc = l.location_id ? await resolveLocation(typeof l.location_id === "string" ? locations : tx, wh.id, l.location_id as string) : quarantine ?? (fallback ??= await receivingLocation(tx, wh.id));
+    const label = opts.lineLabels?.[n];
+    const qty = await lineQty(units, product, l).catch((e: unknown) => {
+      throw label && e instanceof ApiError && e.status === 400 ? new ApiError(400, `"${label}": المرفوض ${String(l.quantity)} ${String(l.uom ?? product.unit)} مينفعش يتسجل مرتجع — ${e.message}`) : e;
+    });
+    const loc = l.location_id ? (typeof l.location_id === "string" ? checkedLocation(locationById.get(l.location_id), wh.id) : await resolveLocation(tx, wh.id, l.location_id as string)) : quarantine ?? (fallback ??= await receivingLocation(tx, wh.id));
     const cost = issuedCost?.get(product.id);
     moves.push({ productId: product.id, warehouseId: wh.id, locationId: loc.id, lotId: typeof l.lot_id === "string" && l.lot_id ? l.lot_id : null, quantity: qty, kind: "customer_return", documentId: doc.id, ...(cost ? { unitCost: cost, costSource: "lot" as const } : {}) });
   }
@@ -1005,8 +1014,9 @@ export async function postCustomerReturnInTx(tx: Tx, input: Record<string, unkno
   // order never exceed what was dispatched for it (issues, net of reversals).
   // Unlinked returns (no order) stay a legitimate warehouse-only workflow. When
   // the order was never issued (e.g. reserved and cancelled before dispatch), the
-  // cap does not apply — the sale never economically happened.
-  if (orderId && issuedPerProduct && issuedPerProduct.size > 0) {
+  // cap does not apply — the sale never economically happened. An order issued and
+  // then reopened is capped at its live issue: zero until it is dispatched again.
+  if (orderId && everIssued && issuedPerProduct) {
     for (const m of moves) {
       const issued = issuedPerProduct.get(m.productId) ?? D(0);
       const previously = alreadyReturned?.get(m.productId) ?? D(0);

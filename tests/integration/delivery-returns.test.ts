@@ -97,6 +97,8 @@ test("LOG-6: a dispatched order with a customer return on it is not reopened; th
   // Taking the return back first, the order reopens; dispatched again, it shipped 100 — not 200.
   await reverseDocument(ret.id, { reason: "اتسجل غلط" }, stock as never);
   await reopenOrder(o, "ready_for_loading", sup as never, "إلغاء", await version(o));
+  // Reopened and not dispatched again: nothing is out with the customer, so a linked return is refused.
+  await rejects(createCustomerReturn({ order_id: o, reason: `${TAG} بعد الفتح`, lines: [{ product_id: p.id, quantity: 1 }] }, stock as never), 409, /أكتر من اللي اتشحن للطلب \(0\.000\)/);
   for (const i of await prisma.orderItem.findMany({ where: { orderId: o } })) await prisma.orderItem.update({ where: { id: i.id }, data: { loadingStatus: "done" } });
   await prisma.order.update({ where: { id: o }, data: { status: "loaded" } });
   await moveOrderStatus(o, "dispatched", loader as never, { ...ship, expectedVersion: await version(o) });
@@ -137,6 +139,19 @@ test("PW-10: goods refused at the door come back in the line's unit — 2 crates
   await issueInvoice(inv.id, {}, admin as never);
   const cn = await createCreditNote(inv.id, { reason: "رفض عند التسليم", lines: [{ invoice_line_id: inv.lines[0].id, quantity: 2 }], return_document_id: docA }, admin as never);
   assert.equal(D((cn as { total: Prisma.Decimal }).total).toString(), "200");
+});
+
+test("PW-10: a refused part of a crate that is not a whole number of pieces is refused, naming the line", async () => {
+  const k = ++seq;
+  const p = await prisma.stockProduct.create({ data: { name: `${TAG} P${k}`, unit: "PIECE" } });
+  await prisma.productPackaging.create({ data: { productId: p.id, uomCode: "CRATE", qtyInBaseUnit: 30 } });
+  const intake = await prisma.stockIntake.create({ data: { receiptNumber: `${TAG}-RC${k}`, receivedDate: today, supplierId, productId: p.id, receivedQty: 1, goodQty: 1, warehouseId: "wh_main", locationId: "loc_recv", recordedBy: "test" } });
+  await inTx((tx) => postMovements(tx, [{ productId: p.id, warehouseId: "wh_main", locationId: "loc_cold_1", lotId: null, quantity: D(120), kind: "intake", intakeId: intake.id, unitCost: D(2), costSource: "purchase" }], { actorId: null, actorName: "test", effectiveDate: today }));
+  const o = await loadedOrder([{ productId: p.id, quantity: 2, unit: "CRATE" }]);
+  const [stop] = await dispatchedTrip([o]);
+  const [line] = await prisma.orderItem.findMany({ where: { orderId: o } });
+  await rejects(recordDelivery(stop.id, { result: "delivered", receiver_name: "أمين", lines: [{ order_item_id: line.id, rejected_qty: 0.05, reason: "مضروب" }] }, loader as never), 400, new RegExp(`"${line.productName}": المرفوض 0\\.05 CRATE مينفعش يتسجل مرتجع — .*PIECE`));
+  assert.equal((await prisma.tripStop.findUniqueOrThrow({ where: { id: stop.id } })).status, "pending", "nothing recorded");
 });
 
 test("LOG-8: a trip's weight counts crate lines at their weight", async () => {

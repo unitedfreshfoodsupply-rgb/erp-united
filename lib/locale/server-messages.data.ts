@@ -944,6 +944,7 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["الرحلة لسه مخرجتش", "The trip has not left yet"],
   ["صنف مش في الأوردر", "A product not on the order"],
   ["\"{}\": العجز والتالف والمرفوض أكتر من اللي خرج ({} {})", "\"{0}\": shortage, damage and rejection exceed what was shipped ({1} {2})"],
+  ["\"{}\": المرفوض {} {} مينفعش يتسجل مرتجع — {}", "\"{0}\": the rejected {1} {2} cannot be booked as a return — {3}"],
   ["نتيجة التسليم اتسجلت بالفعل بشكل مختلف — التصحيح من الاستثناءات", "A different delivery result is already recorded — correct it from the exceptions"],
   ["{} لازم يكون من صفر إلى 999,999,999,999 وبحد أقصى 3 خانات عشرية", "{0} must be from zero to 999,999,999,999 with at most 3 decimals"],
   ["الأوردر مقفول", "The order is closed"],

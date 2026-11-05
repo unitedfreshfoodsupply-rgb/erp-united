@@ -1,9 +1,20 @@
 import { ApiError } from "@/lib/rbac";
+import type { ProductPackaging, UnitOfMeasure } from "@prisma/client";
 import type { Tx } from "@/lib/tx";
 import { convertQuantity, UomConversionError } from "@/lib/core/uom";
 import { D, type Dec } from "@/lib/inventory/decimal";
 
 type Db = Pick<Tx, "unitOfMeasure" | "productPackaging">;
+
+/**
+ * The only two lookups toBaseQuantity makes. A transaction satisfies it, and so does the
+ * in-memory set preloadedUnits returns — typed, not cast, so a new lookup in toBaseQuantity
+ * is a compile error there rather than a TypeError on the dispatch and return paths.
+ */
+export type UnitLookups = {
+  unitOfMeasure: { findUnique(args: { where: { code: string } }): Promise<UnitOfMeasure | null> };
+  productPackaging: { findUnique(args: { where: { productId_uomCode: { productId: string; uomCode: string } } }): Promise<ProductPackaging | null> };
+};
 
 /**
  * Converts a quantity someone counted (40 CRATE, 2 TON) into the product's base unit.
@@ -12,7 +23,7 @@ type Db = Pick<Tx, "unitOfMeasure" | "productPackaging">;
  * 2.5 crates of eggs is not a whole number of pieces, and is refused, not rounded.
  */
 export async function toBaseQuantity(
-  db: Db,
+  db: UnitLookups,
   product: { id: string; name: string; unit: string },
   qty: Dec,
   uomCode: string
@@ -51,7 +62,7 @@ export async function toBaseQuantity(
  * for many lines (PW-1, Nov 2026): pass the result to toBaseQuantity in place of the database and
  * every line converts — or is refused — exactly as it would reading them itself.
  */
-export async function preloadedUnits(db: Db, lines: { productId: string; units: string[] }[]): Promise<Db> {
+export async function preloadedUnits(db: Db, lines: { productId: string; units: string[] }[]): Promise<UnitLookups> {
   const codes = [...new Set(lines.flatMap((l) => l.units))];
   const [uoms, packs] = await Promise.all([
     db.unitOfMeasure.findMany({ where: { code: { in: codes } } }),
@@ -62,5 +73,5 @@ export async function preloadedUnits(db: Db, lines: { productId: string; units: 
   return {
     unitOfMeasure: { findUnique: async ({ where }: { where: { code: string } }) => uomBy.get(where.code) ?? null },
     productPackaging: { findUnique: async ({ where }: { where: { productId_uomCode: { productId: string; uomCode: string } } }) => packBy.get(`${where.productId_uomCode.productId}|${where.productId_uomCode.uomCode}`) ?? null },
-  } as unknown as Db;
+  };
 }

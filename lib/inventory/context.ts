@@ -29,7 +29,11 @@ export async function receivingLocation(db: Db, warehouseId: string) {
 
 export async function resolveLocation(db: Db, warehouseId: string, locationId: string | null | undefined) {
   if (!locationId) return receivingLocation(db, warehouseId);
-  const loc = await db.storageLocation.findUnique({ where: { id: locationId } });
+  return checkedLocation(await db.storageLocation.findUnique({ where: { id: locationId } }), warehouseId);
+}
+
+/** resolveLocation's checks on a location already read: it belongs to the warehouse and is active. */
+export function checkedLocation<L extends { warehouseId: string; active: boolean; code: string }>(loc: L | null | undefined, warehouseId: string): L {
   if (!loc || loc.warehouseId !== warehouseId) throw new ApiError(400, "مكان التخزين مش تابع للمخزن ده");
   if (!loc.active) throw new ApiError(400, `المكان ${loc.code} موقوف`);
   return loc;
