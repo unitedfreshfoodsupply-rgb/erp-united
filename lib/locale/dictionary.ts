@@ -4451,6 +4451,8 @@ export const DICTIONARY = {
   "supervisor.btn.audit-log": { ar: "سجل المراجعة", en: "Audit log" },
   "supervisor.btn.cancel": { ar: "إلغاء", en: "Cancel" },
   "supervisor.btn.manual-order": { ar: "+ أوردر يدوي", en: "+ Manual order" },
+  "supervisor.discard-order-confirm": { ar: "تقفل الأوردر اليدوي من غير ما تحفظه؟ اللي كتبته هيضيع.", en: "Close the manual order without saving? What you entered will be lost." },
+  "supervisor.discard-order-btn": { ar: "اقفل من غير حفظ", en: "Close without saving" },
   "supervisor.empty-attention": { ar: "مفيش أوردرات محتاجة تدخل دلوقتي", en: "No orders need attention right now" },
   "supervisor.empty-filter": { ar: "مفيش أوردرات في الفلتر ده", en: "No orders in this filter" },
   "supervisor.empty-search": { ar: "مفيش أوردرات مطابقة للبحث ده", en: "No orders match this search" },

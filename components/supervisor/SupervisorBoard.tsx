@@ -23,6 +23,7 @@ import { useOperationalSettings } from "@/lib/use-operational-settings";
 import { Search } from "lucide-react";
 import { useLocale } from "@/lib/locale";
 import { SkeletonLine } from "@/components/Skeleton";
+import { useDialogs } from "@/components/ui/Dialog";
 
 type QuickFilter = "all" | "attention" | "waiting" | "stalled" | "cancelled";
 
@@ -62,6 +63,19 @@ export function SupervisorBoard() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<(typeof SORT_KEYS)[number]["key"]>("priority");
   const [showCreate, setShowCreate] = useState(false);
+  // Something was typed into the manual order (any field's change bubbles up to its wrapper):
+  // closing it then asks first, instead of silently dropping the lines (UXO-12).
+  const [createDirty, setCreateDirty] = useState(false);
+  const dialogs = useDialogs();
+
+  async function toggleCreate() {
+    if (showCreate && createDirty) {
+      const ok = await dialogs.confirm({ title: t("supervisor.discard-order-confirm"), confirmLabel: t("supervisor.discard-order-btn"), tone: "danger" });
+      if (!ok) return;
+    }
+    setCreateDirty(false);
+    setShowCreate((s) => !s);
+  }
 
   const { data, isLoading, isError, error, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["orders", "supervisor"],
@@ -128,7 +142,7 @@ export function SupervisorBoard() {
           <Link href="/supervisor/audit" className="btn-ghost btn-sm">
             {t("supervisor.btn.audit-log")}
           </Link>
-          <button onClick={() => setShowCreate((s) => !s)} className="btn-primary btn-sm">
+          <button type="button" onClick={toggleCreate} aria-expanded={showCreate} className="btn-primary btn-sm">
             {showCreate ? t("supervisor.btn.cancel") : t("supervisor.btn.manual-order")}
           </button>
         </div>
@@ -164,8 +178,13 @@ export function SupervisorBoard() {
       )}
 
       {showCreate && (
-        <div className="mt-4">
-          <CreateOrderForm onDone={() => setShowCreate(false)} />
+        <div className="mt-4" onChange={() => setCreateDirty(true)}>
+          <CreateOrderForm
+            onDone={() => {
+              setCreateDirty(false);
+              setShowCreate(false);
+            }}
+          />
         </div>
       )}
 
