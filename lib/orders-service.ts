@@ -263,7 +263,10 @@ export async function createOrder(
   let order;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      order = await prisma.$transaction(async (tx) => {
+      // Through inTx (PM-3, Nov 2026): settings read inside the transaction (price exceptions,
+      // the default warehouse) go through it on a cache miss instead of waiting on a second pool
+      // connection, and the end-of-transaction steps run. Same 15 s / 20 s limits.
+      order = await inTx(async (tx) => {
         // Lock order: external_id first, then the order-number day. Every caller uses
         // this same order, so concurrent creates queue instead of deadlocking.
         if (input.external_id) {
@@ -349,11 +352,6 @@ export async function createOrder(
         await evaluateOrderCredit(tx, created.id, creditMode, actor);
         // Re-read: the steps above set fields (credit status) on the row created above.
         return tx.order.findUniqueOrThrow({ where: { id: created.id }, include: ORDER_INCLUDE });
-      }, {
-        // Concurrent creates for the same day queue on the advisory lock, so allow a
-        // realistic wait before giving up rather than the 2s Prisma default.
-        maxWait: 15_000,
-        timeout: 20_000,
       });
       break;
     } catch (err) {

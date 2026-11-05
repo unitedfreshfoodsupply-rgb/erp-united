@@ -491,13 +491,21 @@ export function valuedQuantity(i: { loadedQuantity: number | null; preparedQuant
   return new Prisma.Decimal(i.loadedQuantity ?? i.preparedQuantity ?? i.requiredQuantity).toDecimalPlaces(3);
 }
 
+type ValuedItem = Parameters<typeof valuedQuantity>[0] & { price: { unitPrice: Prisma.Decimal; discountPct: Prisma.Decimal; taxRate: Prisma.Decimal } | null };
+
+/** orderValue's arithmetic on one order's lines already read (PS-3, Nov 2026: the credit
+ * exposure reads the lines of every open order at once). */
+export function valueOfItems(items: ValuedItem[]) {
+  const priced = items.filter((i) => i.price);
+  const totals = sumAmounts(priced.map((i) => lineAmounts({ quantity: valuedQuantity(i), unitPrice: i.price!.unitPrice, discountPct: i.price!.discountPct, taxRate: i.price!.taxRate })));
+  return { total: totals.total, unpriced: items.length - priced.length };
+}
+
 /** An order's priced value (lines without a price count as nothing — callers that
  * care check `unpriced`). */
 export async function orderValue(db: Pick<Tx, "orderItem">, orderId: string) {
   const items = await db.orderItem.findMany({ where: { orderId }, include: { price: true } });
-  const priced = items.filter((i) => i.price);
-  const totals = sumAmounts(priced.map((i) => lineAmounts({ quantity: valuedQuantity(i), unitPrice: i.price!.unitPrice, discountPct: i.price!.discountPct, taxRate: i.price!.taxRate })));
-  return { total: totals.total, unpriced: items.length - priced.length };
+  return valueOfItems(items);
 }
 
 /**
