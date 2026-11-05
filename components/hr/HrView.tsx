@@ -14,7 +14,7 @@ import { useToast } from "@/components/ui/Toast";
 import { Modal } from "@/components/ui/Dialog";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
-import { StatusPill, type Tone } from "@/components/ui/StatusPill";
+import { StatusPill, requestTone } from "@/components/ui/StatusPill";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
@@ -68,7 +68,6 @@ export function HrView({ initialTab }: { initialTab?: string } = {}) {
 
 const failMsg = (t: (k: string) => string, err: unknown) => (err instanceof ApiClientError ? err.message : t("hr.error"));
 
-const EXPENSE_TONE: Record<string, Tone> = { pending_approval: "warn", approved: "success", rejected: "danger" };
 
 // ── Expenses ───────────────────────────────────────────────────────────────
 
@@ -210,7 +209,7 @@ function Expenses() {
                     </td>
                     <td className="whitespace-nowrap">{e.account ? <><span dir="ltr" className="text-united-muted">{e.account.code}</span> · {localName(e.account, locale)}</> : "—"}</td>
                     <td className="whitespace-nowrap">{MODE[e.paymentMode] ?? e.paymentMode}</td>
-                    <td><StatusPill tone={EXPENSE_TONE[e.status] ?? "neutral"}>{t(`hr.status.${e.status}`)}</StatusPill></td>
+                    <td><StatusPill tone={requestTone(e.status)}>{t(`hr.status.${e.status}`)}</StatusPill></td>
                     <td className="num font-semibold" dir="ltr">{fmtMoney(e.amount)}</td>
                   </tr>
                 ))}

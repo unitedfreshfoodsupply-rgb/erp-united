@@ -31,8 +31,10 @@ export function StatusPill({ tone, children, strike = false, size = "sm" }: { to
 }
 
 /**
- * Document states used across finance, purchasing, stock and approvals, mapped once.
- * Unknown states fall back to neutral rather than guessing.
+ * Document states used across finance, purchasing, stock, HR and assets, mapped once.
+ * A screen with states of its own (a trip's "in transit", an asset "in service") passes
+ * them to docTone as `extra`; a state listed here always keeps this tone, so the same
+ * word never reads in two colours. Unknown states fall back to neutral rather than guessing.
  */
 export const DOC_STATUS_TONE: Record<string, Tone> = {
   draft: "neutral",
@@ -58,8 +60,33 @@ export const DOC_STATUS_TONE: Record<string, Tone> = {
   failed: "danger",
   unknown: "warn",
   reversed: "neutral",
+  verified: "success",
+  retired: "neutral",
+  superseded: "neutral",
+  withdrawn: "neutral",
 };
 
-export function docTone(status: string | null | undefined): Tone {
-  return (status && DOC_STATUS_TONE[status]) || "neutral";
+export function docTone(status: string | null | undefined, extra?: Record<string, Tone>): Tone {
+  if (!status) return "neutral";
+  return DOC_STATUS_TONE[status] ?? extra?.[status] ?? "neutral";
+}
+
+/**
+ * A request decided by someone (an approval, a leave request, an attendance correction, an
+ * expense claim, a salary package): approval is its outcome, so it reads as done (success),
+ * not as a document's "approved, next step pending" (info). Same rule for `extra`.
+ */
+export const REQUEST_STATUS_TONE: Record<string, Tone> = {
+  pending: "warn",
+  pending_approval: "warn",
+  approved: "success",
+  rejected: "danger",
+  cancelled: "neutral",
+  withdrawn: "neutral",
+  superseded: "neutral",
+};
+
+export function requestTone(status: string | null | undefined, extra?: Record<string, Tone>): Tone {
+  if (!status) return "neutral";
+  return REQUEST_STATUS_TONE[status] ?? extra?.[status] ?? "neutral";
 }

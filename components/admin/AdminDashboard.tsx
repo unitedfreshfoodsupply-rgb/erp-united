@@ -5,6 +5,7 @@ import { Check } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
 import { LoadingState, ErrorState, EmptyState } from "@/components/States";
+import { StatusPill } from "@/components/ui/StatusPill";
 import { usePermissions } from "@/lib/use-session";
 import { ROLE_LABEL, ROLE_LABEL_EN, isRole } from "@/lib/types";
 import { systemText } from "@/lib/locale/system-text";
@@ -226,15 +227,9 @@ function SystemOverview({ data, canSeeAudit }: { data: AdminOverview; canSeeAudi
                   <span className="font-extrabold text-united-dark">
                     {o.userName} <span className="text-xs font-bold text-united-muted">({(locale === "en" ? ROLE_LABEL_EN : ROLE_LABEL)[o.role]})</span>
                   </span>
-                  <span
-                    className={`text-[11px] font-extrabold px-2 py-0.5 rounded-full ${
-                      o.effect === "grant"
-                        ? "bg-united-green/10 text-united-green"
-                        : "bg-united-danger/10 text-united-danger"
-                    }`}
-                  >
+                  <StatusPill tone={o.effect === "grant" ? "success" : "danger"}>
                     {o.effect === "grant" ? t("admin.exceptions.granted") : t("admin.exceptions.revoked")}
-                  </span>
+                  </StatusPill>
                 </div>
                 <div className="text-xs font-bold text-united-muted mt-0.5">
                   {permissionText(o.permissionKey, locale).label} · {t("admin.by-label")} {o.grantedBy}

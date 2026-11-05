@@ -10,7 +10,7 @@ import { useToast } from "@/components/ui/Toast";
 import { Modal, useDialogs } from "@/components/ui/Dialog";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
-import { StatusPill, type Tone } from "@/components/ui/StatusPill";
+import { StatusPill, docTone, requestTone, type Tone } from "@/components/ui/StatusPill";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs } from "@/components/stock/inventory/shared";
@@ -41,7 +41,8 @@ type Tab = "register" | "month" | "corrections" | "settings";
 
 const STATUSES = ["present", "absent", "absent_unpaid", "holiday", "rest_day", "suspended"] as const;
 const STATUS_TONE: Record<string, Tone> = { present: "success", absent: "danger", absent_unpaid: "danger", leave: "info", holiday: "info", rest_day: "neutral", suspended: "warn" };
-const STATE_TONE: Record<string, Tone> = { draft: "warn", confirmed: "success", locked: "neutral" };
+/** A day's own states; draft comes from docTone. */
+const STATE_TONE: Record<string, Tone> = { confirmed: "success", locked: "neutral" };
 
 const fail = (t: (k: string) => string, err: unknown) => (err instanceof ApiClientError ? err.message : t("hr.error"));
 const shiftDate = (iso: string, n: number) => {
@@ -231,7 +232,7 @@ function RegisterTab({ date, setDate, canRecord }: { date: string; setDate: (d: 
                     <td className="num" dir="ltr">{r.day ? hours(ot) : "—"}</td>
                     <td>
                       <div className="flex flex-wrap gap-1">
-                        {r.day ? <StatusPill tone={STATE_TONE[r.day.state] ?? "neutral"}>{t(`att.state.${r.day.state}`)}</StatusPill> : <StatusPill tone="neutral">{t("att.state.missing")}</StatusPill>}
+                        {r.day ? <StatusPill tone={docTone(r.day.state, STATE_TONE)}>{t(`att.state.${r.day.state}`)}</StatusPill> : <StatusPill tone="neutral">{t("att.state.missing")}</StatusPill>}
                         {r.day && r.day.source !== "manual" && <StatusPill tone="info">{t(`att.source.${r.day.source}`)}</StatusPill>}
                         {r.pendingCorrection && <StatusPill tone="warn">{r.pendingCorrection}</StatusPill>}
                       </div>
@@ -361,9 +362,10 @@ type MonthData = {
   rows: { employee: { id: string; code: string; name: string }; cells: { date: string; employed: boolean; status?: string | null; state?: string | null; suggested?: string | null }[]; totals: { present: number; absent: number; absentUnpaid: number; leave: number; lateMinutes: number; overtimeMinutes: number; missing: number; draft: number } }[];
 };
 
+// The status pill fills (app/globals.css .pill-*), so each letter keeps at least 4.5:1.
 const CELL_CLASS: Record<string, string> = {
-  present: "bg-united-green/15 text-united-green", absent: "bg-united-danger/15 text-united-danger", absent_unpaid: "bg-united-danger/25 text-united-danger",
-  leave: "bg-united-info/15 text-united-info", holiday: "bg-united-info/10 text-united-info", rest_day: "bg-united-subtle text-united-muted", suspended: "bg-united-warn/15 text-united-warn",
+  present: "bg-[#E7F3EA] text-united-green", absent: "bg-[#FDECEA] text-united-danger", absent_unpaid: "bg-united-danger/20 text-united-danger",
+  leave: "bg-[#E8F0F9] text-united-info", holiday: "bg-united-info/10 text-united-info", rest_day: "bg-united-subtle text-united-muted", suspended: "bg-[#FDF3E2] text-united-warn",
 };
 
 function MonthTab({ onOpenDay }: { onOpenDay: (d: string) => void }) {
@@ -432,7 +434,6 @@ type Correction = {
   requested: { status: string; first_in: string | null; last_out: string | null; notes: string | null }; approvalRequestId: string | null; createdAt: string;
   employee: { id: string; code: string; name: string }; canDecide: boolean; canCancel: boolean;
 };
-const CORR_TONE: Record<string, Tone> = { pending: "warn", approved: "success", rejected: "danger", cancelled: "neutral" };
 
 function CorrectionsTab() {
   const { t, locale } = useLocale();
@@ -477,7 +478,7 @@ function CorrectionsTab() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-united-dark" dir="ltr">{c.number}</span>
-                  <StatusPill tone={CORR_TONE[c.status] ?? "neutral"}>{t(`att.corr.${c.status}`)}</StatusPill>
+                  <StatusPill tone={requestTone(c.status)}>{t(`att.corr.${c.status}`)}</StatusPill>
                   {c.retroStatus === "pending" && <StatusPill tone="info">{t("att.retro_pending")}</StatusPill>}
                 </div>
                 <div className="mt-0.5 text-sm text-united-dark">

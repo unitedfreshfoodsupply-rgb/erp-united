@@ -7,7 +7,7 @@ import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { Modal, useDialogs } from "@/components/ui/Dialog";
-import { StatusPill, type Tone } from "@/components/ui/StatusPill";
+import { StatusPill, docTone, type Tone } from "@/components/ui/StatusPill";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, fmtMoney } from "@/components/stock/inventory/shared";
@@ -37,7 +37,8 @@ type Run = RunSummary & {
   can: { edit: boolean; calculate: boolean; submit: boolean; withdraw: boolean; decide: boolean; reopen: boolean; cancel: boolean; post: boolean; reverse: boolean; pay: boolean; bankFile: boolean };
 };
 
-const RUN_TONE: Record<string, Tone> = { draft: "neutral", calculated: "info", pending_approval: "warn", approved: "success", posted: "success", reversed: "danger", cancelled: "neutral" };
+/** A run's own state; the shared ones (draft, pending_approval, approved, posted, reversed, cancelled) come from docTone. */
+const RUN_TONE: Record<string, Tone> = { calculated: "info" };
 const fail = (t: (k: string) => string, err: unknown) => (err instanceof ApiClientError ? err.message : t("hr.error"));
 
 export function PayrollRuns() {
@@ -75,9 +76,9 @@ export function PayrollRuns() {
           <tbody>
             {q.data!.map((r) => (
               <tr key={r.id} className="cursor-pointer hover:bg-united-subtle" onClick={() => setOpen(r.id)}>
-                <td className="font-semibold" dir="ltr">{r.period}</td>
+                <td dir="ltr"><button type="button" className="font-semibold text-united-green hover:underline" onClick={(e) => { e.stopPropagation(); setOpen(r.id); }}>{r.period}</button></td>
                 <td dir="ltr">{r.number}</td>
-                <td><StatusPill tone={RUN_TONE[r.status] ?? "neutral"}>{t(`pay.run.${r.status}`)}</StatusPill></td>
+                <td><StatusPill tone={docTone(r.status, RUN_TONE)}>{t(`pay.run.${r.status}`)}</StatusPill></td>
                 <td className="num" dir="ltr">{r.headcount}</td>
                 <td className="num font-semibold" dir="ltr">{fmtMoney(r.netPayable)}</td>
                 <td>{r.preparedBy}{r.approvedBy ? ` · ${t("pay.approved_by")} ${r.approvedBy}` : ""}</td>
@@ -128,7 +129,7 @@ function RunDetail({ id, onBack }: { id: string; onBack: () => void }) {
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" className="btn-ghost btn-sm" onClick={onBack}>{t("pay.all_runs")}</button>
             <h2 className="section-title" dir="ltr">{run.number} · {run.period}</h2>
-            <StatusPill tone={RUN_TONE[run.status] ?? "neutral"} size="md">{t(`pay.run.${run.status}`)}</StatusPill>
+            <StatusPill tone={docTone(run.status, RUN_TONE)} size="md">{t(`pay.run.${run.status}`)}</StatusPill>
           </div>
           <div className="flex flex-wrap gap-2">
             {run.can.calculate && <button type="button" className="btn-secondary btn-sm gap-1.5" disabled={busy} onClick={() => act(() => apiPost(`/api/hr/payroll/runs/${id}/calculate`, {}), t("pay.calculated"))}><Calculator size={16} aria-hidden />{run.status === "draft" ? t("pay.calculate") : t("pay.recalculate")}</button>}

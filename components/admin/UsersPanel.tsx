@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/Toast";
 import { usePermissions, useSession } from "@/lib/use-session";
 import { ROLES, ROLE_LABEL, ROLE_LABEL_EN, type Role } from "@/lib/types";
 import { LoadingState, EmptyState } from "@/components/States";
+import { StatusPill } from "@/components/ui/StatusPill";
 import { GROUP_LABEL, GROUP_LABEL_EN, type AdminUser, type UserPermissionDetail } from "@/lib/admin-client-types";
 import { permissionText } from "@/lib/permissions";
 import { useLocale } from "@/lib/locale";
@@ -227,10 +228,10 @@ function UserCard({
         </div>
         <div className="flex flex-wrap items-center gap-1.5 md:w-72">
           <span className={`${pill} bg-united-green/10 text-united-green`}>{rl[user.role]}</span>
-          {!user.active && <span className={`${pill} bg-united-danger/10 text-united-danger`}>{t("admin.users.suspended-badge")}</span>}
-          {isLastActiveSuperAdmin && <span className={`${pill} bg-united-warn/10 text-united-warn`}>{t("admin.users.last-admin-badge")}</span>}
-          {user.overrideCount > 0 && <span className={`${pill} bg-united-info/10 text-united-info`}>{t("admin.users.exception-badge", { count: user.overrideCount })}</span>}
-          {user.mfaEnabled && <span className={`${pill} bg-united-green/10 text-united-green`}>{t("mfa.admin.badge")}</span>}
+          {!user.active && <StatusPill tone="danger">{t("admin.users.suspended-badge")}</StatusPill>}
+          {isLastActiveSuperAdmin && <StatusPill tone="warn">{t("admin.users.last-admin-badge")}</StatusPill>}
+          {user.overrideCount > 0 && <StatusPill tone="info">{t("admin.users.exception-badge", { count: user.overrideCount })}</StatusPill>}
+          {user.mfaEnabled && <StatusPill tone="success">{t("mfa.admin.badge")}</StatusPill>}
         </div>
         <div className="ms-auto flex items-center gap-1">
           {(canEditDetails || canChangeRole) && (
@@ -434,14 +435,10 @@ function EffectivePermissions({ userId, isSelf, locale }: { userId: string; isSe
                     <div className="text-sm font-bold text-united-dark">
                       {permissionText(p.key, locale).label}
                       {p.override && (
-                        <span
-                          className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ms-2 ${
-                            p.override === "grant"
-                              ? "bg-united-green/10 text-united-green"
-                              : "bg-united-danger/10 text-united-danger"
-                          }`}
-                        >
-                          {p.override === "grant" ? t("admin.users.override-granted") : t("admin.users.override-revoked")}
+                        <span className="ms-2">
+                          <StatusPill tone={p.override === "grant" ? "success" : "danger"}>
+                            {p.override === "grant" ? t("admin.users.override-granted") : t("admin.users.override-revoked")}
+                          </StatusPill>
                         </span>
                       )}
                     </div>

@@ -10,7 +10,7 @@ import { useToast } from "@/components/ui/Toast";
 import { Modal, useDialogs } from "@/components/ui/Dialog";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
-import { StatusPill, type Tone } from "@/components/ui/StatusPill";
+import { StatusPill, docTone, requestTone } from "@/components/ui/StatusPill";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
@@ -33,8 +33,6 @@ type Package = {
 type RuleSet = { id: string; code: string; effectiveFrom: string; effectiveTo: string | null; parameters: Record<string, unknown>; sourceReference: string; notes: string | null; status: string; createdBy: string; verifiedBy: string | null; version: number };
 type Tab = "runs" | "packages" | "components" | "rules";
 
-const PKG_TONE: Record<string, Tone> = { pending: "warn", approved: "success", rejected: "danger", cancelled: "neutral", superseded: "neutral" };
-const RULE_TONE: Record<string, Tone> = { draft: "warn", verified: "success", retired: "neutral" };
 const fail = (t: (k: string) => string, err: unknown) => (err instanceof ApiClientError ? err.message : t("hr.error"));
 const nm = (isEN: boolean, x: { nameAr: string; nameEn: string | null }) => (isEN ? x.nameEn || x.nameAr : x.nameAr);
 const useComponents = (enabled = true) => useQuery({ queryKey: ["hr", "payroll", "components"], enabled, queryFn: () => apiFetch<{ components: Component[] }>("/api/hr/payroll/components").then((r) => r.components) });
@@ -103,7 +101,7 @@ function PackagesTab({ canPropose }: { canPropose: boolean }) {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-united-dark">{localName(p.employee, locale)}</span>
-                  <StatusPill tone={PKG_TONE[p.status] ?? "neutral"}>{t(`pay.pkg.${p.status}`)}</StatusPill>
+                  <StatusPill tone={requestTone(p.status)}>{t(`pay.pkg.${p.status}`)}</StatusPill>
                   <span className="text-xs text-united-muted" dir="ltr">{p.number} · {p.effectiveFrom} → {p.effectiveTo ?? "…"}</span>
                 </div>
                 <div className="mt-1 flex flex-wrap gap-1.5 text-xs">
@@ -169,7 +167,7 @@ function PackageDialog({ onClose }: { onClose: () => void }) {
           <Field label={t("pay.effective_from")} required><input type="date" className="field" value={f.effective_from} onChange={(e) => setF({ ...f, effective_from: e.target.value })} /></Field>
           <Field label={t("pay.insurable_wage")} hint={t("pay.insurable_hint")}><input type="number" min={0} step="0.01" className="field" dir="ltr" value={f.insurable_wage} onChange={(e) => setF({ ...f, insurable_wage: e.target.value })} /></Field>
         </div>
-        {!fixed.length && <p className="rounded-lg bg-united-warn/10 px-3 py-2 text-sm text-united-warn">{t("pay.no_fixed_components")}</p>}
+        {!fixed.length && <p className="rounded-lg border border-[#F3D9AE] bg-[#FDF3E2] px-3 py-2 text-sm text-united-warn">{t("pay.no_fixed_components")}</p>}
         <table className="data-table">
           <thead><tr><th>{t("pay.component")}</th><th className="num">{t("pay.monthly_amount")}</th><th /></tr></thead>
           <tbody>
@@ -182,7 +180,7 @@ function PackageDialog({ onClose }: { onClose: () => void }) {
                   </select>
                 </td>
                 <td><input type="number" min={0} step="0.01" className="field text-end" dir="ltr" value={l.amount} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} aria-label={t("pay.monthly_amount")} /></td>
-                <td>{lines.length > 1 && <button type="button" className="btn-ghost btn-sm" onClick={() => setLines(lines.filter((_, j) => j !== i))}>×</button>}</td>
+                <td>{lines.length > 1 && <button type="button" className="btn-ghost btn-sm" aria-label={t("ui.remove-line")} onClick={() => setLines(lines.filter((_, j) => j !== i))}><span aria-hidden>×</span></button>}</td>
               </tr>
             ))}
           </tbody>
@@ -418,7 +416,7 @@ function RulesTab({ canManage }: { canManage: boolean }) {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-united-dark">{t(`pay.rule.${r.code}`)}</span>
-                  <StatusPill tone={RULE_TONE[r.status] ?? "neutral"}>{t(`pay.rule_status.${r.status}`)}</StatusPill>
+                  <StatusPill tone={docTone(r.status)}>{t(`pay.rule_status.${r.status}`)}</StatusPill>
                   <span className="text-xs text-united-muted">{t("pay.effective")} <bdi dir="ltr">{r.effectiveFrom}</bdi> {changeArrow(locale)} <bdi dir="ltr">{r.effectiveTo ?? "…"}</bdi></span>
                 </div>
                 <RuleParams parameters={r.parameters} />

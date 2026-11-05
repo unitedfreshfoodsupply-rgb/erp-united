@@ -7,7 +7,7 @@ import { newClientKey } from "@/lib/clientKey";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { useDialogs } from "@/components/ui/Dialog";
-import { StatusPill } from "@/components/ui/StatusPill";
+import { StatusPill, docTone, type Tone } from "@/components/ui/StatusPill";
 import { usePermissions } from "@/lib/use-session";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
@@ -42,7 +42,9 @@ export function AssetsView() {
 
 const useCategories = () => useQuery({ queryKey: ["assets", "categories"], queryFn: () => apiFetch<{ categories: Category[] }>("/api/assets/categories").then((r) => r.categories) });
 
-function statusTone(s: string) { return s === "in_service" ? "success" : s === "draft" ? "warn" : "neutral"; }
+/** An asset's own states; draft comes from docTone. */
+const ASSET_TONE: Record<string, Tone> = { in_service: "success", disposed: "neutral" };
+const statusTone = (s: string) => docTone(s, ASSET_TONE);
 
 function Register() {
   const { t, locale } = useLocale();
