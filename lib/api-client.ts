@@ -1,8 +1,26 @@
 export class ApiClientError extends Error {
-  /** Machine-readable code and structured detail the server attached, when any. */
-  constructor(message: string, public code?: string, public details?: unknown, public status?: number) {
+  /** Machine-readable code and structured detail the server attached, when any. `ref` is the
+   * server's error reference (lib/rbac.ts handleApiError) — the key to its log line. */
+  constructor(message: string, public code?: string, public details?: unknown, public status?: number, public ref?: string) {
     super(message);
   }
+}
+
+/**
+ * The ApiClientError for a failed response body. A server fault (5xx) carries a reference
+ * that ties the user's report to the server log line; it is shown with the message, so every
+ * toast and ErrorState gives it without per-screen code.
+ */
+export function apiErrorFrom(status: number, data: unknown): ApiClientError {
+  const body = (data ?? {}) as { error?: unknown; code?: unknown; details?: unknown; ref?: unknown };
+  const loc = storedLocale();
+  // A non-JSON body (proxy error page) or a non-string `error` must still read as
+  // text — never "[object Object]" or an empty message.
+  const serverMessage = typeof body.error === "string" && body.error.trim() ? body.error : null;
+  const ref = typeof body.ref === "string" && body.ref.trim() ? body.ref.trim() : undefined;
+  let message = serverMessage ?? (loc === "en" ? `Error (${status})` : `خطأ (${status})`);
+  if (ref && status >= 500) message += loc === "en" ? ` (reference: ${ref})` : ` (رقم المرجع: ${ref})`;
+  return new ApiClientError(message, typeof body.code === "string" ? body.code : undefined, body.details, status, ref);
 }
 
 /** The locale the user picked (lib/locale/context.tsx); null when unset or storage is blocked. */
@@ -61,13 +79,7 @@ export async function apiFetch<T = Untyped>(path: string, init?: RequestInit): P
   if (res.status === 403 && data?.code === "auth.mfa-enroll-required" && typeof window !== "undefined" && !window.location.pathname.startsWith("/mfa/")) {
     window.location.href = "/mfa/setup";
   }
-  if (!res.ok) {
-    const loc = storedLocale();
-    // A non-JSON body (proxy error page) or a non-string `error` must still read as
-    // text — never "[object Object]" or an empty message.
-    const serverMessage = typeof data?.error === "string" && data.error.trim() ? data.error : null;
-    throw new ApiClientError(serverMessage ?? (loc === "en" ? `Error (${res.status})` : `خطأ (${res.status})`), typeof data?.code === "string" ? data.code : undefined, data?.details, res.status);
-  }
+  if (!res.ok) throw apiErrorFrom(res.status, data);
   return data as T;
 }
 

@@ -26,6 +26,8 @@ const ERRORS_AR: Record<string, string> = {
   check_ref: "مرجع غير موجود (صنف/مكان/طرف غير معروف)",
   check_default: "البيانات مخالفة لقاعدة:",
   server: "خطأ في السيرفر",
+  tx_timeout: "العملية خدت وقت أطول من المسموح فاتلغت، ومفيش حاجة منها اتسجلت — حدّث الصفحة وجرّب تاني بعد شوية، ولو اتكررت بلّغ مدير النظام برقم المرجع",
+  busy: "السيرفر مشغول دلوقتي والعملية مكملتش — حدّث الصفحة واتأكد من الحالة قبل ما تجرّب تاني بعد شوية، ولو اتكررت بلّغ مدير النظام برقم المرجع",
   "auth.required": "لازم تسجل دخول الأول",
   "auth.change-password": "لازم تغيّر كلمة السر الأول",
   "auth.invalid-login": "بيانات الدخول غلط",
@@ -42,6 +44,8 @@ const ERRORS_EN: Record<string, string> = {
   check_ref: "Reference not found (product/location/party unknown)",
   check_default: "Data violates rule:",
   server: "Server error",
+  tx_timeout: "The operation took longer than allowed and was cancelled — nothing from it was saved. Refresh the page and try again in a little while; if it happens again, give the system administrator the reference number",
+  busy: "The server is busy right now and the operation did not finish — refresh the page and check the current state before trying again in a little while; if it happens again, give the system administrator the reference number",
   "auth.required": "You must sign in first",
   "auth.change-password": "You must change your password first",
   "auth.invalid-login": "Invalid login credentials",
@@ -53,6 +57,16 @@ function localeFromReq(req?: NextRequest): "ar" | "en" {
   if (!req) return "ar";
   const h = req.headers.get("accept-language");
   return h === "en" ? "en" : "ar";
+}
+
+/** " POST /api/…" for the log line, or "" when there is no request. */
+function routeOf(req?: NextRequest): string {
+  if (!req) return "";
+  try {
+    return ` ${req.method} ${new URL(req.url).pathname}`;
+  } catch {
+    return "";
+  }
 }
 
 function msg(locale: "ar" | "en", key: string, fallbackAr: string): string {
@@ -75,14 +89,16 @@ export function handleApiError(err: unknown, req?: NextRequest) {
     }
     return NextResponse.json({ error: localizeServerMessage(err.message, loc), ...(err.code ? { code: err.code } : {}), ...(err.details !== undefined ? { details: err.details } : {}) }, { status: err.status });
   }
-  // A short reference ties what the user reports to the server log line.
+  // A short reference ties what the user reports to the server log line (the client shows it
+  // with any 5xx message); the log line also names the route, the body never does.
   const ref = randomUUID().slice(0, 8);
+  const route = routeOf(req);
   const mapped = clientFault(err, loc);
   if (mapped) {
-    (mapped.loud ? console.error : console.warn)(`[api-${mapped.status} ${ref}]`, (err as Error)?.message?.split("\n").filter(Boolean).slice(-1)[0]);
+    (mapped.loud ? console.error : console.warn)(`[api-${mapped.status} ${ref}]${route}`, (err as Error)?.message?.split("\n").filter(Boolean).slice(-1)[0]);
     return NextResponse.json({ error: mapped.message, ref }, { status: mapped.status });
   }
-  console.error(`[api-error ${ref}]`, err);
+  console.error(`[api-error ${ref}]${route}`, err);
   return NextResponse.json({ error: msg(loc, "server", "خطأ في السيرفر"), ref }, { status: 500 });
 }
 
@@ -93,7 +109,8 @@ export function handleApiError(err: unknown, req?: NextRequest) {
  * - a unique-key race: two requests created the same code at the same moment;
  * - a lost optimistic-lock race (P2025 on an update guarded by its version);
  * - PostgreSQL refusing a NUL character in text.
- * Everything else stays a 500.
+ * Plus the one server condition a user can act on: running out of time or connections
+ * (503, with what was and was not saved). Everything else stays a 500.
  */
 function clientFault(err: unknown, loc: "ar" | "en"): { status: number; message: string; loud?: boolean } | null {
   const e = err as { name?: string; code?: string; message?: string } | null;
@@ -103,6 +120,19 @@ function clientFault(err: unknown, loc: "ar" | "en"): { status: number; message:
   // An update guarded by `version` found no row: a concurrent writer got there first (the
   // transaction rolled back; nothing was written).
   if (e.name === "PrismaClientKnownRequestError" && e.code === "P2025") return { status: 409, message: msg(loc, "stale", "السجل اتغيّر من واحد تاني في نفس اللحظة — حدّث الشاشة وجرّب تاني") };
+  // Out of time (lib/tx.ts: maxWait 15 s, timeout 20 s; one pooled connection in production).
+  // P2028 on a transaction that ran past its timeout: Prisma rolled it back, so nothing of it
+  // was written. P2028 "unable to start" (waited 15 s for the connection) and P2024 (a plain
+  // query waited for the pool) only say the server was busy: the request may have committed an
+  // earlier step, so that message asks to check before retrying. Matched on the code, not the
+  // text — a late P2028 on an already-closed transaction reads differently. Loud: logged with the ref.
+  if (e.name === "PrismaClientKnownRequestError" && e.code === "P2028") {
+    const notStarted = typeof e.message === "string" && /Unable to start a transaction in the given time/i.test(e.message);
+    return notStarted ? { status: 503, message: msg(loc, "busy", ERRORS_AR.busy), loud: true } : { status: 503, message: msg(loc, "tx_timeout", ERRORS_AR.tx_timeout), loud: true };
+  }
+  if (e.name === "PrismaClientKnownRequestError" && e.code === "P2024") return { status: 503, message: msg(loc, "busy", ERRORS_AR.busy), loud: true };
+  // A write conflict or deadlock: the transaction rolled back, as with a lost version race.
+  if (e.name === "PrismaClientKnownRequestError" && e.code === "P2034") return { status: 409, message: msg(loc, "stale", "السجل اتغيّر من واحد تاني في نفس اللحظة — حدّث الشاشة وجرّب تاني") };
   // A number too large for its column (numeric overflow): the request's value, not a fault.
   if (typeof e.message === "string" && /numeric field overflow|"22003"|code: "22003"/.test(e.message)) return { status: 400, message: msg(loc, "too_large", "رقم أكبر من المسموح") };
   if (typeof e.message === "string" && /invalid byte sequence for encoding \\"?UTF8\\"?": 0x00|unsupported Unicode escape sequence/.test(e.message)) return { status: 400, message: msg(loc, "nul_char", "النص فيه حرف غير مسموح (NUL)") };
