@@ -488,9 +488,9 @@ function Journals() {
               </div>
             ))}
             <dl className="grid grid-cols-3 gap-2 border-t border-united-border pt-2 text-sm" aria-live="polite">
-              <div><dt className="font-bold text-united-muted">{t("accounting.journal.total-debit")}</dt><dd className="font-extrabold num" dir="ltr">{fmtMoney(drTotal / 100)}</dd></div>
-              <div><dt className="font-bold text-united-muted">{t("accounting.journal.total-credit")}</dt><dd className="font-extrabold num" dir="ltr">{fmtMoney(crTotal / 100)}</dd></div>
-              <div><dt className="font-bold text-united-muted">{t("accounting.detail.difference")}</dt><dd className={`font-extrabold num ${drTotal === crTotal ? "text-united-green" : "text-united-danger"}`} dir="ltr">{drTotal === crTotal ? t("accounting.journal.balanced") : fmtMoney((drTotal - crTotal) / 100)}</dd></div>
+              <div><dt className="font-bold text-united-muted">{t("accounting.journal.total-debit")}</dt><dd className="font-extrabold tabular-nums" dir="ltr">{fmtMoney(drTotal / 100)}</dd></div>
+              <div><dt className="font-bold text-united-muted">{t("accounting.journal.total-credit")}</dt><dd className="font-extrabold tabular-nums" dir="ltr">{fmtMoney(crTotal / 100)}</dd></div>
+              <div><dt className="font-bold text-united-muted">{t("accounting.detail.difference")}</dt><dd className={`font-extrabold tabular-nums ${drTotal === crTotal ? "text-united-green" : "text-united-danger"}`} dir="ltr">{drTotal === crTotal ? t("accounting.journal.balanced") : fmtMoney((drTotal - crTotal) / 100)}</dd></div>
             </dl>
             {!linesOk && used.length > 0 && <p className="text-xs font-bold text-united-muted">{t("accounting.journal.need-lines")}</p>}
             <div className="flex gap-2">
@@ -868,7 +868,7 @@ function Health() {
   return (
     <div className="flex flex-col gap-3">
       <ProvisionalOpeningBanner />
-      <section className={`card p-4 font-extrabold ${r.ok ? "bg-united-green/10 text-united-green" : "bg-united-danger/10 text-united-danger"}`}>
+      <section className={`card p-4 font-extrabold ${r.ok ? "bg-[#E7F3EA] text-united-green" : "bg-[#FDECEA] text-united-danger"}`}>
         {r.ok ? t("accounting.health-matched") : t("accounting.health-diff")}
         <div className="text-xs font-bold text-united-muted mt-1">{t("accounting.last-checked")} {new Date(r.checkedAt).toLocaleString(intlLocale(locale))}</div>
       </section>

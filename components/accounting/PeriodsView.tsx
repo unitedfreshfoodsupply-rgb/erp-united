@@ -67,7 +67,7 @@ export function PeriodsView() {
       const c = await apiFetch<{ warnings: { code: string; count: number }[] }>(`/api/accounting/periods/${code}/checklist`);
       if (c.warnings.length) {
         const body = c.warnings.map((w) => `• ${t(`periods.close-warning.${w.code}` as "periods.close-warning.draft_invoices", { count: String(w.count) })}`).join("\n");
-        if (!(await dialogs.confirm({ title: t("periods.close-warnings-title", { code }), body, tone: "danger", confirmLabel: t("periods.close-anyway") }))) return;
+        if (!(await dialogs.confirm({ title: t("periods.close-warnings-title", { code }), body, tone: "danger", confirmLabel: t("periods.close-anyway"), cancelLabel: t("ui.back") }))) return;
         warned = true;
       }
     } catch {
