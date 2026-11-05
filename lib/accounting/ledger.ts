@@ -4,13 +4,14 @@ import { idempotencyKeyField, lockKey, replayRequest, requestFingerprint } from 
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
-import { writeAudit } from "@/lib/audit";
+import { writeAudit, writeAuditMany } from "@/lib/audit";
 import { assertPermission } from "@/lib/authz-core";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { inTx, type Tx } from "@/lib/tx";
 import { todayLocalISO } from "@/lib/localDate";
 import { isValidISODate } from "@/lib/dates";
-import { nextDocumentNumber } from "@/lib/core/sequences";
+import { nextDocumentNumber, nextDocumentNumbers, periodOf, SEQUENCE_DEFS } from "@/lib/core/sequences";
+import { newId } from "@/lib/core/ids";
 import { parse, text } from "@/lib/core/validation";
 import { assertEgpCurrency } from "@/lib/core/currency";
 import { getSetting } from "@/lib/core/settings-service";
@@ -113,26 +114,42 @@ export async function assertPostingDateAllowed(tx: Tx, date: string, sourceType:
  * is zero (nothing to account for). Throws if the lines do not balance — that is a
  * bug in a posting rule, never a user error.
  */
-export async function postJournal(
-  tx: Tx,
-  e: { date: string; description: string; sourceType: SourceType; sourceId: string; lines: PostLine[]; reversalOfId?: string; requestHash?: string },
-  actor: Actorish
-) {
+export type JournalInput = { date: string; description: string; sourceType: SourceType; sourceId: string; lines: PostLine[]; reversalOfId?: string; requestHash?: string };
+
+/** An entry's lines rounded to cents with the zero lines dropped, and its total; null when nothing is left. Unbalanced is a bug in a posting rule. */
+function balancedLines(e: JournalInput) {
   const lines = e.lines.map((l) => ({ ...l, amount: r2(l.amount) })).filter((l) => !l.amount.isZero());
   if (lines.length === 0) return null;
   const debit = lines.filter((l) => l.amount.gt(0)).reduce((a, l) => a.plus(l.amount), D(0));
   const credit = lines.filter((l) => l.amount.lt(0)).reduce((a, l) => a.plus(l.amount.negated()), D(0));
   if (!debit.equals(credit)) throw new Error(`unbalanced posting ${e.sourceType}/${e.sourceId}: ${debit} ≠ ${credit}`);
+  return { lines, debit };
+}
+
+const systemKeysOf = (lines: PostLine[]) => [...new Set(lines.map((l) => l.key).filter((k): k is SystemKey => !!k))];
+const touchesVat = (sourceType: SourceType, keys: SystemKey[]) => sourceType !== "vat_settlement" && (keys.includes("vat_input") || keys.includes("vat_output"));
+
+/** A filed VAT return freezes the VAT of its period (the database refuses it too); say why. */
+async function assertVatPeriodOpen(tx: Tx, date: string) {
+  const filed = await tx.vatReturn.findFirst({ where: { status: { not: "voided" }, periodFrom: { lte: date }, periodTo: { gte: date } }, select: { number: true, periodFrom: true, periodTo: true } });
+  if (filed) throw new ApiError(409, `فترة الضريبة ${filed.periodFrom} – ${filed.periodTo} اتقدّم عنها الإقرار ${filed.number} — سجّل المستند بتاريخ في فترة ضريبية مفتوحة`);
+}
+
+const journalAudit = (actor: Actorish, entry: { id: string; number: string }, e: JournalInput, debit: Prisma.Decimal) =>
+  ({ userId: actor.id, userName: actor.name, role: actor.role, action: "journal_posted", entityType: "journal_entry" as const, entityId: entry.id, fieldChanged: entry.number, newValue: `${e.sourceType} · ${debit.toFixed(2)} · ${e.description}`, source: "user" as const, deviceId: actor.deviceId });
+
+export async function postJournal(tx: Tx, e: JournalInput, actor: Actorish) {
+  const balanced = balancedLines(e);
+  if (!balanced) return null;
+  const { lines, debit } = balanced;
   await ensureOpenPeriod(tx, e.date);
   await assertPostingDateAllowed(tx, e.date, e.sourceType);
-  const keys = [...new Set(lines.map((l) => l.key).filter((k): k is SystemKey => !!k))];
-  // A filed VAT return freezes the VAT of its period (the database refuses it too); say why.
-  if (e.sourceType !== "vat_settlement" && (keys.includes("vat_input") || keys.includes("vat_output"))) {
+  const keys = systemKeysOf(lines);
+  if (touchesVat(e.sourceType, keys)) {
     // Serialised with filing a return (same lock): either this posting commits before the
     // return reads the balances, or it sees the filed return and is refused — never between.
     await advisoryXactLock(tx, "accounting:vat-return");
-    const filed = await tx.vatReturn.findFirst({ where: { status: { not: "voided" }, periodFrom: { lte: e.date }, periodTo: { gte: e.date } }, select: { number: true, periodFrom: true, periodTo: true } });
-    if (filed) throw new ApiError(409, `فترة الضريبة ${filed.periodFrom} – ${filed.periodTo} اتقدّم عنها الإقرار ${filed.number} — سجّل المستند بتاريخ في فترة ضريبية مفتوحة`);
+    await assertVatPeriodOpen(tx, e.date);
   }
   const ids = keys.length ? await accountIds(tx, keys) : new Map<SystemKey, string>();
   const entry = await tx.journalEntry.create({
@@ -162,8 +179,68 @@ export async function postJournal(
       },
     },
   });
-  await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "journal_posted", entityType: "journal_entry", entityId: entry.id, fieldChanged: entry.number, newValue: `${e.sourceType} · ${debit.toFixed(2)} · ${e.description}`, source: "user", deviceId: actor.deviceId }, tx);
+  await writeAudit(journalAudit(actor, entry, e, debit), tx);
   return entry;
+}
+
+/**
+ * Many entries in the caller's transaction, in a fixed number of statements however many there
+ * are (Nov 2026: approving a 50-line opening batch posted 50 entries one by one — ~8 round trips
+ * each — and ran past the transaction limit on production latency). Each entry is what
+ * postJournal would have written — the same rounding, balance check, numbers in input order,
+ * lines and journal_posted audit row — and every check postJournal makes is made once per date
+ * (open period, fiscal year, lock date, filed VAT return) instead of once per entry. The
+ * database checks each entry and line exactly as before (balance at commit, postable account,
+ * closed period, clearing account). Returns, per input in input order, the entry posted or null
+ * (nothing to post).
+ */
+export async function postJournals(tx: Tx, entries: JournalInput[], actor: Actorish) {
+  type Live = { e: JournalInput; at: number; balanced: NonNullable<ReturnType<typeof balancedLines>> };
+  const live = entries.map((e, at) => ({ e, at, balanced: balancedLines(e) })).filter((p): p is Live => !!p.balanced);
+  if (!live.length) return entries.map(() => null);
+  for (const date of [...new Set(live.map((p) => p.e.date))].sort()) await ensureOpenPeriod(tx, date);
+  const dateChecks = new Map(live.map((p) => [`${p.e.date}|${p.e.sourceType}`, p.e] as const));
+  for (const e of dateChecks.values()) await assertPostingDateAllowed(tx, e.date, e.sourceType);
+  const vatDates = [...new Set(live.filter((p) => touchesVat(p.e.sourceType, systemKeysOf(p.balanced.lines))).map((p) => p.e.date))].sort();
+  if (vatDates.length) {
+    await advisoryXactLock(tx, "accounting:vat-return");
+    for (const date of vatDates) await assertVatPeriodOpen(tx, date);
+  }
+  const keys = [...new Set(live.flatMap((p) => systemKeysOf(p.balanced.lines)))];
+  const ids = keys.length ? await accountIds(tx, keys) : new Map<SystemKey, string>();
+  // One block of numbers per numbering period, handed out in input order.
+  const periodOfDate = (date: string) => periodOf(SEQUENCE_DEFS["accounting.journal"].reset, date);
+  const blocks = new Map<string, { date: string; count: number; numbers: string[] }>();
+  for (const p of live) {
+    const b = blocks.get(periodOfDate(p.e.date)) ?? { date: p.e.date, count: 0, numbers: [] };
+    b.count++;
+    blocks.set(periodOfDate(p.e.date), b);
+  }
+  for (const b of blocks.values()) b.numbers = await nextDocumentNumbers(tx, "accounting.journal", b.date, b.count);
+  const rows = live.map((p) => ({
+    p,
+    row: {
+      id: newId(), number: blocks.get(periodOfDate(p.e.date))!.numbers.shift()!, date: p.e.date, description: p.e.description, sourceType: p.e.sourceType, sourceId: p.e.sourceId,
+      requestHash: p.e.requestHash ?? null, reversalOfId: p.e.reversalOfId ?? null, total: p.balanced.debit, createdById: actor.id, createdBy: actor.name,
+    },
+  }));
+  await tx.journalEntry.createMany({ data: rows.map((r) => r.row) });
+  await tx.journalLine.createMany({
+    data: rows.flatMap(({ p, row }) => p.balanced.lines.map((l) => ({
+      entryId: row.id,
+      accountId: l.accountId ?? ids.get(l.key!)!,
+      debit: l.amount.gt(0) ? l.amount : 0,
+      credit: l.amount.lt(0) ? l.amount.negated() : 0,
+      partyType: l.party?.type ?? null,
+      partyId: l.party?.id ?? null,
+      description: l.description ?? null,
+      costCenterId: l.costCenterId ?? null,
+    }))),
+  });
+  await writeAuditMany(rows.map(({ p, row }) => journalAudit(actor, row, p.e, p.balanced.debit)), tx);
+  const result: ((typeof rows)[number]["row"] | null)[] = entries.map(() => null);
+  for (const { p, row } of rows) result[p.at] = row;
+  return result;
 }
 
 /** Already posted? (Documents post once; a re-run of a sync skips them.) */

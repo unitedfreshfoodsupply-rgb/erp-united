@@ -112,6 +112,12 @@ test("phased opening migration: suppliers, customers, the rest, then a second pe
     const gl = await prisma.journalLine.aggregate({ where: { partyType: "supplier", partyId: o.partyId }, _sum: { debit: true, credit: true } });
     assert.equal(D(gl._sum.credit).minus(D(gl._sum.debit)).toFixed(2), o.amount.toFixed(2), "the supplier's GL balance equals its opening (statement and aging read it)");
   }
+  // Posted together: one entry per line, numbered in line order, each with its audit rows.
+  const lineEntries = await prisma.journalEntry.findMany({ where: { sourceType: "opening_balance", sourceId: { in: openings.map((x) => x.id) } }, select: { id: true, number: true, sourceId: true } });
+  const numberOf = (partyId: string) => Number(lineEntries.find((e) => e.sourceId === openings.find((x) => x.partyId === partyId)!.id)!.number.split("-").pop());
+  assert.equal(numberOf(veg2.id), numberOf(veg1.id) + 1, "line 2's entry follows line 1's");
+  assert.equal(await prisma.auditLog.count({ where: { action: "journal_posted", entityId: { in: lineEntries.map((e) => e.id) } } }), 2);
+  assert.equal(await prisma.auditLog.count({ where: { action: "opening_balance_recorded", entityId: { in: openings.map((x) => x.id) } } }), 2);
   assert.equal((await balance("opening_clearing")).toFixed(2), "425185.00", "the other side sits on the clearing account, traced below");
   let o = await migrationOverview();
   assert.equal(o.status, "reconciliation_required");

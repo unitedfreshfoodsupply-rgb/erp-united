@@ -5,13 +5,14 @@ import { idempotencyKeyField, lockKey, replayRequest, requestFingerprint } from 
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
-import { writeAudit } from "@/lib/audit";
+import { writeAudit, writeAuditMany, type AuditInput } from "@/lib/audit";
 import { assertPermission } from "@/lib/authz-core";
 import { inTx, type Tx } from "@/lib/tx";
 import { isValidISODate } from "@/lib/dates";
 import { optText, parse, text } from "@/lib/core/validation";
 import type { ServiceActor } from "@/lib/core/actor";
-import { postJournal } from "@/lib/accounting/ledger";
+import { postJournal, postJournals, type JournalInput } from "@/lib/accounting/ledger";
+import { newId } from "@/lib/core/ids";
 
 /**
  * Two things that make the ledger trustworthy enough to replace Odoo:
@@ -75,17 +76,55 @@ export async function createOpeningBalance(input: unknown, actor: ServiceActor) 
  * opening migration posts against the provisional clearing account instead, and every batch
  * names itself on the row (openingBatchId), so each balance is traced to the batch that posted it.
  */
-export async function postPartyOpeningInTx(tx: Tx, v: { partyType: "customer" | "supplier"; partyId: string; date: string; dueDate: string; amount: Prisma.Decimal; reference: string | null; idempotencyKey?: string | null; requestHash?: string | null; counterKey?: "opening_equity" | "opening_clearing"; openingBatchId?: string | null }, actor: ServiceActor) {
-  const party = v.partyType === "customer" ? await tx.customer.findUnique({ where: { id: v.partyId }, select: { id: true, name: true } }) : await tx.supplier.findUnique({ where: { id: v.partyId }, select: { id: true, name: true } });
-  if (!party) throw new ApiError(404, v.partyType === "customer" ? "العميل مش موجود" : "المورد مش موجود");
-  const row = await tx.partyOpeningBalance.create({ data: { partyType: v.partyType, partyId: party.id, date: v.date, dueDate: v.dueDate, amount: v.amount, reference: v.reference, idempotencyKey: v.idempotencyKey ?? null, requestHash: v.requestHash ?? null, createdById: actor.id, createdBy: actor.name, openingBatchId: v.openingBatchId ?? null } });
+export type PartyOpening = { partyType: "customer" | "supplier"; partyId: string; date: string; dueDate: string; amount: Prisma.Decimal; reference: string | null; idempotencyKey?: string | null; requestHash?: string | null; counterKey?: "opening_equity" | "opening_clearing"; openingBatchId?: string | null };
+
+const partyMissing = (partyType: PartyOpening["partyType"]) => new ApiError(404, partyType === "customer" ? "العميل مش موجود" : "المورد مش موجود");
+
+/** The open item's entry: customer Dr AR / Cr counter, supplier Cr AP / Dr counter (a negative amount reverses). */
+function partyOpeningJournal(v: PartyOpening, party: { id: string; name: string }, rowId: string): JournalInput {
   const partyLine = v.partyType === "customer" ? { key: "ar" as const, amount: v.amount } : { key: "ap" as const, amount: v.amount.negated() };
-  await postJournal(tx, {
-    date: v.date, description: `رصيد افتتاحي — ${party.name}${v.reference ? ` (${v.reference})` : ""}`, sourceType: "opening_balance", sourceId: row.id,
+  return {
+    date: v.date, description: `رصيد افتتاحي — ${party.name}${v.reference ? ` (${v.reference})` : ""}`, sourceType: "opening_balance", sourceId: rowId,
     lines: [{ ...partyLine, party: { type: v.partyType, id: party.id } }, { key: v.counterKey ?? "opening_equity", amount: partyLine.amount.negated() }],
-  }, actor);
-  await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "opening_balance_recorded", entityType: "journal_entry", entityId: row.id, fieldChanged: v.partyType, newValue: `${party.name} · ${v.amount.toFixed(2)}`, source: "user", deviceId: actor.deviceId }, tx);
+  };
+}
+
+const partyOpeningAudit = (actor: ServiceActor, v: PartyOpening, party: { name: string }, rowId: string): AuditInput =>
+  ({ userId: actor.id, userName: actor.name, role: actor.role, action: "opening_balance_recorded", entityType: "journal_entry", entityId: rowId, fieldChanged: v.partyType, newValue: `${party.name} · ${v.amount.toFixed(2)}`, source: "user", deviceId: actor.deviceId });
+
+export async function postPartyOpeningInTx(tx: Tx, v: PartyOpening, actor: ServiceActor) {
+  const party = v.partyType === "customer" ? await tx.customer.findUnique({ where: { id: v.partyId }, select: { id: true, name: true } }) : await tx.supplier.findUnique({ where: { id: v.partyId }, select: { id: true, name: true } });
+  if (!party) throw partyMissing(v.partyType);
+  const row = await tx.partyOpeningBalance.create({ data: { partyType: v.partyType, partyId: party.id, date: v.date, dueDate: v.dueDate, amount: v.amount, reference: v.reference, idempotencyKey: v.idempotencyKey ?? null, requestHash: v.requestHash ?? null, createdById: actor.id, createdBy: actor.name, openingBatchId: v.openingBatchId ?? null } });
+  await postJournal(tx, partyOpeningJournal(v, party, row.id), actor);
+  await writeAudit(partyOpeningAudit(actor, v, party, row.id), tx);
   return row;
+}
+
+/**
+ * Many open items at once, inside the caller's transaction (an opening batch's customer and
+ * supplier lines, Nov 2026). Exactly what postPartyOpeningInTx writes for each — the open item,
+ * its entry (postJournals: numbered in input order) and the audit rows — in a fixed number of
+ * statements instead of ~10 per item, so a 120-line batch posts well inside the transaction
+ * limit on production latency. Every party must exist (a missing one refuses the whole call).
+ * Returns the open items' ids, in input order.
+ */
+export async function postPartyOpeningsInTx(tx: Tx, items: PartyOpening[], actor: ServiceActor) {
+  if (!items.length) return [];
+  const idsOf = (t: PartyOpening["partyType"]) => [...new Set(items.filter((v) => v.partyType === t).map((v) => v.partyId))];
+  const [customers, suppliers] = [idsOf("customer"), idsOf("supplier")];
+  const parties = new Map<string, { id: string; name: string }>();
+  if (customers.length) for (const p of await tx.customer.findMany({ where: { id: { in: customers } }, select: { id: true, name: true } })) parties.set(`customer:${p.id}`, p);
+  if (suppliers.length) for (const p of await tx.supplier.findMany({ where: { id: { in: suppliers } }, select: { id: true, name: true } })) parties.set(`supplier:${p.id}`, p);
+  const rows = items.map((v) => {
+    const party = parties.get(`${v.partyType}:${v.partyId}`);
+    if (!party) throw partyMissing(v.partyType);
+    return { v, party, id: newId() };
+  });
+  await tx.partyOpeningBalance.createMany({ data: rows.map(({ v, party, id }) => ({ id, partyType: v.partyType, partyId: party.id, date: v.date, dueDate: v.dueDate, amount: v.amount, reference: v.reference, idempotencyKey: v.idempotencyKey ?? null, requestHash: v.requestHash ?? null, createdById: actor.id, createdBy: actor.name, openingBatchId: v.openingBatchId ?? null })) });
+  await postJournals(tx, rows.map(({ v, party, id }) => partyOpeningJournal(v, party, id)), actor);
+  await writeAuditMany(rows.map(({ v, party, id }) => partyOpeningAudit(actor, v, party, id)), tx);
+  return rows.map((r) => r.id);
 }
 
 export async function listOpeningBalances() {

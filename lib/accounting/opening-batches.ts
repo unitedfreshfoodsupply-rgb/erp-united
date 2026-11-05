@@ -113,8 +113,78 @@ async function keyBalance(db: Tx | typeof prisma, systemKey: string) {
   return D(r[0]?.v);
 }
 
+/**
+ * The records a batch's lines name, read once for the whole batch instead of once per line
+ * (Nov 2026: a 120-line customers batch spent two round trips per line here, inside the
+ * approval's transaction). Same reads, same answers: a party or GL account preloaded is what
+ * findUnique would have returned at that point of the transaction; anything not preloaded is
+ * read on first use and kept for the rest of the call. Lives for one call, never across calls.
+ */
+type GlAccount = { id: string; code: string; nameAr: string; postable: boolean; active: boolean; systemKey: string | null; controlledBy: string | null };
+type Lookups = {
+  account(systemKey: string): Promise<{ id: string }>;
+  glAccount(id: string): Promise<GlAccount | null>;
+  partyExists(kind: "customer" | "supplier", id: string): Promise<boolean>;
+  /** The id a code names (account code, customer/supplier code), or null. */
+  byCode(kind: "gl" | "customer" | "supplier", code: string): Promise<string | null>;
+};
+
+const glSelect = { id: true, code: true, nameAr: true, postable: true, active: true, systemKey: true, controlledBy: true } as const;
+
+async function lookups(db: Tx | typeof prisma, lines: LineInput[] = []): Promise<Lookups> {
+  const bySystemKey = new Map<string, { id: string }>();
+  const gl = new Map<string, GlAccount | null>();
+  const parties = new Map<string, boolean>();
+  const codes = new Map<string, string | null>();
+  const uniq = (xs: (string | null | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))];
+  const of = (kind: "customer" | "supplier", field: "party_id" | "party_code") => uniq(lines.map((l) => (l.kind === kind ? l[field] : null)));
+  for (const kind of ["customer", "supplier"] as const) {
+    const ids = of(kind, "party_id"), byCode = of(kind, "party_code");
+    if (!ids.length && !byCode.length) continue;
+    const where = { OR: [...(ids.length ? [{ id: { in: ids } }] : []), ...(byCode.length ? [{ code: { in: byCode } }] : [])] };
+    const found = kind === "customer" ? await db.customer.findMany({ where, select: { id: true, code: true } }) : await db.supplier.findMany({ where, select: { id: true, code: true } });
+    for (const id of ids) parties.set(`${kind}:${id}`, found.some((p) => p.id === id));
+    for (const code of byCode) codes.set(`${kind}:${code}`, found.find((p) => p.code === code)?.id ?? null);
+    for (const p of found) parties.set(`${kind}:${p.id}`, true);
+  }
+  const glIds = uniq(lines.map((l) => (l.kind === "gl" ? l.account_id : null))), glCodes = uniq(lines.map((l) => (l.kind === "gl" ? l.account_code : null)));
+  if (glIds.length || glCodes.length) {
+    const found = await db.account.findMany({ where: { OR: [...(glIds.length ? [{ id: { in: glIds } }] : []), ...(glCodes.length ? [{ code: { in: glCodes } }] : [])] }, select: glSelect });
+    for (const id of glIds) gl.set(id, found.find((a) => a.id === id) ?? null);
+    for (const code of glCodes) codes.set(`gl:${code}`, found.find((a) => a.code === code)?.id ?? null);
+    for (const a of found) gl.set(a.id, a);
+  }
+  if (lines.some((l) => l.kind === "customer" || l.kind === "supplier")) {
+    for (const a of await db.account.findMany({ where: { systemKey: { in: ["ar", "ap"] } }, select: { id: true, systemKey: true } })) bySystemKey.set(a.systemKey!, { id: a.id });
+  }
+  return {
+    async byCode(kind, code) {
+      const k = `${kind}:${code}`;
+      if (!codes.has(k)) {
+        const r = kind === "gl" ? await db.account.findUnique({ where: { code }, select: { id: true } }) : kind === "customer" ? await db.customer.findUnique({ where: { code }, select: { id: true } }) : await db.supplier.findUnique({ where: { code }, select: { id: true } });
+        codes.set(k, r?.id ?? null);
+      }
+      return codes.get(k)!;
+    },
+    async account(systemKey) {
+      let a = bySystemKey.get(systemKey);
+      if (!a) { a = await db.account.findUniqueOrThrow({ where: { systemKey }, select: { id: true } }); bySystemKey.set(systemKey, a); }
+      return a;
+    },
+    async glAccount(id) {
+      if (!gl.has(id)) gl.set(id, await db.account.findUnique({ where: { id }, select: glSelect }));
+      return gl.get(id)!;
+    },
+    async partyExists(kind, id) {
+      const k = `${kind}:${id}`;
+      if (!parties.has(k)) parties.set(k, !!(kind === "customer" ? await db.customer.findUnique({ where: { id }, select: { id: true } }) : await db.supplier.findUnique({ where: { id }, select: { id: true } })));
+      return parties.get(k)!;
+    },
+  };
+}
+
 /** One line checked on its own; returns its effect on the opening trial balance (signed per account). */
-async function lineEffect(db: Tx | typeof prisma, l: LineInput, batch: BatchShape): Promise<Effect> {
+async function lineEffect(db: Tx | typeof prisma, l: LineInput, batch: BatchShape, look: Lookups): Promise<Effect> {
   if (batch.kind === "phase" && !(SEGMENT_KINDS[batch.segment ?? ""] ?? []).includes(l.kind)) throw new ApiError(400, SEGMENT_REFUSAL[batch.segment ?? ""] ?? "قسم الدفعة مش معروف");
   if (batch.kind !== "phase" && l.kind === "equity_transfer") throw new ApiError(400, "تحويل الأرصدة الافتتاحية للحساب الوسيط بيتعمل في دفعة \"أرصدة أخرى\" من الترحيل الافتتاحي المرحلي بس");
   if (batch.kind === "correction" && (l.kind === "stock" || l.kind === "asset")) throw new ApiError(400, "دفعة التصحيح فيها أرصدة حسابات وعملاء وموردين بس — المخزون بتسوية مخزون والأصول من سجل الأصول");
@@ -123,14 +193,14 @@ async function lineEffect(db: Tx | typeof prisma, l: LineInput, batch: BatchShap
     const due = (await keyBalance(db, "opening_equity")).negated();
     if (due.isZero()) throw new ApiError(400, "حساب الأرصدة الافتتاحية (3300) رصيده صفر — مفيش حاجة تتحوّل");
     if (!l.amount || !l.amount.equals(due)) throw new ApiError(400, `مبلغ التحويل لازم يصفّر حساب الأرصدة الافتتاحية (3300): ${due.toFixed(2)} — الرصيد اتغيّر، امسح السطر وضيفه تاني`);
-    const acc = await db.account.findUniqueOrThrow({ where: { systemKey: "opening_equity" } });
+    const acc = await look.account("opening_equity");
     return { debit: due.gt(0) ? due : D(0), credit: due.lt(0) ? due.negated() : D(0), accounts: [{ accountId: acc.id, amount: due }] };
   }
   if (l.kind === "gl") {
     const debit = l.debit ?? D(0), credit = l.credit ?? D(0);
     if (debit.gt(0) === credit.gt(0)) throw new ApiError(400, "سطر الحساب يا مدين يا دائن (مش الاتنين ولا صفر)");
     if (!l.account_id) throw new ApiError(400, "الحساب مطلوب");
-    const a = await db.account.findUnique({ where: { id: l.account_id } });
+    const a = await look.glAccount(l.account_id);
     if (!a) throw new ApiError(404, "الحساب مش موجود");
     if (!a.postable || !a.active) throw new ApiError(400, `الحساب ${a.code} رئيسي أو موقوف`);
     if (a.systemKey === "opening_equity") throw new ApiError(400, "حساب الأرصدة الافتتاحية بيتقفل لوحده — حدد رأس المال والأرباح المحتجزة بدل منه");
@@ -140,10 +210,8 @@ async function lineEffect(db: Tx | typeof prisma, l: LineInput, batch: BatchShap
   }
   if (l.kind === "customer" || l.kind === "supplier") {
     if (!l.party_id) throw new ApiError(400, l.kind === "customer" ? "العميل مطلوب" : "المورد مطلوب");
-    const party = l.kind === "customer" ? await db.customer.findUnique({ where: { id: l.party_id }, select: { id: true } }) : await db.supplier.findUnique({ where: { id: l.party_id }, select: { id: true } });
-    if (!party) throw new ApiError(404, l.kind === "customer" ? "العميل مش موجود" : "المورد مش موجود");
-    const key = l.kind === "customer" ? "ar" : "ap";
-    const acc = await db.account.findUniqueOrThrow({ where: { systemKey: key } });
+    if (!(await look.partyExists(l.kind, l.party_id))) throw new ApiError(404, l.kind === "customer" ? "العميل مش موجود" : "المورد مش موجود");
+    const acc = await look.account(l.kind === "customer" ? "ar" : "ap");
     // Customer: positive = they owe us (debit AR). Supplier: positive = we owe them (credit AP).
     const signed = l.kind === "customer" ? l.amount : l.amount.negated();
     return { debit: signed.gt(0) ? signed : D(0), credit: signed.lt(0) ? signed.negated() : D(0), accounts: [{ accountId: acc.id, amount: signed }] };
@@ -159,7 +227,7 @@ async function lineEffect(db: Tx | typeof prisma, l: LineInput, batch: BatchShap
     // Valued as the stock ledger values it (4 places per movement); the batch total is rounded
     // once to cents, the way the inventory posting rounds the document's value.
     const value = q4(l.quantity.times(l.unit_cost));
-    const inv = await db.account.findUniqueOrThrow({ where: { systemKey: "inventory" } });
+    const inv = await look.account("inventory");
     return { debit: value, credit: D(0), accounts: [{ accountId: inv.id, amount: value }] };
   }
   const c = await db.assetCategory.findUnique({ where: { id: l.category_id } });
@@ -176,16 +244,16 @@ async function lineEffect(db: Tx | typeof prisma, l: LineInput, batch: BatchShap
 }
 
 /** A line named by code gets the id it stands for; an unknown code refuses the line. */
-async function resolveCodes(db: Tx, l: LineInput): Promise<LineInput> {
+async function resolveCodes(db: Tx, l: LineInput, look: Lookups): Promise<LineInput> {
   if (l.kind === "gl" && !l.account_id && l.account_code) {
-    const a = await db.account.findUnique({ where: { code: l.account_code }, select: { id: true } });
-    if (!a) throw new ApiError(404, `مفيش حساب بالكود ${l.account_code}`);
-    return { ...l, account_id: a.id };
+    const id = await look.byCode("gl", l.account_code);
+    if (!id) throw new ApiError(404, `مفيش حساب بالكود ${l.account_code}`);
+    return { ...l, account_id: id };
   }
   if ((l.kind === "customer" || l.kind === "supplier") && !l.party_id && l.party_code) {
-    const p = l.kind === "customer" ? await db.customer.findUnique({ where: { code: l.party_code }, select: { id: true } }) : await db.supplier.findUnique({ where: { code: l.party_code }, select: { id: true } });
-    if (!p) throw new ApiError(404, l.kind === "customer" ? `مفيش عميل بالكود ${l.party_code}` : `مفيش مورد بالكود ${l.party_code}`);
-    return { ...l, party_id: p.id };
+    const id = await look.byCode(l.kind, l.party_code);
+    if (!id) throw new ApiError(404, l.kind === "customer" ? `مفيش عميل بالكود ${l.party_code}` : `مفيش مورد بالكود ${l.party_code}`);
+    return { ...l, party_id: id };
   }
   if (l.kind === "stock" && !l.product_id && l.sku) {
     const p = await db.stockProduct.findUnique({ where: { sku: l.sku }, select: { id: true } });
@@ -320,11 +388,12 @@ export async function addLinesInTx(tx: Tx, batchId: string, input: LineInput[], 
     if (k) mine.set(k, l.lineNo);
   }
   const rows: Prisma.OpeningBatchLineCreateManyInput[] = [];
+  const look = await lookups(tx, input);
   for (const [i, l] of input.entries()) {
     let e: Effect, line: LineInput;
     try {
-      line = await resolveCodes(tx, l);
-      e = await lineEffect(tx, line, b);
+      line = await resolveCodes(tx, l, look);
+      e = await lineEffect(tx, line, b, look);
       const k = sourceKey(line as { source_file?: string; source_row?: string }, b.sourceFile);
       if (k && (taken.has(k) || mine.has(k))) throw new ApiError(409, `صف المصدر ${k} اتضاف قبل كده (${taken.get(k) ?? `${b.number}#${mine.get(k)}`})`);
       if (k) mine.set(k, lineNo + 1);
@@ -369,6 +438,8 @@ export async function validateBatch(id: string, db: Tx | typeof prisma = prisma)
   const elsewhere: string[] = [];
   const differs: number[] = [];
   const supplierIds = new Set<string>();
+  // Lines that do not parse are reported below, line by line; the rest are looked up at once.
+  const look = await lookups(db, b.lines.flatMap((l) => { const p = lineInput.safeParse(l.data); return p.success ? [p.data] : []; }));
   for (const l of b.lines) {
     try {
       const input = lineInput.parse(l.data);
@@ -380,7 +451,7 @@ export async function validateBatch(id: string, db: Tx | typeof prisma = prisma)
       const first = seen.get(id.same);
       if (first !== undefined) (id.party ? duplicates : alike).push(`${first}=${l.lineNo}`); else seen.set(id.same, l.lineNo);
       if (id.party) partyLines.set(id.party, (partyLines.get(id.party) ?? 0) + 1);
-      const e = await lineEffect(db, input, b);
+      const e = await lineEffect(db, input, b, look);
       for (const a of e.accounts) byAccount.set(a.accountId, (byAccount.get(a.accountId) ?? D(0)).plus(a.amount));
       if (input.kind === "customer") subledgers.customers = subledgers.customers.plus(input.amount);
       else if (input.kind === "supplier") subledgers.suppliers = subledgers.suppliers.plus(input.amount);
@@ -531,12 +602,14 @@ export async function applyOpeningBatchDecision(tx: Tx, id: string, approved: bo
     const e = await postJournal(tx, { date, description: `أرصدة افتتاحية ${b.number} — الحسابات${tag}`, sourceType: "opening_batch", sourceId: `${b.id}:gl`, lines: [...glLines, { key: counter, amount: net.negated() }] }, actor);
     if (e) entryIds.push(e.id);
   }
-  // 2. Customers' and suppliers' open items (statements and aging read them), each naming this batch.
-  const { postPartyOpeningInTx } = await import("@/lib/accounting/integrity");
-  for (const { input, line } of parsed) {
-    if (input.kind !== "customer" && input.kind !== "supplier") continue;
-    await postPartyOpeningInTx(tx, { partyType: input.kind, partyId: input.party_id!, date, dueDate: input.due_date ?? date, amount: input.amount, reference: input.reference ?? `${b.number}#${line.lineNo}`, counterKey: counter, openingBatchId: b.id }, actor);
-  }
+  // 2. Customers' and suppliers' open items (statements and aging read them), each naming this
+  //    batch, in line order. Posted together — the same rows, entries and audit as one by one,
+  //    in a fixed number of statements, so a large batch posts within the transaction limit on
+  //    production latency (Nov 2026: a 50-line batch needed ~800 round trips one by one).
+  const { postPartyOpeningsInTx } = await import("@/lib/accounting/integrity");
+  await postPartyOpeningsInTx(tx, parsed.flatMap(({ input, line }) => (input.kind === "customer" || input.kind === "supplier")
+    ? [{ partyType: input.kind, partyId: input.party_id!, date, dueDate: input.due_date ?? date, amount: input.amount, reference: input.reference ?? `${b.number}#${line.lineNo}`, counterKey: counter, openingBatchId: b.id }]
+    : []), actor);
   // 3. Stock, through the stock ledger (lots at the given cost; valued against opening equity).
   const stock = parsed.filter((p) => p.input.kind === "stock").map((p) => p.input as Extract<LineInput, { kind: "stock" }>);
   if (stock.length) {

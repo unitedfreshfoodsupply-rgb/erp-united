@@ -113,3 +113,30 @@ export async function nextDocumentNumber(
   `;
   return formatDocumentNumber(def, period, Number(rows[0].lastValue));
 }
+
+/**
+ * Allocates `count` consecutive numbers in one statement (Nov 2026: an opening batch posts one
+ * entry per party line; one allocation per entry was one round trip each). Same guarantees as
+ * nextDocumentNumber — the counter row is locked and moved by `count` in the caller's
+ * transaction, so the block is the caller's alone and commits or rolls back with it — and the
+ * numbers come back in order, as `count` calls would have given them.
+ */
+export async function nextDocumentNumbers(
+  tx: Pick<Prisma.TransactionClient, "$queryRaw">,
+  key: SequenceKey,
+  businessDate: string,
+  count: number
+): Promise<string[]> {
+  if (!Number.isInteger(count) || count < 1) throw new Error(`nextDocumentNumbers: count must be a positive integer (got ${count})`);
+  const def: SequenceDef = SEQUENCE_DEFS[key];
+  const period = periodOf(def.reset, businessDate);
+  const rows = await tx.$queryRaw<{ lastValue: number }[]>`
+    INSERT INTO "NumberSequenceCounter" ("sequenceKey", "period", "lastValue", "updatedAt")
+    VALUES (${key}, ${period}, ${count}, CURRENT_TIMESTAMP)
+    ON CONFLICT ("sequenceKey", "period")
+    DO UPDATE SET "lastValue" = "NumberSequenceCounter"."lastValue" + ${count}, "updatedAt" = CURRENT_TIMESTAMP
+    RETURNING "lastValue"
+  `;
+  const last = Number(rows[0].lastValue);
+  return Array.from({ length: count }, (_, i) => formatDocumentNumber(def, period, last - count + 1 + i));
+}
