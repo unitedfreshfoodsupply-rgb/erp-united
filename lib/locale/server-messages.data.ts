@@ -71,7 +71,7 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["مرجع أمر الشراء بتاع العميل لازم يكون 100 حرف بالكتير", "The customer PO reference can be at most 100 characters"],
   ["مينفعش يبدأ التجهيز: الأوردر مستني بضاعة — اعمل إعادة فحص المخزون والإفراج الأول", "Preparation cannot start: the order is awaiting stock — re-check stock and release it first"],
   ["طلب الشراء ده لسطر في أوردر مستني بضاعة — كمّل من الأوردر نفسه (إعادة فحص المخزون والإفراج)", "This purchase request is for a line of an order awaiting stock — continue from that order (re-check stock and release)"],
-  ["مينفعش يتحفظ مستني بضاعة: طلب الشراء {} اتعمل بالفعل للعميل ده لنفس يوم التسليم وبيغطي الناقص — قلّل السطر للمتاح واحفظ عادي", "Cannot save it as awaiting stock: purchase request {0} was already raised for this customer for the same delivery day and covers the shortage — reduce the line to what is available and save normally"],
+  ["مينفعش يتحفظ مستني بضاعة: طلب الشراء {} اتعمل بالفعل للعميل ده لنفس الصنف ويوم التسليم — قلّل السطر للمتاح واحفظ عادي، أو الغي الطلب", "Cannot save it as awaiting stock: purchase request {0} was already raised for this customer for the same product and delivery day — reduce the line to what is available and save normally, or cancel the request"],
   ["طلب الشراء {} بنفس الصنف والكمية للعميل ده اتعمل بالفعل ومستني الموافقة", "Purchase request {0} for the same product and quantity was already raised for this customer and is awaiting approval"],
   ["الأوردر مش مستني بضاعة", "The order is not awaiting stock"],
   ["الأوردر مش في مرحلة جديد", "The order is not at the \"new\" stage"],

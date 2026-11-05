@@ -1,9 +1,12 @@
 /* Cancel, reopen and the purchase requests of a short line (LOG-4, LOG-10, Nov 2026).
    - Cancelling an order withdraws every request still waiting on it (credit, quantity variance,
      prices); a request left from before cannot be approved on a cancelled order, only rejected.
-   - Reopen refuses a new order, and a cancelled order whose prices or credit (block mode) were
-     not cleared — a copy goes through both again.
-   - "Stock arrived" for a held order is told once per state and DAY (LOG-7): a "ready" told on an
+   - Reopen refuses a new order, and a cancelled order whose prices were not cleared or whose
+     credit was still waiting (any mode: its request is gone) or rejected (block mode) — a copy
+     goes through both again.
+   - Cancel and a customer change on the same order take their locks in one order: the loser gets
+     a 409, never a deadlock.
+   - "Stock arrived" for a held order: "ready" is told once per DAY (LOG-7): a "ready" told on an
      earlier day — then lost to another order — does not silence a real arrival later.
    - A short line with a purchase request raised by hand for the same customer and delivery day
      cannot also be saved awaiting stock (it would raise a second one); the same hand request twice
@@ -15,7 +18,7 @@ import { prisma, inTx, actor, withSetting } from "./_db";
 import { ROLE_PERMISSIONS } from "@/lib/permissions";
 import { createCustomer } from "@/lib/sales/customers";
 import { recordIntake } from "@/lib/stock-service";
-import { cancelOrder, createOrder, moveOrderStatus, reopenOrder, setPreparedQuantity } from "@/lib/orders-service";
+import { cancelOrder, createOrder, editOrder, moveOrderStatus, reopenOrder, setPreparedQuantity } from "@/lib/orders-service";
 import { createPurchaseRequest } from "@/lib/purchasing/requests";
 import { requestApproval } from "@/lib/core/approvals";
 import { decideApproval } from "@/lib/core/approval-handlers";
@@ -127,8 +130,50 @@ test("LOG-10: in credit block mode, a cancelled order whose credit was waiting c
     await cancelOrder(o.id, sup as never, TAG);
     assert.equal(await pending("sales.credit", o.id), 0);
     await rejects(reopenOrder(o.id, "preparing", sup as never, TAG), 409, "reopen_needs_clone", /ائتمان/);
+
+    // The mode switched to warn later: still refused — nobody could decide that credit any more.
+    const p2 = await order([line(a, 2, "10")], {}, tight);
+    assert.equal(p2.creditStatus, "pending_approval");
+    await cancelOrder(p2.id, sup as never, TAG);
+    const restoreWarn = await withSetting("sales.credit_check_mode", "warn");
+    try {
+      await rejects(reopenOrder(p2.id, "preparing", sup as never, TAG), 409, "reopen_needs_clone", /ائتمان/);
+    } finally {
+      await restoreWarn();
+    }
+
+    // A rejection stands as a decision: refused in block mode, reopened under warn as before.
+    const r = await order([line(a, 2, "10")], {}, tight);
+    const credit = await prisma.approvalRequest.findFirstOrThrow({ where: { type: "sales.credit", entityId: r.id, status: "pending" } });
+    await decideApproval(credit.id, "reject", admin as never, { comment: TAG });
+    assert.equal((await prisma.order.findUniqueOrThrow({ where: { id: r.id } })).creditStatus, "rejected");
+    await cancelOrder(r.id, sup as never, TAG);
+    await rejects(reopenOrder(r.id, "preparing", sup as never, TAG), 409, "reopen_needs_clone", /ائتمان/);
+    const restoreWarn2 = await withSetting("sales.credit_check_mode", "warn");
+    try {
+      assert.equal((await reopenOrder(r.id, "preparing", sup as never, TAG)).status, "preparing");
+    } finally {
+      await restoreWarn2();
+    }
   } finally {
     await restore();
+  }
+});
+
+test("a cancel and a customer change on the same order, at the same time: one wins, the other gets a 409 (no deadlock)", async () => {
+  const a = await product("ليمون");
+  const other = (await createCustomer({ name: `${TAG} Other`, name_ar: `${TAG} تاني` }, sales as never)).id;
+  for (let round = 0; round < 6; round++) {
+    const o = await order([line(a, 1, "1")]); // below cost: a pending price-exception request
+    assert.equal(await pending("sales.price_exception", o.id), 1);
+    const results = await Promise.allSettled([
+      editOrder(o.id, { customerAccountId: other }, sup as never, TAG, o.version),
+      cancelOrder(o.id, sup as never, TAG, o.version),
+    ]);
+    for (const res of results) {
+      if (res.status === "rejected") assert.ok(res.reason instanceof ApiError && res.reason.status === 409, `round ${round}: ${String(res.reason)}`);
+    }
+    assert.equal(results.filter((x) => x.status === "fulfilled").length, 1, `round ${round}: exactly one wins`);
   }
 });
 

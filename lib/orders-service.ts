@@ -982,6 +982,14 @@ export async function editOrder(
   });
 
   return inTx(async (tx) => {
+    if (customerIdentityChanged) {
+      // Lock order: the request locks before the order row, as cancel and the paths that raise
+      // these requests take them; the customer's credit lock first, as evaluateOrderCredit takes
+      // it before the credit request's own lock. The edit used to update the row first and take
+      // both locks afterwards, so a cancel beside it could deadlock.
+      await advisoryXactLock(tx, `sales:credit:${fields.customerAccountId}`);
+      await lockApprovalRequests(tx, [{ type: "sales.credit", entityId: orderId }, { type: "sales.price_exception", entityId: orderId }]);
+    }
     const updated = await casOrderUpdate(orderId, order.version, (where) =>
       tx.order.update({
         where,
@@ -1264,7 +1272,9 @@ export async function reopenOrder(
     if (order.pricingStatus !== "ok") {
       throw new ApiError(409, "مينفعش يتفتح تاني: أسعار الأوردر كانت مستنية موافقة أو اترفضت قبل الإلغاء — اعمل نسخة من الأوردر، النسخة بتعدي على مراجعة الأسعار والائتمان من الأول", "reopen_needs_clone");
     }
-    if ((order.creditStatus === "pending_approval" || order.creditStatus === "rejected") && (await getSetting("sales.credit_check_mode")) === "block") {
+    // Pending in any mode: the cancel withdrew the request, so nobody could ever decide it (the mode
+    // may have left "block" since). A rejection is a decision that stands; only block mode stops on it.
+    if (order.creditStatus === "pending_approval" || (order.creditStatus === "rejected" && (await getSetting("sales.credit_check_mode")) === "block")) {
       throw new ApiError(409, "مينفعش يتفتح تاني: ائتمان الأوردر كان مستني موافقة الحسابات أو اترفض قبل الإلغاء — اعمل نسخة من الأوردر، النسخة بتعدي على مراجعة الأسعار والائتمان من الأول", "reopen_needs_clone");
     }
   }
