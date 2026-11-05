@@ -81,6 +81,8 @@ test("stock panel: a held order is assessed in a fixed number of statements, wit
   assert.equal(a.result.lines.length, 5);
   assert.equal(b.result.lines.length, 50);
   assert.equal(b.queries, a.queries, `5 lines: ${a.queries}, 50 lines: ${b.queries} statements`);
+  // The order header is read once (orderStockPanel hands it to orderStockView).
+  assert.ok(a.queries <= 10, `${a.queries} statements for a held order`);
   // Same judgement as the per-line assessment it replaces.
   const old = await assessOrderStock(prisma as never, big.id);
   assert.deepEqual(
@@ -161,7 +163,9 @@ test("an issued invoice blocks reopen; fully credited, it still does — and now
   v = viewed.result;
   r = await refusal(reopenOrder(o.id, "preparing", sup as never, `${TAG} x`, o.version));
   assert.deepEqual([v.reopen.ok, v.reopen.status, v.reopen.message], [false, r.status, r.message]);
-  assert.equal(r.message, `الفاتورة ${issued.number} متخصومة بالكامل بالإشعار ${notes.map((x) => x.number).join(", ")} — الأوردر اتقفل بالإشعار ده ومفيش إعادة فتح بعد الفاتورة؛ لو هتبيعه تاني اعمل نسخة من الأوردر`);
+  // Two credit notes close it: the plural wording.
+  assert.equal(notes.length, 2);
+  assert.equal(r.message, `الفاتورة ${issued.number} متخصومة بالكامل بالإشعارات ${notes.map((x) => x.number).join(", ")} — الأوردر اتقفل بالإشعارات دي ومفيش إعادة فتح بعد الفاتورة؛ لو هتبيعه تاني اعمل نسخة من الأوردر`);
   assert.equal(v.reopen.detail, "الإشعار ماكانش معاه رجوع بضاعة للمخزن");
   assert.ok(viewed.queries <= 5, `${viewed.queries} statements for the action state`);
   // Nothing was written by the refused reopens.

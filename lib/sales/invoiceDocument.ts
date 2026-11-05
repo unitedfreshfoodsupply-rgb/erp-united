@@ -28,7 +28,7 @@ export const INVOICE_LABELS = {
     totalTax: "إجمالي الضريبة", grandTotal: "إجمالي الفاتورة", taxSummary: "ملخص الضريبة", taxBase: "الوعاء", rate: "النسبة", payment: "السداد",
     terms: "شروط الدفع", cash: "نقدي عند التسليم", days: (n: number) => `آجل ${n} يوم`, paid: "المدفوع", balance: "المتبقي", paidInFull: "مدفوعة بالكامل",
     status: "حالة السداد", statusPaid: "مسددة", statusPartial: "مدفوعة جزئيًا", statusUnpaid: "غير مدفوعة",
-    statusCredited: "ملغاة بإشعار دائن", creditNotes: "إشعارات دائنة",
+    statusCredited: "مخصومة بالكامل بإشعار دائن", creditNotes: "إشعارات دائنة",
     receipts: "إيصالات التحصيل", bank: "التحويل البنكي", bankName: "البنك", bankAccountName: "اسم الحساب", bankAccount: "رقم الحساب", iban: "IBAN",
     commercialTerms: "الشروط", notes: "ملاحظات", capital: "رأس المال المصدر", preparedBy: "أعدّها", receivedBy: "استلام العميل (الاسم / التوقيع / التاريخ)", authorized: "التوقيع المعتمد",
     eta: "الفاتورة الإلكترونية — مصلحة الضرائب", etaUuid: "الرقم الإلكتروني (UUID)", etaLongId: "الرقم المرجعي",

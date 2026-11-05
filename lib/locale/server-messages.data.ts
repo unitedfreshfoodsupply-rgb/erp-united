@@ -1202,6 +1202,7 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["الفاتورة اتغيرت من وقت ما فتحتها", "The invoice changed since you opened it"],
   ["الأوردر عليه فاتورة صادرة {} — مينفعش يتفتح تاني؛ المرتجع أو الإلغاء بإشعار دائن من الفاتورة (مع رجوع البضاعة للمخزن لو رجعت)", "The order has issued invoice {0} — it cannot be reopened; a return or cancellation is a credit note on the invoice (with the goods back to stock if they came back)"],
   ["الفاتورة {} متخصومة بالكامل بالإشعار {} — الأوردر اتقفل بالإشعار ده ومفيش إعادة فتح بعد الفاتورة؛ لو هتبيعه تاني اعمل نسخة من الأوردر", "Invoice {0} is fully credited by credit note {1} — the order is closed by that credit note and is not reopened after invoicing; to sell it again, clone the order"],
+  ["الفاتورة {} متخصومة بالكامل بالإشعارات {} — الأوردر اتقفل بالإشعارات دي ومفيش إعادة فتح بعد الفاتورة؛ لو هتبيعه تاني اعمل نسخة من الأوردر", "Invoice {0} is fully credited by credit notes {1} — the order is closed by those credit notes and is not reopened after invoicing; to sell it again, clone the order"],
   ["البضاعة رجعت المخزن مع الإشعار", "The goods came back to stock with the credit note"],
   ["الإشعار ماكانش معاه رجوع بضاعة للمخزن", "The credit note did not return goods to stock"],
   ["تاريخ الإصدار لازم يكون YYYY-MM-DD", "The issue date must be YYYY-MM-DD"],

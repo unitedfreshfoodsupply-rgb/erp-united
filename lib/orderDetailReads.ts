@@ -43,7 +43,7 @@ export async function orderActionView(orderId: string) {
 export async function orderStockPanel(orderId: string, actor: HoldActor & { permissions: readonly string[] }) {
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, status: true, stockStatus: true, version: true } });
   if (!order) throw new ApiError(404, "الأوردر مش موجود");
-  if (order.stockStatus === "awaiting_stock" && order.status === "new") return orderStockView(orderId, actor);
+  if (order.stockStatus === "awaiting_stock" && order.status === "new") return orderStockView(orderId, actor, order);
   return {
     stockStatus: order.stockStatus,
     status: order.status,

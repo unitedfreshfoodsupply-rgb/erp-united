@@ -63,6 +63,7 @@ const T = {
   deliveryResult: "التصحيح بنتيجة التسليم (مرتجع/عجز)",
   creditNotePath: "مينفعش يتفتح تاني؛ المرتجع أو الإلغاء بإشعار دائن من الفاتورة (مع رجوع البضاعة للمخزن لو رجعت)",
   closedByCredit: "الأوردر اتقفل بالإشعار ده ومفيش إعادة فتح بعد الفاتورة؛ لو هتبيعه تاني اعمل نسخة من الأوردر",
+  closedByCredits: "الأوردر اتقفل بالإشعارات دي ومفيش إعادة فتح بعد الفاتورة؛ لو هتبيعه تاني اعمل نسخة من الأوردر",
   restocked: "البضاعة رجعت المخزن مع الإشعار",
   notRestocked: "الإشعار ماكانش معاه رجوع بضاعة للمخزن",
 } as const;
@@ -76,9 +77,11 @@ export const ORDER_REFUSAL = {
   reopenTripLeft: (tripNumber: string) => said(`الأوردر خرج على الرحلة ${tripNumber}`, T.deliveryResult),
   /** An issued invoice blocks reopening; when credit notes cover all of it, say the order is closed by them. */
   reopenInvoiced: (inv: Pick<OrderInvoiceFact, "number" | "fullyCredited" | "creditNotes">) =>
-    inv.fullyCredited && inv.creditNotes.length
-      ? said(`الفاتورة ${inv.number ?? ""} متخصومة بالكامل بالإشعار ${inv.creditNotes.map((c) => c.number).join(", ")}`, T.closedByCredit)
-      : said(`الأوردر عليه فاتورة صادرة ${inv.number ?? ""}`, T.creditNotePath),
+    !inv.fullyCredited || !inv.creditNotes.length
+      ? said(`الأوردر عليه فاتورة صادرة ${inv.number ?? ""}`, T.creditNotePath)
+      : inv.creditNotes.length === 1
+        ? said(`الفاتورة ${inv.number ?? ""} متخصومة بالكامل بالإشعار ${inv.creditNotes[0].number}`, T.closedByCredit)
+        : said(`الفاتورة ${inv.number ?? ""} متخصومة بالكامل بالإشعارات ${inv.creditNotes.map((c) => c.number).join(", ")}`, T.closedByCredits),
 } as const;
 
 /** Whether credited goods came back to stock — stated only when it is the same for every credit note. */
@@ -117,6 +120,7 @@ export const ORDER_ACTION_SAMPLE_TEXTS: readonly string[] = [
   ORDER_REFUSAL.cancelOnTrip,
   ORDER_REFUSAL.reopenTripLeft("TRP-2026-00001"),
   ORDER_REFUSAL.reopenInvoiced({ number: "INV-2026-00001", fullyCredited: false, creditNotes: [] }),
+  ORDER_REFUSAL.reopenInvoiced({ number: "INV-2026-00001", fullyCredited: true, creditNotes: [{ number: "CN-2026-00001", restocked: true }] }),
   ORDER_REFUSAL.reopenInvoiced({ number: "INV-2026-00001", fullyCredited: true, creditNotes: [{ number: "CN-2026-00001", restocked: true }, { number: "CN-2026-00002", restocked: false }] }),
   T.restocked,
   T.notRestocked,

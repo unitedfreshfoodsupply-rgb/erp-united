@@ -109,12 +109,17 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const customerCards = useQuery({ ...customerCardsQuery, enabled: editing && can("sales.customers.view") });
   // Cancel / reopen, with the server's reason and the way out when one is not possible. Read
   // again when the order changes (its version) or the screen regains focus — not on the 5 s
-  // poll. Until it answers, the two buttons wait (disabled); if it fails they fall back to
-  // asking the server on submit, as before.
+  // poll. Until the first answer, the two buttons wait (disabled); after a version change the
+  // last answer for this order stays on screen while the new one loads (no flicker). If it
+  // fails they fall back to asking the server on submit, as before. A dispatched order is
+  // also re-read every minute: an invoice or credit note issued elsewhere does not change
+  // the order's version, and that is what decides reopen there.
   const actions = useQuery({
     queryKey: ["order", orderId, "actions", order?.version],
     queryFn: () => apiFetch<OrderActions>(`/api/orders/${orderId}/actions`),
     enabled: !!order && can("orders.edit"),
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === orderId ? prev : undefined),
+    refetchInterval: order?.status === "dispatched" ? 60_000 : false,
   });
 
   /**
@@ -197,6 +202,12 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const reopenOffered = order.status === "cancelled" || order.status === "loaded" || order.status === "dispatched";
   const cancelState = actions.data?.cancel ?? null;
   const reopenState = actions.data?.reopen ?? null;
+  // A dispatched order is cancelled by reopening it first. When reopen is not possible
+  // either, its note says what to do instead (delivery result, credit note), so Cancel
+  // points at that note rather than showing "reopen first" right above "cannot reopen".
+  const cancelViaReopen = order.status === "dispatched" && !!cancelState && !cancelState.ok && reopenOffered && !!reopenState && !reopenState.ok;
+  const cancelNoteShown = cancelOffered && !!cancelState && !cancelState.ok && !cancelViaReopen;
+  const reopenNoteShown = reopenOffered && !!reopenState && !reopenState.ok;
 
   function startEditing() {
     if (can("sales.customers.view")) void qc.prefetchQuery(customerCardsQuery);
@@ -706,7 +717,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                 confirmLabel={t("orders.cancel_confirm")}
                 className="btn-danger text-sm px-4 py-2"
                 disabled={cancelState ? !cancelState.ok : actions.isPending}
-                describedBy={cancelState && !cancelState.ok ? `order-${orderId}-cancel-why` : undefined}
+                describedBy={cancelViaReopen ? `order-${orderId}-reopen-why` : cancelNoteShown ? `order-${orderId}-cancel-why` : undefined}
                 onConfirm={(reason) =>
                   run(
                     "cancel",
@@ -739,10 +750,16 @@ export function OrderDetail({ orderId }: { orderId: string }) {
             )}
             <CloneOrderAction orderId={orderId} />
           </div>
-          {(cancelOffered && cancelState && !cancelState.ok) || (reopenOffered && reopenState && !reopenState.ok) ? (
+          {cancelNoteShown || reopenNoteShown ? (
             <ul className="flex flex-col gap-1.5 text-sm" data-testid="order-action-notes">
-              {cancelOffered && cancelState && !cancelState.ok && <ActionNote id={`order-${orderId}-cancel-why`} label={t("orders.cancel_btn")} state={cancelState} />}
-              {reopenOffered && reopenState && !reopenState.ok && <ActionNote id={`order-${orderId}-reopen-why`} label={t("orders.reopen_btn")} state={reopenState} />}
+              {cancelNoteShown && cancelState && <ActionNote id={`order-${orderId}-cancel-why`} label={t("orders.cancel_btn")} state={cancelState} />}
+              {reopenNoteShown && reopenState && (
+                <ActionNote
+                  id={`order-${orderId}-reopen-why`}
+                  label={cancelViaReopen ? t("orders.action.cancel_or_reopen") : t("orders.reopen_btn")}
+                  state={reopenState}
+                />
+              )}
             </ul>
           ) : null}
 

@@ -56,7 +56,7 @@ test("a fully credited invoice: still refused, and the message says the credit n
   assert.equal(noStock.reopen.detail, "الإشعار ماكانش معاه رجوع بضاعة للمخزن");
   const mixed = orderActionState(facts({ status: "dispatched", invoices: [inv({ fullyCredited: true, creditNotes: [{ number: "CN-1", restocked: false }, { number: "CN-2", restocked: true }] })] }));
   assert.equal(mixed.reopen.detail, undefined, "a mix is not summarised as either");
-  assert.match(mixed.reopen.message!, /CN-1, CN-2/);
+  assert.equal(mixed.reopen.message, "الفاتورة INV-2026-00007 متخصومة بالكامل بالإشعارات CN-1, CN-2 — الأوردر اتقفل بالإشعارات دي ومفيش إعادة فتح بعد الفاتورة؛ لو هتبيعه تاني اعمل نسخة من الأوردر");
   // Cancel stays "reopen first" (the reopen refusal explains why that is closed too).
   assert.equal(s.cancel.message, ORDER_REFUSAL.cancelDispatched);
 });
@@ -70,5 +70,9 @@ test("every text the helper produces has an English translation", () => {
   assert.equal(
     localizeServerMessage(ORDER_REFUSAL.reopenInvoiced({ number: "INV-1", fullyCredited: true, creditNotes: [{ number: "CN-1", restocked: true }] }), "en"),
     "Invoice INV-1 is fully credited by credit note CN-1 — the order is closed by that credit note and is not reopened after invoicing; to sell it again, clone the order"
+  );
+  assert.equal(
+    localizeServerMessage(ORDER_REFUSAL.reopenInvoiced({ number: "INV-1", fullyCredited: true, creditNotes: [{ number: "CN-1", restocked: true }, { number: "CN-2", restocked: true }] }), "en"),
+    "Invoice INV-1 is fully credited by credit notes CN-1, CN-2 — the order is closed by those credit notes and is not reopened after invoicing; to sell it again, clone the order"
   );
 });

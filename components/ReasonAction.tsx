@@ -28,12 +28,16 @@ export function ReasonAction({
   const [busy, setBusy] = useState(false);
 
   if (!open) {
+    // aria-disabled, not disabled: a disabled button leaves the tab order and its reason
+    // (describedBy) would never be announced; this one stays focusable and does nothing.
     return (
       <button
-        onClick={() => setOpen(true)}
-        disabled={disabled}
+        onClick={() => {
+          if (!disabled) setOpen(true);
+        }}
+        aria-disabled={disabled || undefined}
         aria-describedby={describedBy}
-        className={className ?? "px-4 py-2 rounded-xl bg-united-dark/10 font-bold text-sm"}
+        className={`${className ?? "px-4 py-2 rounded-xl bg-united-dark/10 font-bold text-sm"}${disabled ? " opacity-45 cursor-not-allowed" : ""}`}
       >
         {label}
       </button>

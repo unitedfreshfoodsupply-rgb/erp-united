@@ -42,7 +42,8 @@ export function StockHoldPanel({ order }: { order: OrderDTO }) {
   // Asked only when the panel can show something: the order is held, or this account may
   // see purchase suggestions (the floor never asks). Not on every focus within 15 s either.
   const view = useQuery({
-    queryKey: ["order", order.id, "stock"],
+    // `held` in the key: a not-held answer carries no lines, so it must never stand in for a held one.
+    queryKey: ["order", order.id, "stock", held],
     queryFn: () => apiFetch<StockView>(`/api/orders/${order.id}/stock`),
     enabled: held || can("purchasing.requests.view"),
     refetchInterval: held ? 15_000 : false,

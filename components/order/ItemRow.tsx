@@ -179,7 +179,7 @@ export function ItemRow({
               setOutlierConfirmed(false);
               setCorrecting(true);
             }}
-            className="inline-flex min-h-[40px] items-center text-sm font-bold text-united-muted underline hover:text-united-dark"
+            className="tap-target inline-flex items-center text-sm font-bold text-united-muted underline hover:text-united-dark"
           >
             {t("orders.item.correct_btn")}
           </button>
@@ -215,7 +215,7 @@ export function ItemRow({
             </button>
           </div>
           {correcting && (
-            <button type="button" onClick={() => setCorrecting(false)} className="mt-2 inline-flex min-h-[40px] items-center text-sm font-bold text-united-muted underline hover:text-united-dark">
+            <button type="button" onClick={() => setCorrecting(false)} className="tap-target mt-2 inline-flex items-center text-sm font-bold text-united-muted underline hover:text-united-dark">
               {t("ui.back")}
             </button>
           )}

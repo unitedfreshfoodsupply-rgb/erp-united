@@ -2,7 +2,7 @@
 
 import { ErrorState } from "@/components/States";
 import { unitLabel } from "@/lib/format";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -87,7 +87,10 @@ export function CreateOrderForm({ onDone, onDirtyChange }: { onDone: () => void;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Rows whose purchase request is being raised (a double tap must not raise two).
+  // The ref is the guard (checked and set before the await, so two taps in one frame
+  // cannot both pass); the state only drives the disabled button.
   const [prBusy, setPrBusy] = useState<Set<number>>(() => new Set());
+  const prInFlight = useRef<Set<number>>(new Set());
 
   const dirty = rows.some((r) => r.stock_product_id !== "");
   useEffect(() => {
@@ -187,7 +190,7 @@ export function CreateOrderForm({ onDone, onDirtyChange }: { onDone: () => void;
   async function requestPurchase(i: number) {
     const r = rows[i];
     const l = lines[i];
-    if (prBusy.has(r.key) || r.prNumber) return;
+    if (prInFlight.current.has(r.key) || r.prNumber) return;
     if (!accountId) {
       refuse(t("create.pr-needs-customer"));
       return;
@@ -195,6 +198,7 @@ export function CreateOrderForm({ onDone, onDirtyChange }: { onDone: () => void;
     const missing = l.leftInUnit !== null ? l.q - l.leftInUnit : l.q;
     const prec = l.prec;
     const qtyToBuy = Math.ceil(missing * 10 ** prec - 1e-9) / 10 ** prec;
+    prInFlight.current.add(r.key);
     setPrBusy((cur) => new Set(cur).add(r.key));
     try {
       const { request } = await apiPost<{ request: { number: string } }>("/api/purchasing/requests", {
@@ -213,6 +217,7 @@ export function CreateOrderForm({ onDone, onDirtyChange }: { onDone: () => void;
     } catch (err) {
       toast.show(err instanceof ApiClientError ? err.message : t("create.error-generic"), "error");
     } finally {
+      prInFlight.current.delete(r.key);
       setPrBusy((cur) => {
         const next = new Set(cur);
         next.delete(r.key);

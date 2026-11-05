@@ -144,7 +144,7 @@ test("credit notes: printed with their amount; a credited, unpaid invoice never 
   const cn = (number: string, total: string) => ({ number, issueDate: "2026-10-20", total });
   // Fully credited, nothing received: the open amount is 0 because of the credit note, not money.
   const full = invoiceDocument({ ...base, invoice: { ...base.invoice, paid: "0", open: "0", payments: [], credited: "658", creditNotes: [cn("CN-2026-00003", "658")] } });
-  assert.deepEqual([full.payment.status, full.payment.paidInFull, full.payment.balance, full.payment.paid, full.payment.credited], ["ملغاة بإشعار دائن", false, "0.00", "0.00", "658.00"]);
+  assert.deepEqual([full.payment.status, full.payment.paidInFull, full.payment.balance, full.payment.paid, full.payment.credited], ["مخصومة بالكامل بإشعار دائن", false, "0.00", "0.00", "658.00"]);
   assert.deepEqual(full.payment.creditNotes, [{ number: "CN-2026-00003", date: "2026-10-20", amount: "658.00" }]);
   assert.equal(invoiceDocument({ ...base, lang: "en", invoice: { ...base.invoice, paid: "0", open: "0", payments: [], credited: "658", creditNotes: [] } }).payment.status, "Credited in full");
   // Partly credited, partly paid: the balance is total − credit notes − paid, and both show.

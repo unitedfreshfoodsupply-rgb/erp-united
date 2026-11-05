@@ -1151,6 +1151,7 @@ const orders = {
   "orders.cancel_confirm": { ar: "أيوه، ألغي الأوردر", en: "Yes, cancel the order" },
   "orders.reopen_confirm": { ar: "افتح الأوردر تاني", en: "Reopen the order" },
   "orders.action.open_invoice": { ar: "افتح الفاتورة", en: "Open the invoice" },
+  "orders.action.cancel_or_reopen": { ar: "إلغاء أو إعادة فتح", en: "Cancel or reopen" },
 
   // Next action owner labels (used in header nextAction display)
   "orders.owner.prep": { ar: "التجهيز", en: "Preparation" },
