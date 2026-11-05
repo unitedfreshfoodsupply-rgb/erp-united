@@ -17,7 +17,8 @@ import { customerExposure } from "@/lib/sales/credit";
 import { recordIntake } from "@/lib/stock-service";
 import { commitOrderStock } from "@/lib/sales/stock-commitment";
 import { inTx } from "@/lib/tx";
-import { cancelOrder, createOrder, editRequiredQuantity, moveOrderStatus, reopenOrder, setLoadedQuantity, setPreparedQuantity } from "@/lib/orders-service";
+import { cancelOrder, createOrder, editOrder, editRequiredQuantity, moveOrderStatus, reopenOrder, setLoadedQuantity, setPreparedQuantity } from "@/lib/orders-service";
+import { syncOrderSuggestions } from "@/lib/purchasing/requests";
 
 const TAG = `ZZOWS${Date.now()}`;
 const day = `2097-03-${String(1 + (Date.now() % 28)).padStart(2, "0")}`;
@@ -109,6 +110,50 @@ test("an order saved awaiting stock: one suggestion per short line, statements c
   assert.equal(await prisma.purchaseRequest.count({ where: { orderId: large.result.id, orderItemId: { not: null }, status: "pending_approval" } }), N_LARGE);
   assert.equal(await prisma.approvalRequest.count({ where: { type: "purchasing.request", status: "pending", entityId: { in: (await prisma.purchaseRequest.findMany({ where: { orderId: large.result.id }, select: { id: true } })).map((r) => r.id) } } }), N_LARGE);
   assert.ok(large.queries - small.queries <= 6, `50 lines: ${large.queries} statements, 5 lines: ${small.queries}`);
+});
+
+test("a held order's suggestions resized and closed together: statements constant in the number of lines", async () => {
+  const o5 = await order(lines(N_SMALL, 500), { allow_shortage: true });
+  const o50 = await order(lines(N_LARGE, 500), { allow_shortage: true });
+  const later = `2098-${day.slice(5)}`;
+  const before50 = new Map((await prisma.purchaseRequest.findMany({ where: { orderId: o50.id, orderItemId: { not: null } } })).map((r) => [r.id, r]));
+  // A new delivery day resizes every line's suggestion (its needed-by day follows the order).
+  const small = await countQueries(() => editOrder(o5.id, { deliveryDate: later }, sup as never, TAG));
+  const large = await countQueries(() => editOrder(o50.id, { deliveryDate: later }, sup as never, TAG));
+  report.resize5 = small.queries;
+  report.resize50 = large.queries;
+  const rows = await prisma.purchaseRequest.findMany({ where: { orderId: o50.id, orderItemId: { not: null } } });
+  assert.equal(rows.length, N_LARGE);
+  for (const r of rows) {
+    const was = before50.get(r.id)!;
+    assert.deepEqual(
+      [r.neededBy, r.version, r.status, r.quantity.toFixed(), r.requiredQty?.toFixed(), r.availableQty?.toFixed(), r.customerReference, r.number, r.decidedAt],
+      [later, 2, "pending_approval", was.quantity.toFixed(), was.requiredQty?.toFixed(), was.availableQty?.toFixed(), was.customerReference, was.number, null]
+    );
+  }
+  assert.ok(rows.every((r) => Math.abs(r.updatedAt.getTime() - Date.now()) < 60_000), "updatedAt stored as Prisma stores it");
+  assert.equal(await prisma.auditLog.count({ where: { entityId: { in: rows.map((r) => r.id) }, action: "purchase_request_quantity_changed" } }), 0, "same quantity: no quantity audit");
+  assert.ok(large.queries - small.queries <= 2, `50 lines: ${large.queries} statements, 5 lines: ${small.queries}`);
+
+  // No longer waiting for stock: every open suggestion is closed, its approval withdrawn.
+  const close = async (orderId: string) => {
+    await prisma.order.update({ where: { id: orderId }, data: { stockStatus: "ok" } });
+    return countQueries(() => inTx((tx) => syncOrderSuggestions(tx, orderId, sup as never)));
+  };
+  const c5 = await close(o5.id);
+  const c50 = await close(o50.id);
+  report.close5 = c5.queries;
+  report.close50 = c50.queries;
+  assert.equal(c50.result.closed, N_LARGE);
+  const closed = await prisma.purchaseRequest.findMany({ where: { orderId: o50.id, orderItemId: { not: null } } });
+  assert.ok(closed.every((r) => r.status === "cancelled" && r.cancelReason === "الأوردر مبقاش مستني بضاعة" && r.version === 3));
+  const ids50 = closed.map((r) => r.id);
+  assert.equal(await prisma.approvalRequest.count({ where: { type: "purchasing.request", entityId: { in: ids50 }, status: "pending" } }), 0);
+  assert.equal(await prisma.approvalRequest.count({ where: { type: "purchasing.request", entityId: { in: ids50 }, status: "cancelled", closedReason: "الأوردر مبقاش مستني بضاعة" } }), N_LARGE);
+  const cancelledAudits = await prisma.auditLog.findMany({ where: { entityId: { in: ids50 }, action: "purchase_request_cancelled" } });
+  assert.equal(cancelledAudits.length, N_LARGE);
+  assert.ok(cancelledAudits.every((a) => a.orderId === o50.id && a.reason === "الأوردر مبقاش مستني بضاعة" && a.newValue?.endsWith(" · إلغاء تلقائي")));
+  assert.ok(c50.queries - c5.queries <= 2, `50 lines: ${c50.queries} statements, 5 lines: ${c5.queries}`);
 });
 
 test("customerExposure: the open orders' value read at once equals orderValue order by order, in fixed statements", async () => {

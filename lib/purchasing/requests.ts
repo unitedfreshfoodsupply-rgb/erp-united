@@ -350,13 +350,51 @@ export async function stillOnOrder(tx: Tx, rows: PurchaseRequest[]): Promise<Map
 
 const suggestionAuditInput = (actor: SuggestionActor, r: { id: string; number: string }, orderId: string, action: string, detail: string, reason?: string): AuditInput =>
   ({ userId: actor.id, userName: actor.name, role: actor.role, action, entityType: "purchase_request", entityId: r.id, orderId, newValue: `${r.number} · ${detail}`, reason, source: actor.source === "n8n" || actor.source === "hermes" ? actor.source : actor.source === "system" ? "system" : "user", deviceId: actor.deviceId });
-const suggestionAudit = (tx: Tx, actor: SuggestionActor, r: { id: string; number: string }, orderId: string, action: string, detail: string, reason?: string) =>
-  writeAudit(suggestionAuditInput(actor, r, orderId, action, detail, reason), tx);
 
-async function closeSuggestion(tx: Tx, r: PurchaseRequest, actor: SuggestionActor, reason: string) {
-  if (r.status === "pending_approval") await cancelPendingApproval(tx, { type: "purchasing.request", entityId: r.id, reason, actor });
-  await casUpdate(tx, r, { status: "cancelled", cancelReason: reason });
-  await suggestionAudit(tx, actor, r, r.orderId!, "purchase_request_cancelled", "إلغاء تلقائي", reason);
+/**
+ * Closes open suggestions no longer needed — what closing them one by one did (the pending
+ * approval withdrawn, the request cancelled at the version it was read, one audit row each) in a
+ * fixed number of statements.
+ */
+async function closeSuggestions(tx: Tx, closes: { r: PurchaseRequest; reason: string }[], actor: SuggestionActor) {
+  if (!closes.length) return;
+  await cancelPendingApprovals(tx, closes.filter(({ r }) => r.status === "pending_approval").map(({ r, reason }) => ({ type: "purchasing.request" as const, entityId: r.id, reason, actor })));
+  const byReason = new Map<string, PurchaseRequest[]>();
+  for (const { r, reason } of closes) {
+    let rows = byReason.get(reason);
+    if (!rows) byReason.set(reason, (rows = []));
+    rows.push(r);
+  }
+  for (const [reason, rows] of byReason) await casUpdateMany(tx, rows, { status: "cancelled", cancelReason: reason });
+  await writeAuditMany(closes.map(({ r, reason }) => suggestionAuditInput(actor, r, r.orderId!, "purchase_request_cancelled", "إلغاء تلقائي", reason)), tx);
+}
+
+/**
+ * Re-sizes open suggestions in one statement — what casUpdate did row by row: the new sizing, a
+ * grown approved one back to pending (its decision cleared), version + 1 and updatedAt now (UTC
+ * wall time, as Prisma stores it), each row only at the version it was read (else 409).
+ */
+async function resizeSuggestions(tx: Tx, resizes: { r: PurchaseRequest; sizing: { quantity: Prisma.Decimal; requiredQty: Prisma.Decimal; availableQty: Prisma.Decimal; neededBy: string; customerReference: string | null }; reapprove: boolean }[]) {
+  if (!resizes.length) return;
+  const at = new Date().toISOString().replace("T", " ").replace("Z", "");
+  const values = Prisma.join(
+    resizes.map(({ r, sizing: s, reapprove }) =>
+      Prisma.sql`(${r.id}::text, ${r.version}::int, ${s.quantity.toString()}::numeric, ${s.requiredQty.toString()}::numeric, ${s.availableQty.toString()}::numeric, ${s.neededBy}::text, ${s.customerReference}::text, ${reapprove}::boolean)`
+    )
+  );
+  const n = await tx.$executeRaw`
+    UPDATE "PurchaseRequest" AS r
+    SET "quantity" = v.quantity, "requiredQty" = v.required_qty, "availableQty" = v.available_qty,
+        "neededBy" = v.needed_by, "customerReference" = v.customer_reference,
+        "status" = CASE WHEN v.reapprove THEN 'pending_approval' ELSE r."status" END,
+        "decidedById" = CASE WHEN v.reapprove THEN NULL ELSE r."decidedById" END,
+        "decidedBy" = CASE WHEN v.reapprove THEN NULL ELSE r."decidedBy" END,
+        "decidedAt" = CASE WHEN v.reapprove THEN NULL ELSE r."decidedAt" END,
+        "decisionNote" = CASE WHEN v.reapprove THEN NULL ELSE r."decisionNote" END,
+        "version" = r."version" + 1, "updatedAt" = ${at}::timestamp(3)
+    FROM (VALUES ${values}) AS v(id, version, quantity, required_qty, available_qty, needed_by, customer_reference, reapprove)
+    WHERE r."id" = v.id AND r."version" = v.version`;
+  if (n !== resizes.length) throw new ApiError(409, "طلب الشراء اتغيّر، حدّث الشاشة");
 }
 
 /**
@@ -391,6 +429,12 @@ export async function syncOrderSuggestions(tx: Tx, orderId: string, actor: Sugge
   // Approvals to ask, in line order: an approved suggestion that grew, or a new one (by index).
   const asks: ({ kind: "reapprove"; request: PurchaseRequest; need: Prisma.Decimal } | { kind: "create"; at: number })[] = [];
   const creates: { c: NonNullable<ReturnType<typeof coverage.get>>; itemId: string; sizing: { quantity: Prisma.Decimal; requiredQty: Prisma.Decimal; availableQty: Prisma.Decimal; neededBy: string; customerReference: string | null } }[] = [];
+  // Closes and resizes are judged line by line and written together after the loop (PW-2: ~6
+  // round trips per closed suggestion and ~2 per resized one before — a delivery-date change on a
+  // 50-line order waiting for stock resized every line).
+  const closes: { r: PurchaseRequest; reason: string }[] = [];
+  const resizes: { r: PurchaseRequest; sizing: (typeof creates)[number]["sizing"]; reapprove: boolean }[] = [];
+  const audits: AuditInput[] = [];
   let created = 0, updated = 0, closed = 0;
   for (const itemId of itemIds) {
     const c = coverage.get(itemId);
@@ -398,7 +442,7 @@ export async function syncOrderSuggestions(tx: Tx, orderId: string, actor: Sugge
     let open = mine.find((e) => OPEN_SUGGESTION.includes(e.status)) ?? null;
     // The line now names another product (a re-mapping): the old suggestion no longer fits.
     if (open && c && open.productId !== c.productId) {
-      await closeSuggestion(tx, open, actor, "صنف السطر اتغيّر");
+      closes.push({ r: open, reason: "صنف السطر اتغيّر" });
       closed++;
       open = null;
     }
@@ -411,7 +455,7 @@ export async function syncOrderSuggestions(tx: Tx, orderId: string, actor: Sugge
     }
     if (need.lte(0)) {
       if (open) {
-        await closeSuggestion(tx, open, actor, held ? "الناقص اتغطى" : "الأوردر مبقاش مستني بضاعة");
+        closes.push({ r: open, reason: held ? "الناقص اتغطى" : "الأوردر مبقاش مستني بضاعة" });
         closed++;
       }
       continue;
@@ -423,20 +467,21 @@ export async function syncOrderSuggestions(tx: Tx, orderId: string, actor: Sugge
       // A larger quantity on an approved suggestion goes back for approval: the approver
       // signed off a smaller buy. A smaller one keeps its approval.
       const reapprove = open.status === "approved" && need.gt(open.quantity);
-      const next = await casUpdate(tx, open, {
-        ...sizing,
-        ...(reapprove ? { status: "pending_approval", decidedById: null, decidedBy: null, decidedAt: null, decisionNote: null } : {}),
-      });
+      resizes.push({ r: open, sizing, reapprove });
       if (!open.quantity.equals(need)) {
-        await suggestionAudit(tx, actor, open, orderId, "purchase_request_quantity_changed", `${open.quantity.toFixed()} ← ${need.toFixed()} ${open.uomCode}`, `أوردر ${order.orderNumber}`);
+        audits.push(suggestionAuditInput(actor, open, orderId, "purchase_request_quantity_changed", `${open.quantity.toFixed()} ← ${need.toFixed()} ${open.uomCode}`, `أوردر ${order.orderNumber}`));
       }
-      if (reapprove) asks.push({ kind: "reapprove", request: next, need });
+      // The approval reads the request's number, product, unit and requester: a resize keeps them.
+      if (reapprove) asks.push({ kind: "reapprove", request: open, need });
       updated++;
       continue;
     }
     asks.push({ kind: "create", at: creates.length });
     creates.push({ c: c!, itemId, sizing });
   }
+  await closeSuggestions(tx, closes, actor);
+  await resizeSuggestions(tx, resizes);
+  await writeAuditMany(audits, tx);
   if (!asks.length) return { created, updated, closed };
 
   const products = new Map((await tx.stockProduct.findMany({
@@ -536,7 +581,7 @@ export async function settleOrderSuggestions(tx: Tx, orderId: string, outcome: "
   const rows = await tx.purchaseRequest.findMany({ where: { orderId, orderItemId: { not: null }, status: { in: [...OPEN_SUGGESTION, "ordered"] } }, orderBy: { createdAt: "asc" } });
   if (!rows.length) return 0;
   const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { orderNumber: true } });
-  // What closeSuggestion and casUpdate did row by row, in a fixed number of statements (PW-2,
+  // What closing and casUpdate did row by row, in a fixed number of statements (PW-2,
   // Nov 2026: ~6 round trips per suggestion when a held order is released or cancelled).
   const closeReason = outcome === "cancelled" ? `الأوردر اتلغى: ${reason}` : `البضاعة اتوفرت والأوردر اتفرج عنه`;
   const closing = rows.filter((r) => OPEN_SUGGESTION.includes(r.status));
