@@ -19,6 +19,9 @@ import { orderStockView } from "@/lib/sales/stock-hold";
 import { orderActionView, orderStockPanel } from "@/lib/orderDetailReads";
 import { ApiError } from "@/lib/rbac";
 
+/** Query events arrive asynchronously: let them land before the window opens and before it closes. */
+const settle = () => new Promise((r) => setTimeout(r, 25));
+const measure = <T>(fn: () => Promise<T>) => settle().then(() => countQueries(async () => { const result = await fn(); await settle(); return result; }));
 const TAG = `ZZODR${Date.now()}`;
 const day = `2099-12-${String(1 + (Date.now() % 28)).padStart(2, "0")}`;
 const floor = actor("مجهز", ["orders.view", "orders.prepare"]);
@@ -58,13 +61,13 @@ test("stock panel: an order that is not held is not assessed — a fixed, tiny c
   const small = await makeOrder(5, { status: "preparing" });
   const big = await makeOrder(50, { status: "preparing" });
   await orderStockPanel(small.id, floor as never);
-  const a = await countQueries(() => orderStockPanel(small.id, floor as never));
-  const b = await countQueries(() => orderStockPanel(big.id, floor as never));
+  const a = await measure(() => orderStockPanel(small.id, floor as never));
+  const b = await measure(() => orderStockPanel(big.id, floor as never));
   assert.deepEqual([a.result.lines, a.result.suggestions, a.result.releasable], [[], null, false]);
   assert.equal(b.queries, a.queries, "the same statements for 5 and 50 lines");
   assert.ok(a.queries <= 1, `${a.queries} statements for the floor (the order's state only)`);
   // Purchasing still sees the order's suggestions on any order (none here).
-  const p = await countQueries(() => orderStockPanel(big.id, buyer as never));
+  const p = await measure(() => orderStockPanel(big.id, buyer as never));
   assert.deepEqual(p.result.suggestions, []);
   assert.ok(p.queries <= 3, `${p.queries} statements with suggestions`);
 });
@@ -73,8 +76,8 @@ test("stock panel: a held order is assessed in a fixed number of statements, wit
   const small = await makeOrder(5, { stockStatus: "awaiting_stock" });
   const big = await makeOrder(50, { stockStatus: "awaiting_stock" });
   await orderStockPanel(small.id, floor as never); // warm the per-process caches (warehouse)
-  const a = await countQueries(() => orderStockPanel(small.id, floor as never));
-  const b = await countQueries(() => orderStockPanel(big.id, floor as never));
+  const a = await measure(() => orderStockPanel(small.id, floor as never));
+  const b = await measure(() => orderStockPanel(big.id, floor as never));
   assert.equal(a.result.lines.length, 5);
   assert.equal(b.result.lines.length, 50);
   assert.equal(b.queries, a.queries, `5 lines: ${a.queries}, 50 lines: ${b.queries} statements`);
@@ -154,7 +157,7 @@ test("an issued invoice blocks reopen; fully credited, it still does — and now
   // Fully credited (no goods returned): still refused, with the closing credit notes named.
   await createCreditNote(inv.id, { reason: `${TAG} الباقي`, full: true }, acct as never);
   const notes = await prisma.creditNote.findMany({ where: { invoiceId: inv.id }, orderBy: { createdAt: "asc" } });
-  const viewed = await countQueries(() => orderActionView(o.id));
+  const viewed = await measure(() => orderActionView(o.id));
   v = viewed.result;
   r = await refusal(reopenOrder(o.id, "preparing", sup as never, `${TAG} x`, o.version));
   assert.deepEqual([v.reopen.ok, v.reopen.status, v.reopen.message], [false, r.status, r.message]);

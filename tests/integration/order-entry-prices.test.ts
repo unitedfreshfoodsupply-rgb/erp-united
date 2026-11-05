@@ -12,6 +12,9 @@ import { createCustomer } from "@/lib/sales/customers";
 import { effectivePrice, priceListsFor } from "@/lib/sales/pricing";
 import { entryListPrices, entryPriceKey, type EntryPriceKey } from "@/lib/orderEntryPrices";
 
+/** Query events arrive asynchronously: let them land before the window opens and before it closes. */
+const settle = () => new Promise((r) => setTimeout(r, 25));
+const measure = <T>(fn: () => Promise<T>) => settle().then(() => countQueries(async () => { const result = await fn(); await settle(); return result; }));
 const TAG = `ZZOEP${Date.now()}`;
 const day = "2099-06-15";
 const sales = actor("مبيعات", ["sales.customers.manage", "sales.customers.view"]);
@@ -89,18 +92,18 @@ test("every pair priced exactly as the one-pair lookup prices it", async () => {
 
 test("a fixed number of statements: 5 lines and 50 lines cost the same", async () => {
   await entryListPrices(customerId, day, keysFor(5)); // warm per-process caches
-  const five = await countQueries(() => entryListPrices(customerId, day, keysFor(5)));
-  const fifty = await countQueries(() => entryListPrices(customerId, day, keysFor(50)));
+  const five = await measure(() => entryListPrices(customerId, day, keysFor(5)));
+  const fifty = await measure(() => entryListPrices(customerId, day, keysFor(50)));
   assert.equal(fifty.queries, five.queries, `5 lines: ${five.queries}, 50 lines: ${fifty.queries}`);
   assert.ok(fifty.queries <= 8, `${fifty.queries} statements`);
   // The one-pair lookup it replaces, for the record: statements grow with every line.
-  const old = await countQueries(async () => { for (const k of keysFor(50)) await onePair(customerId, k); });
+  const old = await measure(async () => { for (const k of keysFor(50)) await onePair(customerId, k); });
   assert.ok(old.queries > 10 * fifty.queries, `one pair at a time: ${old.queries} statements`);
 });
 
 test("an unknown product simply has no price; no pairs, no statements", async () => {
   const r = await entryListPrices(customerId, day, [{ productId: `${TAG}-missing`, unit: "KG" }]);
   assert.deepEqual(r.get(`${TAG}-missing|KG`), { unitPrice: null, priceList: null });
-  const none = await countQueries(() => entryListPrices(customerId, day, []));
+  const none = await measure(() => entryListPrices(customerId, day, []));
   assert.deepEqual([none.result.size, none.queries], [0, 0]);
 });
