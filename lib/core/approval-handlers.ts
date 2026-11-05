@@ -3,7 +3,7 @@ import { asText } from "@/lib/http";
 import { ApiError } from "@/lib/rbac";
 import { inTx, type Tx } from "@/lib/tx";
 import { getSetting } from "@/lib/core/settings-service";
-import { recordDecision, type ApprovalType, type Decider } from "@/lib/core/approvals";
+import { listApprovalPage, recordDecision, type ApprovalListOptions, type ApprovalType, type ApprovalViewer, type Decider } from "@/lib/core/approvals";
 import { applyIssueExceptionClose } from "@/lib/inventory/dispatch";
 import { releaseGradingHoldInTx } from "@/lib/inventory/documents";
 import { applyPurchaseRequestDecision } from "@/lib/purchasing/requests";
@@ -37,7 +37,21 @@ type Handler = {
   onApproved: (tx: Tx, request: { entityId: string; payload: unknown }, decider: Decider, comment?: string) => Promise<unknown>;
   /** Optional: most rejections simply leave the thing blocked. */
   onRejected?: (tx: Tx, request: { entityId: string; payload: unknown }, decider: Decider, comment?: string) => Promise<unknown>;
+  /**
+   * Optional: who this module refuses as the decider of each entity, beyond the engine's own
+   * rule — the same people its handler refuses (that check stays the guard). Lets the inbox
+   * and the "who approves this" line say so before anyone clicks. null for an entity nobody
+   * can decide as it stands. One query at most, for every pending request of the type at once.
+   */
+  ineligible?: (db: Tx, rows: { entityId: string; requestedById: string | null }[]) => Promise<Map<string, string[] | null>>;
 };
+
+/**
+ * For modules whose handler refuses the person who raised the request: that person is
+ * recorded on the module's row (requestedById / createdById / closeRequestedById) by the same
+ * actor, in the same transaction, as the approval's requester — so no query is needed.
+ */
+const theRequester: Handler["ineligible"] = async (_db, rows) => new Map(rows.map((r) => [r.entityId, r.requestedById ? [r.requestedById] : []]));
 
 /** The requester of a request (the engine passes the full row). */
 const requesterOf = (req: { entityId: string; payload: unknown }) => (req as { requestedById?: string | null }).requestedById ?? null;
@@ -97,30 +111,40 @@ const HANDLERS: Record<ApprovalType, Handler> = {
     // Cr cash-bank). Rejected: nothing moves.
     onApproved: (tx, req, decider, comment) => applyCustodyAdvanceDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyCustodyAdvanceDecision(tx, req.entityId, false, decider, comment),
+    ineligible: theRequester,
   },
   "hr.attendance_correction": {
     // Approved: the day takes the requested values (a locked day's pay difference goes to the
     // next payroll run). Rejected: the day stays as it was. The requester may not decide.
     onApproved: (tx, req, decider, comment) => applyCorrectionDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyCorrectionDecision(tx, req.entityId, false, decider, comment),
+    ineligible: theRequester,
   },
   "hr.leave": {
     // Approved: `taken` on the balance and confirmed leave days in the register. Rejected:
     // nothing changes. The person who recorded the request may not decide it.
     onApproved: (tx, req, decider, comment) => applyLeaveDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyLeaveDecision(tx, req.entityId, false, decider, comment),
+    ineligible: theRequester,
   },
   "hr.compensation_change": {
     // Approved: the package is in force from its start and the previous one ends the day
     // before. Rejected: nothing changes. The proposer may not decide.
     onApproved: (tx, req, decider, comment) => applyCompensationDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyCompensationDecision(tx, req.entityId, false, decider, comment),
+    ineligible: theRequester,
   },
   "hr.payroll_run": {
     // Approved: only by someone who neither prepared nor submitted it, and only if a fresh
     // calculation still gives the submitted figures. Rejected: returned to the preparer.
     onApproved: (tx, req, decider, comment) => applyRunDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyRunDecision(tx, req.entityId, false, decider, comment),
+    // applyRunDecision refuses whoever prepared or submitted the run, and any decision on a run
+    // whose preparer or submitter is unknown (HR-22).
+    ineligible: async (db, rows) => {
+      const runs = await db.payrollRun.findMany({ where: { id: { in: rows.map((r) => r.entityId) } }, select: { id: true, preparedById: true, submittedById: true } });
+      return new Map(runs.map((r) => [r.id, r.preparedById && r.submittedById ? [r.preparedById, r.submittedById] : null]));
+    },
   },
   "sales.credit": {
     // Finance accepts the risk for this one order; it may then start preparation.
@@ -131,36 +155,63 @@ const HANDLERS: Record<ApprovalType, Handler> = {
     // Approved by someone who neither prepared nor submitted it: posted whole, once. Rejected: back to draft.
     onApproved: (tx, req, decider, comment) => applyOpeningBatchDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyOpeningBatchDecision(tx, req.entityId, false, decider, comment),
+    // applyOpeningBatchDecision refuses whoever prepared or submitted the batch.
+    ineligible: async (db, rows) => {
+      const batches = await db.openingBatch.findMany({ where: { id: { in: rows.map((r) => r.entityId) } }, select: { id: true, createdById: true, submittedById: true } });
+      return new Map(batches.map((b) => [b.id, [b.createdById, b.submittedById].filter((x): x is string => !!x)]));
+    },
   },
   "accounting.opening_migration_close": {
     // Approved by someone other than the requester, and only if every closure check still passes: closed for good. Rejected: open again.
     onApproved: (tx, req, decider, comment) => applyClosureDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyClosureDecision(tx, req.entityId, false, decider, comment),
+    ineligible: theRequester,
   },
   "accounting.period_reopen": {
     // Approved by someone other than the requester: the month opens again (its year must be open).
     onApproved: (tx, req, decider) => applyPeriodReopen(tx, req.entityId, req.payload, decider, requesterOf(req)),
+    ineligible: theRequester,
   },
   "accounting.year_reopen": {
     // Approved by someone other than the requester: the closing entry is reversed and the last month opens.
     onApproved: (tx, req, decider) => applyYearReopen(tx, req.entityId, req.payload, decider, requesterOf(req)),
+    ineligible: theRequester,
   },
   "accounting.manual_journal": {
     // Approved: posted as a manual journal, by someone other than the requester. Rejected: nothing posts.
     onApproved: (tx, req, decider, comment) => applyJournalRequestDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyJournalRequestDecision(tx, req.entityId, false, decider, comment),
+    ineligible: theRequester,
   },
   "accounting.supplier_payment": {
     // ACC-04 — approved: the payment posts now, re-validated; rejected: nothing moves.
     onApproved: (tx, req, decider, comment) => applyPaymentRequestDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyPaymentRequestDecision(tx, req.entityId, false, decider, comment),
+    ineligible: theRequester,
   },
   "accounting.cash_transfer": {
     // Approved: posted, by someone other than whoever recorded it. Rejected: nothing moves.
     onApproved: (tx, req, decider) => applyTransferDecision(tx, req.entityId, true, decider),
     onRejected: (tx, req, decider) => applyTransferDecision(tx, req.entityId, false, decider),
+    ineligible: theRequester,
   },
 };
+
+/**
+ * The inbox listing (GET /api/approvals) with every rule a decision will apply: the engine's
+ * (the requester, the one-admin emergency path) and each module's own (whoever prepared or
+ * submitted the record). Who may decide is unchanged — this only says it before the click.
+ */
+export async function listApprovalInbox(actor: ApprovalViewer, opts: ApprovalListOptions = {}, db: Tx = prisma) {
+  const requireDifferentApprover = await getSetting("approvals.require_different_approver");
+  return listApprovalPage(actor, opts, {
+    requireDifferentApprover,
+    ineligible: async (type, rows, on) => {
+      const hook = HANDLERS[type]?.ineligible;
+      return hook ? hook(on, rows) : null;
+    },
+  }, db);
+}
 
 export function registeredApprovalTypes() {
   return Object.keys(HANDLERS) as ApprovalType[];

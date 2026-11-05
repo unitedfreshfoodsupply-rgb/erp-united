@@ -6,8 +6,10 @@ import { writeAudit } from "@/lib/audit";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { nextDocumentNumber } from "@/lib/core/sequences";
 import { notify, usersWithPermission } from "@/lib/core/notifications";
+import { applyOverrides } from "@/lib/authz-core";
 import { todayLocalISO } from "@/lib/localDate";
 import type { Permission } from "@/lib/permissions";
+import type { Role } from "@/lib/types";
 import type { Tx } from "@/lib/tx";
 
 /**
@@ -33,6 +35,9 @@ export type ApprovalTypeDef = {
   levels: number;
   /** Where an approver goes to see the thing being approved. */
   link: (entityId: string) => string;
+  /** The linked page has no decide control (or names no record): approvers are notified with
+   * a link to the request in the approvals inbox instead. */
+  decidedInInbox?: true;
 };
 
 export const APPROVAL_TYPES = {
@@ -98,6 +103,7 @@ export const APPROVAL_TYPES = {
     approvePermission: "hr.expenses.approve",
     levels: 1,
     link: () => "/hr",
+    decidedInInbox: true,
   },
   // Purchasing custody (Nov 2026): money handed to a buyer leaves the treasury only once someone
   // other than the requester approves it — the same approver as a supplier payment.
@@ -149,6 +155,7 @@ export const APPROVAL_TYPES = {
     approvePermission: "accounting.periods.reopen",
     levels: 1,
     link: () => "/accounting?tab=periods",
+    decidedInInbox: true,
   },
   "accounting.year_reopen": {
     label: "إعادة فتح سنة مالية مقفولة",
@@ -156,6 +163,7 @@ export const APPROVAL_TYPES = {
     approvePermission: "accounting.periods.reopen",
     levels: 1,
     link: () => "/accounting?tab=periods",
+    decidedInInbox: true,
   },
   "accounting.opening_batch": {
     label: "اعتماد الأرصدة الافتتاحية",
@@ -163,6 +171,7 @@ export const APPROVAL_TYPES = {
     approvePermission: "accounting.opening.approve",
     levels: 1,
     link: () => "/accounting?tab=opening",
+    decidedInInbox: true,
   },
   "accounting.opening_migration_close": {
     label: "قفل الترحيل الافتتاحي",
@@ -170,6 +179,7 @@ export const APPROVAL_TYPES = {
     approvePermission: "accounting.opening.approve",
     levels: 1,
     link: () => "/accounting?tab=opening",
+    decidedInInbox: true,
   },
   "accounting.manual_journal": {
     label: "اعتماد قيد يدوي",
@@ -177,6 +187,7 @@ export const APPROVAL_TYPES = {
     approvePermission: "accounting.journals.approve",
     levels: 1,
     link: () => "/accounting?tab=journals",
+    decidedInInbox: true,
   },
   "accounting.supplier_payment": {
     label: "اعتماد سداد مورد",
@@ -184,6 +195,7 @@ export const APPROVAL_TYPES = {
     approvePermission: "accounting.manage",
     levels: 1,
     link: () => "/accounting?tab=payments",
+    decidedInInbox: true,
   },
   "accounting.cash_transfer": {
     label: "اعتماد تحويل بين الخزائن والبنوك",
@@ -191,6 +203,7 @@ export const APPROVAL_TYPES = {
     approvePermission: "accounting.manage",
     levels: 1,
     link: () => "/accounting?tab=treasury",
+    decidedInInbox: true,
   },
 } satisfies Record<string, ApprovalTypeDef>;
 
@@ -277,7 +290,7 @@ export async function requestApproval(
       body: input.summary ?? def.label,
       entityType: "approval_request",
       entityId: request.id,
-      link: def.link(input.entityId),
+      link: def.decidedInInbox ? `/approvals?id=${request.id}` : def.link(input.entityId),
       dedupeKey: `approval:${request.id}`,
     }
   );
@@ -321,28 +334,152 @@ export async function cancelPendingApproval(
 /** Requests an actor may decide (pending, of types they hold the permission for) and
  * the ones they raised themselves. */
 export async function listApprovals(
-  actor: { id: string | null; permissions: readonly string[] },
-  opts: { status?: string; limit?: number } = {}
+  actor: ApprovalViewer,
+  opts: ApprovalListOptions = {},
+  rules?: DecisionRules
+) {
+  return (await listApprovalPage(actor, opts, rules)).approvals;
+}
+
+export type ApprovalViewer = { id: string | null; permissions: readonly string[]; role?: string };
+
+export type ApprovalListOptions = {
+  status?: string;
+  limit?: number;
+  offset?: number;
+  /** One approval type (validated). */
+  type?: string;
+  /** One request (the inbox's ?id= deep link). */
+  id?: string;
+  /** The requests about one record (an entity screen's "who approves this"). */
+  entityId?: string;
+  /** Name who can decide each pending request even when the caller can decide it too. */
+  withApprovers?: boolean;
+};
+
+/**
+ * Who may decide, as the decision itself will judge it (recordDecision here, then the
+ * module's handler) — so the inbox never offers a button that is certain to be refused.
+ */
+export type DecisionRules = {
+  /** The approvals.require_different_approver setting. */
+  requireDifferentApprover: boolean;
+  /** The users a module refuses as the decider of each entity, beyond the engine's own rule
+   * (lib/core/approval-handlers.ts `ineligible`); null for an entity nobody can decide as it
+   * stands. Returns null for a type with no such rule. */
+  ineligible?: (type: ApprovalType, rows: { entityId: string; requestedById: string | null }[], db: Tx) => Promise<Map<string, string[] | null> | null>;
+};
+
+/** Why the caller cannot decide a pending request (the screen says so instead of offering a button). */
+export type DecisionBlock = "no_permission" | "already_decided" | "own_request" | "prepared_or_submitted" | "no_decider";
+
+/** Active users with their effective permissions — ONE query, then every type's holders in memory. */
+async function activeHolders(db: Tx): Promise<{ id: string; name: string; perms: Set<Permission> }[]> {
+  const users = await db.user.findMany({
+    where: { active: true },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, role: true, permissionOverrides: { select: { effect: true, permission: { select: { key: true } } } } },
+  });
+  return users.map((u) => ({ id: u.id, name: u.name, perms: applyOverrides(u.role as Role, u.permissionOverrides) }));
+}
+
+/**
+ * listApprovals with paging: the window of rows plus the number that match. Each pending row
+ * says whether the caller may decide it, and if not why (`blocked`), and — when the caller
+ * cannot decide it, or asks — who can (`approvers`: names of active holders of the type's
+ * permission, minus whoever the rules exclude). Statements: the page (2), its count only when
+ * the page may not be all, one users query only when a pending row needs names, and one per
+ * module rule that reads its record (opening batches, payroll) — never one per row.
+ */
+export async function listApprovalPage(
+  actor: ApprovalViewer,
+  opts: ApprovalListOptions = {},
+  rules: DecisionRules = { requireDifferentApprover: true },
+  db: Tx = prisma
 ) {
   const decidable = (Object.keys(APPROVAL_TYPES) as ApprovalType[]).filter((t) =>
     actor.permissions.includes(APPROVAL_TYPES[t].approvePermission)
   );
   const status = opts.status && ["pending", "approved", "rejected", "cancelled"].includes(opts.status) ? opts.status : undefined;
-  const rows = await prisma.approvalRequest.findMany({
-    where: {
-      ...(status ? { status } : {}),
-      OR: [{ type: { in: decidable } }, ...(actor.id ? [{ requestedById: actor.id }] : [])],
-    },
-    orderBy: [{ createdAt: "desc" }],
-    take: Math.min(Math.max(opts.limit ?? 50, 1), 200),
+  if (opts.type !== undefined && !isApprovalType(opts.type)) throw new ApiError(400, "نوع موافقة غير معروف");
+  const where: Prisma.ApprovalRequestWhereInput = {
+    ...(status ? { status } : {}),
+    ...(opts.type ? { type: opts.type } : {}),
+    ...(opts.id ? { id: opts.id } : {}),
+    ...(opts.entityId ? { entityId: opts.entityId } : {}),
+    OR: [{ type: { in: decidable } }, ...(actor.id ? [{ requestedById: actor.id }] : [])],
+  };
+  const take = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+  const skip = Math.max(0, Math.floor(Number(opts.offset) || 0));
+  const rows = await db.approvalRequest.findMany({
+    where,
+    // The id breaks ties so paging never repeats or skips a row.
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take,
+    skip,
     include: { decisions: { orderBy: { level: "asc" } } },
   });
-  return rows.map((r) => ({
-    ...r,
-    label: isApprovalType(r.type) ? APPROVAL_TYPES[r.type].label : r.type,
-    link: isApprovalType(r.type) ? APPROVAL_TYPES[r.type].link(r.entityId) : null,
-    canDecide: r.status === "pending" && decidable.includes(r.type as ApprovalType),
-  }));
+  const total = skip === 0 && rows.length < take ? rows.length : await db.approvalRequest.count({ where });
+
+  const pending = rows.filter((r) => r.status === "pending" && isApprovalType(r.type));
+  const moduleRules = new Map<string, Map<string, string[] | null>>();
+  if (rules.ineligible) {
+    for (const type of new Set(pending.map((r) => r.type as ApprovalType))) {
+      const found = await rules.ineligible(type, pending.filter((r) => r.type === type).map((r) => ({ entityId: r.entityId, requestedById: r.requestedById })), db);
+      if (found) moduleRules.set(type, found);
+    }
+  }
+  const ownRequest = (r: { requestedById: string | null }) => !!actor.id && r.requestedById === actor.id;
+  const decidedBy = (r: (typeof rows)[number], userId: string | null) => !!userId && r.decisions.some((d) => d.deciderId === userId);
+  const refusedFor = (r: (typeof rows)[number]) => moduleRules.get(r.type)?.get(r.entityId);
+  // Names are read only when some pending row is not the caller's to decide (or is their own,
+  // where the emergency path depends on who else holds the permission).
+  const needsNames = pending.some((r) => {
+    const refused = refusedFor(r);
+    return opts.withApprovers || ownRequest(r) || !decidable.includes(r.type as ApprovalType) || decidedBy(r, actor.id) || refused === null || (!!actor.id && !!refused?.includes(actor.id));
+  });
+  const holders = needsNames ? await activeHolders(db) : [];
+
+  const judge = (r: (typeof rows)[number]): { canDecide: boolean; emergency: boolean; blocked: DecisionBlock | null } => {
+    if (r.status !== "pending" || !isApprovalType(r.type)) return { canDecide: false, emergency: false, blocked: null };
+    const block = (blocked: DecisionBlock) => ({ canDecide: false, emergency: false, blocked });
+    if (!decidable.includes(r.type)) return block("no_permission");
+    if (decidedBy(r, actor.id)) return block("already_decided");
+    const refused = refusedFor(r);
+    if (refused === null) return block("no_decider");
+    if (actor.id && refused?.includes(actor.id)) return block(ownRequest(r) ? "own_request" : "prepared_or_submitted");
+    if (rules.requireDifferentApprover && ownRequest(r)) {
+      // recordDecision's emergency path: a SUPER_ADMIN whom no other active user can replace
+      // may approve (never reject) their own request, with a written reason.
+      const permission = APPROVAL_TYPES[r.type as ApprovalType].approvePermission;
+      const others = holders.filter((u) => u.id !== actor.id && u.perms.has(permission));
+      return actor.role === "SUPER_ADMIN" && others.length === 0 ? { canDecide: true, emergency: true, blocked: null } : block("own_request");
+    }
+    return { canDecide: true, emergency: false, blocked: null };
+  };
+  const approversOf = (r: (typeof rows)[number]) => {
+    const refused = refusedFor(r);
+    if (refused === null) return [];
+    const permission = APPROVAL_TYPES[r.type as ApprovalType].approvePermission;
+    return holders
+      .filter((u) => u.perms.has(permission) && u.id !== actor.id && !(rules.requireDifferentApprover && u.id === r.requestedById) && !refused?.includes(u.id) && !decidedBy(r, u.id))
+      .map((u) => u.name);
+  };
+
+  const approvals = rows.map((r) => {
+    const verdict = judge(r);
+    const named = r.status === "pending" && isApprovalType(r.type) && (opts.withApprovers || !verdict.canDecide || verdict.emergency);
+    return {
+      ...r,
+      label: isApprovalType(r.type) ? APPROVAL_TYPES[r.type].label : r.type,
+      link: isApprovalType(r.type) ? APPROVAL_TYPES[r.type].link(r.entityId) : null,
+      approvePermission: isApprovalType(r.type) ? APPROVAL_TYPES[r.type].approvePermission : null,
+      ownRequest: ownRequest(r),
+      ...verdict,
+      ...(named ? { approvers: approversOf(r) } : {}),
+    };
+  });
+  return { approvals, total };
 }
 
 export type Decider = Requester & { permissions: readonly string[] };
