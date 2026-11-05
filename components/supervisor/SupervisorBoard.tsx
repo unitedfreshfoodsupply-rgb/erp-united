@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
@@ -23,6 +23,7 @@ import { useOperationalSettings } from "@/lib/use-operational-settings";
 import { Search } from "lucide-react";
 import { useLocale } from "@/lib/locale";
 import { SkeletonLine } from "@/components/Skeleton";
+import { useDialogs } from "@/components/ui/Dialog";
 
 type QuickFilter = "all" | "attention" | "waiting" | "stalled" | "cancelled";
 
@@ -62,6 +63,13 @@ export function SupervisorBoard() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<(typeof SORT_KEYS)[number]["key"]>("priority");
   const [showCreate, setShowCreate] = useState(false);
+  // The manual order form reports whether it holds typed lines; closing it then asks first.
+  const createDirty = useRef(false);
+  const dialogs = useDialogs();
+  async function toggleCreate() {
+    if (showCreate && createDirty.current && !(await dialogs.confirm({ title: t("create.discard-title"), body: t("create.discard-body"), confirmLabel: t("create.discard-confirm"), cancelLabel: t("create.discard-keep"), tone: "danger" }))) return;
+    setShowCreate((s) => !s);
+  }
 
   const { data, isLoading, isError, error, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["orders", "supervisor"],
@@ -128,7 +136,7 @@ export function SupervisorBoard() {
           <Link href="/supervisor/audit" className="btn-ghost btn-sm">
             {t("supervisor.btn.audit-log")}
           </Link>
-          <button onClick={() => setShowCreate((s) => !s)} className="btn-primary btn-sm">
+          <button onClick={toggleCreate} className="btn-primary btn-sm">
             {showCreate ? t("supervisor.btn.cancel") : t("supervisor.btn.manual-order")}
           </button>
         </div>
@@ -163,7 +171,7 @@ export function SupervisorBoard() {
 
       {showCreate && (
         <div className="mt-4">
-          <CreateOrderForm onDone={() => setShowCreate(false)} />
+          <CreateOrderForm onDone={() => setShowCreate(false)} onDirtyChange={(d) => { createDirty.current = d; }} />
         </div>
       )}
 

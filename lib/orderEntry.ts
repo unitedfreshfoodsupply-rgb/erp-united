@@ -48,6 +48,15 @@ export function linePricingPayload(
   };
 }
 
+/**
+ * The line's pricing is built on the list price: a discount typed without a price. Such a line
+ * is never sent while that list price is still loading or failed to load — it would go without
+ * any pricing and the server would charge the full list price, dropping the discount.
+ */
+export function lineNeedsListPrice(line: Pick<EntryLine, "unit_price" | "discount_pct">): boolean {
+  return line.unit_price.trim() === "" && hasTypedDiscount(line);
+}
+
 /** A product was chosen but no positive quantity typed: refused, never silently dropped. */
 export function lineMissingQuantity(line: Pick<EntryLine, "stock_product_id" | "quantity">): boolean {
   return line.stock_product_id !== "" && !(Number(line.quantity) > 0);

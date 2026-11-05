@@ -4,7 +4,7 @@
    refused rather than dropped. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hasTypedDiscount, lineMissingQuantity, linePriceDiffers, linePricingPayload } from "../../lib/orderEntry";
+import { hasTypedDiscount, lineMissingQuantity, lineNeedsListPrice, linePriceDiffers, linePricingPayload } from "../../lib/orderEntry";
 
 const line = (unit_price: string, discount_pct: string) => ({ unit_price, discount_pct });
 
@@ -58,4 +58,12 @@ test("a product with no positive quantity is a missing quantity; an empty line i
   assert.equal(lineMissingQuantity({ stock_product_id: "p1", quantity: "abc" }), true);
   assert.equal(lineMissingQuantity({ stock_product_id: "p1", quantity: "0.5" }), false);
   assert.equal(lineMissingQuantity({ stock_product_id: "", quantity: "" }), false);
+});
+
+test("a discount typed without a price needs the list price before the line can be sent", () => {
+  assert.equal(lineNeedsListPrice(line("", "10")), true);
+  assert.equal(lineNeedsListPrice(line(" ", "10")), true);
+  assert.equal(lineNeedsListPrice(line("11", "10")), false, "a typed price carries the discount itself");
+  assert.equal(lineNeedsListPrice(line("", "")), false, "no discount: the server applies the list price");
+  assert.equal(lineNeedsListPrice(line("", "0")), false);
 });
