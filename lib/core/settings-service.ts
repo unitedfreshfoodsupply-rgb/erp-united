@@ -28,9 +28,15 @@ import {
 
 const CACHE_TTL_MS = 10_000;
 let cache: { at: number; values: Map<SettingKey, unknown> } | null = null;
+// What a transaction read on a miss, for the rest of that transaction (Nov 2026): a long
+// posting transaction asked for the lock date and other settings many times, one query each
+// once the shared cache had expired. A write (updateSetting, invalidateSettingsCache) drops it.
+let generation = 0;
+const perTx = new WeakMap<object, { generation: number; values: Map<SettingKey, unknown> }>();
 
 function invalidate() {
   cache = null;
+  generation++;
 }
 
 /** Drops the in-process cache, so the next read sees the database. Writes through
@@ -45,12 +51,14 @@ export function invalidateSettingsCache() {
  * Nov 2026). The pool may hold a single connection (Supavisor, connection_limit=1), which the
  * open transaction already has: read through the global client, the miss waited for a second
  * connection until the pool timeout and failed the transaction — the load test hit it on
- * receipts. Read through the transaction it is one more query; the result is not shared, since
- * it may include the transaction's own uncommitted writes.
+ * receipts. Read through the transaction it is one more query; the result is kept for that
+ * transaction only (perTx), since it may include the transaction's own uncommitted writes.
  */
 async function loadAll(): Promise<Map<SettingKey, unknown>> {
   if (cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.values;
   const tx = currentTx();
+  const memo = tx ? perTx.get(tx) : undefined;
+  if (memo && memo.generation === generation) return memo.values;
   const rows = await (tx ?? prisma).systemSetting.findMany();
   const values = new Map<SettingKey, unknown>();
   for (const key of SETTING_KEYS) values.set(key, SETTING_DEFS[key].default);
@@ -65,6 +73,7 @@ async function loadAll(): Promise<Map<SettingKey, unknown>> {
     }
   }
   if (!tx) cache = { at: Date.now(), values };
+  else perTx.set(tx, { generation, values });
   return values;
 }
 
@@ -176,6 +185,8 @@ export async function updateSetting(
         data: { key, value: value as never, version: 1, updatedById: actor.id, updatedBy: actor.name },
       });
     }
+    // A read later in this transaction sees the new value.
+    perTx.delete(tx);
 
     await writeAudit(
       {
