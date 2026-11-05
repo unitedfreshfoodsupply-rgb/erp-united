@@ -139,3 +139,20 @@ test("multi-page invoice: every line is kept, numbered and formatted the same wa
   assert.equal(d.lines.length, 120);
   assert.deepEqual([d.lines[0].no, d.lines[119].no, d.lines[119].unitPrice, d.lines[119].qty], [1, 120, "7.0732", "20.5"]);
 });
+
+test("credit notes: printed with their amount; a credited, unpaid invoice never prints as paid (LOG-9)", () => {
+  const cn = (number: string, total: string) => ({ number, issueDate: "2026-10-20", total });
+  // Fully credited, nothing received: the open amount is 0 because of the credit note, not money.
+  const full = invoiceDocument({ ...base, invoice: { ...base.invoice, paid: "0", open: "0", payments: [], credited: "658", creditNotes: [cn("CN-2026-00003", "658")] } });
+  assert.deepEqual([full.payment.status, full.payment.paidInFull, full.payment.balance, full.payment.paid, full.payment.credited], ["مخصومة بالكامل بإشعار دائن", false, "0.00", "0.00", "658.00"]);
+  assert.deepEqual(full.payment.creditNotes, [{ number: "CN-2026-00003", date: "2026-10-20", amount: "658.00" }]);
+  assert.equal(invoiceDocument({ ...base, lang: "en", invoice: { ...base.invoice, paid: "0", open: "0", payments: [], credited: "658", creditNotes: [] } }).payment.status, "Credited in full");
+  // Partly credited, partly paid: the balance is total − credit notes − paid, and both show.
+  const part = invoiceDocument({ ...base, lang: "en", invoice: { ...base.invoice, paid: "200", open: "358", credited: "100", creditNotes: [cn("CN-1", "100")] } });
+  assert.deepEqual([part.payment.status, part.payment.credited, part.payment.balance, part.payment.paidInFull], ["Partly paid", "100.00", "358.00", false]);
+  // Credited in part and the rest paid: settled, paid in full.
+  const rest = invoiceDocument({ ...base, lang: "en", invoice: { ...base.invoice, paid: "558", open: "0", credited: "100", creditNotes: [cn("CN-1", "100")] } });
+  assert.deepEqual([rest.payment.status, rest.payment.paidInFull], ["Settled", true]);
+  // No credit notes: no row (and every label has its English counterpart, checked above).
+  assert.deepEqual([invoiceDocument(base).payment.credited, invoiceDocument(base).payment.creditNotes], [null, []]);
+});

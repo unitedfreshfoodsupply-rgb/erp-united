@@ -144,8 +144,12 @@ export default async function InvoicePrint({ params, searchParams }: { params: {
             <div className="text-[11px] font-bold uppercase text-united-green mb-1">{L.payment}</div>
             {d.payment.terms && <Row k={L.terms} v={d.payment.terms} />}
             {d.payment.status && <Row k={L.status} v={d.payment.status} />}
+            {d.payment.credited && <Row k={L.creditNotes} v={`− ${d.payment.credited}`} />}
             <Row k={L.paid} v={d.payment.paid} />
             {d.payment.balance !== null && <Row k={L.balance} v={d.payment.paidInFull ? L.paidInFull : d.payment.balance} strong />}
+            {d.payment.creditNotes.length > 0 && (
+              <div className="text-[11px] text-united-dark/60 mt-1" dir="ltr" data-testid="credit-notes">{d.payment.creditNotes.map((c) => `${c.number} · ${c.date} · ${c.amount}`).join("  |  ")}</div>
+            )}
             {d.payment.receipts.length > 0 && (
               <div className="text-[11px] text-united-dark/60 mt-1" dir="ltr">{d.payment.receipts.map((r) => `${r.number} · ${r.date} · ${r.amount}`).join("  |  ")}</div>
             )}

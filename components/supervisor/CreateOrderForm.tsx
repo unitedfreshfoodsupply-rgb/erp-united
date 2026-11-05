@@ -2,7 +2,7 @@
 
 import { ErrorState } from "@/components/States";
 import { unitLabel } from "@/lib/format";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,7 +16,7 @@ import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { formatNumber } from "@/lib/format";
 import { Field } from "@/components/ui/Field";
-import { lineMissingQuantity, linePriceDiffers, linePricingPayload } from "@/lib/orderEntry";
+import { lineMissingQuantity, lineNeedsListPrice, linePriceDiffers, linePricingPayload } from "@/lib/orderEntry";
 
 /**
  * Order entry (remediation 2026-11). Each line shows what can be promised now — the
@@ -44,12 +44,15 @@ type EntryProduct = {
 };
 type Shortfall = { line: number; productName: string; unit: string; requested: string; available: string; reason: string };
 
+/** (product, unit) pairs per price call — the endpoint's own limit. */
+const PRICE_CHUNK = 100;
+
 let nextKey = 1;
 const emptyRow = (): Row => ({ key: nextKey++, stock_product_id: "", quantity: "", unit: "", unit_price: "", discount_pct: "", search: "" });
 const fmt = (n: number, dp = 3) => (Number.isFinite(n) ? String(Math.round(n * 10 ** dp) / 10 ** dp) : "—");
 const money = (n: number) => (Number.isFinite(n) ? formatNumber(n, { minDp: 2, maxDp: 2 }) : "—");
 
-export function CreateOrderForm({ onDone }: { onDone: () => void }) {
+export function CreateOrderForm({ onDone, onDirtyChange }: { onDone: () => void; /** True once a line has a product: the host asks before discarding it. */ onDirtyChange?: (dirty: boolean) => void }) {
   const qc = useQueryClient();
   const router = useRouter();
   const toast = useToast();
@@ -83,27 +86,51 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
   const [rows, setRows] = useState<Row[]>([emptyRow()]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Rows whose purchase request is being raised (a double tap must not raise two).
+  // The ref is the guard (checked and set before the await, so two taps in one frame
+  // cannot both pass); the state only drives the disabled button.
+  const [prBusy, setPrBusy] = useState<Set<number>>(() => new Set());
+  const prInFlight = useRef<Set<number>>(new Set());
+
+  const dirty = rows.some((r) => r.stock_product_id !== "");
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  /** A refusal before anything is sent: the banner sits at the top of a long form, so it is
+   * also said where the user is (UXO-12). */
+  function refuse(msg: string) {
+    setError(msg);
+    toast.show(msg, "error");
+  }
 
   const products = useMemo(() => catalog.data?.products ?? [], [catalog.data]);
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   const precisionOf = (unit: string) => catalog.data?.precision?.[unit] ?? 3;
 
-  // List prices for each (product, unit) on the delivery date for the chosen customer.
-  const priceKeys = [...new Set(rows.filter((r) => r.stock_product_id && r.unit).map((r) => `${r.stock_product_id}|${r.unit}`))];
+  // List prices for every (product, unit) on the delivery date for the chosen customer, in one
+  // call (it used to be one call per line, again for every line each time a line was added).
+  // While a new line's price loads, every price already on screen stays — but never one read
+  // for another customer or date. Kept outside the ["orders"] keys: an order refresh elsewhere
+  // does not re-ask it.
+  const priceKeys = useMemo(() => [...new Set(rows.filter((r) => r.stock_product_id && r.unit).map((r) => `${r.stock_product_id}|${r.unit}`))].sort(), [rows]);
+  const priceCtx = `${accountId}|${date}`;
   const prices = useQuery({
-    queryKey: ["orders", "entry-prices", accountId, date, priceKeys.join(",")],
-    queryFn: async () => {
+    queryKey: ["entry-prices", accountId, date, priceKeys.join(",")],
+    queryFn: async ({ signal }) => {
       const out: Record<string, string | null> = {};
-      for (const k of priceKeys) {
-        const [productId, unit] = k.split("|");
-        const r = await apiFetch<{ unitPrice: string | null }>(`/api/orders/entry/price?product_id=${encodeURIComponent(productId)}&unit=${encodeURIComponent(unit)}&date=${date}${accountId ? `&customer_id=${encodeURIComponent(accountId)}` : ""}`);
-        out[k] = r.unitPrice;
+      for (let i = 0; i < priceKeys.length; i += PRICE_CHUNK) {
+        const items = encodeURIComponent(priceKeys.slice(i, i + PRICE_CHUNK).join(","));
+        const r = await apiFetch<{ prices: Record<string, string | null> }>(`/api/orders/entry/price?items=${items}&date=${date}${accountId ? `&customer_id=${encodeURIComponent(accountId)}` : ""}`, { signal });
+        Object.assign(out, r.prices);
       }
-      return out;
+      return { ctx: priceCtx, prices: out };
     },
     enabled: priceKeys.length > 0,
     staleTime: 30_000,
+    placeholderData: (prev) => (prev?.ctx === priceCtx ? prev : undefined),
   });
+  const priceMap = useMemo(() => (prices.data?.ctx === priceCtx ? prices.data.prices : {}), [prices.data, priceCtx]);
 
   function factor(p: EntryProduct | undefined, unit: string): number | null {
     if (!p) return null;
@@ -128,22 +155,32 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
       if (p && Number.isFinite(base) && base > 0) used.set(p.id, (used.get(p.id) ?? 0) + base);
       const leftInUnit = left !== null && f ? left / f : null;
       const short = left !== null && Number.isFinite(base) && base > left + 1e-9;
-      const listPrice = prices.data?.[`${r.stock_product_id}|${r.unit}`] ?? null;
+      // undefined: not known yet (loading, or the price call failed); null: no list price.
+      const priceKey = `${r.stock_product_id}|${r.unit}`;
+      const priceKnown = !r.stock_product_id || !r.unit || priceKey in priceMap;
+      const listPrice = priceKnown ? priceMap[priceKey] ?? null : null;
       const price = r.unit_price !== "" ? Number(r.unit_price) : listPrice !== null ? Number(listPrice) : NaN;
       const disc = r.discount_pct !== "" ? Number(r.discount_pct) : 0;
       const total = Number.isFinite(price) && Number.isFinite(q) ? q * price * (1 - disc / 100) : NaN;
       // A typed discount differs from the list too (list prices carry none): the reason
       // field must appear for it, or the server refuses a reason the user cannot type.
       const priceChanged = linePriceDiffers(r, listPrice);
-      return { p, q, prec, precisionOk, short, leftInUnit, listPrice, price, total, priceChanged, unitKnown: f !== null };
+      return { p, q, prec, precisionOk, short, leftInUnit, listPrice, priceKnown, price, total, priceChanged, unitKnown: f !== null };
     });
-  }, [rows, byId, prices.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rows, byId, priceMap]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const anyShort = lines.some((l) => l.short);
   const anyBadPrecision = lines.some((l) => !l.precisionOk);
   const needsReason = lines.some((l) => l.priceChanged) && !priceReason.trim();
   const orderTotal = lines.reduce((a, l) => (Number.isFinite(l.total) ? a + l.total : a), 0);
   const anyUnpriced = rows.some((r, i) => r.stock_product_id && !Number.isFinite(lines[i].price));
+  // Saving waits for the list prices: a discount typed on its own is sent against the list
+  // price shown, and the reason field depends on it too. A failed price call does not block
+  // saving (the server prices the lines) — except a discount-only line, refused in submit.
+  const pricesLoading = !prices.isError && lines.some((l) => !l.priceKnown);
+  // A short line already covered by a purchase request raised here: saving "awaiting stock"
+  // would raise a second one for the same shortage (LOG-4).
+  const prCovered = rows.find((r, i) => r.prNumber && (lines[i].short || r.serverIssue));
 
   function updateRow(i: number, patch: Partial<Row>) {
     setServerShort(false);
@@ -153,13 +190,16 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
   async function requestPurchase(i: number) {
     const r = rows[i];
     const l = lines[i];
+    if (prInFlight.current.has(r.key) || r.prNumber) return;
     if (!accountId) {
-      setError(t("create.pr-needs-customer"));
+      refuse(t("create.pr-needs-customer"));
       return;
     }
     const missing = l.leftInUnit !== null ? l.q - l.leftInUnit : l.q;
     const prec = l.prec;
     const qtyToBuy = Math.ceil(missing * 10 ** prec - 1e-9) / 10 ** prec;
+    prInFlight.current.add(r.key);
+    setPrBusy((cur) => new Set(cur).add(r.key));
     try {
       const { request } = await apiPost<{ request: { number: string } }>("/api/purchasing/requests", {
         product_id: r.stock_product_id,
@@ -170,10 +210,19 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
         // The customer's PO number is the reference purchasing sees (it used to be the notes).
         customer_reference: poRef.trim() || undefined,
       });
-      updateRow(i, { prNumber: request.number });
+      // By row key, not index: a row removed meanwhile must not shift the number onto another.
+      setServerShort(false);
+      setRows((cur) => cur.map((row) => (row.key === r.key ? { ...row, prNumber: request.number, serverIssue: undefined, missingQty: undefined } : row)));
       toast.show(t("create.pr-created", { number: request.number }), "success");
     } catch (err) {
       toast.show(err instanceof ApiClientError ? err.message : t("create.error-generic"), "error");
+    } finally {
+      prInFlight.current.delete(r.key);
+      setPrBusy((cur) => {
+        const next = new Set(cur);
+        next.delete(r.key);
+        return next;
+      });
     }
   }
 
@@ -192,16 +241,19 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
     // word: refuse it and mark the line instead.
     if (rows.some(lineMissingQuantity)) {
       setRows((cur) => cur.map((row) => (lineMissingQuantity(row) ? { ...row, missingQty: true } : row)));
-      return setError(t("create.error-invalid"));
+      return refuse(t("create.error-invalid"));
     }
     const picked = rows.map((r, i) => ({ r, l: lines[i] })).filter(({ r }) => r.stock_product_id && Number(r.quantity) > 0);
     if (!accountId || !date || picked.length === 0 || picked.some(({ r }) => !r.unit)) {
-      setError(t("create.error-invalid"));
-      return;
+      return refuse(t("create.error-invalid"));
     }
-    if (anyBadPrecision) return setError(t("create.error-precision"));
-    if (anyShort && !allowShortage) return setError(t("create.error-short"));
-    if (needsReason) return setError(t("create.error-price-reason"));
+    if (anyBadPrecision) return refuse(t("create.error-precision"));
+    if (anyShort && !allowShortage) return refuse(t("create.error-short"));
+    if (allowShortage && prCovered) return refuse(t("create.pr-covers-shortage", { number: prCovered.prNumber! }));
+    if (pricesLoading) return refuse(t("create.error-prices-loading"));
+    // A discount typed without a price goes against the list price — never without it.
+    if (canPrice && picked.some(({ r, l }) => lineNeedsListPrice(r) && !l.priceKnown)) return refuse(t("create.error-price-unknown"));
+    if (needsReason) return refuse(t("create.error-price-reason"));
     setBusy(true);
     try {
       const { order } = await apiPost<{ order: OrderDTO }>("/api/orders", {
@@ -358,7 +410,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
                       <input
                         type="number" min={0} step="0.01" inputMode="decimal" dir="ltr"
                         className="field w-28"
-                        placeholder={l.listPrice ?? "0.00"}
+                        placeholder={l.priceKnown ? l.listPrice ?? "0.00" : "…"}
                         value={row.unit_price}
                         onChange={(e) => updateRow(i, { unit_price: e.target.value })}
                         aria-label={t("create.unit-price", { unit: unitLabel(row.unit, locale) })}
@@ -371,10 +423,10 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
                         onChange={(e) => updateRow(i, { discount_pct: e.target.value })}
                         aria-label={t("create.discount")}
                       />
-                      {l.listPrice === null && <span className="text-xs text-united-muted">{t("create.no-list-price")}</span>}
+                      {l.priceKnown && l.listPrice === null && <span className="text-xs text-united-muted">{t("create.no-list-price")}</span>}
                     </>
                   ) : (
-                    <span className="font-bold" dir="ltr">{l.listPrice ?? t("create.no-list-price")}</span>
+                    <span className="font-bold" dir="ltr">{!l.priceKnown ? "…" : l.listPrice ?? t("create.no-list-price")}</span>
                   )}
                   <span className="ms-auto font-extrabold" dir="ltr">{Number.isFinite(l.total) ? money(l.total) : "—"}</span>
                 </div>
@@ -393,7 +445,7 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
                       <button type="button" className="btn-secondary text-sm" onClick={() => keepAvailable(i)}>{t("create.keep-available")}</button>
                     )}
                     {canRequest && !row.prNumber && (
-                      <button type="button" className="btn-secondary text-sm" onClick={() => requestPurchase(i)}>{t("create.request-purchase")}</button>
+                      <button type="button" className="btn-secondary text-sm" disabled={prBusy.has(row.key)} onClick={() => requestPurchase(i)}>{t("create.request-purchase")}</button>
                     )}
                     {row.prNumber && <span className="text-united-green font-bold">{t("create.pr-linked", { number: row.prNumber })}</span>}
                   </div>
@@ -411,17 +463,22 @@ export function CreateOrderForm({ onDone }: { onDone: () => void }) {
         <Field label={t("create.price-reason")}><input className="field" value={priceReason} onChange={(e) => setPriceReason(e.target.value)} /></Field>
       )}
       <div className="flex items-center justify-between border-t border-united-border pt-3">
-        <span className="text-united-muted">{t("create.total-before-tax")}{anyUnpriced ? ` ${t("create.some-unpriced")}` : ""}</span>
+        <span className="text-united-muted">{t("create.total-before-tax")}{pricesLoading ? ` ${t("create.prices-loading")}` : anyUnpriced ? ` ${t("create.some-unpriced")}` : ""}</span>
         <span className="text-xl font-extrabold" dir="ltr">{money(orderTotal)}</span>
       </div>
+      {prices.isError && <ErrorState message={errorMessage(prices.error)} onRetry={() => prices.refetch()} />}
 
-      <button disabled={busy || anyShort || anyBadPrecision} className="btn-primary text-lg">
+      <button disabled={busy || anyShort || anyBadPrecision || pricesLoading} className="btn-primary text-lg">
         {t("create.save-btn")}
       </button>
       {(anyShort || serverShort) && !anyBadPrecision && (
         <div className="flex flex-col gap-2 rounded-xl border border-[#F3D9AE] bg-[#FFFBF3] p-3">
-          <p className="text-sm text-united-warn">{t("create.awaiting-explain")}</p>
-          <button type="button" disabled={busy} onClick={() => submit(null, true)} className="btn-secondary text-lg">
+          {prCovered ? (
+            <p className="text-sm font-bold text-united-warn" role="status">{t("create.pr-covers-shortage", { number: prCovered.prNumber! })}</p>
+          ) : (
+            <p className="text-sm text-united-warn">{t("create.awaiting-explain")}</p>
+          )}
+          <button type="button" disabled={busy || pricesLoading || !!prCovered} onClick={() => submit(null, true)} className="btn-secondary text-lg">
             {t("create.save-awaiting")}
           </button>
         </div>

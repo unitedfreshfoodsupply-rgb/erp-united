@@ -3429,6 +3429,16 @@
       }
     },
     {
+      "method": "GET",
+      "path": "/api/orders/[id]/actions",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "orders.edit"
+        ]
+      }
+    },
+    {
       "method": "POST",
       "path": "/api/orders/[id]/approve",
       "gate": {

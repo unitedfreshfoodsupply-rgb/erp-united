@@ -8,11 +8,16 @@ export function ReasonAction({
   label,
   confirmLabel,
   className,
+  disabled,
+  describedBy,
   onConfirm,
 }: {
   label: string;
   confirmLabel?: string;
   className?: string;
+  /** Not possible now: the button shows, disabled, and `describedBy` names the text saying why. */
+  disabled?: boolean;
+  describedBy?: string;
   /** Resolve false (or reject) when the action was refused: the prompt then stays open
    *  with the reason still typed, so the user can correct and retry. */
   onConfirm: (reason: string) => Promise<boolean | void>;
@@ -23,10 +28,16 @@ export function ReasonAction({
   const [busy, setBusy] = useState(false);
 
   if (!open) {
+    // aria-disabled, not disabled: a disabled button leaves the tab order and its reason
+    // (describedBy) would never be announced; this one stays focusable and does nothing.
     return (
       <button
-        onClick={() => setOpen(true)}
-        className={className ?? "px-4 py-2 rounded-xl bg-united-dark/10 font-bold text-sm"}
+        onClick={() => {
+          if (!disabled) setOpen(true);
+        }}
+        aria-disabled={disabled || undefined}
+        aria-describedby={describedBy}
+        className={`${className ?? "px-4 py-2 rounded-xl bg-united-dark/10 font-bold text-sm"}${disabled ? " opacity-45 cursor-not-allowed" : ""}`}
       >
         {label}
       </button>
@@ -62,8 +73,9 @@ export function ReasonAction({
         >
           {confirmLabel ?? t("ui.confirm")}
         </button>
+        {/* "رجوع", not "إلغاء": in a prompt that cancels something, "إلغاء" read as the confirm. */}
         <button onClick={() => setOpen(false)} className="btn-secondary">
-          {t("ui.cancel")}
+          {t("ui.back")}
         </button>
       </div>
     </div>

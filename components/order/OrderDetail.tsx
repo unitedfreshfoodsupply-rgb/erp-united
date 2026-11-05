@@ -38,6 +38,18 @@ import { OrderStepper } from "@/components/order/OrderStepper";
 import { Field } from "@/components/ui/Field";
 import { StockHoldPanel } from "@/components/order/StockHoldPanel";
 import { OrderInvoices } from "@/components/order/OrderInvoices";
+import { DocLink } from "@/components/profiles/EntityLink";
+import { href as profileHref } from "@/lib/profiles/links";
+import type { OrderActionState } from "@/lib/orderActions";
+
+type CustomerCards = { customers: { id: string; code: string; name: string; nameAr: string | null; active: boolean }[] };
+const customerCardsQuery = {
+  queryKey: ["sales", "customers", "", true],
+  queryFn: () => apiFetch<CustomerCards>("/api/sales/customers?q=&include_inactive=1"),
+  staleTime: 60_000,
+};
+/** Cancel and reopen as the server sees them now (GET /api/orders/[id]/actions). */
+type OrderActions = { orderId: string; version: number; cancel: OrderActionState; reopen: OrderActionState };
 
 // Map order source → translation key
 const SOURCE_TKEY: Record<string, string> = {
@@ -92,11 +104,22 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     ...(seeded ? { initialData: { order: seeded }, initialDataUpdatedAt: 0 } : {}),
   });
   const order = data?.order;
-  const customerCards = useQuery({
-    queryKey: ["sales", "customers", "", true],
-    queryFn: () => apiFetch<{ customers: { id: string; code: string; name: string; nameAr: string | null; active: boolean }[] }>("/api/sales/customers?q=&include_inactive=1"),
-    enabled: can("sales.customers.view"),
-    staleTime: 60_000,
+  // The customer directory feeds only the edit form's select: loaded when the form opens
+  // (and prefetched by the Edit button), not on every visit to the order.
+  const customerCards = useQuery({ ...customerCardsQuery, enabled: editing && can("sales.customers.view") });
+  // Cancel / reopen, with the server's reason and the way out when one is not possible. Read
+  // again when the order changes (its version) or the screen regains focus — not on the 5 s
+  // poll. Until the first answer, the two buttons wait (disabled); after a version change the
+  // last answer for this order stays on screen while the new one loads (no flicker). If it
+  // fails they fall back to asking the server on submit, as before. A dispatched order is
+  // also re-read every minute: an invoice or credit note issued elsewhere does not change
+  // the order's version, and that is what decides reopen there.
+  const actions = useQuery({
+    queryKey: ["order", orderId, "actions", order?.version],
+    queryFn: () => apiFetch<OrderActions>(`/api/orders/${orderId}/actions`),
+    enabled: !!order && can("orders.edit"),
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === orderId ? prev : undefined),
+    refetchInterval: order?.status === "dispatched" ? 60_000 : false,
   });
 
   /**
@@ -174,8 +197,20 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const allPrepared = preparedCount === order.items.length;
   const allLoaded = loadedCount === order.items.length;
   const showLoadProgress = ["loading", "loaded", "dispatched"].includes(order.status);
+  // Offered from the order's status alone; possible or not (and why) from the server.
+  const cancelOffered = order.status !== "cancelled";
+  const reopenOffered = order.status === "cancelled" || order.status === "loaded" || order.status === "dispatched";
+  const cancelState = actions.data?.cancel ?? null;
+  const reopenState = actions.data?.reopen ?? null;
+  // A dispatched order is cancelled by reopening it first. When reopen is not possible
+  // either, its note says what to do instead (delivery result, credit note), so Cancel
+  // points at that note rather than showing "reopen first" right above "cannot reopen".
+  const cancelViaReopen = order.status === "dispatched" && !!cancelState && !cancelState.ok && reopenOffered && !!reopenState && !reopenState.ok;
+  const cancelNoteShown = cancelOffered && !!cancelState && !cancelState.ok && !cancelViaReopen;
+  const reopenNoteShown = reopenOffered && !!reopenState && !reopenState.ok;
 
   function startEditing() {
+    if (can("sales.customers.view")) void qc.prefetchQuery(customerCardsQuery);
     const base = {
       customer_account_id: order!.customerAccountId ?? "",
       customer_name: order!.customerName,
@@ -561,14 +596,14 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                 item={item}
                 mode={mode}
                 busy={isBusy(item.id)}
-                onConfirm={async (qty) => {
-                  await run(item.id, () =>
+                onConfirm={(qty) =>
+                  run(item.id, () =>
                     apiPost(
                       `/api/orders/${orderId}/items/${item.id}/${mode === "prepare" ? "prepare" : "load"}`,
                       { quantity: qty, mark_done: true, expected_version: item.version }
                     )
-                  );
-                }}
+                  )
+                }
                 supervisorEdit={
                   isSupervisor
                     ? {
@@ -603,6 +638,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
               <Field label={t("orders.customer")} required>
               <select
                 value={editForm.customer_account_id}
+                disabled={customerCards.isLoading}
                 onChange={(e) => {
                   const customer = customerCards.data?.customers.find((c) => c.id === e.target.value);
                   setEditForm((f) => ({
@@ -671,12 +707,17 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           )}
 
           {/* Approval itself lives in the sticky bar below (it's the primary action
-              when needed) — this row only holds the less urgent supervisor actions. */}
+              when needed) — this row only holds the less urgent supervisor actions.
+              Cancel and reopen follow the server's answer (lib/orderActions.ts): when one
+              is not possible it stays visible, disabled, with the reason and the way out. */}
           <div className="flex flex-wrap gap-2">
-            {order.status !== "cancelled" && order.status !== "dispatched" && (
+            {cancelOffered && (
               <ReasonAction
                 label={t("orders.cancel_btn")}
+                confirmLabel={t("orders.cancel_confirm")}
                 className="btn-danger text-sm px-4 py-2"
+                disabled={cancelState ? !cancelState.ok : actions.isPending}
+                describedBy={cancelViaReopen ? `order-${orderId}-reopen-why` : cancelNoteShown ? `order-${orderId}-cancel-why` : undefined}
                 onConfirm={(reason) =>
                   run(
                     "cancel",
@@ -686,10 +727,13 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                 }
               />
             )}
-            {(order.status === "cancelled" || order.status === "loaded" || order.status === "dispatched") && (
+            {reopenOffered && (
               <ReasonAction
                 label={t("orders.reopen_btn")}
+                confirmLabel={t("orders.reopen_confirm")}
                 className="btn-secondary text-sm px-4 py-2"
+                disabled={reopenState ? !reopenState.ok : actions.isPending}
+                describedBy={reopenState && !reopenState.ok ? `order-${orderId}-reopen-why` : undefined}
                 onConfirm={(reason) =>
                   run(
                     "reopen",
@@ -706,7 +750,22 @@ export function OrderDetail({ orderId }: { orderId: string }) {
             )}
             <CloneOrderAction orderId={orderId} />
           </div>
+          {cancelNoteShown || reopenNoteShown ? (
+            <ul className="flex flex-col gap-1.5 text-sm" data-testid="order-action-notes">
+              {cancelNoteShown && cancelState && <ActionNote id={`order-${orderId}-cancel-why`} label={t("orders.cancel_btn")} state={cancelState} />}
+              {reopenNoteShown && reopenState && (
+                <ActionNote
+                  id={`order-${orderId}-reopen-why`}
+                  label={cancelViaReopen ? t("orders.action.cancel_or_reopen") : t("orders.reopen_btn")}
+                  state={reopenState}
+                />
+              )}
+            </ul>
+          ) : null}
 
+          {/* No override out of a cancelled order (the server refuses every move from it), and
+              never to "cancelled" (that is the reasoned Cancel above) or to where it already is. */}
+          {order.status !== "cancelled" && (
           <details className="border-t border-united-border pt-3">
             <summary className="text-sm font-bold text-united-muted cursor-pointer">
               {t("orders.override_header")}
@@ -718,7 +777,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                 className="field"
                aria-label={t("orders.override_choose_status")}>
                 <option value="">{t("orders.override_choose_status")}</option>
-                {ORDER_STATUSES.map((s) => (
+                {ORDER_STATUSES.filter((s) => s !== "cancelled" && s !== order.status).map((s) => (
                   <option key={s} value={s}>
                     {(locale === "en" ? STATUS_LABEL_EN : STATUS_LABEL)[s]}
                   </option>
@@ -736,6 +795,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
               </button>
             </div>
           </details>
+          )}
         </div>
       )}
 
@@ -764,6 +824,23 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   );
 }
 
+/** Why cancel or reopen is not possible now, and what to do instead (the server's own words). */
+function ActionNote({ id, label, state }: { id: string; label: string; state: OrderActionState }) {
+  const { t } = useLocale();
+  return (
+    <li id={id} className="rounded-lg bg-united-subtle px-3 py-2 text-united-dark">
+      <span className="font-bold">{label}:</span> {state.message}
+      {state.detail && <span className="text-united-muted"> ({state.detail})</span>}
+      {state.invoice && (
+        <>
+          {" "}
+          <DocLink href={profileHref.invoice(state.invoice.id)}>{state.invoice.number ?? t("orders.action.open_invoice")}</DocLink>
+        </>
+      )}
+    </li>
+  );
+}
+
 /** One rolled-up figure in the order header. */
 function SummaryFigure({
   label,
@@ -782,7 +859,7 @@ function SummaryFigure({
       <div className="text-[11px] font-bold text-united-muted">{label}</div>
       <div dir="ltr" className={`text-xl font-extrabold ${toneClass}`}>
         {value}
-        {unit && <span className="text-[10px] font-bold text-united-dark/40"> {unitLabel(unit)}</span>}
+        {unit && <span className="text-[11px] font-bold text-united-muted"> {unitLabel(unit)}</span>}
       </div>
     </div>
   );

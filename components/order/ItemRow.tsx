@@ -21,7 +21,8 @@ export function ItemRow({
 }: {
   item: OrderItemDTO;
   mode: Mode;
-  onConfirm?: (quantity: number) => Promise<void>;
+  /** Resolves false when the server refused the quantity: a correction stays open. */
+  onConfirm?: (quantity: number) => Promise<boolean | void>;
   busy?: boolean;
   /** onSave resolves false when the server refused the change: the editor stays open. */
   supervisorEdit?: { onSave: (qty: number, reason: string) => Promise<boolean | void> };
@@ -41,6 +42,9 @@ export function ItemRow({
   const [touched, setTouched] = useState(false);
   // The server's new value when another tablet saved this line while the operator was typing.
   const [remoteValue, setRemoteValue] = useState<number | null>(null);
+  // A line already marked done is corrected (a mistyped weight or count) while the order is
+  // still at that stage — the server accepts a new quantity until prep / load is finished.
+  const [correcting, setCorrecting] = useState(false);
   const lastVersion = useRef(item.version);
   const draft = useRef({ touched, qty });
   draft.current = { touched, qty };
@@ -57,6 +61,8 @@ export function ItemRow({
         setQty(startValue);
         setTouched(false);
         setRemoteValue(null);
+        // A correction the server accepted closes the editor again.
+        setCorrecting(false);
       }
     }
   }, [item.version, startValue]);
@@ -114,7 +120,7 @@ export function ItemRow({
     const toneClass = {
       neutral: "text-united-dark",
       done: "text-united-green",
-      pending: "text-united-dark/40",
+      pending: "text-united-muted",
       short: "text-united-danger",
     }[tone];
     return (
@@ -122,7 +128,7 @@ export function ItemRow({
         <div className="text-[11px] text-united-muted mb-0.5">{t(labelKey)}</div>
         <div dir="ltr" className={`font-extrabold text-lg sm:text-xl ${toneClass}`}>
           {value}
-          {value !== "—" && <span className="text-[10px] font-bold text-united-dark/40"> {unitLabel(unit)}</span>}
+          {value !== "—" && <span className="text-[11px] font-bold text-united-muted"> {unitLabel(unit)}</span>}
         </div>
       </div>
     );
@@ -162,7 +168,25 @@ export function ItemRow({
         />
       </div>
 
-      {(mode === "prepare" || mode === "load") && !done && (
+      {(mode === "prepare" || mode === "load") && done && !correcting && (
+        <div className="border-t border-united-border pt-3">
+          <button
+            type="button"
+            onClick={() => {
+              setQty(startValue);
+              setTouched(false);
+              setRemoteValue(null);
+              setOutlierConfirmed(false);
+              setCorrecting(true);
+            }}
+            className="tap-target inline-flex items-center text-sm font-bold text-united-muted underline hover:text-united-dark"
+          >
+            {t("orders.item.correct_btn")}
+          </button>
+        </div>
+      )}
+
+      {(mode === "prepare" || mode === "load") && (!done || correcting) && (
         <div className="border-t border-united-border pt-3">
           {/* Wraps on a phone: the button drops under the stepper at full width instead
               of running off the card. */}
@@ -175,7 +199,9 @@ export function ItemRow({
                   setOutlierConfirmed(true);
                   return;
                 }
-                onConfirm?.(qty);
+                void onConfirm?.(qty).then((ok) => {
+                  if (ok !== false) setCorrecting(false);
+                });
               }}
               className={`grow basis-32 px-6 text-lg btn-primary ${isOutlier && !outlierConfirmed ? "!bg-united-warn" : ""}`}
             >
@@ -188,6 +214,11 @@ export function ItemRow({
                 : t("orders.item.done_load")}
             </button>
           </div>
+          {correcting && (
+            <button type="button" onClick={() => setCorrecting(false)} className="tap-target mt-2 inline-flex items-center text-sm font-bold text-united-muted underline hover:text-united-dark">
+              {t("ui.back")}
+            </button>
+          )}
           {remoteValue !== null && (
             <div role="status" className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-united-warn/10 px-3 py-2 text-sm font-medium text-united-warn">
               <span>{t("orders.item.changed_elsewhere", { qty: qtyLabel(remoteValue), unit: unitLabel(item.unit) })}</span>

@@ -38,7 +38,7 @@ export function QuantityInput({
           const n = Number(toLatinDigits(e.target.value));
           onChange(Number.isFinite(n) ? Math.max(0, n) : 0);
         }}
-        className="tap-target w-24 text-center text-2xl font-extrabold border-2 border-united-dark/10 rounded-xl focus:border-united-green outline-none disabled:opacity-50"
+        className="tap-target w-24 text-center text-2xl font-extrabold border-2 border-united-field rounded-xl focus:border-united-green focus:ring-2 focus:ring-united-green/25 outline-none disabled:opacity-50"
       />
       <button
         type="button"
