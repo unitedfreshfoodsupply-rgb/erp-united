@@ -8,6 +8,8 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { usePermissions } from "@/lib/use-session";
 import { useLocale } from "@/lib/locale";
 import { fmtMoney } from "@/components/stock/inventory/shared";
+import { AwaitingApproval } from "@/components/approvals/AwaitingApproval";
+import { APPROVAL_TYPE } from "@/lib/core/approval-presentation";
 
 type Req = { id: string; number: string; date: string; description: string; total: string; status: "pending_approval" | "posted" | "rejected" | "cancelled"; requestedBy: string; decidedBy: string | null; decisionNote: string | null; entry: { number: string } | null };
 
@@ -39,7 +41,7 @@ export function JournalRequests() {
               <td><bdi dir="ltr">{r.date}</bdi></td>
               <td>{r.description}<span className="block text-xs text-united-muted">{r.requestedBy}{r.decidedBy ? ` → ${r.decidedBy}` : ""}{r.decisionNote ? ` · ${r.decisionNote}` : ""}</span></td>
               <td className="num" dir="ltr">{fmtMoney(r.total)}</td>
-              <td><StatusPill tone={r.status === "posted" ? "success" : r.status === "pending_approval" ? "warn" : "neutral"}>{t(`journal.status.${r.status}`)}</StatusPill></td>
+              <td><StatusPill tone={r.status === "posted" ? "success" : r.status === "pending_approval" ? "warn" : "neutral"}>{t(`journal.status.${r.status}`)}</StatusPill>{r.status === "pending_approval" && <AwaitingApproval type={APPROVAL_TYPE.manualJournal} entityId={r.id} compact />}</td>
               <td>{r.status === "pending_approval" && can("accounting.manage") && <button type="button" className="btn-secondary btn-sm" onClick={() => cancel(r)}>{t("journal.cancel")}</button>}</td>
             </tr>
           ))}

@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, ApiClientError, errorMessage } from "@/lib/api-client";
+import { apiFetch, apiPostForm, ApiClientError, errorMessage } from "@/lib/api-client";
 import { useToast } from "@/components/ui/Toast";
 import { ATTACHMENT_CATEGORIES, ATTACHMENT_CATEGORIES_FOR, type AttachmentCategory } from "@/lib/core/attachment-entities";
 import { useLocale } from "@/lib/locale/useLocale";
@@ -61,21 +61,10 @@ export function AttachmentsPanel({ entityType, entityId, canManage }: { entityTy
       form.set("entity_id", entityId);
       form.set("category", category);
       form.set("file", file);
-      // Not apiFetch: a multipart body needs the browser to set its own boundary. The tab's
-      // token and the chosen language go along as apiFetch would send them, so a refusal
-      // ("file too large", "type not allowed") reads in the user's language.
-      const headers: Record<string, string> = {};
-      const token = window.sessionStorage.getItem("united_token");
-      if (token) headers.Authorization = `Bearer ${token}`;
-      try {
-        const locale = window.localStorage.getItem("united_locale");
-        if (locale) headers["Accept-Language"] = locale;
-      } catch {
-        // Storage blocked: the server answers in its default language.
-      }
-      const res = await fetch("/api/attachments", { method: "POST", body: form, credentials: "include", headers });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new ApiClientError(typeof data?.error === "string" && data.error ? data.error : t("ui.attachment-error-status", { status: res.status }));
+      // apiFetch leaves a FormData body's Content-Type to the browser (its multipart boundary)
+      // and sends the tab's token and language, the sign-in redirect and the error reference
+      // like every other call.
+      const data = await apiPostForm<{ duplicate?: boolean }>("/api/attachments", form);
       toast.show(data.duplicate ? t("ui.attachment-duplicate") : t("ui.attachment-uploaded"), "success");
       await qc.invalidateQueries({ queryKey: key });
     } catch (err) {
