@@ -9,7 +9,7 @@ import { useToast } from "@/components/ui/Toast";
 import { Modal, useDialogs } from "@/components/ui/Dialog";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
-import { StatusPill, type Tone } from "@/components/ui/StatusPill";
+import { StatusPill, docTone, requestTone } from "@/components/ui/StatusPill";
 import { AttachmentsPanel } from "@/components/AttachmentsPanel";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
@@ -35,8 +35,6 @@ type Policy = {
 };
 type Tab = "requests" | "balances" | "setup";
 
-const REQ_TONE: Record<string, Tone> = { pending: "warn", approved: "success", rejected: "danger", cancelled: "neutral" };
-const POLICY_TONE: Record<string, Tone> = { draft: "warn", verified: "success", retired: "neutral" };
 const fail = (t: (k: string) => string, err: unknown) => (err instanceof ApiClientError ? err.message : t("hr.error"));
 const num = (v: string | number) => Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 });
 
@@ -110,7 +108,7 @@ function RequestsTab({ canRequest }: { canRequest: boolean }) {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-united-dark">{localName(r.employee, locale)}</span>
                     <span className="text-sm text-united-muted">· {typeName(isEN, r.leaveType)}</span>
-                    <StatusPill tone={REQ_TONE[r.status] ?? "neutral"}>{t(`leave.status.${r.status}`)}</StatusPill>
+                    <StatusPill tone={requestTone(r.status)}>{t(`leave.status.${r.status}`)}</StatusPill>
                     {r.leaveType.requiresAttachment && <StatusPill tone="info">{t("leave.needs_document")}</StatusPill>}
                   </div>
                   <div className="mt-0.5 text-sm text-united-dark">
@@ -445,7 +443,7 @@ function PoliciesCard({ canConfigure }: { canConfigure: boolean }) {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-united-dark">{typeName(isEN, p.leaveType)}</span>
-                  <StatusPill tone={POLICY_TONE[p.status] ?? "neutral"}>{t(`leave.policy.${p.status}`)}</StatusPill>
+                  <StatusPill tone={docTone(p.status)}>{t(`leave.policy.${p.status}`)}</StatusPill>
                   <span className="text-xs text-united-muted">{t(`leave.accrual.${p.accrualMethod}`)} · <span dir="ltr">{p.effectiveFrom} → {p.effectiveTo ?? "…"}</span></span>
                 </div>
                 <div className="mt-1 flex flex-wrap gap-1.5 text-xs">
@@ -535,7 +533,7 @@ function PolicyDialog({ onClose }: { onClose: () => void }) {
                 <td><input type="number" min={0} className="field w-[110px]" dir="ltr" value={x.min_service_months} onChange={(e) => setTiers(tiers.map((y, j) => (j === i ? { ...y, min_service_months: e.target.value } : y)))} aria-label={t("leave.min_service")} /></td>
                 <td><input type="number" min={14} max={100} className="field w-[90px]" dir="ltr" value={x.min_age} onChange={(e) => setTiers(tiers.map((y, j) => (j === i ? { ...y, min_age: e.target.value } : y)))} aria-label={t("leave.min_age")} /></td>
                 <td><input type="number" min={0} step="0.5" className="field w-[110px]" dir="ltr" value={x.days_per_year} onChange={(e) => setTiers(tiers.map((y, j) => (j === i ? { ...y, days_per_year: e.target.value } : y)))} aria-label={t("leave.days_per_year")} /></td>
-                <td>{tiers.length > 1 && <button type="button" className="btn-ghost btn-sm" onClick={() => setTiers(tiers.filter((_, j) => j !== i))}>×</button>}</td>
+                <td>{tiers.length > 1 && <button type="button" className="btn-ghost btn-sm" aria-label={t("ui.remove-line")} onClick={() => setTiers(tiers.filter((_, j) => j !== i))}><span aria-hidden>×</span></button>}</td>
               </tr>
             ))}
           </tbody>

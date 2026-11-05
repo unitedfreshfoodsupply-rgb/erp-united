@@ -1,4 +1,5 @@
-import type { OrderStatus } from "@/lib/types";
+import { ORDER_STATUSES, type OrderStatus } from "@/lib/types";
+import { DICTIONARY } from "@/lib/locale/dictionary";
 import { DEFAULT_OPERATIONAL_SETTINGS } from "@/lib/core/settings-registry";
 
 export const STATUS_DOT: Record<OrderStatus, string> = {
@@ -11,25 +12,14 @@ export const STATUS_DOT: Record<OrderStatus, string> = {
   cancelled: "⚪",
 };
 
-export const STATUS_LABEL: Record<OrderStatus, string> = {
-  new: "أوردر جديد",
-  preparing: "جاري التجهيز",
-  ready_for_loading: "جاهز للتحميل",
-  loading: "جاري التحميل",
-  loaded: "تم التحميل",
-  dispatched: "العربية اتحركت",
-  cancelled: "ملغي",
-};
+/** Order stage names, read from the dictionary (orders.status.*) so the order page, prints,
+ * the audit log and server messages use the same words as Home and the profiles. */
+const statusLabels = (locale: "ar" | "en") =>
+  Object.fromEntries(ORDER_STATUSES.map((s) => [s, DICTIONARY[`orders.status.${s}`][locale]])) as Record<OrderStatus, string>;
 
-export const STATUS_LABEL_EN: Record<OrderStatus, string> = {
-  new: "New",
-  preparing: "Preparing",
-  ready_for_loading: "Ready for Loading",
-  loading: "Loading",
-  loaded: "Loaded",
-  dispatched: "Dispatched",
-  cancelled: "Cancelled",
-};
+export const STATUS_LABEL: Record<OrderStatus, string> = statusLabels("ar");
+
+export const STATUS_LABEL_EN: Record<OrderStatus, string> = statusLabels("en");
 
 const ACTIVE_STATUSES: OrderStatus[] = ["new", "preparing", "ready_for_loading", "loading"];
 

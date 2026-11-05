@@ -113,6 +113,7 @@ const ui = {
   "ui.cancel": { ar: "إلغاء", en: "Cancel" },
   "ui.close": { ar: "إغلاق", en: "Close" },
   "ui.delete": { ar: "حذف", en: "Delete" },
+  "ui.remove-line": { ar: "شيل السطر", en: "Remove line" },
   "ui.remove-alias-confirm": { ar: "تشيل الاسم البديل \"{name}\"؟", en: "Remove the alias \"{name}\"?" },
   "admin.integrations.revoke-confirm": { ar: "تلغي مفتاح \"{name}\"؟", en: "Revoke the key \"{name}\"?" },
   "admin.integrations.revoke-confirm-body": { ar: "أي نظام بيستخدم المفتاح ده هيتوقف فورًا، والإلغاء مالوش رجوع — هتحتاج مفتاح جديد.", en: "Any system using this key stops at once. This cannot be undone — a new key will be needed." },
@@ -146,6 +147,7 @@ const ui = {
   "ui.next": { ar: "التالي", en: "Next" },
   "ui.done": { ar: "تم", en: "Done" },
   "ui.retry": { ar: "إعادة المحاولة", en: "Retry" },
+  "ui.refresh-failed": { ar: "مش قادرين نحدّث البيانات دلوقتي — اللي ظاهر ممكن يكون قديم شوية", en: "Couldn't refresh data right now — what you see may be slightly stale" },
 
   // Language toggle
   "ui.lang.ar": { ar: "العربية", en: "Arabic" },
@@ -1070,7 +1072,7 @@ const orders = {
   "orders.status.ready_for_loading": { ar: "جاهز للتحميل", en: "Ready for Loading" },
   "orders.status.loading": { ar: "جاري التحميل", en: "Loading" },
   "orders.status.loaded": { ar: "تم التحميل", en: "Loaded" },
-  "orders.status.dispatched": { ar: "تم التوزيع", en: "Dispatched" },
+  "orders.status.dispatched": { ar: "العربية اتحركت", en: "Dispatched" },
   "orders.status.cancelled": { ar: "ملغي", en: "Cancelled" },
   "orders.stepper.label": { ar: "مراحل الأوردر", en: "Order progress" },
   "orders.stepper.done": { ar: "خلصت", en: "done" },
@@ -2887,7 +2889,7 @@ const admin = {
   "admin.data-import.table-row": { ar: "الصف", en: "Row" },
   "admin.data-import.table-label": { ar: "البيان", en: "Description" },
   "admin.data-import.table-status": { ar: "الحالة", en: "Status" },
-  "admin.data-import.preview-truncated": { ar: "معروض أول 50 صف؛ فحص الملف شمل كل الصفوف.", en: "First 50 rows shown; the full scan covered all rows." },
+  "admin.data-import.preview-truncated": { ar: "الصفوف اللي محتاجة تصحيح معروضة كلها الأول، وبعض الصفوف الجاهزة مش معروضة؛ فحص الملف شمل كل الصفوف.", en: "All rows that need fixing are listed first; some ready rows are not shown. The full scan covered every row." },
   "admin.data-import.ready": { ar: "جاهز", en: "Ready" },
   "admin.data-import.help.names": { ar: "الأسماء: عمود name (أو name_en) للاسم الإنجليزي وname_ar للاسم العربي — الاتنين بيتحفظوا كما هم، وname_ar لازم يكون بحروف عربية. الكود معرّف منفصل ومش بديل للاسم: للأصناف هو sku (أو code)، وللمجموعات والكيانات القانونية code، وأكواد العملاء والموردين بيديها النظام.", en: "Names: the name (or name_en) column is the English name and name_ar the Arabic name — both are stored as written, and name_ar must be in Arabic script. A code is a separate identifier, never a substitute for a name: sku (or code) for products, code for groups and legal entities; customer and supplier codes are assigned by the system." },
   "admin.data-import.status.done": { ar: "تم", en: "Done" },

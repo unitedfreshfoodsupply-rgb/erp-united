@@ -5,6 +5,7 @@ import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { apiPostForm } from "@/lib/api-client";
 import { isValidISODate } from "@/lib/dates";
+import { Field } from "@/components/ui/Field";
 
 type Kind = "customers" | "customer_groups" | "customer_legal_entities" | "suppliers" | "products" | "product_settings" | "product_packaging" | "opening_stock" | "opening_balances" | "sales_prices" | "supplier_prices";
 type Preview = { rows: { rowNumber: number; label: string; labelAr?: string; code?: string; errors: string[] }[]; rowCount: number; errorCount: number };
@@ -39,6 +40,17 @@ const STATUS_KEYS: Record<string, string> = {
   "موجود — لم يتكرر": "admin.data-import.status.exists",
   "تم تسجيل مستند الرصيد الافتتاحي": "admin.data-import.status.opening-stock",
 };
+
+/** The preview table. A file that fits keeps its order. A longer one shows every row that
+ * needs fixing first (so none is hidden behind row 50), then the ready rows in file order,
+ * up to PREVIEW_ROWS rows in all (more when more rows need fixing). */
+const PREVIEW_ROWS = 50;
+export function previewRows(preview: Pick<Preview, "rows">) {
+  if (preview.rows.length <= PREVIEW_ROWS) return preview.rows;
+  const errors = preview.rows.filter((r) => r.errors.length);
+  const ready = preview.rows.filter((r) => !r.errors.length);
+  return [...errors, ...ready].slice(0, Math.max(PREVIEW_ROWS, errors.length));
+}
 
 export function DataImportPanel({ allowed }: { allowed: Partial<Record<Kind, boolean>> }) {
   const { t, locale } = useLocale();
@@ -75,6 +87,8 @@ export function DataImportPanel({ allowed }: { allowed: Partial<Record<Kind, boo
     finally { setBusy(false); }
   }
 
+  const shownRows = useMemo(() => (preview ? previewRows(preview) : []), [preview]);
+
   if (!kinds.length) return <section className="card p-4">{t("admin.data-import.no-permission")}</section>;
   return (
     <div className="flex flex-col gap-4">
@@ -83,18 +97,17 @@ export function DataImportPanel({ allowed }: { allowed: Partial<Record<Kind, boo
           <h2 className="text-lg font-extrabold text-united-dark">{t("admin.data-import.header-title")}</h2>
           <p className="text-sm font-bold text-united-muted mt-1">{t("admin.data-import.header-desc")}</p>
         </div>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-extrabold text-united-muted">{t("admin.data-import.label-type")}</span>
-          <select className="input" value={kind} onChange={(e) => { setKind(e.target.value as Kind); setFile(null); setPreview(null); setResult(null); setError(null); }}>
+        <Field label={t("admin.data-import.label-type")}>
+          <select className="field" value={kind} onChange={(e) => { setKind(e.target.value as Kind); setFile(null); setPreview(null); setResult(null); setError(null); }}>
             {kinds.map((value) => <option key={value} value={value}>{t(KIND_TKEY[value] as Parameters<typeof t>[0])}</option>)}
           </select>
-        </label>
+        </Field>
         <div className="flex flex-wrap items-center gap-2">
           <a className="btn-secondary" href={`/api/admin/data-import?template=${kind}`}>{t("admin.data-import.download-template")}</a>
           <label className="btn-secondary cursor-pointer">{t("admin.data-import.choose-file")}<input className="sr-only" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => chooseFile(e.target.files?.[0] ?? null)} /></label>
           <span className="text-xs font-bold text-united-muted">{file?.name ?? t("admin.data-import.no-file")}</span>
         </div>
-        {kind === "opening_stock" && <label className="flex flex-col gap-1 max-w-xs"><span className="text-xs font-extrabold text-united-muted">{t("admin.data-import.business-date-label")}</span><input className="input" type="date" value={businessDate} onChange={(e) => setBusinessDate(e.target.value)} /></label>}
+        {kind === "opening_stock" && <Field label={t("admin.data-import.business-date-label")} className="max-w-xs"><input className="field" type="date" value={businessDate} onChange={(e) => setBusinessDate(e.target.value)} /></Field>}
         {BILINGUAL_KINDS.has(kind) && <p className="text-xs font-bold text-united-muted">{t("admin.data-import.help.names")}</p>}
         {kind === "opening_stock" && <p className="text-xs font-bold text-united-muted">{t("admin.data-import.help.opening_stock")}</p>}
         {file?.name.toLowerCase().endsWith(".xlsx") && <p className="text-xs font-bold text-united-muted">{t("admin.data-import.help.xlsx")}</p>}
@@ -118,9 +131,9 @@ export function DataImportPanel({ allowed }: { allowed: Partial<Record<Kind, boo
         <h3 className="font-extrabold text-united-dark">{t("admin.data-import.preview-title", { rowCount: preview.rowCount, errorCount: preview.errorCount })}</h3>
         {preview.errorCount === 0 ? <p className="text-sm font-bold text-united-green">{t("admin.data-import.preview-passed")}</p> : null}
         <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-start"><th className="p-2">{t("admin.data-import.table-row")}</th><th className="p-2">{t("admin.data-import.table-label")}</th><th className="p-2">{t("admin.data-import.table-status")}</th></tr></thead><tbody>
-          {preview.rows.slice(0, 50).map((row) => <tr className="border-t border-united-border" key={row.rowNumber}><td className="p-2">{row.rowNumber}</td><td className="p-2" dir="auto">{row.code && row.code !== row.label ? `${row.code} · ` : ""}{localName({ name: row.label, nameAr: row.labelAr }, locale)}</td><td className={`p-2 font-bold ${row.errors.length ? "text-united-danger" : "text-united-green"}`}>{row.errors.length ? row.errors.join(" · ") : t("admin.data-import.ready")}</td></tr>)}
+          {shownRows.map((row) => <tr className="border-t border-united-border" key={row.rowNumber}><td className="p-2">{row.rowNumber}</td><td className="p-2" dir="auto">{row.code && row.code !== row.label ? `${row.code} · ` : ""}{localName({ name: row.label, nameAr: row.labelAr }, locale)}</td><td className={`p-2 font-bold ${row.errors.length ? "text-united-danger" : "text-united-green"}`}>{row.errors.length ? row.errors.join(" · ") : t("admin.data-import.ready")}</td></tr>)}
         </tbody></table></div>
-        {preview.rows.length > 50 && <p className="text-xs font-bold text-united-muted">{t("admin.data-import.preview-truncated")}</p>}
+        {preview.rows.length > shownRows.length && <p className="text-xs font-bold text-united-muted">{t("admin.data-import.preview-truncated")}</p>}
       </section>}
 
       {result && <section className="card p-4 flex flex-col gap-3">

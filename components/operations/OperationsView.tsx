@@ -15,6 +15,9 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Snowflake } from "lucide-react";
 import { useLocale } from "@/lib/locale";
 import { orderCustomerName } from "@/lib/locale/names";
+import { StatusPill, docTone, type Tone } from "@/components/ui/StatusPill";
+import { StatusBadge } from "@/components/StatusBadge";
+import type { OrderStatus } from "@/lib/types";
 
 /**
  * Distribution: trips (plan → load → dispatch → deliver), delivery results, the
@@ -29,14 +32,17 @@ const fail = (toast: ReturnType<typeof useToast>, err: unknown, t: (key: string)
   toast.show(err instanceof ApiClientError && err.message ? err.message : t("ui.error"), "error");
 const fallbackKey = (key: string) => key;
 
-const TRIP_STATUS: Record<string, { label: string; cls: string }> = {
-  planned: { label: fallbackKey("ops.trip.status.planned"), cls: "bg-united-dark/5" },
-  loading: { label: fallbackKey("ops.trip.status.loading"), cls: "bg-united-warn/10 text-united-warn" },
-  loaded: { label: fallbackKey("ops.trip.status.loaded"), cls: "bg-blue-50 text-blue-700" },
-  dispatched: { label: fallbackKey("ops.trip.status.dispatched"), cls: "bg-blue-50 text-blue-700" },
-  in_transit: { label: fallbackKey("ops.trip.status.in_transit"), cls: "bg-blue-50 text-blue-700" },
-  completed: { label: fallbackKey("ops.trip.status.completed"), cls: "bg-united-green/10 text-united-green" },
-  cancelled: { label: fallbackKey("ops.trip.status.cancelled"), cls: "bg-united-danger/10 text-united-danger" },
+/** A trip's states in the shared tones (components/ui/StatusPill.tsx). Loading and loaded read
+ * like an order's stages (StatusBadge). A dispatched trip is deliberately warn, not an order's
+ * neutral: the warehouse is done with the order, but the trip still has deliveries to record. */
+const TRIP_STATUS: Record<string, { label: string; tone: Tone }> = {
+  planned: { label: fallbackKey("ops.trip.status.planned"), tone: "info" },
+  loading: { label: fallbackKey("ops.trip.status.loading"), tone: "warn" },
+  loaded: { label: fallbackKey("ops.trip.status.loaded"), tone: "success" },
+  dispatched: { label: fallbackKey("ops.trip.status.dispatched"), tone: "warn" },
+  in_transit: { label: fallbackKey("ops.trip.status.in_transit"), tone: "warn" },
+  completed: { label: fallbackKey("ops.trip.status.completed"), tone: "success" },
+  cancelled: { label: fallbackKey("ops.trip.status.cancelled"), tone: "neutral" },
 };
 const STOP_STATUS: Record<string, string> = { pending: fallbackKey("ops.stop.pending"), delivered: fallbackKey("ops.stop.delivered"), partial: fallbackKey("ops.stop.partial"), failed: fallbackKey("ops.stop.failed") };
 const EX_TYPE: Record<string, string> = { shortage: fallbackKey("ops.exception.shortage"), damage: fallbackKey("ops.exception.damage"), rejection: fallbackKey("ops.exception.rejection"), delivery_failure: fallbackKey("ops.exception.delivery_failure"), loading_discrepancy: fallbackKey("ops.exception.loading_discrepancy") };
@@ -98,7 +104,7 @@ function Trips() {
     { key: "driver", label: t("ops.new.driver-label"), sortValue: (r) => r.driver.name, render: (r) => r.driver.name, secondary: true },
     { key: "stops", label: t("ops.col.orders"), numeric: true, sortValue: (r) => r.stops, render: (r) => String(r.stops) },
     { key: "delivered", label: t("ops.col.delivered"), numeric: true, sortValue: (r) => r.delivered, render: (r) => String(r.delivered) },
-    { key: "status", label: t("list.status"), sortValue: (r) => r.status, render: (r) => <span className={`rounded-full px-2 text-xs font-extrabold ${TRIP_STATUS[r.status]?.cls}`}>{TRIP_STATUS[r.status] ? t(TRIP_STATUS[r.status].label) : r.status}</span> },
+    { key: "status", label: t("list.status"), sortValue: (r) => r.status, render: (r) => <StatusPill tone={TRIP_STATUS[r.status]?.tone ?? "neutral"}>{TRIP_STATUS[r.status] ? t(TRIP_STATUS[r.status].label) : r.status}</StatusPill> },
   ];
   return (
     <div className="flex flex-col gap-3">
@@ -167,7 +173,7 @@ function NewTrip({ onDone }: { onDone: (id?: string) => void }) {
           return (
             <button key={o.id} type="button" onClick={() => toggle(o.id)} aria-pressed={n >= 0} className={`tap-target rounded-xl px-3 text-start font-bold flex justify-between ${n >= 0 ? "bg-united-green text-white" : "bg-united-dark/5"}`}>
               <span>{n >= 0 ? `${n + 1}. ` : ""}<span dir="ltr">{o.orderNumber}</span> · {orderCustomerName(o, locale)}{o.deliveryTime ? ` · ${o.deliveryTime}` : ""}</span>
-              <span className="text-xs">{o.status}</span>
+              <StatusBadge status={o.status as OrderStatus} size="sm" />
             </button>
           );
         })}
@@ -210,13 +216,16 @@ function TripView({ id, onClose }: { id: string; onClose: () => void }) {
         </div>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("ops.detail.back")}</button>
       </div>
-      <span className={`self-start rounded-full px-3 py-1 text-sm font-extrabold ${TRIP_STATUS[trip.status]?.cls}`}>{TRIP_STATUS[trip.status] ? t(TRIP_STATUS[trip.status].label) : trip.status}{trip.cancelReason ? ` · ${trip.cancelReason}` : ""}</span>
+      <div className="self-start flex flex-wrap items-center gap-2">
+        <StatusPill tone={TRIP_STATUS[trip.status]?.tone ?? "neutral"} size="md">{TRIP_STATUS[trip.status] ? t(TRIP_STATUS[trip.status].label) : trip.status}</StatusPill>
+        {trip.cancelReason && <span className="text-sm font-bold text-united-muted break-words">{trip.cancelReason}</span>}
+      </div>
       <ol className="flex flex-col gap-2">
         {trip.stops.map((s) => (
           <li key={s.id} className="card p-3 flex flex-col gap-2">
             <div className="flex justify-between gap-2">
-              <div className="font-extrabold">{s.sequence}. <span dir="ltr">{s.order.orderNumber}</span> · {orderCustomerName(s.order, locale)}</div>
-              <span className="text-xs font-extrabold text-united-muted">{s.order.status} · {STOP_STATUS[s.status] ? t(STOP_STATUS[s.status]) : s.status}</span>
+              <div className="min-w-0 break-words font-extrabold">{s.sequence}. <span dir="ltr">{s.order.orderNumber}</span> · {orderCustomerName(s.order, locale)}</div>
+              <span className="flex min-w-0 max-w-[50%] flex-wrap items-start justify-end gap-1"><StatusBadge status={s.order.status as OrderStatus} size="sm" /><StatusPill tone={docTone(s.status)}>{STOP_STATUS[s.status] ? t(STOP_STATUS[s.status]) : s.status}</StatusPill></span>
             </div>
             <ul className="text-sm font-bold text-united-muted">
               {s.order.items.map((i) => {
@@ -342,7 +351,7 @@ function Exceptions() {
           <li key={e.id} className="card p-3 flex flex-col gap-1">
             <div className="flex justify-between gap-2">
               <span className="font-extrabold">{EX_TYPE[e.type] ? t(EX_TYPE[e.type]) : e.type}{e.productName ? ` · ${e.productName}` : ""}{e.quantity ? <> · <span dir="ltr">{fmtQty(e.quantity)}</span></> : null}</span>
-              <span className={`text-xs font-extrabold ${e.status === "open" ? "text-united-warn" : "text-united-green"}`}>{e.status === "open" ? t("ops.exc.open-status") : t("ops.exc.closed-status")}</span>
+              <StatusPill tone={e.status === "open" ? "warn" : "success"}>{e.status === "open" ? t("ops.exc.open-status") : t("ops.exc.closed-status")}</StatusPill>
             </div>
             <p className="text-sm font-bold">{systemText(e.description, locale)}</p>
             <p className="text-xs font-bold text-united-muted">{e.order ? <><span dir="ltr">{e.order.orderNumber}</span> · {orderCustomerName(e.order, locale)} · </> : null}{t("ops.exc.logged-by-prefix")} {e.createdBy}{e.ownerName ? ` · ${t("ops.exc.responsible-label")} ${e.ownerName}` : ""}{e.resolution ? ` · ${t("ops.exc.resolution-label")}: ${e.resolution} (${e.resolvedBy})` : ""}</p>

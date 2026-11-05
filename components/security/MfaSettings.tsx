@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck } from "lucide-react";
-import { apiFetch, apiPost, ApiClientError } from "@/lib/api-client";
+import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
+import { ErrorState } from "@/components/States";
 import { useLocale } from "@/lib/locale";
 import { RecoveryCodes } from "@/components/security/RecoveryCodes";
 
@@ -18,7 +19,7 @@ type Status = { enabled: boolean; enabledAt: string | null; required: boolean; r
 export function MfaSettings() {
   const { t } = useLocale();
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["mfa-status"], queryFn: () => apiFetch<{ mfa: Status }>("/api/auth/mfa") });
+  const { data, isLoading, isError, error: loadError, refetch } = useQuery({ queryKey: ["mfa-status"], queryFn: () => apiFetch<{ mfa: Status }>("/api/auth/mfa") });
   const [mode, setMode] = useState<"none" | "disable" | "regenerate">("none");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -61,8 +62,15 @@ export function MfaSettings() {
     <section className="card flex flex-col gap-3 p-5" aria-label={t("mfa.profile.title")}>
       <h2 className="section-title inline-flex items-center gap-2"><ShieldCheck size={16} aria-hidden /> {t("mfa.profile.title")}</h2>
       {isLoading && <p className="text-sm text-united-muted">{t("mfa.setup.loading")}</p>}
+      {isError && !status && <ErrorState message={errorMessage(loadError)} onRetry={() => void refetch()} />}
       {status && (
         <>
+          {isError && (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-united-border border-s-4 !border-s-united-warn p-2" role="alert">
+              <p className="text-sm font-semibold text-united-warn">{t("ui.refresh-failed")}</p>
+              <button type="button" className="btn-secondary btn-sm shrink-0" onClick={() => void refetch()}>{t("ui.retry")}</button>
+            </div>
+          )}
           <p className={`text-sm font-medium ${status.enabled ? "text-united-green" : "text-united-warn"}`}>
             {status.enabled ? t("mfa.profile.enabled", { n: String(status.recoveryCodesRemaining) }) : t("mfa.profile.disabled")}
           </p>

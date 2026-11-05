@@ -6,6 +6,7 @@ import { useLocale, type Locale } from "@/lib/locale";
 import { intlLocale } from "@/lib/format";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { LoadingState, ErrorState, EmptyState } from "@/components/States";
+import { StatusPill } from "@/components/ui/StatusPill";
 import { useToast } from "@/components/ui/Toast";
 import {
   STORAGE_LOCATION_TYPES,
@@ -768,15 +769,7 @@ function EntityForm({
 
 function ActiveBadge({ active }: { active: boolean }) {
   const { t } = useLocale();
-  return (
-    <span
-      className={`text-[11px] font-extrabold px-2 py-0.5 rounded-full ${
-        active ? "bg-united-green/10 text-united-green" : "bg-united-dark/5 text-united-muted"
-      }`}
-    >
-      {active ? t("admin.badge-active") : t("admin.badge-inactive")}
-    </span>
-  );
+  return <StatusPill tone={active ? "success" : "neutral"}>{active ? t("admin.badge-active") : t("admin.badge-inactive")}</StatusPill>;
 }
 
 function Code({ children }: { children: React.ReactNode }) {

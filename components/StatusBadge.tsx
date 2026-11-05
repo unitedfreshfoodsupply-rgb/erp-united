@@ -25,11 +25,12 @@ export const ORDER_DOT: Record<OrderStatus, string> = {
   cancelled: "bg-united-border-strong",
 };
 
-export function StatusBadge({ status }: { status: OrderStatus }) {
+/** An order's stage (labels: orders.status.* via lib/orderPresentation). `size="sm"` for lists. */
+export function StatusBadge({ status, size = "md" }: { status: OrderStatus; size?: "sm" | "md" }) {
   const { locale } = useLocale();
   return (
-    <StatusPill tone={TONE[status]} size="md" strike={status === "cancelled"}>
-      {locale === "en" ? STATUS_LABEL_EN[status] : STATUS_LABEL[status]}
+    <StatusPill tone={TONE[status] ?? "neutral"} size={size} strike={status === "cancelled"}>
+      {(locale === "en" ? STATUS_LABEL_EN : STATUS_LABEL)[status] ?? status}
     </StatusPill>
   );
 }
