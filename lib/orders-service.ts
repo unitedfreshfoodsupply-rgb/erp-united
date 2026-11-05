@@ -305,7 +305,8 @@ export async function createOrder(
               })),
             },
           },
-          include: ORDER_INCLUDE,
+          // Only the lines' ids are needed here (typed prices); the order is re-read in full at the end.
+          include: { items: true },
         });
         // The order and the record of its creation commit together: an order that
         // exists with no order_created row would have no origin in its own timeline.
