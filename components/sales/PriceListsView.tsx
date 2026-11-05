@@ -46,10 +46,12 @@ export function PriceListsView() {
   const current = selected ?? rows.find((r) => r.isDefault)?.id ?? rows[0]?.id ?? null;
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      {/* The list being shown is announced (aria-pressed), and a stopped list says so in words, not by fading alone. */}
+      <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label={t("sales.tab.prices")}>
         {rows.map((l) => (
-          <button key={l.id} type="button" onClick={() => setSelected(l.id)} className={`tap-target shrink-0 rounded-xl px-4 font-extrabold text-sm ${current === l.id ? "bg-united-dark text-white" : "bg-united-dark/5"} ${l.active ? "" : "opacity-50"}`}>
+          <button key={l.id} type="button" aria-pressed={current === l.id} onClick={() => setSelected(l.id)} className={`tap-target shrink-0 rounded-xl px-4 font-extrabold text-sm ${current === l.id ? "bg-united-dark text-white" : "bg-united-dark/5"} ${l.active ? "" : "opacity-50"}`}>
             {l.name}{l.isDefault ? " ★" : ""} <span className="text-xs opacity-70">{t("pricelists.customers", { count: l._count.customers })}</span>
+            {!l.active && <span className="text-xs"> · {t("sales.label.inactive")}</span>}
           </button>
         ))}
       </div>

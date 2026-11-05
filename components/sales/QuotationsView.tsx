@@ -9,6 +9,7 @@ import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { Field, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { Segmented } from "@/components/ui/Segmented";
+import { StatusPill, type Tone } from "@/components/ui/StatusPill";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 
@@ -26,14 +27,23 @@ type QDetail = QRow & {
 };
 type Catalog = { products: { id: string; name: string; nameAr: string | null; unit: string; packagings: { uomCode: string }[] }[] };
 
-const STATUS_CLS: Record<string, string> = {
-  draft: "bg-united-dark/5",
-  sent: "bg-blue-50 text-blue-700",
-  accepted: "bg-united-green/10 text-united-green",
-  rejected: "bg-united-danger/10 text-united-danger",
-  converted: "bg-united-green text-white",
-  cancelled: "bg-united-dark/5 text-united-muted",
+// The shared status vocabulary (StatusPill): sent and accepted wait for the next normal step,
+// converted is done, rejected is refused, cancelled is finished; an expired offer needs a look.
+const STATUS_TONE: Record<string, Tone> = { draft: "neutral", sent: "info", accepted: "info", rejected: "danger", converted: "success", cancelled: "neutral" };
+const STATUS_LABEL: Record<string, string> = {
+  draft: "sales.quotation.status.draft",
+  sent: "sales.quotation.status.sent",
+  accepted: "sales.quotation.status.accepted",
+  rejected: "sales.quotation.status.rejected",
+  converted: "sales.quotation.status.converted",
+  cancelled: "sales.quotation.status.cancelled",
 };
+function QuotationStatus({ x, size }: { x: { status: string; expired: boolean }; size?: "sm" | "md" }) {
+  const { t } = useLocale();
+  return x.expired
+    ? <StatusPill tone="warn" size={size}>{t("sales.quotation.expired-badge")}</StatusPill>
+    : <StatusPill tone={STATUS_TONE[x.status] ?? "neutral"} size={size}>{STATUS_LABEL[x.status] ? t(STATUS_LABEL[x.status]) : ""}</StatusPill>;
+}
 
 export function QuotationsView() {
   const { can } = usePermissions();
@@ -62,7 +72,7 @@ export function QuotationsView() {
                 <div className="text-xs font-bold text-united-muted">{x.lineCount} {t("sales.quotation.line-count")} · {t("sales.quotation.valid-until-label")} {x.validUntil}{x.order ? ` · ${x.order.orderNumber}` : ""}</div>
               </div>
               <div className="flex flex-col items-end gap-1">
-                <span className={`rounded-full px-2 text-xs font-extrabold ${x.expired ? "bg-united-warn/10 text-united-warn" : STATUS_CLS[x.status]}`}>{x.expired ? t("sales.quotation.expired-badge") : (() => { const s = x.status; if (s === "draft") return t("sales.quotation.status.draft"); if (s === "sent") return t("sales.quotation.status.sent"); if (s === "accepted") return t("sales.quotation.status.accepted"); if (s === "rejected") return t("sales.quotation.status.rejected"); if (s === "converted") return t("sales.quotation.status.converted"); if (s === "cancelled") return t("sales.quotation.status.cancelled"); return ""; })()}</span>
+                <QuotationStatus x={x} />
                 <span dir="ltr" className="font-extrabold">{fmtMoney(x.totals.total)}</span>
               </div>
             </button>
@@ -172,7 +182,7 @@ function QuotationDetail({ id, onClose }: { id: string; onClose: () => void }) {
         </div>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("sales.quotation.btn-back")}</button>
       </div>
-      <span className={`self-start rounded-full px-3 py-1 text-sm font-extrabold ${x.expired ? "bg-united-warn/10 text-united-warn" : STATUS_CLS[x.status]}`}>{x.expired ? t("sales.quotation.expired-badge") : (() => { const s = x.status; if (s === "draft") return t("sales.quotation.status.draft"); if (s === "sent") return t("sales.quotation.status.sent"); if (s === "accepted") return t("sales.quotation.status.accepted"); if (s === "rejected") return t("sales.quotation.status.rejected"); if (s === "converted") return t("sales.quotation.status.converted"); if (s === "cancelled") return t("sales.quotation.status.cancelled"); return ""; })()}</span>
+      <span className="self-start"><QuotationStatus x={x} size="md" /></span>
       <section className="card p-4 flex flex-col divide-y divide-united-dark/5">
         {x.lines.map((l) => (
           <div key={l.id} className="py-2 flex justify-between gap-2 text-sm">

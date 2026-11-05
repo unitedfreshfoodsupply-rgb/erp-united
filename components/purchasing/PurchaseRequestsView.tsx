@@ -7,8 +7,10 @@ import { usePermissions } from "@/lib/use-session";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { unitLabel } from "@/lib/format";
-import { ErrorState } from "@/components/States";
+import { ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
+import { useDialogs } from "@/components/ui/Dialog";
+import { StatusPill, type Tone } from "@/components/ui/StatusPill";
 import { todayLocalISO } from "@/lib/localDate";
 import { FilterBar, useListState } from "@/components/ui/DataTable";
 import Link from "next/link";
@@ -46,12 +48,15 @@ type Req = {
 };
 
 const STATUSES = ["pending_approval", "approved", "ordered", "fulfilled", "rejected", "cancelled"] as const;
+// The shared status vocabulary (StatusPill): waiting on someone, a normal next step, done, refused, finished.
+const STATUS_TONE: Record<Req["status"], Tone> = { pending_approval: "warn", approved: "info", ordered: "info", fulfilled: "success", rejected: "danger", cancelled: "neutral" };
 
 export function PurchaseRequestsView() {
   const { t, locale } = useLocale();
   const { can } = usePermissions();
   const qc = useQueryClient();
   const toast = useToast();
+  const dialogs = useDialogs();
   const [status, setStatus] = useState<string>("");
   // Search (maturity 2026-11): request number, product (either language, SKU), customer.
   const search = useListState([], { prefix: "pr_" });
@@ -94,6 +99,7 @@ export function PurchaseRequestsView() {
         </select>
       </div>
       <FilterBar list={search} searchLabel={t("pr.search")} searchHint={t("pr.search-hint")} />
+      {list.isLoading && <LoadingState />}
       {list.isError && <ErrorState message={errorMessage(list.error)} onRetry={() => list.refetch()} />}
       {list.data && list.data.items.length === 0 && <p className="text-united-muted">{search.q ? t("list.empty-filtered") : t("pr.empty")}</p>}
       <div className="flex flex-col gap-3">
@@ -104,7 +110,7 @@ export function PurchaseRequestsView() {
             <div key={r.id} className="card p-4 flex flex-col gap-2">
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="font-extrabold" dir="ltr">{r.number}</span>
-                <span className="rounded-full bg-united-subtle px-3 py-0.5 text-sm font-bold">{t(`pr.status.${r.status}`)}</span>
+                <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{t(`pr.status.${r.status}`)}</StatusPill>
                 <span className="font-bold">{localName(r.product, locale)}</span>
                 <span dir="ltr">{r.quantity} {unitLabel(r.uomCode, locale)}</span>
                 {r.customer && <span className="text-united-muted">· {localName(r.customer, locale)}</span>}
@@ -170,11 +176,13 @@ export function PurchaseRequestsView() {
 
               {(r.status === "pending_approval" || r.status === "approved") && can("purchasing.requests.create") && (
                 <button
-                  className="btn-secondary text-sm self-start"
+                  type="button"
+                  className="btn-danger btn-sm self-start"
                   disabled={busy === r.id}
-                  onClick={() => {
-                    const reason = window.prompt(t("pr.cancel-reason"));
-                    if (reason && reason.trim()) void act(r.id, "cancel", { reason: reason.trim(), expected_version: r.version }, t("pr.cancelled"));
+                  onClick={async () => {
+                    // The kit's prompt (not window.prompt): styled, translated, and a reason is required.
+                    const reason = await dialogs.prompt({ title: t("pr.cancel-title", { number: r.number }), label: t("pr.cancel-reason"), required: true, tone: "danger", confirmLabel: t("pr.cancel"), cancelLabel: t("ui.back") });
+                    if (reason) void act(r.id, "cancel", { reason, expected_version: r.version }, t("pr.cancelled"));
                   }}
                 >
                   {t("pr.cancel")}
