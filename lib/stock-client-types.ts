@@ -175,7 +175,6 @@ export type StockDashboardDTO = {
   recentMovements: MovementDTO[];
   supplierPerformance: SupplierPerformanceDTO[];
   todayByProduct: ProductTotalsDTO[];
-  todayIntakes: IntakeDTO[];
 };
 
 export type StockAuditDTO = {

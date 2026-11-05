@@ -1,3 +1,4 @@
+import { Prisma, type Notification } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
 import { applyOverrides } from "@/lib/authz-core";
@@ -97,15 +98,18 @@ export async function notifyMany(tx: Pick<Tx, "notification">, events: { userIds
 
 export async function myNotifications(userId: string, opts: { unreadOnly?: boolean; limit?: number } = {}) {
   const limit = Math.min(Math.max(opts.limit ?? 30, 1), 100);
-  const [items, unread] = await Promise.all([
-    prisma.notification.findMany({
-      where: { recipientId: userId, ...(opts.unreadOnly ? { readAt: null } : {}) },
-      orderBy: { createdAt: "desc" },
-      take: limit,
-    }),
-    prisma.notification.count({ where: { recipientId: userId, readAt: null } }),
-  ]);
-  return { items, unread };
+  // The newest notifications and the unread count in one statement (PS-10): the bell polls this
+  // on every screen. No row means no unread one either (an unread one would be listed), so the
+  // count rides on the rows. The columns are the model's, listed so a row is exactly what
+  // prisma.notification.findMany returns (tests/integration/notifications-inbox.test.ts).
+  const rows = await prisma.$queryRaw<(Notification & { unread: number })[]>`
+    SELECT n."id", n."recipientId", n."type", n."severity", n."title", n."body", n."entityType", n."entityId", n."link", n."dedupeKey", n."readAt", n."createdAt",
+           (SELECT count(*)::int FROM "Notification" u WHERE u."recipientId" = ${userId} AND u."readAt" IS NULL) AS "unread"
+    FROM "Notification" n
+    WHERE n."recipientId" = ${userId} ${opts.unreadOnly ? Prisma.sql`AND n."readAt" IS NULL` : Prisma.empty}
+    ORDER BY n."createdAt" DESC
+    LIMIT ${limit}::int`;
+  return { items: rows.map(({ unread: _unread, ...n }) => n as Notification), unread: rows[0]?.unread ?? 0 };
 }
 
 export async function markRead(userId: string, input: { ids?: unknown; all?: unknown }) {

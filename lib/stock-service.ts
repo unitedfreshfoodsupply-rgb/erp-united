@@ -1069,26 +1069,35 @@ export type PeriodTotals = {
   intakeCount: number;
 };
 
-/** Totals are summed by the database over posted receipts only — a voided receipt
- * never happened as far as the day's production numbers are concerned. */
-async function totalsBetween(from: string, to: string): Promise<PeriodTotals> {
-  const agg = await prisma.stockIntake.aggregate({
+/** Totals are summed over posted receipts only — a voided receipt never happened as far as the
+ * day's production numbers are concerned. Several windows in one query (PM-9): the receipts of
+ * the widest window summed per day by the database, then the days added up per window (exact
+ * decimals, the sums one aggregate per window would make). */
+async function totalsForWindows(windows: { from: string; to: string }[]): Promise<PeriodTotals[]> {
+  const from = windows.reduce((m, w) => (w.from < m ? w.from : m), windows[0].from);
+  const to = windows.reduce((m, w) => (w.to > m ? w.to : m), windows[0].to);
+  const days = await prisma.stockIntake.groupBy({
+    by: ["receivedDate"],
     where: { status: "posted", receivedDate: { gte: from, lte: to } },
     _sum: { receivedQty: true, rejectedQty: true, goodQty: true, crateCount: true },
     _count: { _all: true },
   });
-  const receivedKg = num(agg._sum.receivedQty);
-  const goodKg = num(agg._sum.goodQty);
-  return {
-    from,
-    to,
-    receivedKg,
-    rejectedKg: num(agg._sum.rejectedQty),
-    goodKg,
-    crates: agg._sum.crateCount ?? 0,
-    yieldPct: yieldPct(receivedKg, goodKg),
-    intakeCount: agg._count._all,
-  };
+  return windows.map((w) => {
+    const inside = days.filter((d) => d.receivedDate >= w.from && d.receivedDate <= w.to);
+    const sum = (f: "receivedQty" | "rejectedQty" | "goodQty") => (inside.length ? inside.reduce((s, d) => s.plus(D(d._sum[f])), D(0)) : null);
+    const receivedKg = num(sum("receivedQty"));
+    const goodKg = num(sum("goodQty"));
+    return {
+      from: w.from,
+      to: w.to,
+      receivedKg,
+      rejectedKg: num(sum("rejectedQty")),
+      goodKg,
+      crates: inside.reduce((s, d) => s + (d._sum.crateCount ?? 0), 0),
+      yieldPct: yieldPct(receivedKg, goodKg),
+      intakeCount: inside.reduce((s, d) => s + d._count._all, 0),
+    };
+  });
 }
 
 /** Calendar-day arithmetic on the YYYY-MM-DD strings the receipts are keyed by. Done
@@ -1191,15 +1200,14 @@ export async function stockDashboard(todayISO = todayLocalISO()) {
   const weekFrom = shiftDate(todayISO, -6); // rolling 7 days, today inclusive
   const monthFrom = startOfMonth(todayISO);
 
-  const [today, week, month, stock, movements, suppliers, todayByProduct, todayIntakes] = await Promise.all([
-    totalsBetween(todayISO, todayISO),
-    totalsBetween(weekFrom, todayISO),
-    totalsBetween(monthFrom, todayISO),
+  // The day's receipt list is not here: the dashboard never showed it, and it cost up to eight
+  // queries on every poll (PS-5). The three period totals come from one query.
+  const [[today, week, month], stock, movements, suppliers, todayByProduct] = await Promise.all([
+    totalsForWindows([{ from: todayISO, to: todayISO }, { from: weekFrom, to: todayISO }, { from: monthFrom, to: todayISO }]),
     currentStock(),
     listMovements({ limit: 20 }),
     supplierPerformance(monthFrom, todayISO),
     productTotals(todayISO, todayISO),
-    listIntakes({ date: todayISO, limit: 50 }),
   ]);
 
   return {
@@ -1213,6 +1221,5 @@ export async function stockDashboard(todayISO = todayLocalISO()) {
     recentMovements: movements,
     supplierPerformance: suppliers,
     todayByProduct,
-    todayIntakes,
   };
 }

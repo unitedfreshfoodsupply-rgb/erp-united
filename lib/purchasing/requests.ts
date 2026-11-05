@@ -16,6 +16,7 @@ import { assertQuantityFitsUnit, assessOrderStock, sellableNow, unitPrecision } 
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { searchWhere } from "@/lib/core/search";
 import { resolveWarehouse } from "@/lib/inventory/context";
+import { productsAvailability } from "@/lib/inventory/balances";
 
 /**
  * Purchase requests (remediation 2026-11, WF-01).
@@ -246,8 +247,15 @@ export async function listPurchaseRequests(filters: { status?: string; customerI
     orderBy: { createdAt: "desc" },
     take: Math.min(Math.max(filters.limit ?? 100, 1), 500),
   });
+  // What is sellable now for the products of ordered requests: one warehouse lookup and a fixed
+  // number of queries for all of them (PS-8), clamped at zero as sellableNow does.
   const avail = new Map<string, Prisma.Decimal>();
-  for (const id of [...new Set(rows.filter((x) => x.status === "ordered").map((x) => x.productId))]) avail.set(id, (await sellableNow(prisma, id)).available);
+  const ordered = [...new Set(rows.filter((x) => x.status === "ordered").map((x) => x.productId))];
+  if (ordered.length) {
+    const warehouse = await resolveWarehouse(prisma, undefined);
+    const free = await productsAvailability(prisma, ordered, warehouse.id);
+    for (const id of ordered) avail.set(id, Prisma.Decimal.max(0, free.get(id)?.available ?? 0));
+  }
   return { items: rows.map((x) => present(x, avail.get(x.productId) ?? null)) };
 }
 

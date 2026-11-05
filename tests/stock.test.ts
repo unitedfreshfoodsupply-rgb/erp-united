@@ -268,12 +268,13 @@ async function main() {
 
   section("12. DASHBOARD SHAPE");
   const d = dash4.body;
-  for (const k of ["today","week","month","currentStock","totalStockKg","recentMovements","supplierPerformance","todayByProduct","todayIntakes"]) {
+  for (const k of ["today","week","month","currentStock","totalStockKg","recentMovements","supplierPerformance","todayByProduct"]) {
     check(`dashboard includes ${k}`, d[k] !== undefined);
   }
   check("totalStockKg == sum of balances", near(d.totalStockKg, d.currentStock.reduce((s: number,p: any)=>s+p.balanceKg,0), 0.002));
   check("recent movements newest-first", d.recentMovements.every((m: any,i: number,a: any[])=>i===0||new Date(a[i-1].occurredAt)>=new Date(m.occurredAt)));
-  check("todayIntakes are all today's", d.todayIntakes.every((i: any)=>i.receivedDate===today));
+  // The unused receipt list was dropped from the polled dashboard (PS-5); /api/stock/intakes?date= serves it.
+  check("dashboard no longer carries the unused todayIntakes list", d.todayIntakes === undefined);
 
   section("13. AUDIT");
   const audit = await call("hossam","GET","/api/stock/audit");
