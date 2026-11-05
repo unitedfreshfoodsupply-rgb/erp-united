@@ -13,7 +13,7 @@ import {
   type ResolvedProduct,
 } from "@/lib/productIdentity";
 import type { StockActor } from "@/lib/stock-auth";
-import { applyListPrices } from "@/lib/sales/pricing";
+import { applyListPricesToOrders } from "@/lib/sales/reprice-orders";
 import { assertPermission } from "@/lib/authz-core";
 import { searchWhere } from "@/lib/core/search";
 
@@ -615,12 +615,15 @@ export async function mapOrderProductName(
       : { count: 0 };
     // The lines now name a product with a price and a tax class: price them, and hold
     // the new product's stock in full — or the whole mapping is refused (WF-01).
-    for (const orderId of new Set(targets.map((t) => t.orderId))) {
-      await applyListPrices(tx, orderId, actor, { refresh: true });
+    // Prices of every affected order in one pass (Nov 2026: one order at a time timed out on a
+    // name carried by many open orders); pricing does not touch stock or the stock status.
+    const orderIds = [...new Set(targets.map((t) => t.orderId))];
+    await applyListPricesToOrders(tx, orderIds, actor, { refresh: true });
+    const stockStatusOf = new Map((orderIds.length ? await tx.order.findMany({ where: { id: { in: orderIds } }, select: { id: true, stockStatus: true } }) : []).map((o) => [o.id, o.stockStatus]));
+    for (const orderId of orderIds) {
       // An order waiting for stock reserves nothing until it is released (Nov 2026): its
       // suggestions follow the new product instead.
-      const { stockStatus } = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { stockStatus: true } });
-      if (stockStatus === "awaiting_stock") {
+      if (stockStatusOf.get(orderId) === "awaiting_stock") {
         await syncOrderSuggestions(tx, orderId, actor);
         continue;
       }
