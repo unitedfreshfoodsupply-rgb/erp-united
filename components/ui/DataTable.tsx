@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
 import { apiFetch, errorMessage } from "@/lib/api-client";
+import { replaceQuery, withListPatch } from "@/lib/hooks/urlQuery";
 import { useLocale } from "@/lib/locale";
 import { EmptyState, ErrorState } from "@/components/States";
 import { Pagination } from "@/components/ui/Pagination";
@@ -28,24 +29,18 @@ export type FilterDef =
 
 /** List state in the URL: q, each filter key, from/to, page. */
 export function useListState(filterKeys: readonly string[] = [], opts: { pageSize?: number; prefix?: string } = {}) {
-  const router = useRouter();
-  const pathname = usePathname();
   const sp = useSearchParams();
   const p = opts.prefix ?? "";
   const read = (k: string) => sp.get(p + k) ?? "";
   const state = { q: read("q"), page: Math.max(1, Number(read("page")) || 1), from: read("from"), to: read("to"), filters: Object.fromEntries(filterKeys.map((k) => [k, read(k)])) as Record<string, string> };
   const set = useCallback(
     (patch: Record<string, string | number | null>) => {
-      const next = new URLSearchParams(sp.toString());
-      for (const [k, v] of Object.entries(patch)) {
-        if (v === null || v === "" || v === undefined) next.delete(p + k);
-        else next.set(p + k, String(v));
-      }
+      // From the address as it is now, not as of the last render, so two quick changes both
+      // stick; written in place (lib/hooks/urlQuery.ts), so the list's request goes out at once.
       // Any change but paging starts again at page 1.
-      if (!("page" in patch)) next.delete(p + "page");
-      router.replace(`${pathname}${next.toString() ? `?${next}` : ""}`, { scroll: false });
+      replaceQuery(withListPatch(window.location.search, patch, p));
     },
-    [router, pathname, sp, p]
+    [p]
   );
   const reset = () => set(Object.fromEntries(["q", "from", "to", "page", ...filterKeys].map((k) => [k, null])));
   const pageSize = opts.pageSize ?? 50;
@@ -72,11 +67,20 @@ export function FilterBar({ list, filters = [], searchLabel, searchHint, childre
   const { t } = useLocale();
   const [text, setText] = useState(list.q);
   const first = useRef(true);
-  useEffect(() => setText(list.q), [list.q]);
+  // What the box last put in the address. The box takes the address's value only when it
+  // changed from elsewhere (a chip's ×, reset, Back) — never the echo of what was typed, which
+  // is trimmed ("فندق " would lose the space before the next word) and may be behind the box.
+  const sent = useRef(list.q);
+  useEffect(() => {
+    if (list.q !== sent.current) { sent.current = list.q; setText(list.q); }
+  }, [list.q]);
   // Debounced: the server is asked once the typing pauses.
   useEffect(() => {
     if (first.current) { first.current = false; return; }
-    const h = setTimeout(() => { if (text.trim() !== list.q) list.set({ q: text.trim() || null }); }, 300);
+    const h = setTimeout(() => {
+      const v = text.trim();
+      if (v !== list.q) { sent.current = v; list.set({ q: v || null }); }
+    }, 300);
     return () => clearTimeout(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text]);
