@@ -278,34 +278,69 @@ export async function setSupplierPrices(supplierId: string, input: unknown, acto
     const s = await tx.supplier.findUnique({ where: { id: supplierId } });
     if (!s) throw new ApiError(404, "المورد مش موجود");
     if (!s.active) throw new ApiError(400, "المورد موقوف");
+    // Read once for every line (Nov 2026: one product at a time was ~4 statements per price, and
+    // a few hundred prices ran past the 20 s limit), then decide the lines in their order exactly
+    // as one at a time: a later line for the same product and unit corrects the earlier one.
+    const productIds = [...new Set(v.prices.map((p) => p.product_id))];
+    const [products, existingRows] = await Promise.all([
+      tx.stockProduct.findMany({ where: { id: { in: productIds } }, include: { packagings: true } }),
+      tx.supplierPrice.findMany({ where: { supplierId, validFrom: v.valid_from, productId: { in: productIds } } }),
+    ]);
+    const productBy = new Map(products.map((p) => [p.id, p]));
+    const uomCodes = new Set<string>();
+    for (const p of v.prices) {
+      const product = productBy.get(p.product_id);
+      if (product && p.uom && p.uom !== product.unit) uomCodes.add(p.uom).add(product.unit);
+    }
+    const [units, usage] = await Promise.all([
+      uomCodes.size ? tx.unitOfMeasure.findMany({ where: { code: { in: [...uomCodes] } } }) : [],
+      existingRows.length ? tx.purchaseOrderLine.groupBy({ by: ["supplierPriceId"], where: { supplierPriceId: { in: existingRows.map((r) => r.id) } }, _count: { _all: true } }) : [],
+    ]);
+    const unitBy = new Map(units.map((u) => [u.code, u]));
+    const used = new Set(usage.filter((u) => u._count._all > 0).map((u) => u.supplierPriceId));
+    type Row = { id: string | null; productId: string; uomCode: string; unitPrice: Prisma.Decimal; validTo: string | null; leadTimeDays: number | null; notes: string | null; dirty: boolean };
+    const rows = new Map<string, Row>(existingRows.map((r) => [`${r.productId}|${r.uomCode}`, { id: r.id, productId: r.productId, uomCode: r.uomCode, unitPrice: r.unitPrice, validTo: r.validTo, leadTimeDays: r.leadTimeDays, notes: r.notes, dirty: false }]));
     const audits: AuditInput[] = [];
     let created = 0;
     let replaced = 0;
     for (const p of v.prices) {
-      const product = await tx.stockProduct.findUnique({ where: { id: p.product_id }, include: { packagings: true } });
+      const product = productBy.get(p.product_id);
       if (!product) throw new ApiError(404, "الصنف مش موجود");
       const uom = p.uom || product.unit;
       if (uom !== product.unit && !product.packagings.some((x) => x.uomCode === uom && x.active)) {
-        const u = await tx.unitOfMeasure.findUnique({ where: { code: uom } });
-        const base = await tx.unitOfMeasure.findUnique({ where: { code: product.unit } });
+        const u = unitBy.get(uom);
+        const base = unitBy.get(product.unit);
         if (!u || !base || u.category !== base.category || u.category === "package") throw new ApiError(400, `الوحدة ${uom} مش متعرّفة للصنف "${product.name}"`);
       }
-      const key = { supplierId_productId_uomCode_validFrom: { supplierId, productId: product.id, uomCode: uom, validFrom: v.valid_from } };
-      const existing = await tx.supplierPrice.findUnique({ where: key });
+      const key = `${product.id}|${uom}`;
+      const existing = rows.get(key);
+      const values = { unitPrice: p.unit_price, validTo: v.valid_to ?? null, leadTimeDays: p.lead_time_days ?? null, notes: p.notes ?? null };
       if (existing) {
         if (existing.unitPrice.equals(p.unit_price) && existing.validTo === (v.valid_to ?? null)) continue;
-        const used = await tx.purchaseOrderLine.count({ where: { supplierPriceId: existing.id } });
-        if (used) throw new ApiError(409, `سعر "${product.name}" من ${v.valid_from} اتعمل بيه أوامر شراء — سجّل السعر الجديد من تاريخ بعده`);
-        await tx.supplierPrice.update({ where: { id: existing.id }, data: { unitPrice: p.unit_price, validTo: v.valid_to ?? null, leadTimeDays: p.lead_time_days ?? null, notes: p.notes ?? null, createdById: actor.id, createdBy: actor.name } });
+        if (existing.id && used.has(existing.id)) throw new ApiError(409, `سعر "${product.name}" من ${v.valid_from} اتعمل بيه أوامر شراء — سجّل السعر الجديد من تاريخ بعده`);
         audits.push(audit(actor, { action: "supplier_price_corrected", entityType: "supplier", entityId: supplierId, fieldChanged: `${product.name} / ${uom} @ ${v.valid_from}`, oldValue: existing.unitPrice.toString(), newValue: p.unit_price.toString() }));
+        rows.set(key, { ...existing, ...values, dirty: true });
         replaced++;
       } else {
-        await tx.supplierPrice.create({
-          data: { supplierId, productId: product.id, uomCode: uom, unitPrice: p.unit_price, currencyCode: s.currencyCode, validFrom: v.valid_from, validTo: v.valid_to ?? null, leadTimeDays: p.lead_time_days ?? null, notes: p.notes ?? null, createdById: actor.id, createdBy: actor.name },
-        });
         audits.push(audit(actor, { action: "supplier_price_set", entityType: "supplier", entityId: supplierId, fieldChanged: `${product.name} / ${uom} @ ${v.valid_from}`, newValue: p.unit_price.toString() }));
+        rows.set(key, { id: null, productId: product.id, uomCode: uom, ...values, dirty: true });
         created++;
       }
+    }
+    const fresh = [...rows.values()].filter((r) => r.dirty && !r.id);
+    if (fresh.length) {
+      await tx.supplierPrice.createMany({
+        data: fresh.map((r) => ({ supplierId, productId: r.productId, uomCode: r.uomCode, unitPrice: r.unitPrice, currencyCode: s.currencyCode, validFrom: v.valid_from, validTo: r.validTo, leadTimeDays: r.leadTimeDays, notes: r.notes, createdById: actor.id, createdBy: actor.name })),
+      });
+    }
+    const corrected = [...rows.values()].filter((r) => r.dirty && r.id);
+    if (corrected.length) {
+      const values = corrected.map((r) => Prisma.sql`(${r.id}::text, ${r.unitPrice.toString()}::numeric, ${r.validTo}::text, ${r.leadTimeDays}::int, ${r.notes}::text)`);
+      await tx.$executeRaw`
+        UPDATE "SupplierPrice" AS p SET "unitPrice" = v.unit_price, "validTo" = v.valid_to, "leadTimeDays" = v.lead_time_days, "notes" = v.notes,
+          "createdById" = ${actor.id}::text, "createdBy" = ${actor.name}::text
+        FROM (VALUES ${Prisma.join(values)}) AS v(id, unit_price, valid_to, lead_time_days, notes)
+        WHERE p."id" = v.id`;
     }
     await writeAuditMany(audits, tx);
     return { created, replaced };
