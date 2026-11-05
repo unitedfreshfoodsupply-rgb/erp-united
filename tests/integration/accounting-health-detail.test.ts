@@ -16,6 +16,7 @@ import { partyMismatches } from "@/lib/accounting/integrity";
 const D = (v: Prisma.Decimal.Value) => new Prisma.Decimal(v);
 const acc = actor("محاسب", ["accounting.manage"], null, "ACCOUNTANT");
 const GHOST = "zz-health-no-such-party";
+const TAG = `ZZHEALTH${Date.now()}`;
 
 after(async () => {
   await prisma.$disconnect();
@@ -28,15 +29,16 @@ async function rolledBack(fn: (tx: Tx) => Promise<void>) {
 
 test("AR/AP mismatches carry the party's code and names, in one statement, and an unknown id comes back unnamed", async () => {
   await rolledBack(async (tx) => {
-    // Parties that are in balance now, so each mismatch below is exactly what this entry adds.
+    // The mismatches already there (other suites' data), so each one below is exactly what this entry adds.
     const [arBefore, apBefore] = [await partyMismatches("customer", tx), await partyMismatches("supplier", tx)];
     const skipC = new Set(arBefore.map((r) => r.id));
     const skipS = new Set(apBefore.map((r) => r.id));
-    const [a] = (await tx.customer.findMany({ select: { id: true, code: true, name: true, nameAr: true }, orderBy: { code: "asc" }, take: 50 })).filter((c) => !skipC.has(c.id));
-    const suppliers = (await tx.supplier.findMany({ select: { id: true, code: true, name: true, nameAr: true }, orderBy: { code: "asc" }, take: 50 })).filter((s) => !skipS.has(s.id)).slice(0, 2);
-    assert.ok(a, "the seed has a customer in balance");
-    assert.equal(suppliers.length, 2, "the seed has two suppliers in balance");
-    const [s1, s2] = suppliers;
+    // Parties of its own (rolled back with the rest), so the test does not depend on the fixtures.
+    const sel = { id: true, code: true, name: true, nameAr: true } as const;
+    const a = await tx.customer.create({ data: { code: `${TAG}-C`, name: `${TAG} customer`, nameAr: `${TAG} عميل`, createdBy: "integration-test" }, select: sel });
+    const s1 = await tx.supplier.create({ data: { code: `${TAG}-S1`, name: `${TAG} supplier 1`, nameAr: `${TAG} مورد 1` }, select: sel });
+    const s2 = await tx.supplier.create({ data: { code: `${TAG}-S2`, name: `${TAG} supplier 2` }, select: sel });
+    assert.ok(!skipC.has(a.id) && !skipS.has(s1.id) && !skipS.has(s2.id));
     // Receivables move from a customer to an id that is no party at all, and payables between two
     // suppliers: the totals still agree, only the per-party check can see it.
     await postJournal(tx, {
