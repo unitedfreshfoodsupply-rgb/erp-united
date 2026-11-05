@@ -21,17 +21,25 @@ function clientIp(req: NextRequest): string | null {
 
 type UserRow = { id: string; name: string; username: string; role: string; sessionEpoch: number; mustChangePassword: boolean };
 
-async function lockGuards(username: string, ip: string | null, loc: "ar" | "en") {
+async function ipGuard(ip: string | null, loc: "ar" | "en") {
   // IP-wide lockout first: a brute force that spreads guesses across usernames
   // still trips it, because the lock is on where the guesses come from.
   const ipLock = await isIpLoginLocked(ip, await getSetting("auth.login_ip_lockout_threshold"));
   if (ipLock.locked) {
     throw new ApiError(429, loc === "en" ? `Too many failed attempts from this IP — try again in ${Math.ceil(ipLock.retryAfterSec / 60)} minutes` : `محاولات كتير غلط من العنوان ده — حاول تاني بعد ${Math.ceil(ipLock.retryAfterSec / 60)} دقيقة`);
   }
+}
+
+async function accountGuard(username: string, loc: "ar" | "en") {
   const lockState = await isLoginLocked(username);
   if (lockState.locked) {
     throw new ApiError(429, loc === "en" ? `Too many failed attempts — try again in ${Math.ceil(lockState.retryAfterSec / 60)} minutes` : `محاولات كتير غلط — حاول تاني بعد ${Math.ceil(lockState.retryAfterSec / 60)} دقيقة`);
   }
+}
+
+async function lockGuards(username: string, ip: string | null, loc: "ar" | "en") {
+  await ipGuard(ip, loc);
+  await accountGuard(username, loc);
 }
 
 /** Issues the session (cookie + the same token for the tab) and the response body. */
@@ -94,19 +102,23 @@ export async function POST(req: NextRequest) {
     if (typeof username !== "string" || typeof password !== "string" || !username || !password) {
       throw new ApiError(400, loc === "en" ? "Enter username and password" : "دخّل اسم المستخدم وكلمة السر");
     }
-    await lockGuards(username, ip, loc);
+    await ipGuard(ip, loc);
 
     // The username, or the account's email (stored lower-case) when the identifier has an "@".
     const identifier = username.trim();
     const user = identifier.includes("@")
       ? await prisma.user.findUnique({ where: { email: identifier.toLowerCase() } })
       : await prisma.user.findUnique({ where: { username } });
+    // One failure counter per account: the email is another way to type the same
+    // username, not a second set of five guesses. An unknown identifier counts as typed.
+    const account = user?.username ?? username;
+    await accountGuard(account, loc);
     // Always pay for one bcrypt comparison, even for an unknown or disabled account.
     // Answering those instantly while a real account takes ~250ms tells anyone timing
     // the endpoint which usernames exist.
     const ok = await verifyPassword(password, user?.passwordHash ?? TIMING_DUMMY_HASH);
     if (!user || !user.active || !ok) {
-      await recordLoginFailure(username, ip);
+      await recordLoginFailure(account, ip);
       throw invalid();
     }
 
@@ -126,7 +138,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ mfa_required: true, mfa_token: await createPreAuthToken({ userId: user.id, sessionEpoch: user.sessionEpoch }) });
     }
 
-    await recordLoginSuccess(username, ip);
+    await recordLoginSuccess(account, ip);
     return signIn(user, false);
   } catch (err) {
     return handleApiError(err, req);
