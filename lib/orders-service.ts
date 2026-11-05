@@ -10,7 +10,7 @@ import { canTransition, isStandardTransition } from "@/lib/orderWorkflow";
 import { isShortage, needsSupervisorReview } from "@/lib/config";
 import { getOperationalSettings, getSetting } from "@/lib/core/settings-service";
 import type { OperationalSettings } from "@/lib/core/settings-registry";
-import { cancelPendingApproval, findPending, recordDecision, requestApproval } from "@/lib/core/approvals";
+import { cancelPendingApproval, cancelPendingApprovals, findPending, recordDecision, requestApproval } from "@/lib/core/approvals";
 import {
   exceptionCategory,
   isOrderOpen,
@@ -1141,6 +1141,8 @@ export async function applyShortageApproval(
 ) {
   const current = await tx.order.findUnique({ where: { id: orderId } });
   if (!current) throw new ApiError(404, "الأوردر مش موجود");
+  // A cancelled order has nothing left to release (LOG-10). Its request can still be rejected.
+  if (current.status === "cancelled") throw new ApiError(409, "الأوردر ملغي");
   if (!current.needsReview && !current.shortage) throw new ApiError(409, "الأوردر مبقاش محتاج اعتماد");
   const version = expectedVersion ?? current.version;
   const updated = await casOrderUpdate(orderId, version, (where) =>
@@ -1213,9 +1215,10 @@ export async function cancelOrder(
     }, tx);
 
     // Stock promised to a cancelled order is free again, and nobody needs to decide
-    // its credit any more.
+    // anything about it any more: its credit, a quantity variance or its prices (LOG-10 — the
+    // shortage and price-exception requests used to stay in the inbox, on an order that is gone).
     await releaseAllForSource(tx, "order", orderId, `إلغاء الأوردر: ${reason}`, stockActor(actor));
-    await cancelPendingApproval(tx, { type: "sales.credit", entityId: orderId, reason: `الأوردر اتلغى: ${reason}`, actor });
+    await cancelPendingApprovals(tx, (["sales.credit", "orders.shortage", "sales.price_exception"] as const).map((type) => ({ type, entityId: orderId, reason: `الأوردر اتلغى: ${reason}`, actor })));
     // Its procurement suggestions are no longer needed (one already on a supplier PO stays
     // with purchasing, noted on its history).
     await settleOrderSuggestions(tx, orderId, "cancelled", reason, actor);
@@ -1245,6 +1248,20 @@ export async function reopenOrder(
   const order = await getOrder(orderId);
   assertVersion(order.version, expectedVersion, "الأوردر");
   if (order.status === to) throw new ApiError(400, "الأوردر في الحالة دي بالفعل");
+  // Reopen sends a closed or advanced order back; a new order has not started (LOG-10). Moving it
+  // on is the ordinary status change, with its credit, pricing and stock gates.
+  if (order.status === "new") throw new ApiError(409, "الأوردر لسه جديد — مفيش حاجة تتفتح تاني، ابدأ التجهيز من تغيير الحالة العادي");
+  // A cancelled order goes straight back to work, past the gates of leaving "new" — and the cancel
+  // withdrew whatever its prices or credit were waiting for, so nobody could decide them any more
+  // (LOG-10). With prices or credit not cleared it is not reopened: a copy goes through both again.
+  if (order.status === "cancelled") {
+    if (order.pricingStatus !== "ok") {
+      throw new ApiError(409, "مينفعش يتفتح تاني: أسعار الأوردر كانت مستنية موافقة أو اترفضت قبل الإلغاء — اعمل نسخة من الأوردر، النسخة بتعدي على مراجعة الأسعار والائتمان من الأول", "reopen_needs_clone");
+    }
+    if ((order.creditStatus === "pending_approval" || order.creditStatus === "rejected") && (await getSetting("sales.credit_check_mode")) === "block") {
+      throw new ApiError(409, "مينفعش يتفتح تاني: ائتمان الأوردر كان مستني موافقة الحسابات أو اترفض قبل الإلغاء — اعمل نسخة من الأوردر، النسخة بتعدي على مراجعة الأسعار والائتمان من الأول", "reopen_needs_clone");
+    }
+  }
   const stop = await liveTripStop(orderId);
   if (stop && ["dispatched", "in_transit", "completed"].includes(stop.trip.status)) {
     throw new ApiError(409, `الأوردر خرج على الرحلة ${stop.trip.number} — التصحيح بنتيجة التسليم (مرتجع/عجز)`);

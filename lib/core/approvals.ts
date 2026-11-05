@@ -3,9 +3,11 @@ import { asText } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
-import { advisoryXactLock } from "@/lib/dbLock";
-import { nextDocumentNumber } from "@/lib/core/sequences";
-import { notify, usersWithPermission } from "@/lib/core/notifications";
+import { advisoryXactLock, advisoryXactLocks } from "@/lib/dbLock";
+import { nextDocumentNumber, nextDocumentNumbers } from "@/lib/core/sequences";
+import { notify, notifyMany, usersWithPermission } from "@/lib/core/notifications";
+import { newId } from "@/lib/core/ids";
+import { writeAuditMany, type AuditInput } from "@/lib/audit";
 import { todayLocalISO } from "@/lib/localDate";
 import type { Permission } from "@/lib/permissions";
 import type { Tx } from "@/lib/tx";
@@ -283,6 +285,149 @@ export async function requestApproval(
   );
 
   return { request, created: true };
+}
+
+/**
+ * requestApproval for many requests at once (PW-2, Nov 2026: an order saved awaiting stock asks
+ * one purchase-request approval per short line, ~9 round trips each). The same result as calling
+ * requestApproval for each input in turn — an input whose (type, entity) already has a pending
+ * request gets that one back, numbers follow the input order, one approval_requested audit row
+ * and one notice per approver for each new request — in a fixed number of statements: every
+ * lock in one (sorted, the global order), approvers resolved once per permission.
+ */
+export async function requestApprovals(tx: Tx, inputs: Parameters<typeof requestApproval>[1][]) {
+  if (!inputs.length) return [];
+  await advisoryXactLocks(tx, inputs.map((i) => lockKey(i.type, i.entityId)));
+  const key = (type: string, entityId: string) => `${type}|${entityId}`;
+  const pending = await tx.approvalRequest.findMany({ where: { status: "pending", OR: inputs.map((i) => ({ type: i.type, entityId: i.entityId })) } });
+  const open = new Map(pending.map((r) => [key(r.type, r.entityId), r]));
+  // The first input of a (type, entity) opens it; any later one gets it back, as it would in turn.
+  const fresh = inputs.filter((i, at) => !open.has(key(i.type, i.entityId)) && inputs.findIndex((j) => key(j.type, j.entityId) === key(i.type, i.entityId)) === at);
+  const numbers = fresh.length ? await nextDocumentNumbers(tx, "core.approval", todayLocalISO(), fresh.length) : [];
+  const now = Date.now();
+  const data = fresh.map((input, n) => {
+    const def: ApprovalTypeDef = APPROVAL_TYPES[input.type];
+    return {
+      id: newId(),
+      number: numbers[n],
+      // One after another, as requestApproval in turn: the inbox keeps the order they were asked in.
+      createdAt: new Date(now + n),
+      type: input.type,
+      entityType: def.entityType,
+      entityId: input.entityId,
+      title: input.title,
+      summary: input.summary ?? null,
+      amount: input.amount == null ? null : new Prisma.Decimal(input.amount),
+      payload: input.payload ?? Prisma.JsonNull,
+      requiredLevels: def.levels,
+      requestedById: input.requester.id,
+      requestedBy: input.requester.name,
+      requestReason: input.reason ?? null,
+    };
+  });
+  const created = data.length ? await tx.approvalRequest.createManyAndReturn({ data }) : [];
+  const byId = new Map(created.map((r) => [r.id, r]));
+  const audits: AuditInput[] = [];
+  const notices: { input: (typeof fresh)[number]; request: (typeof created)[number] }[] = [];
+  for (const [n, input] of fresh.entries()) {
+    const def: ApprovalTypeDef = APPROVAL_TYPES[input.type];
+    const request = byId.get(data[n].id)!;
+    open.set(key(input.type, input.entityId), request);
+    audits.push({
+      userId: input.requester.id,
+      userName: input.requester.name,
+      role: input.requester.role,
+      action: "approval_requested",
+      entityType: "approval_request",
+      entityId: request.id,
+      orderId: def.entityType === "order" ? input.entityId : null,
+      fieldChanged: input.type,
+      newValue: `${request.number} · ${input.title}`,
+      reason: input.reason,
+      source: "system",
+      deviceId: input.requester.deviceId,
+    });
+    if (!input.silent) notices.push({ input, request });
+  }
+  await writeAuditMany(audits, tx);
+  const approvers = new Map<Permission, string[]>();
+  for (const { input } of notices) {
+    const permission = APPROVAL_TYPES[input.type].approvePermission as Permission;
+    if (!approvers.has(permission)) approvers.set(permission, await usersWithPermission(tx, permission));
+  }
+  await notifyMany(
+    tx,
+    notices.map(({ input, request }) => {
+      const def: ApprovalTypeDef = APPROVAL_TYPES[input.type];
+      return {
+        userIds: approvers.get(def.approvePermission)!.filter((id) => id !== input.requester.id),
+        n: {
+          type: "approval.requested",
+          severity: "warning",
+          title: `مطلوب موافقتك: ${input.title}`,
+          body: input.summary ?? def.label,
+          entityType: "approval_request",
+          entityId: request.id,
+          link: def.link(input.entityId),
+          dedupeKey: `approval:${request.id}`,
+        },
+      };
+    })
+  );
+  const freshKeys = new Set(fresh.map((i) => key(i.type, i.entityId)));
+  const seen = new Set<string>();
+  return inputs.map((i) => {
+    const k = key(i.type, i.entityId);
+    const createdNow = freshKeys.has(k) && !seen.has(k);
+    seen.add(k);
+    return { request: open.get(k)!, created: createdNow };
+  });
+}
+
+/**
+ * cancelPendingApproval for many (type, entity) pairs at once (PW-2, Nov 2026): the same closed
+ * rows and approval_cancelled audit rows in a fixed number of statements. A pair with nothing
+ * pending is skipped; a request that changed meanwhile refuses the whole call (P2025 → 409), as
+ * the one-row update did. Returns how many were closed.
+ */
+export async function cancelPendingApprovals(tx: Tx, inputs: Parameters<typeof cancelPendingApproval>[1][]) {
+  if (!inputs.length) return 0;
+  await advisoryXactLocks(tx, inputs.map((i) => lockKey(i.type, i.entityId)));
+  const pending = await tx.approvalRequest.findMany({ where: { status: "pending", OR: inputs.map((i) => ({ type: i.type, entityId: i.entityId })) } });
+  const byKey = new Map(pending.map((r) => [`${r.type}|${r.entityId}`, r]));
+  const closing = new Map<string, { input: (typeof inputs)[number]; request: (typeof pending)[number] }>();
+  for (const input of inputs) {
+    const request = byKey.get(`${input.type}|${input.entityId}`);
+    if (request && !closing.has(request.id)) closing.set(request.id, { input, request });
+  }
+  const byReason = new Map<string, (typeof pending)[number][]>();
+  for (const { input, request } of closing.values()) byReason.set(input.reason, [...(byReason.get(input.reason) ?? []), request]);
+  for (const [reason, rows] of byReason) {
+    const res = await tx.approvalRequest.updateMany({
+      where: { OR: rows.map((r) => ({ id: r.id, version: r.version })) },
+      data: { status: "cancelled", closedReason: reason, decidedAt: new Date(), version: { increment: 1 } },
+    });
+    if (res.count !== rows.length) throw new Prisma.PrismaClientKnownRequestError("An approval request changed while it was being cancelled", { code: "P2025", clientVersion: Prisma.prismaVersion.client });
+  }
+  await writeAuditMany(
+    [...closing.values()].map(({ input, request }) => ({
+      userId: input.actor.id,
+      userName: input.actor.name,
+      role: input.actor.role,
+      action: "approval_cancelled",
+      entityType: "approval_request" as const,
+      entityId: request.id,
+      orderId: request.entityType === "order" ? request.entityId : null,
+      fieldChanged: request.type,
+      oldValue: "pending",
+      newValue: "cancelled",
+      reason: input.reason,
+      source: "system" as const,
+      deviceId: input.actor.deviceId,
+    })),
+    tx
+  );
+  return closing.size;
 }
 
 /** Closes a pending request that no longer applies (the condition went away). */

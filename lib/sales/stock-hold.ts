@@ -55,7 +55,27 @@ function shortfallSummary(shortfalls: StockShortfall[]) {
  */
 export async function holdOrderForStockInTx(tx: Tx, orderId: string, shortfalls: StockShortfall[], actor: HoldActor) {
   await advisoryXactLock(tx, `order-stock:${orderId}`);
-  await tx.order.update({ where: { id: orderId }, data: { stockStatus: "awaiting_stock" } });
+  const order = await tx.order.update({ where: { id: orderId }, data: { stockStatus: "awaiting_stock" } });
+  // A purchase request raised by hand for this customer's short product, for this delivery day,
+  // already covers the shortage (LOG-4, Nov 2026): holding the order would raise a second one for
+  // the same line, and fulfilling the first would then create a second order — double buying and
+  // a duplicate delivery. Refused (the order is not saved) with the request named.
+  const short = [...new Set(shortfalls.map((s) => s.productId).filter((x): x is string => !!x))];
+  if (order.customerAccountId && short.length) {
+    const raised = await tx.purchaseRequest.findMany({
+      where: { orderId: null, customerId: order.customerAccountId, neededBy: order.deliveryDate, productId: { in: short }, status: { in: ["pending_approval", "approved", "ordered"] } },
+      select: { number: true, productId: true },
+      orderBy: { createdAt: "asc" },
+    });
+    if (raised.length) {
+      throw new ApiError(
+        409,
+        `مينفعش يتحفظ مستني بضاعة: طلب الشراء ${raised.map((r) => r.number).join("، ")} اتعمل بالفعل للعميل ده لنفس يوم التسليم وبيغطي الناقص — قلّل السطر للمتاح واحفظ عادي`,
+        "purchase_request_exists",
+        { requests: raised }
+      );
+    }
+  }
   await writeAudit({
     userId: actor.id, userName: actor.name, role: actor.role,
     action: "order_held_for_stock", entityType: "order", entityId: orderId, orderId,

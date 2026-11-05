@@ -95,6 +95,12 @@ export async function evaluateOrderPricing(tx: Tx, orderId: string, actor: Actor
 
 /** Approval handler (decided by someone else — engine rule). */
 export async function applyPriceExceptionDecision(tx: Tx, orderId: string, approved: boolean, decider: Actorish, comment?: string) {
+  // A cancelled order's prices are not approved (LOG-10); rejecting just closes the request.
+  const order = await tx.order.findUnique({ where: { id: orderId }, select: { status: true } });
+  if (order?.status === "cancelled") {
+    if (approved) throw new ApiError(409, "الأوردر ملغي");
+    return;
+  }
   await tx.order.update({ where: { id: orderId }, data: { pricingStatus: approved ? "ok" : "rejected" } });
   await writeAudit(
     { userId: decider.id, userName: decider.name, role: decider.role, action: approved ? "order_price_exception_approved" : "order_price_exception_rejected", entityType: "order", entityId: orderId, orderId, reason: comment, source: "user", deviceId: decider.deviceId },

@@ -88,11 +88,9 @@ test("1b. a bare COMMIT (no wrapper) is still refused by PostgreSQL: nothing per
 // order header create, product master data, one read), so a swallowed COMMIT failure
 // cannot happen there. A new direct caller fails this test until it is reviewed.
 const DIRECT_TX_REVIEWED = [
-  "app/api/sales/customers/[id]/exposure/route.ts",
   "lib/admin-service.ts",
   "lib/loginRateLimit.ts",
   "lib/orderNumber.ts",
-  "lib/orders-service.ts",
   "lib/product-master-service.ts",
 ];
 // Prisma accessors of every model with a DEFERRABLE INITIALLY DEFERRED constraint trigger.

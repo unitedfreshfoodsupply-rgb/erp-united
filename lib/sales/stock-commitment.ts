@@ -336,9 +336,11 @@ export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceAc
       deltas.push({ productId: r.productId, delta: D(r.quantity) });
     }
   }
-  const taken = lines.filter((l) => !held.has(l.itemId)).map((l) => ({
+  // createdAt one millisecond apart, in line order, as one-by-one inserts had them.
+  const now = Date.now();
+  const taken = lines.filter((l) => !held.has(l.itemId)).map((l, n) => ({
     line: l,
-    row: { id: newId(), productId: l.productId, warehouseId: plan.warehouseId, quantity: l.base, sourceType: "order", sourceId: orderId, sourceLineId: l.itemId, createdById: actor.id, createdBy: actor.name },
+    row: { id: newId(), productId: l.productId, warehouseId: plan.warehouseId, quantity: l.base, sourceType: "order", sourceId: orderId, sourceLineId: l.itemId, createdById: actor.id, createdBy: actor.name, createdAt: new Date(now + n) },
   }));
   if (taken.length) await tx.stockReservation.createMany({ data: taken.map((t) => t.row) });
   for (const { line: l, row } of taken) {
