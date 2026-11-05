@@ -7,6 +7,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
+import { useDialogs } from "@/components/ui/Dialog";
+import { StatusPill, docTone } from "@/components/ui/StatusPill";
+import { useBusy } from "@/components/ui/useBusy";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
@@ -63,6 +66,7 @@ function ToInvoice({ onOpen }: { onOpen: (id: string) => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const { t, locale } = useLocale();
+  const { busy, run } = useBusy();
   const q = useQuery({ queryKey: ["sales", "to-invoice"], queryFn: () => apiFetch<{ orders: { id: string; orderNumber: string; deliveryDate: string; customerName: string; customer: { code: string; name: string; nameAr: string | null } | null; unpricedLines: number }[] }>("\/api\/sales\/invoices\/to-invoice") });
   if (q.isLoading) return <LoadingState />;
   if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
@@ -79,13 +83,13 @@ function ToInvoice({ onOpen }: { onOpen: (id: string) => void }) {
               {blocked && <div className="text-xs font-extrabold text-united-warn">{blocked}</div>}
             </div>
             {can("sales.invoices.manage") && (
-              <button type="button" className="btn-primary shrink-0" disabled={!!blocked} onClick={async () => {
+              <button type="button" className="btn-primary shrink-0" disabled={!!blocked || !!busy} aria-busy={busy === o.id} onClick={() => run(o.id, async () => {
                 try {
                   const r = await apiPost<{ invoice: { id: string } }>("/api/sales/invoices", { order_id: o.id });
                   void qc.invalidateQueries({ queryKey: ["sales"] });
                   onOpen(r.invoice.id);
                 } catch (err) { toast.show(err instanceof ApiClientError ? err.message : t("sales.invoice.error_generic"), "error"); }
-              }}>{t("sales.invoice.create")}</button>
+              })}>{busy === o.id ? t("ui.saving") : t("sales.invoice.create")}</button>
             )}
           </li>
         );
@@ -164,6 +168,9 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const [credit, setCredit] = useState<Record<string, string>>({});
   // One key per filled credit-note form: a retry after a dropped connection returns the same note.
   const [cnKey, setCnKey] = useState(newClientKey);
+  const dialogs = useDialogs();
+  // Issue, void and credit notes post or reverse revenue: one at a time, and a second tap waits.
+  const { busy, run } = useBusy();
   const q = useQuery({ queryKey: ["sales", "invoice", id], queryFn: () => apiFetch<{ invoice: InvDetail }>(`/api/sales/invoices/${id}`) });
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
@@ -173,11 +180,37 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
   // open amount: an invoice paid in full can still be credited for goods returned afterwards.
   const creditable = inv.lines.some((l) => Number(l.quantity) > Number(l.creditedQty));
   const refresh = () => void qc.invalidateQueries({ queryKey: ["sales"] });
-  // Localized STATUS labels (inside component so t() is available)
-  const statusLabels: Record<string, { label: string; cls: string }> = {
-    draft: { label: t("sales.invoice.draft"), cls: "bg-united-dark/5" },
-    issued: { label: t("sales.invoice.issued"), cls: "bg-united-green/10 text-united-green" },
-    void: { label: t("sales.invoice.voided"), cls: "bg-united-dark/5 text-united-muted" },
+  // Localized STATUS labels (inside component so t() is available); the tone is the shared one.
+  const statusLabels: Record<string, string> = {
+    draft: t("sales.invoice.draft"),
+    issued: t("sales.invoice.issued"),
+    void: t("sales.invoice.voided"),
+  };
+  const fail = (err: unknown) => toast.show(err instanceof ApiClientError ? err.message : t("sales.invoice.error_generic"), "error");
+  const party = inv.buyerName ?? localName(inv.customer, locale);
+  // Each irreversible step says what it will do — to whom, for how much — before it runs.
+  const issue = async () => {
+    if (!(await dialogs.confirm({ title: t("sales.invoice.confirm_issue", { customer: party }), body: t("sales.invoice.confirm_issue_body", { amount: fmtMoney(inv.total), date: issueDate }), confirmLabel: t("sales.invoice.issue_now"), cancelLabel: t("ui.back") }))) return;
+    await run("issue", async () => {
+      try { await apiPost(`/api/sales/invoices/${id}/issue`, { issue_date: issueDate, expected_version: inv.version }); refresh(); toast.show(t("sales.invoice.toast_issued"), "success"); } catch (err) { fail(err); }
+    });
+  };
+  const voidDraft = async () => {
+    if (!(await dialogs.confirm({ title: t("sales.invoice.confirm_void", { customer: party }), body: t("sales.invoice.confirm_void_body", { amount: fmtMoney(inv.total), reason: reason.trim() }), tone: "danger", confirmLabel: t("sales.invoice.void_draft"), cancelLabel: t("ui.back") }))) return;
+    await run("void", async () => {
+      try { await apiPost(`/api/sales/invoices/${id}/void`, { reason, expected_version: inv.version }); refresh(); toast.show(t("sales.invoice.toast_voided"), "success"); } catch (err) { fail(err); }
+    });
+  };
+  const creditByQty = () => run("credit", async () => {
+    const lines = Object.entries(credit).filter(([, v]) => v.trim()).map(([invoice_line_id, quantity]) => ({ invoice_line_id, quantity }));
+    try { await apiPost(`/api/sales/invoices/${id}/credit-notes`, { reason, lines, restock, idempotency_key: cnKey }); setCnKey(newClientKey()); setCredit({}); setReason(""); refresh(); toast.show(t("sales.invoice.toast_credited"), "success"); } catch (err) { fail(err); }
+  });
+  const creditFull = async () => {
+    const amount = fmtMoney(Number(inv.total) - Number(inv.credited));
+    if (!(await dialogs.confirm({ title: t("sales.invoice.confirm_full_credit", { number: inv.number ?? "" }), body: t(restock ? "sales.invoice.confirm_full_credit_body_restock" : "sales.invoice.confirm_full_credit_body", { amount, customer: party }), tone: "danger", confirmLabel: t("sales.invoice.confirm_full_credit_btn"), cancelLabel: t("ui.back") }))) return;
+    await run("credit-full", async () => {
+      try { await apiPost(`/api/sales/invoices/${id}/credit-notes`, { reason, full: true, restock, idempotency_key: cnKey }); setCnKey(newClientKey()); setReason(""); refresh(); toast.show(t("sales.invoice.toast_full_deduct"), "success"); } catch (err) { fail(err); }
+    });
   };
   return (
     <div className="flex flex-col gap-3">
@@ -201,7 +234,7 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
       )}
       {inv.status === "draft" && inv.current && <DraftMasterData parties={inv.current} customerId={inv.customer.id} />}
       {manage && inv.status === "draft" && <DraftNotes id={inv.id} notes={inv.notes} version={inv.version} onSaved={refresh} />}
-      <span className={`self-start rounded-full px-3 py-1 text-sm font-extrabold ${statusLabels[inv.status]?.cls}`}>{statusLabels[inv.status]?.label}{inv.issueDate ? ` ${t("sales.invoice.due_date_text")}${inv.dueDate}` : ""}</span>
+      <span className="self-start"><StatusPill tone={inv.status === "void" ? "neutral" : docTone(inv.status)} size="md">{statusLabels[inv.status] ?? inv.status}{inv.issueDate ? ` ${t("sales.invoice.due_date_text")}${inv.dueDate}` : ""}</StatusPill></span>
       <section className="card p-4 flex flex-col divide-y divide-united-dark/5">
         {inv.lines.map((l) => (
           <div key={l.id} className="py-2 flex flex-col gap-1">
@@ -245,9 +278,9 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
         <section className="card p-4 flex flex-col gap-2">
           <Field label={t("sales.invoice.issue_date_label")}><input type="date" className="field" value={issueDate} max={todayLocalISO()} onChange={(e) => setIssueDate(e.target.value)} /></Field>
           <div className="flex gap-2 flex-wrap items-end">
-            <button type="button" className="btn-primary" onClick={async () => { try { await apiPost(`/api/sales/invoices/${id}/issue`, { issue_date: issueDate, expected_version: inv.version }); refresh(); toast.show(t("sales.invoice.toast_issued"), "success"); } catch (err) { toast.show(err instanceof ApiClientError ? err.message : t("sales.invoice.error_generic"), "error"); } }}>{t("sales.invoice.issue_now")}</button>
+            <button type="button" className="btn-primary" disabled={!!busy} aria-busy={busy === "issue"} onClick={issue}>{busy === "issue" ? t("sales.invoice.issuing") : t("sales.invoice.issue_now")}</button>
             <Field label={t("sales.invoice.draft_reason_placeholder")} className="flex-1"><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
-            <button type="button" className="btn-danger" onClick={async () => { try { await apiPost(`/api/sales/invoices/${id}/void`, { reason, expected_version: inv.version }); refresh(); } catch (err) { toast.show(err instanceof ApiClientError ? err.message : t("sales.invoice.error_generic"), "error"); } }}>{t("sales.invoice.void_draft")}</button>
+            <button type="button" className="btn-danger" disabled={!!busy || !reason.trim()} aria-busy={busy === "void"} onClick={voidDraft}>{busy === "void" ? t("ui.working") : t("sales.invoice.void_draft")}</button>
           </div>
         </section>
       )}
@@ -261,13 +294,8 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <Field label={t("sales.invoice.reason_label")}><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
           <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" className="w-5 h-5" checked={restock} onChange={(e) => setRestock(e.target.checked)} />{t("sales.invoice.restock_checkbox")}</label>
           <div className="flex gap-2 flex-wrap">
-            <button type="button" className="btn-primary" onClick={async () => {
-              const lines = Object.entries(credit).filter(([, v]) => v.trim()).map(([invoice_line_id, quantity]) => ({ invoice_line_id, quantity }));
-              try { await apiPost(`/api/sales/invoices/${id}/credit-notes`, { reason, lines, restock, idempotency_key: cnKey }); setCnKey(newClientKey()); setCredit({}); setReason(""); refresh(); toast.show(t("sales.invoice.toast_credited"), "success"); } catch (err) { toast.show(err instanceof ApiClientError ? err.message : t("sales.invoice.error_generic"), "error"); }
-            }}>{t("sales.invoice.to_credit_by_qty")}</button>
-            <button type="button" className="btn-danger" onClick={async () => {
-              try { await apiPost(`/api/sales/invoices/${id}/credit-notes`, { reason, full: true, restock, idempotency_key: cnKey }); setCnKey(newClientKey()); setReason(""); refresh(); toast.show(t("sales.invoice.toast_full_deduct"), "success"); } catch (err) { toast.show(err instanceof ApiClientError ? err.message : t("sales.invoice.error_generic"), "error"); }
-            }}>{t("sales.invoice.deduct_full")}</button>
+            <button type="button" className="btn-primary" disabled={!!busy || !reason.trim()} aria-busy={busy === "credit"} onClick={creditByQty}>{busy === "credit" ? t("ui.saving") : t("sales.invoice.to_credit_by_qty")}</button>
+            <button type="button" className="btn-danger" disabled={!!busy || !reason.trim()} aria-busy={busy === "credit-full"} onClick={creditFull}>{busy === "credit-full" ? t("ui.saving") : t("sales.invoice.deduct_full")}</button>
           </div>
         </section>
       )}
@@ -284,6 +312,7 @@ function Aging() {
     <div className="flex flex-col gap-3">
       <Field label={t("sales.invoice.due_until")}><input type="date" className="field" value={asOf} onChange={(e) => setAsOf(e.target.value || todayLocalISO())} /></Field>
       {q.isLoading && <LoadingState />}
+      {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
       {q.data && q.data.rows.length === 0 && <EmptyState icon="✅" title={t("sales.invoice.no_debtors")} />}
       {q.data && q.data.rows.length > 0 && (
         <div className="card overflow-x-auto">
@@ -325,6 +354,8 @@ export function CustomerStatement({ customerId }: { customerId: string }) {
         <input type="date" className="field" aria-label={t("accounting.date-from")} value={from} onChange={(e) => setFrom(e.target.value)} />
         <input type="date" className="field" aria-label={t("accounting.date-to")} value={to} onChange={(e) => setTo(e.target.value)} />
       </div>
+      {q.isLoading && <LoadingState />}
+      {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
       {q.data && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

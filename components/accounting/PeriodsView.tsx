@@ -7,6 +7,7 @@ import { ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { useDialogs } from "@/components/ui/Dialog";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { useBusy } from "@/components/ui/useBusy";
 import { usePermissions } from "@/lib/use-session";
 import { useLocale } from "@/lib/locale";
 import { fmtMoney } from "@/components/stock/inventory/shared";
@@ -20,6 +21,19 @@ import { fmtMoney } from "@/components/stock/inventory/shared";
 type Period = { id: string; code: string; status: string; closedBy: string | null; reopenCount: number; reopenedBy: string | null; reopenReason: string | null };
 type Year = { code: string; startDate: string; endDate: string; status: string; closedBy: string | null; netIncome: string | null; closeCount: number; reopenedBy: string | null; reopenReason: string | null };
 type Preview = { code: string; netIncome: string; revenue: string; expenses: string; lines: { code: string; name: string; nameAr: string; balance: string }[]; problems: { code: string; params?: Record<string, string> }[]; warnings: { code: string; params?: Record<string, string> }[] };
+/** What POST /api/accounting/sync posted (lib/accounting/ledger.ts syncUnposted). */
+export type SyncResult = { invoices: number; creditNotes: number; bills: number; debitNotes: number; stockEntries: number };
+
+/**
+ * The catch-ups post only what is missing, so "done" says what that was — or that nothing
+ * was missing — instead of always claiming documents were posted.
+ */
+export function syncSummary(t: (key: string, params?: Record<string, string | number>) => string, r: SyncResult) {
+  const parts = ([["invoices", "accounting.sync.invoices"], ["creditNotes", "accounting.sync.credit-notes"], ["bills", "accounting.sync.bills"], ["debitNotes", "accounting.sync.debit-notes"], ["stockEntries", "accounting.sync.stock-entries"]] as const)
+    .filter(([k]) => Number(r[k]) > 0)
+    .map(([k, key]) => t(key, { n: String(r[k]) }));
+  return parts.length ? t("accounting.sync.done", { list: parts.join(t("accounting.sync.separator")) }) : t("accounting.sync.none");
+}
 
 export function PeriodsView() {
   const { can } = usePermissions();
@@ -27,42 +41,49 @@ export function PeriodsView() {
   const toast = useToast();
   const dialogs = useDialogs();
   const qc = useQueryClient();
+  // Closing, reopening and the catch-ups: one at a time, and the pressed button says it is working.
+  const { busy, run: guard } = useBusy();
   const [previewOf, setPreviewOf] = useState<string | null>(null);
   const periods = useQuery({ queryKey: ["acc", "periods"], queryFn: () => apiFetch<{ periods: Period[] }>("/api/accounting/periods").then((r) => r.periods) });
   const years = useQuery({ queryKey: ["acc", "fiscal-years"], queryFn: () => apiFetch<{ years: Year[] }>("/api/accounting/fiscal-years").then((r) => r.years) });
   const preview = useQuery({ queryKey: ["acc", "fiscal-year", previewOf], queryFn: () => apiFetch<{ year: Preview }>(`/api/accounting/fiscal-years/${previewOf}`).then((r) => r.year), enabled: !!previewOf });
   const refresh = () => void qc.invalidateQueries({ queryKey: ["acc"] });
-  const run = async (path: string, body: unknown, done: string) => {
-    try { await apiPost(path, body); toast.show(done, "success"); refresh(); return true; }
+  const run = async <T,>(path: string, body: unknown, done: string | ((result: T) => string)) => {
+    try { const r = await apiPost<T>(path, body); toast.show(typeof done === "string" ? done : done(r), "success"); refresh(); return true; }
     catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); return false; }
   };
   const askReopen = async (path: string, title: string) => {
     const reason = await dialogs.prompt({ title, label: t("periods.reopen-reason"), required: true, multiline: true, tone: "danger", confirmLabel: t("periods.request-reopen") });
-    if (reason) await run(path, { reason }, t("periods.toast-reopen-requested"));
+    if (reason) await guard(path, () => run(path, { reason }, t("periods.toast-reopen-requested")));
   };
   if (periods.isLoading || years.isLoading) return <LoadingState />;
   if (periods.isError || years.isError) return <ErrorState message={errorMessage(periods.error ?? years.error)} onRetry={() => { void periods.refetch(); void years.refetch(); }} />;
   const p = preview.data;
   // ACC-13: before closing, say what is still unfinished in the month (warnings, not blocks).
   async function closeMonth(code: string) {
+    // Closing always asks first: with the month's unfinished items when there are any.
+    let warned = false;
     try {
       const c = await apiFetch<{ warnings: { code: string; count: number }[] }>(`/api/accounting/periods/${code}/checklist`);
       if (c.warnings.length) {
         const body = c.warnings.map((w) => `• ${t(`periods.close-warning.${w.code}` as "periods.close-warning.draft_invoices", { count: String(w.count) })}`).join("\n");
-        if (!(await dialogs.confirm({ title: t("periods.close-warnings-title", { code }), body, tone: "danger", confirmLabel: t("periods.close-anyway") }))) return;
+        if (!(await dialogs.confirm({ title: t("periods.close-warnings-title", { code }), body, tone: "danger", confirmLabel: t("periods.close-anyway"), cancelLabel: t("ui.back") }))) return;
+        warned = true;
       }
     } catch {
       /* the checklist is advisory; the close itself enforces the hard rules */
     }
-    await run(`/api/accounting/periods/${code}/close`, {}, t("accounting-toast-period-closed", { code }));
+    if (!warned && !(await dialogs.confirm({ title: t("periods.confirm-close-month", { code }), body: t("periods.confirm-close-month-body"), tone: "danger", confirmLabel: t("periods.close-month"), cancelLabel: t("ui.back") }))) return;
+    await guard(`close:${code}`, () => run(`/api/accounting/periods/${code}/close`, {}, t("accounting-toast-period-closed", { code })));
   }
 
   return (
     <div className="flex flex-col gap-4">
       {can("accounting.manage") && (
         <section className="card p-4 flex flex-wrap gap-2">
-          <button type="button" className="btn-secondary" onClick={() => run("/api/accounting/stock-valuation", {}, t("accounting-toast-stock-valued"))}>{t("accounting.button.post-stock-val")}</button>
-          <button type="button" className="btn-secondary" onClick={() => run("/api/accounting/sync", {}, t("accounting-toast-docs-synced"))}>{t("accounting.button.sync-docs")}</button>
+          {/* Idempotent catch-ups (they post only what is missing): no confirmation, but the result in numbers. */}
+          <button type="button" className="btn-secondary" disabled={!!busy} aria-busy={busy === "stock-valuation"} onClick={() => guard("stock-valuation", () => run<{ result: { layers: number; entries: unknown[] } }>("/api/accounting/stock-valuation", {}, ({ result }) => (result.layers ? t("accounting.stock-val.done", { layers: String(result.layers), entries: String(result.entries.length) }) : t("accounting.stock-val.none"))))}>{busy === "stock-valuation" ? t("accounting.posting") : t("accounting.button.post-stock-val")}</button>
+          <button type="button" className="btn-secondary" disabled={!!busy} aria-busy={busy === "sync"} onClick={() => guard("sync", () => run<{ result: SyncResult }>("/api/accounting/sync", {}, ({ result }) => syncSummary(t, result)))}>{busy === "sync" ? t("accounting.posting") : t("accounting.button.sync-docs")}</button>
         </section>
       )}
 
@@ -79,7 +100,7 @@ export function PeriodsView() {
               <div className="flex items-center gap-2">
                 <StatusPill tone={y.status === "closed" ? "neutral" : "success"}>{t(y.status === "closed" ? "periods.status.closed" : "periods.status.open")}</StatusPill>
                 {y.status === "open" && can("accounting.periods.close") && <button type="button" className="btn-secondary btn-sm" onClick={() => setPreviewOf(previewOf === y.code ? null : y.code)}>{t("periods.close-year")}</button>}
-                {y.status === "closed" && can("accounting.periods.close") && <button type="button" className="btn-danger btn-sm" onClick={() => askReopen(`/api/accounting/fiscal-years/${y.code}/reopen`, t("periods.reopen-year-title", { code: y.code }))}>{t("periods.request-reopen")}</button>}
+                {y.status === "closed" && can("accounting.periods.close") && <button type="button" className="btn-danger btn-sm" disabled={!!busy} aria-busy={busy === `/api/accounting/fiscal-years/${y.code}/reopen`} onClick={() => askReopen(`/api/accounting/fiscal-years/${y.code}/reopen`, t("periods.reopen-year-title", { code: y.code }))}>{busy === `/api/accounting/fiscal-years/${y.code}/reopen` ? t("ui.working") : t("periods.request-reopen")}</button>}
               </div>
               {previewOf === y.code && (
                 <div className="basis-full flex flex-col gap-2 border-t border-united-border pt-2">
@@ -93,10 +114,10 @@ export function PeriodsView() {
                       <p className="text-sm text-united-muted">{t("periods.close-explain")}</p>
                       {p.warnings.length > 0 && <ul className="text-sm font-bold text-united-warn">{p.warnings.map((x) => <li key={x.code}>{t(`periods.problem.${x.code}`, x.params ?? {})}</li>)}</ul>}
                       {p.problems.length > 0 && <ul className="text-sm font-bold text-united-danger">{p.problems.map((x) => <li key={x.code}>{t(`periods.problem.${x.code}`, x.params ?? {})}</li>)}</ul>}
-                      <div><button type="button" className="btn-danger" disabled={p.problems.length > 0} onClick={async () => {
-                        if (!(await dialogs.confirm({ title: t("periods.confirm-close-year", { code: y.code }), body: t("periods.confirm-close-year-body", { net: fmtMoney(p.netIncome) }), tone: "danger", confirmLabel: t("periods.close-year") }))) return;
-                        if (await run(`/api/accounting/fiscal-years/${y.code}/close`, {}, t("periods.toast-year-closed", { code: y.code }))) setPreviewOf(null);
-                      }}>{t("periods.close-year")}</button></div>
+                      <div><button type="button" className="btn-danger" disabled={p.problems.length > 0 || !!busy} aria-busy={busy === `year:${y.code}`} onClick={async () => {
+                        if (!(await dialogs.confirm({ title: t("periods.confirm-close-year", { code: y.code }), body: t("periods.confirm-close-year-body", { net: fmtMoney(p.netIncome) }), tone: "danger", confirmLabel: t("periods.close-year"), cancelLabel: t("ui.back") }))) return;
+                        await guard(`year:${y.code}`, async () => { if (await run(`/api/accounting/fiscal-years/${y.code}/close`, {}, t("periods.toast-year-closed", { code: y.code }))) setPreviewOf(null); });
+                      }}>{busy === `year:${y.code}` ? t("ui.working") : t("periods.close-year")}</button></div>
                     </>
                   )}
                 </div>
@@ -116,8 +137,8 @@ export function PeriodsView() {
                 {m.status === "open" ? t("accounting.period.open") : t("accounting.period.closed", { by: m.closedBy ?? "" })}
                 {m.reopenCount > 0 && <span className="block text-xs font-normal text-united-muted">{t("periods.reopened-times", { n: String(m.reopenCount), by: m.reopenedBy ?? "" })}</span>}
               </span>
-              {m.status === "open" && can("accounting.periods.close") && <button type="button" className="btn-danger btn-sm" onClick={() => closeMonth(m.code)}>{t("accounting.button.close")}</button>}
-              {m.status === "closed" && can("accounting.periods.close") && <button type="button" className="btn-secondary btn-sm" onClick={() => askReopen(`/api/accounting/periods/${m.code}/reopen`, t("periods.reopen-month-title", { code: m.code }))}>{t("periods.request-reopen")}</button>}
+              {m.status === "open" && can("accounting.periods.close") && <button type="button" className="btn-danger btn-sm" disabled={!!busy} aria-busy={busy === `close:${m.code}`} onClick={() => closeMonth(m.code)}>{busy === `close:${m.code}` ? t("ui.working") : t("accounting.button.close")}</button>}
+              {m.status === "closed" && can("accounting.periods.close") && <button type="button" className="btn-secondary btn-sm" disabled={!!busy} aria-busy={busy === `/api/accounting/periods/${m.code}/reopen`} onClick={() => askReopen(`/api/accounting/periods/${m.code}/reopen`, t("periods.reopen-month-title", { code: m.code }))}>{busy === `/api/accounting/periods/${m.code}/reopen` ? t("ui.working") : t("periods.request-reopen")}</button>}
             </li>
           ))}
         </ul>

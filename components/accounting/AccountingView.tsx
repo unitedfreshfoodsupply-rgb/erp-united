@@ -5,7 +5,7 @@ import { CashAccountSelect } from "@/components/accounting/CashAccountSelect";
 import { TreasuryView } from "@/components/accounting/TreasuryView";
 import { ChartView } from "@/components/accounting/ChartView";
 import { VatReturnsView } from "@/components/accounting/VatReturnsView";
-import { PeriodsView } from "@/components/accounting/PeriodsView";
+import { PeriodsView, syncSummary, type SyncResult } from "@/components/accounting/PeriodsView";
 import { OpeningBatchView } from "@/components/accounting/OpeningBatchView";
 import { OpeningMigrationView, ProvisionalOpeningBanner } from "@/components/accounting/OpeningMigrationView";
 import { ComparativesView } from "@/components/accounting/ComparativesView";
@@ -32,6 +32,7 @@ import { DocLink, PartyLink } from "@/components/profiles/EntityLink";
 import { href as docHref } from "@/lib/profiles/links";
 import { AttachmentsPanel } from "@/components/AttachmentsPanel";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { useBusy } from "@/components/ui/useBusy";
 
 /**
  * Finance: cash position, customer receipts, supplier payments, journals, trial
@@ -453,6 +454,16 @@ function Journals() {
   const accounts = useQuery({ queryKey: ["acc", "accounts"], queryFn: () => apiFetch<{ accounts: { id: string; code: string; name: string; nameAr: string; type: string; postable: boolean; active: boolean; systemKey: string | null; controlledBy: string | null }[] }>("/api/accounting/accounts"), enabled: can("accounting.manage") });
   const [m, setM] = useState({ date: todayLocalISO(), description: "", lines: [{ account_id: "", debit: "", credit: "", cost_center_id: "" }, { account_id: "", debit: "", credit: "", cost_center_id: "" }] });
   const [mKey, setMKey] = useState(newClientKey);
+  const { busy: posting, run: guard } = useBusy();
+  // Running totals as the lines are typed (in piastres, so 0.1 + 0.2 balances 0.3): the entry
+  // can be sent once it has two lines or more, each an account with a debit or a credit (not
+  // both), and the two sides agree. The server checks the same rules; this shows them first.
+  const piastres = (v: string) => { const n = Number(v || 0); return Number.isFinite(n) ? Math.round(n * 100) : 0; };
+  const used = m.lines.filter((l) => l.account_id || l.debit.trim() || l.credit.trim());
+  const drTotal = used.reduce((a, l) => a + piastres(l.debit), 0);
+  const crTotal = used.reduce((a, l) => a + piastres(l.credit), 0);
+  const linesOk = used.length >= 2 && used.every((l) => l.account_id && Number.isFinite(Number(l.debit || 0)) && Number.isFinite(Number(l.credit || 0)) && (piastres(l.debit) > 0) !== (piastres(l.credit) > 0));
+  const balanced = drTotal === crTotal && drTotal > 0;
   return (
     <div className="flex flex-col gap-3">
       <JournalRequests />
@@ -465,7 +476,7 @@ function Journals() {
               <Field label={t("accounting.description")}><input className="field" value={m.description} onChange={(e) => setM({ ...m, description: e.target.value })} /></Field>
             </div>
             {m.lines.map((l, i) => (
-              <div key={i} className="grid grid-cols-[1fr_6rem_6rem] sm:grid-cols-[1fr_10rem_6rem_6rem] gap-2">
+              <div key={i} className="grid grid-cols-[1fr_6rem_6rem_auto] sm:grid-cols-[1fr_10rem_6rem_6rem_auto] gap-2 items-end">
                 <select className="field" aria-label={t("accounting.account-select")} value={l.account_id} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, account_id: e.target.value } : x)) })}>
                   <option value="">{t("accounting.account-select")}</option>
                   {accounts.data?.accounts.filter((a) => a.postable && a.active && !controlAccountMovedBy(a.systemKey, a.controlledBy)).map((a) => <option key={a.id} value={a.id}>{a.code} · {localName(a, locale)}</option>)}
@@ -473,11 +484,18 @@ function Journals() {
                 {(() => { const acc = accounts.data?.accounts.find((a) => a.id === l.account_id); const pl = acc && ["expense", "revenue"].includes((acc as { type?: string }).type ?? ""); return pl ? <CostCenterSelect value={l.cost_center_id} onChange={(id) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, cost_center_id: id } : x)) })} /> : <span className="hidden sm:block" />; })()}
                 <Field label={t("accounting.debit-placeholder")}><input className="field" dir="ltr" value={l.debit} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, debit: e.target.value } : x)) })} /></Field>
                 <Field label={t("accounting.credit-placeholder")}><input className="field" dir="ltr" value={l.credit} onChange={(e) => setM({ ...m, lines: m.lines.map((x, j) => (j === i ? { ...x, credit: e.target.value } : x)) })} /></Field>
+                <button type="button" className="btn-ghost text-united-danger" disabled={m.lines.length <= 2} aria-label={t("accounting.journal.remove-line", { n: String(i + 1) })} onClick={() => setM({ ...m, lines: m.lines.filter((_, j) => j !== i) })}>✕</button>
               </div>
             ))}
+            <dl className="grid grid-cols-3 gap-2 border-t border-united-border pt-2 text-sm">
+              <div><dt className="font-bold text-united-muted">{t("accounting.journal.total-debit")}</dt><dd className="font-extrabold tabular-nums" dir="ltr">{fmtMoney(drTotal / 100)}</dd></div>
+              <div><dt className="font-bold text-united-muted">{t("accounting.journal.total-credit")}</dt><dd className="font-extrabold tabular-nums" dir="ltr">{fmtMoney(crTotal / 100)}</dd></div>
+              <div><dt className="font-bold text-united-muted">{t("accounting.detail.difference")}</dt><dd className={`font-extrabold tabular-nums ${drTotal === crTotal ? "text-united-green" : "text-united-danger"}`} dir="ltr" aria-live="polite" aria-atomic="true">{drTotal === crTotal ? t("accounting.journal.balanced") : fmtMoney((drTotal - crTotal) / 100)}</dd></div>
+            </dl>
+            {!linesOk && used.length > 0 && <p className="text-xs font-bold text-united-muted">{t("accounting.journal.need-lines")}</p>}
             <div className="flex gap-2">
               <button type="button" className="btn-secondary" onClick={() => setM({ ...m, lines: [...m.lines, { account_id: "", debit: "", credit: "", cost_center_id: "" }] })}>{t("accounting.button.add-line")}</button>
-              <button type="button" className="btn-primary" onClick={async () => {
+              <button type="button" className="btn-primary" disabled={!linesOk || !balanced || !!posting} aria-busy={!!posting} onClick={() => guard("post", async () => {
                 try {
                   const res = await apiPost<{ journal?: { number: string }; journalRequest?: { number: string } }>("/api/accounting/journals", { date: m.date, description: m.description, lines: m.lines.filter((l) => l.account_id).map((l) => ({ account_id: l.account_id, debit: l.debit || 0, credit: l.credit || 0, ...(l.cost_center_id ? { cost_center_id: l.cost_center_id } : {}) })), idempotency_key: mKey });
                   toast.show(res.journalRequest ? t("journal.toast-pending", { number: res.journalRequest.number }) : t("journal.toast-posted", { number: res.journal?.number ?? "" }), "success");
@@ -485,7 +503,7 @@ function Journals() {
                   setM({ date: todayLocalISO(), description: "", lines: [{ account_id: "", debit: "", credit: "", cost_center_id: "" }, { account_id: "", debit: "", credit: "", cost_center_id: "" }] });
                   void qc.invalidateQueries({ queryKey: ["acc"] });
                 } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
-              }}>{t("accounting.button.post")}</button>
+              })}>{posting ? t("accounting.posting") : t("accounting.button.post")}</button>
             </div>
           </div>
         </details>
@@ -771,10 +789,25 @@ function Reconcile() {
 type Check = { key: string; label: string; ok: boolean; subledger?: string; ledger?: string; difference?: string; count?: number; detail?: unknown };
 
 type WasteRow = { productId: string; name: string; nameAr: string | null; unit: string; quantity: string; value: string };
+/** A failed check's detail (lib/accounting/integrity.ts): what is unposted, and which parties differ. */
+type Unposted = { kind: string; count: number };
+type PartyDiff = { id: string; code: string | null; name: string | null; nameAr: string | null; subledger: string; ledger: string };
+// What "sync missing documents" posts (lib/accounting/ledger.ts syncUnposted, with the stock catch-up).
+// The other kinds the check counts (receipts, payments, reversals, refunds, expenses, payroll) post only
+// with their own document, and no screen re-posts them.
+const SYNCED_KINDS = new Set(["sales_invoice", "credit_note", "supplier_bill", "debit_note", "stock_movement"]);
 
 function Health() {
   const { t, locale } = useLocale();
+  const { can } = usePermissions();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const { busy, run } = useBusy();
   const q = useQuery({ queryKey: ["acc", "integrity"], queryFn: () => apiFetch<{ integrity: { ok: boolean; checkedAt: string; checks: Check[] } }>("/api/accounting/integrity") });
+  const sync = () => run("sync", async () => {
+    try { const r = await apiPost<{ result: SyncResult }>("/api/accounting/sync", {}); toast.show(syncSummary(t, r.result), "success"); void qc.invalidateQueries({ queryKey: ["acc"] }); }
+    catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
+  });
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   const r = q.data.integrity;
@@ -785,10 +818,57 @@ function Health() {
     const label = t(k);
     return label === k ? c.label : label;
   };
+  const kindLabel = (kind: string) => (kind === "stock_movement" ? t("accounting.unposted.stock-movement") : SOURCE_TYPES[kind] ? t(SOURCE_TYPES[kind]) : kind);
+  // A failed check says what is wrong in words — the documents missing from the ledger and
+  // the way to post them, or the parties whose balance differs — with the raw data kept
+  // behind "technical details" for anything this screen does not know how to show.
+  const failure = (c: Check) => {
+    // Waste has its own list above.
+    if (c.ok || c.key === "waste_pending" || !Array.isArray(c.detail) || c.detail.length === 0) return null;
+    if (c.key === "unposted") {
+      const rows = c.detail as Unposted[];
+      const manual = rows.filter((u) => !SYNCED_KINDS.has(u.kind));
+      return (
+        <div className="flex flex-col gap-2 text-xs">
+          <ul className="flex flex-col text-united-danger">{rows.map((u) => <li key={u.kind} className="flex justify-between gap-2"><span>{kindLabel(u.kind)}</span><span dir="ltr">{u.count}</span></li>)}</ul>
+          {rows.length > manual.length && (can("accounting.manage")
+            ? <div className="flex flex-wrap items-center gap-2"><button type="button" className="btn-secondary btn-sm" disabled={!!busy} aria-busy={busy === "sync"} onClick={sync}>{busy === "sync" ? t("accounting.posting") : t("accounting.button.sync-docs")}</button><span className="text-united-muted">{t("accounting.health.sync-hint")}</span></div>
+            : <p className="text-united-muted">{t("accounting.health.sync-ask")}</p>)}
+          {manual.length > 0 && <p className="text-united-muted">{t("accounting.health.unposted-manual", { kinds: manual.map((u) => kindLabel(u.kind)).join(locale === "en" ? ", " : "، ") })}</p>}
+        </div>
+      );
+    }
+    if (c.key === "ar" || c.key === "ap") {
+      const kind = c.key === "ar" ? "customer" : "supplier";
+      return (
+        <div className="overflow-x-auto">
+          <table className="data-table text-xs">
+            <thead><tr><th>{t(c.key === "ar" ? "sales.col.customer" : "purchasing.col.supplier")}</th><th className="num">{t("accounting.detail.documents")}</th><th className="num">{t("accounting.detail.general-ledger")}</th><th className="num">{t("accounting.detail.difference")}</th></tr></thead>
+            <tbody>
+              {(c.detail as PartyDiff[]).map((p) => (
+                <tr key={p.id}>
+                  <td>{p.code ? <PartyLink kind={kind} id={p.id} name={<><bdi dir="ltr">{p.code}</bdi> · {localName({ name: p.name ?? "", nameAr: p.nameAr }, locale)}</>} /> : t("accounting.health.unknown-party")}</td>
+                  <td className="num" dir="ltr">{fmtMoney(p.subledger)}</td>
+                  <td className="num" dir="ltr">{fmtMoney(p.ledger)}</td>
+                  <td className="num text-united-danger" dir="ltr">{fmtMoney(Number(p.subledger) - Number(p.ledger))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+    return (
+      <details className="text-xs">
+        <summary className="cursor-pointer text-united-muted">{t("accounting.health.technical")}</summary>
+        <pre className="whitespace-pre-wrap text-united-danger" dir="ltr">{JSON.stringify(c.detail, null, 1)}</pre>
+      </details>
+    );
+  };
   return (
     <div className="flex flex-col gap-3">
       <ProvisionalOpeningBanner />
-      <section className={`card p-4 font-extrabold ${r.ok ? "bg-united-green/10 text-united-green" : "bg-united-danger/10 text-united-danger"}`}>
+      <section className={`card p-4 font-extrabold ${r.ok ? "bg-[#E7F3EA] text-united-green" : "bg-[#FDECEA] text-united-danger"}`}>
         {r.ok ? t("accounting.health-matched") : t("accounting.health-diff")}
         <div className="text-xs font-bold text-united-muted mt-1">{t("accounting.last-checked")} {new Date(r.checkedAt).toLocaleString(intlLocale(locale))}</div>
       </section>
@@ -817,7 +897,7 @@ function Health() {
               </div>
             )}
             {c.key === "grni" && <div className="text-xs text-united-muted">{t("accounting.grni-note")}: <span dir="ltr">{fmtMoney(c.ledger)}</span></div>}
-            {!c.ok && Array.isArray(c.detail) && c.detail.length > 0 && <pre className="text-xs whitespace-pre-wrap text-united-danger" dir="ltr">{JSON.stringify(c.detail, null, 1)}</pre>}
+            {failure(c)}
           </li>
         ))}
       </ul>

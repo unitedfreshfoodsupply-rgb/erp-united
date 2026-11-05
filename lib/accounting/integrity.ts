@@ -149,11 +149,16 @@ async function glBalance(systemKey: string) {
   return D(r?.bal);
 }
 
-/** Per-party subledger vs GL for AR (customers) or AP (suppliers). Returns the parties that differ. */
-async function partyMismatches(kind: "customer" | "supplier") {
+type PartyMismatchRow = { id: string; sub: Prisma.Decimal; gl: Prisma.Decimal; code: string | null; name: string | null; nameAr: string | null };
+/**
+ * Per-party subledger vs GL for AR (customers) or AP (suppliers). Returns the parties that
+ * differ, with their code and names (joined in the same statement) so the health screen can
+ * say who it is; a party id that matches no record keeps null names.
+ */
+export async function partyMismatches(kind: "customer" | "supplier", db: Pick<Prisma.TransactionClient, "$queryRaw"> = prisma) {
   const rows =
     kind === "customer"
-      ? await prisma.$queryRaw<{ id: string; sub: Prisma.Decimal; gl: Prisma.Decimal }[]>`
+      ? await db.$queryRaw<PartyMismatchRow[]>`
         WITH sub AS (
           SELECT "customerId" AS id, sum("total") AS amt FROM "SalesInvoice" WHERE "status" = 'issued' GROUP BY 1
           UNION ALL SELECT "customerId", -sum("total") FROM "CreditNote" GROUP BY 1
@@ -164,8 +169,9 @@ async function partyMismatches(kind: "customer" | "supplier") {
           UNION ALL SELECT "customerId", sum("total") FROM "CustomerCharge" GROUP BY 1
         ), s AS (SELECT id, sum(amt) AS sub FROM sub GROUP BY id),
         g AS (SELECT l."partyId" AS id, sum(l."debit" - l."credit") AS gl FROM "JournalLine" l JOIN "Account" a ON a."id" = l."accountId" WHERE a."systemKey" = 'ar' AND l."partyType" = 'customer' GROUP BY 1)
-        SELECT coalesce(s.id, g.id) AS id, coalesce(s.sub, 0) AS sub, coalesce(g.gl, 0) AS gl FROM s FULL JOIN g ON g.id = s.id WHERE coalesce(s.sub, 0) <> coalesce(g.gl, 0)`
-      : await prisma.$queryRaw<{ id: string; sub: Prisma.Decimal; gl: Prisma.Decimal }[]>`
+        SELECT coalesce(s.id, g.id) AS id, coalesce(s.sub, 0) AS sub, coalesce(g.gl, 0) AS gl, p."code", p."name", p."nameAr"
+        FROM s FULL JOIN g ON g.id = s.id LEFT JOIN "Customer" p ON p."id" = coalesce(s.id, g.id) WHERE coalesce(s.sub, 0) <> coalesce(g.gl, 0)`
+      : await db.$queryRaw<PartyMismatchRow[]>`
         WITH sub AS (
           SELECT "supplierId" AS id, sum("total") AS amt FROM "SupplierBill" WHERE "status" = 'posted' GROUP BY 1
           UNION ALL SELECT "supplierId", -sum("total") FROM "DebitNote" GROUP BY 1
@@ -175,8 +181,9 @@ async function partyMismatches(kind: "customer" | "supplier") {
           UNION ALL SELECT "partyId", sum("amount") FROM "PartyOpeningBalance" WHERE "partyType" = 'supplier' GROUP BY 1
         ), s AS (SELECT id, sum(amt) AS sub FROM sub GROUP BY id),
         g AS (SELECT l."partyId" AS id, sum(l."credit" - l."debit") AS gl FROM "JournalLine" l JOIN "Account" a ON a."id" = l."accountId" WHERE a."systemKey" = 'ap' AND l."partyType" = 'supplier' GROUP BY 1)
-        SELECT coalesce(s.id, g.id) AS id, coalesce(s.sub, 0) AS sub, coalesce(g.gl, 0) AS gl FROM s FULL JOIN g ON g.id = s.id WHERE coalesce(s.sub, 0) <> coalesce(g.gl, 0)`;
-  return rows.map((r) => ({ id: r.id, subledger: D(r.sub).toFixed(2), ledger: D(r.gl).toFixed(2) }));
+        SELECT coalesce(s.id, g.id) AS id, coalesce(s.sub, 0) AS sub, coalesce(g.gl, 0) AS gl, p."code", p."name", p."nameAr"
+        FROM s FULL JOIN g ON g.id = s.id LEFT JOIN "Supplier" p ON p."id" = coalesce(s.id, g.id) WHERE coalesce(s.sub, 0) <> coalesce(g.gl, 0)`;
+  return rows.map((r) => ({ id: r.id, code: r.code, name: r.name, nameAr: r.nameAr, subledger: D(r.sub).toFixed(2), ledger: D(r.gl).toFixed(2) }));
 }
 
 /**

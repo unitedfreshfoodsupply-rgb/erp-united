@@ -9,6 +9,9 @@ import Link from "next/link";
 import { apiFetch, apiPost, apiPut, ApiClientError, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
+import { useDialogs } from "@/components/ui/Dialog";
+import { StatusPill, docTone } from "@/components/ui/StatusPill";
+import { useBusy } from "@/components/ui/useBusy";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
@@ -31,13 +34,17 @@ import { formatNumber } from "@/lib/format";
 
 const fail = (toast: ReturnType<typeof useToast>, err: unknown, t: (key: string) => string) => toast.show(err instanceof ApiClientError ? err.message : t("sales.invoice.error-generic"), "error");
 
-// Labels are dictionary keys, translated at render with the active locale.
-export const BILL_STATUS: Record<string, { label: string; cls: string }> = {
-  draft: { label: "bills.status.draft", cls: "bg-united-dark/5" },
-  pending_approval: { label: "bills.status.pending_approval", cls: "bg-united-warn/10 text-united-warn" },
-  posted: { label: "bills.status.posted", cls: "bg-united-green/10 text-united-green" },
-  cancelled: { label: "bills.status.cancelled", cls: "bg-united-danger/10 text-united-danger" },
+// Labels are dictionary keys, translated at render with the active locale; the colour is the
+// shared document tone (StatusPill docTone), so a cancelled bill reads as finished, not as an alarm.
+export const BILL_STATUS: Record<string, { label: string }> = {
+  draft: { label: "bills.status.draft" },
+  pending_approval: { label: "bills.status.pending_approval" },
+  posted: { label: "bills.status.posted" },
+  cancelled: { label: "bills.status.cancelled" },
 };
+const BillStatus = ({ status, size, t }: { status: string; size?: "sm" | "md"; t: (key: string) => string }) => (
+  <StatusPill tone={docTone(status)} size={size}>{BILL_STATUS[status] ? t(BILL_STATUS[status].label) : status}</StatusPill>
+);
 const MATCH: Record<string, { label: string; cls: string }> = {
   matched: { label: "bills.match.matched", cls: "text-united-green" },
   within_tolerance: { label: "bills.match.within_tolerance", cls: "text-united-green" },
@@ -85,7 +92,7 @@ function Bills({ onOpen }: { onOpen: (id: string) => void }) {
     { key: "inv", label: t("purchasing.bill.supplier_invoice_label"), render: (b) => <span dir="ltr" className="text-united-muted">{b.supplierInvoiceNo}</span>, secondary: true },
     { key: "date", label: t("purchasing.col.bill-date"), sortValue: (b) => b.billDate, render: (b) => <span dir="ltr">{b.billDate}</span> },
     { key: "due", label: t("purchasing.bill.due_date"), sortValue: (b) => b.dueDate, render: (b) => <span dir="ltr">{b.dueDate}</span>, secondary: true },
-    { key: "status", label: t("list.status"), sortValue: (b) => b.status, render: (b) => <span className={`rounded-full px-2 text-xs font-extrabold ${BILL_STATUS[b.status]?.cls}`}>{BILL_STATUS[b.status] ? t(BILL_STATUS[b.status].label) : b.status}</span> },
+    { key: "status", label: t("list.status"), sortValue: (b) => b.status, render: (b) => <BillStatus status={b.status} t={t} /> },
     { key: "total", label: t("sales.col.total"), numeric: true, sortValue: (b) => Number(b.total), render: (b) => fmtMoney(b.total) },
     { key: "open", label: t("purchasing.bill.remaining"), numeric: true, sortValue: (b) => Number(b.open ?? 0), render: (b) => (b.open === null ? "—" : fmtMoney(b.open)) },
   ];
@@ -356,6 +363,9 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const [returnGoods, setReturnGoods] = useState(false);
   // One key per filled debit-note form: a retry after a dropped connection returns the same note.
   const [dnKey, setDnKey] = useState(newClientKey);
+  const dialogs = useDialogs();
+  // Post, cancel and debit notes move the payables: one at a time, and a second tap waits.
+  const { busy, run } = useBusy();
   const q = useQuery({ queryKey: ["purchasing", "bill", id], queryFn: () => apiFetch<{ bill: Bill }>(`/api/purchasing/bills/${id}`) });
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
@@ -364,17 +374,33 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const service = b.kind === "service";
   const manage = can("purchasing.bills.manage");
   const refresh = () => void qc.invalidateQueries({ queryKey: ["purchasing"] });
-  const act = async (path: string, body: Record<string, unknown> = {}) => {
+  const act = (key: string, path: string, body: Record<string, unknown> = {}) => run(key, async () => {
     try {
       const res = await apiPost<{ bill: Bill }>(`/api/purchasing/bills/${id}/${path}`, path === "debit-notes" ? { ...body, idempotency_key: dnKey } : body);
       if (path === "debit-notes") setDnKey(newClientKey());
       setReason("");
       setDebit({});
       if (path === "post") toast.show(res.bill.status === "posted" ? t("purchasing.bill.success_posted") : t("purchasing.bill.success_variance"), res.bill.status === "posted" ? "success" : "error");
+      else toast.show(t(path === "cancel" ? "purchasing.bill.toast_cancelled" : "purchasing.bill.toast_debited"), "success");
       refresh();
     } catch (err) {
       fail(toast, err, t);
     }
+  });
+  const supplierName = localName(b.supplier, locale);
+  // Each irreversible step says what it will do — to whom, for how much — before it runs.
+  const post = async () => {
+    if (!(await dialogs.confirm({ title: t("purchasing.bill.confirm_post", { number: b.number }), body: t("purchasing.bill.confirm_post_body", { supplier: supplierName, amount: fmtMoney(b.total) }), confirmLabel: t("purchasing.bill.post_action"), cancelLabel: t("ui.back") }))) return;
+    await act("post", "post");
+  };
+  const cancel = async () => {
+    if (!(await dialogs.confirm({ title: t("purchasing.bill.confirm_cancel", { number: b.number }), body: t("purchasing.bill.confirm_cancel_body", { supplier: supplierName, amount: fmtMoney(b.total), reason: reason.trim() }), tone: "danger", confirmLabel: t("purchasing.bill.cancel_bill_btn"), cancelLabel: t("ui.back") }))) return;
+    await act("cancel", "cancel", { reason });
+  };
+  const debitFull = async () => {
+    const amount = fmtMoney(Number(b.total) - Number(b.debited));
+    if (!(await dialogs.confirm({ title: t("purchasing.bill.confirm_full_debit", { number: b.number }), body: t(returnGoods ? "purchasing.bill.confirm_full_debit_body_return" : "purchasing.bill.confirm_full_debit_body", { supplier: supplierName, amount }), tone: "danger", confirmLabel: t("purchasing.bill.confirm_full_debit_btn"), cancelLabel: t("ui.back") }))) return;
+    await act("debit-full", "debit-notes", { reason, full: true, return_goods: returnGoods });
   };
   const debitLines = Object.entries(debit).filter(([, v]) => v.trim() !== "").map(([bill_line_id, quantity]) => ({ bill_line_id, quantity }));
   const allowanceLines = Object.entries(debit).filter(([, v]) => v.trim() !== "").map(([service_line_id, amount]) => ({ service_line_id, amount }));
@@ -395,7 +421,7 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
         </div>
       </div>
       <div className="flex flex-wrap gap-2 items-center">
-        <span className={`rounded-full px-3 py-1 text-sm font-extrabold ${BILL_STATUS[b.status]?.cls}`}>{BILL_STATUS[b.status] ? t(BILL_STATUS[b.status].label) : b.status}</span>
+        <BillStatus status={b.status} size="md" t={t} />
         <span className={`text-sm font-extrabold ${MATCH[b.matchStatus]?.cls}`}>{MATCH[b.matchStatus] ? t(MATCH[b.matchStatus].label) : b.matchStatus}{Number(b.variance) ? <> · {t("purchasing.bill.variance")} <span dir="ltr">{fmtMoney(b.variance)}</span></> : null}</span>
         {b.approvalId && <Link href={`/approvals?id=${b.approvalId}`} className="text-sm font-extrabold text-united-green underline">{t("orders.approval")}</Link>}
       </div>
@@ -442,18 +468,18 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
       <p className="text-xs font-bold text-united-muted">{b.createdBy}{b.postedBy ? ` · ${t("operations.performed_by_prefix")} ${b.postedBy}` : ""}{b.approvedBy ? ` · ${b.approvedBy}` : ""}{b.cancelReason ? ` · ${b.cancelReason}` : ""}</p>
       {manage && b.status !== "cancelled" && (
         <section className="card p-4 flex flex-wrap items-end gap-2">
-          {b.status === "draft" && <button type="button" className="btn-primary" onClick={() => act("post")}>{t("purchasing.bill.post_action")}</button>}
-          {b.status === "draft" && <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>{t("ui.edit")}</button>}
+          {b.status === "draft" && <button type="button" className="btn-primary" disabled={!!busy} aria-busy={busy === "post"} onClick={post}>{busy === "post" ? t("purchasing.bill.posting") : t("purchasing.bill.post_action")}</button>}
+          {b.status === "draft" && <button type="button" className="btn-secondary" disabled={!!busy} onClick={() => setEditing(true)}>{t("ui.edit")}</button>}
           <Field label={b.status === "posted" ? t("purchasing.bill.debit_reason_placeholder") : t("purchasing.bill.cancel_reason_placeholder")} className="flex-1 min-w-48"><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
-          {b.status !== "posted" && <button type="button" className="btn-danger" onClick={() => act("cancel", { reason })}>{t("purchasing.bill.cancel_bill_btn")}</button>}
+          {b.status !== "posted" && <button type="button" className="btn-danger" disabled={!!busy || !reason.trim()} aria-busy={busy === "cancel"} onClick={cancel}>{busy === "cancel" ? t("ui.working") : t("purchasing.bill.cancel_bill_btn")}</button>}
           {b.status === "posted" && debitable && service && (
-            <button type="button" className="btn-secondary" disabled={allowanceLines.length === 0} onClick={() => act("debit-notes", { reason, lines: allowanceLines })}>{t("purchasing.bill.allowance_btn")}</button>
+            <button type="button" className="btn-secondary" disabled={allowanceLines.length === 0 || !!busy || !reason.trim()} aria-busy={busy === "debit"} onClick={() => act("debit", "debit-notes", { reason, lines: allowanceLines })}>{busy === "debit" ? t("ui.saving") : t("purchasing.bill.allowance_btn")}</button>
           )}
           {b.status === "posted" && debitable && !service && (
             <>
               <label className="flex items-center gap-2 text-sm font-bold w-full"><input type="checkbox" className="w-5 h-5" checked={returnGoods} onChange={(e) => setReturnGoods(e.target.checked)} />{t("purchasing.bill.return_goods_checkbox")}</label>
-              <button type="button" className="btn-secondary" disabled={debitLines.length === 0} onClick={() => act("debit-notes", { reason, lines: debitLines, return_goods: returnGoods })}>{t("purchasing.bill.debit_qty_btn")}</button>
-              <button type="button" className="btn-danger" onClick={() => act("debit-notes", { reason, full: true, return_goods: returnGoods })}>{t("purchasing.bill.debit_full_btn")}</button>
+              <button type="button" className="btn-secondary" disabled={debitLines.length === 0 || !!busy || !reason.trim()} aria-busy={busy === "debit"} onClick={() => act("debit", "debit-notes", { reason, lines: debitLines, return_goods: returnGoods })}>{busy === "debit" ? t("ui.saving") : t("purchasing.bill.debit_qty_btn")}</button>
+              <button type="button" className="btn-danger" disabled={!!busy || !reason.trim()} aria-busy={busy === "debit-full"} onClick={debitFull}>{busy === "debit-full" ? t("ui.saving") : t("purchasing.bill.debit_full_btn")}</button>
             </>
           )}
         </section>

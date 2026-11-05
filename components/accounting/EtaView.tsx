@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, apiPut, ApiClientError, errorMessage } from "@/lib/api-client";
 import { ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
+import { StatusPill, type Tone } from "@/components/ui/StatusPill";
 import { usePermissions, useSession } from "@/lib/use-session";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
@@ -52,7 +53,9 @@ const ADDRESS: [keyof Address, TranslationKey][] = [
 ];
 
 const fail = (toast: ReturnType<typeof useToast>, err: unknown) => toast.show(err instanceof ApiClientError ? err.message : "error.generic", "error");
-const TONE: Record<string, string> = { valid: "bg-united-green/15 text-united-green", submitted: "bg-united-green/10 text-united-dark", rejected: "bg-united-danger/10 text-united-danger", invalid: "bg-united-danger/10 text-united-danger", receiver_rejected: "bg-united-danger/10 text-united-danger", unknown: "bg-united-warn/15 text-united-warn", failed: "bg-united-warn/15 text-united-warn" };
+// The shared status vocabulary (StatusPill): accepted is done, sent waits for validation, a
+// refusal or a failed send needs action now, an unknown delivery needs a look.
+const TONE: Record<string, Tone> = { valid: "success", submitting: "info", submitted: "info", rejected: "danger", invalid: "danger", receiver_rejected: "danger", unknown: "warn", failed: "danger" };
 
 export function EtaView() {
   const { t } = useLocale();
@@ -94,7 +97,7 @@ function Invoices({ data }: { data: Overview }) {
         <li key={i.id} className="card p-3 flex flex-col gap-2">
           <button type="button" className="flex min-h-10 items-center justify-between gap-2 text-sm font-bold text-start" onClick={() => setOpen(open === i.id ? null : i.id)}>
             <span><span dir="ltr">{i.number}</span> · {i.buyerName} · {i.issueDate}</span>
-            <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(i.total)}</span><span className={`rounded-full px-2 py-0.5 text-xs ${TONE[i.etaStatus ?? ""] ?? "bg-united-dark/5 text-united-muted"}`}>{statusLabel(t, i)}</span></span>
+            <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(i.total)}</span><StatusPill tone={TONE[i.etaStatus ?? ""] ?? "neutral"}>{statusLabel(t, i)}</StatusPill></span>
           </button>
           {open === i.id && <InvoiceEta id={i.id} />}
         </li>
@@ -115,7 +118,7 @@ function CreditNotes({ data }: { data: Overview }) {
         <li key={c.id} className="card p-3 flex flex-col gap-2">
           <button type="button" className="flex min-h-10 items-center justify-between gap-2 text-sm font-bold text-start" onClick={() => setOpen(open === c.id ? null : c.id)}>
             <span><span dir="ltr">{c.number}</span> · {t("eta.credit-note-on")} <span dir="ltr">{c.invoiceNumber}</span> · {c.buyerName} · {c.issueDate}</span>
-            <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(c.total)}</span><span className={`rounded-full px-2 py-0.5 text-xs ${TONE[c.etaStatus ?? ""] ?? "bg-united-dark/5 text-united-muted"}`}>{statusLabel(t, c)}</span></span>
+            <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(c.total)}</span><StatusPill tone={TONE[c.etaStatus ?? ""] ?? "neutral"}>{statusLabel(t, c)}</StatusPill></span>
           </button>
           {open === c.id && <InvoiceEta id={c.id} base="credit-notes" />}
         </li>
@@ -249,8 +252,8 @@ function Pending() {
             <span>{t(KIND_LABEL[r.kind])} <span dir="ltr">{r.number}</span> · {r.buyerName} · {r.issueDate}</span>
             <span className="flex flex-wrap items-center gap-2">
               <span dir="ltr">{fmtMoney(r.total)}</span>
-              {r.ageHours !== null && <span className={`rounded-full px-2 py-0.5 text-xs ${r.ageHours >= 72 ? "bg-united-danger/10 text-united-danger" : "bg-united-warn/15 text-united-warn"}`}>{t("eta.age-hours", { hours: String(r.ageHours) })}</span>}
-              <span className={`rounded-full px-2 py-0.5 text-xs ${TONE[r.etaStatus ?? ""] ?? "bg-united-dark/5 text-united-muted"}`}>{statusLabel(t, r)}</span>
+              {r.ageHours !== null && <StatusPill tone={r.ageHours >= 72 ? "danger" : "warn"}>{t("eta.age-hours", { hours: String(r.ageHours) })}</StatusPill>}
+              <StatusPill tone={TONE[r.etaStatus ?? ""] ?? "neutral"}>{statusLabel(t, r)}</StatusPill>
               {!r.apiEligible && <span className="text-xs text-united-muted">{t("eta.api-portal-only")}</span>}
             </span>
           </li>

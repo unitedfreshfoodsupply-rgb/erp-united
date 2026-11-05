@@ -7,6 +7,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPatch, apiPost, ApiClientError } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
+import { useDialogs } from "@/components/ui/Dialog";
+import { StatusPill, docTone } from "@/components/ui/StatusPill";
+import { useBusy } from "@/components/ui/useBusy";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
@@ -46,17 +49,18 @@ export function PurchasingView() {
   const [billView, setBillView] = useState<"bills" | "payables" | undefined>(undefined);
   const [rfqSeed, setRfqSeed] = useState<{ product_id: string; quantity: string; uom: string; unit_price: string }[] | null>(null);
 
-  // Build localized status/type maps and tab labels inside component body
+  // Build localized status/type maps and tab labels inside component body. A status's colour
+  // is the shared document tone (StatusPill docTone), so a cancelled PO reads as finished.
   const { t, locale } = useLocale();
-  const PO_STATUS = {
-    draft:       { label: t("purchasing.po.status.draft"),       cls: "bg-united-dark/5" },
-    pending_approval: { label: t("purchasing.po.status.pending_approval"), cls: "bg-united-warn/10 text-united-warn" },
-    approved:    { label: t("purchasing.po.status.approved"),   cls: "bg-blue-50 text-blue-700" },
-    sent:        { label: t("purchasing.po.status.sent"),       cls: "bg-blue-50 text-blue-700" },
-    partially_received: { label: t("purchasing.po.status.partially_received"), cls: "bg-united-warn/10 text-united-warn" },
-    received:    { label: t("purchasing.po.status.received"),   cls: "bg-united-green/10 text-united-green" },
-    closed:      { label: t("purchasing.po.status.closed"),     cls: "bg-united-dark/5 text-united-muted" },
-    cancelled:   { label: t("purchasing.po.status.cancelled"),  cls: "bg-united-danger/10 text-united-danger" },
+  const PO_STATUS: Record<string, string> = {
+    draft:       t("purchasing.po.status.draft"),
+    pending_approval: t("purchasing.po.status.pending_approval"),
+    approved:    t("purchasing.po.status.approved"),
+    sent:        t("purchasing.po.status.sent"),
+    partially_received: t("purchasing.po.status.partially_received"),
+    received:    t("purchasing.po.status.received"),
+    closed:      t("purchasing.po.status.closed"),
+    cancelled:   t("purchasing.po.status.cancelled"),
   };
   const sup_type = {
     farm:         t("purchasing.supplier.type.farm"),
@@ -118,7 +122,7 @@ export function PurchasingView() {
 type PoLine = { id: string; lineNo: number; productId: string; product: { name: string; nameAr: string | null; unit: string }; uomCode: string; quantity: string; baseQuantity: string; receivedGood: string; rejected: string; remaining: string; unitPrice?: string; discountPct?: string; taxRate?: string; priceSource?: string; amounts?: { total: string } };
 type Po = { id: string; number: string; status: string; supplier: { id: string; code: string; name: string; nameAr?: string | null }; orderDate: string; expectedDate: string | null; notes: string | null; cancelReason: string | null; approvedBy: string | null; version: number; createdBy: string; lines: PoLine[]; total?: string; net?: string; taxTotal?: string; currencyCode?: string };
 
-function Orders({ onOpen, locale, t, poStatus }: { onOpen: (id: string) => void; locale: Locale; t: (key: string) => string; poStatus: Record<string, { label: string; cls: string }> }) {
+function Orders({ onOpen, locale, t, poStatus }: { onOpen: (id: string) => void; locale: Locale; t: (key: string) => string; poStatus: Record<string, string> }) {
   const { can } = usePermissions();
   const [status, setStatus] = useState("open");
   const [creating, setCreating] = useState(false);
@@ -140,7 +144,7 @@ function Orders({ onOpen, locale, t, poStatus }: { onOpen: (id: string) => void;
       </div>
       {q.isLoading && <LoadingState />}
       <FilterBar list={search} searchLabel={t("purchasing.search.orders")} searchHint={t("purchasing.search.orders-hint")} />
-      {q.isError && <ErrorState message={t("sales.invoice.error-generic")} onRetry={() => q.refetch()} />}
+      {q.isError && <ErrorState message={errorMsg(q.error)} onRetry={() => q.refetch()} />}
       {q.data && q.data.orders.length === 0 && <EmptyState icon="🛒" title={search.q ? t("list.empty-filtered") : t("purchasing.orders.empty")} />}
       <ul className="flex flex-col gap-2">
         {q.data?.orders.map((po) => (
@@ -151,7 +155,7 @@ function Orders({ onOpen, locale, t, poStatus }: { onOpen: (id: string) => void;
                 <div className="text-xs font-bold text-united-muted">{po.lines.length} {t("purchasing.orders.lines_label")} · {po.orderDate}{po.expectedDate ? ` · ${t("purchasing.orders.expected_date")} ${po.expectedDate}` : ""}</div>
               </div>
               <div className="flex flex-col items-end gap-1">
-                <span className={`rounded-full px-2 text-xs font-extrabold ${poStatus[po.status]?.cls}`}>{poStatus[po.status]?.label}</span>
+                <StatusPill tone={docTone(po.status)}>{poStatus[po.status] ?? po.status}</StatusPill>
                 {po.total !== undefined && <span dir="ltr" className="font-extrabold">{fmtMoney(po.total)}</span>}
               </div>
             </button>
@@ -240,18 +244,36 @@ function NewPo({ onDone, locale, t }: { onDone: (id?: string) => void; locale: L
   );
 }
 
-function PoDetail({ id, onClose, locale, t, poStatus }: { id: string; onClose: () => void; locale: Locale; t: (key: string) => string; poStatus: Record<string, { label: string; cls: string }> }) {
+function PoDetail({ id, onClose, locale, t, poStatus }: { id: string; onClose: () => void; locale: Locale; t: (key: string, params?: Record<string, string | number>) => string; poStatus: Record<string, string> }) {
   const { can } = usePermissions();
   const qc = useQueryClient();
   const toast = useToast();
+  const dialogs = useDialogs();
+  const { busy, run } = useBusy();
   const [reason, setReason] = useState("");
   const q = useQuery({ queryKey: ["purchasing", "order", id], queryFn: () => apiFetch<{ order: Po }>(`/api/purchasing/orders/${id}`) });
   if (q.isLoading) return <LoadingState />;
-  if (q.isError || !q.data) return <ErrorState message={t("sales.invoice.error-generic")} onRetry={() => q.refetch()} />;
+  if (q.isError || !q.data) return <ErrorState message={errorMsg(q.error)} onRetry={() => q.refetch()} />;
   const po = q.data.order;
   const manage = can("purchasing.orders.manage");
-  const act = async (path: string, body: Record<string, unknown> = {}) => {
-    try { await apiPost(`/api/purchasing/orders/${id}/${path}`, body); setReason(""); void qc.invalidateQueries({ queryKey: ["purchasing"] }); } catch (err) { toast.show(errorMsg(err), "error"); }
+  // One action at a time; each says what happened (submit: approved at once under the
+  // threshold, or waiting for someone else's approval).
+  const act = (path: "submit" | "send" | "cancel" | "close", body: Record<string, unknown> = {}) => run(path, async () => {
+    try {
+      const r = await apiPost<{ order: Po }>(`/api/purchasing/orders/${id}/${path}`, body);
+      setReason("");
+      void qc.invalidateQueries({ queryKey: ["purchasing"] });
+      const done = { submit: r.order?.status === "approved" ? "purchasing.po_detail.toast_approved" : "purchasing.po_detail.toast_submitted", send: "purchasing.po_detail.toast_sent", cancel: "purchasing.po_detail.toast_cancelled", close: "purchasing.po_detail.toast_closed" }[path];
+      toast.show(t(done, { number: po.number }), "success");
+    } catch (err) { toast.show(errorMsg(err), "error"); }
+  });
+  // Cancel and close end the order for good: say so, with the supplier and the reason, first.
+  const finish = async (path: "cancel" | "close") => {
+    const opts = { supplier: localName(po.supplier, locale), number: po.number, reason: reason.trim() };
+    const ok = await dialogs.confirm(path === "cancel"
+      ? { title: t("purchasing.po_detail.confirm_cancel", opts), body: t("purchasing.po_detail.confirm_cancel_body", opts), tone: "danger", confirmLabel: t("purchasing.po_detail.confirm_cancel_btn"), cancelLabel: t("ui.back") }
+      : { title: t("purchasing.po_detail.confirm_close", opts), body: t("purchasing.po_detail.confirm_close_body", opts), tone: "danger", confirmLabel: t("purchasing.po_detail.close_btn"), cancelLabel: t("ui.back") });
+    if (ok) await act(path, { reason });
   };
   return (
     <div className="flex flex-col gap-3">
@@ -262,9 +284,11 @@ function PoDetail({ id, onClose, locale, t, poStatus }: { id: string; onClose: (
         </div>
         <button type="button" className="btn-secondary" onClick={onClose}>{t("purchasing.common.back")}</button>
       </div>
-      <span className={`self-start rounded-full px-3 py-1 text-sm font-extrabold ${poStatus[po.status]?.cls}`}>
-        {poStatus[po.status]?.label}
-        {po.approvedBy ? ` · ${t("purchasing.po_detail.approved_by").replace("%s", po.approvedBy)}` : ""}
+      <span className="self-start">
+        <StatusPill tone={docTone(po.status)} size="md">
+          {poStatus[po.status] ?? po.status}
+          {po.approvedBy ? ` · ${t("purchasing.po_detail.approved_by").replace("%s", po.approvedBy)}` : ""}
+        </StatusPill>
       </span>
       <section className="card p-4 flex flex-col divide-y divide-united-dark/5">
         {po.lines.map((l) => (
@@ -284,11 +308,11 @@ function PoDetail({ id, onClose, locale, t, poStatus }: { id: string; onClose: (
       {po.cancelReason && <p className="text-sm font-bold text-united-muted">{t("purchasing.po_detail.cancel_reason")}: {po.cancelReason}</p>}
       {manage && !["cancelled", "closed", "received"].includes(po.status) && (
         <section className="card p-4 flex flex-wrap items-end gap-2">
-          {po.status === "draft" && <button type="button" className="btn-primary" onClick={() => act("submit")}>{t("purchasing.po_detail.submit_btn")}</button>}
-          {po.status === "approved" && <button type="button" className="btn-primary" onClick={() => act("send")}>{t("purchasing.po_detail.send_to_supplier")}</button>}
+          {po.status === "draft" && <button type="button" className="btn-primary" disabled={!!busy} aria-busy={busy === "submit"} onClick={() => act("submit")}>{busy === "submit" ? t("ui.working") : t("purchasing.po_detail.submit_btn")}</button>}
+          {po.status === "approved" && <button type="button" className="btn-primary" disabled={!!busy} aria-busy={busy === "send"} onClick={() => act("send")}>{busy === "send" ? t("ui.working") : t("purchasing.po_detail.send_to_supplier")}</button>}
           <Field label={t("purchasing.po_detail.reason_placeholder")} className="flex-1"><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
-          {["draft", "pending_approval", "approved", "sent"].includes(po.status) && <button type="button" className="btn-danger" onClick={() => act("cancel", { reason })}>{t("purchasing.po_detail.cancel_btn")}</button>}
-          {["sent", "partially_received"].includes(po.status) && <button type="button" className="btn-secondary" onClick={() => act("close", { reason })}>{t("purchasing.po_detail.close_btn")}</button>}
+          {["draft", "pending_approval", "approved", "sent"].includes(po.status) && <button type="button" className="btn-danger" disabled={!!busy || !reason.trim()} aria-busy={busy === "cancel"} onClick={() => finish("cancel")}>{busy === "cancel" ? t("ui.working") : t("purchasing.po_detail.cancel_po_btn")}</button>}
+          {["sent", "partially_received"].includes(po.status) && <button type="button" className="btn-secondary" disabled={!!busy || !reason.trim()} aria-busy={busy === "close"} onClick={() => finish("close")}>{busy === "close" ? t("ui.working") : t("purchasing.po_detail.close_btn")}</button>}
         </section>
       )}
     </div>
@@ -333,6 +357,15 @@ type RfqDetail = {
   orders: { id: string; number: string; status: string }[];
 };
 
+// The RFQ's own state (lib/purchasing/rfq.ts); the per-supplier states are purchasing.rfq_status.{quoted,declined,pending}.
+const RFQ_STATUS: Record<string, string> = {
+  draft: "purchasing.rfq_status.draft",
+  sent: "purchasing.rfq_status.sent",
+  awarded: "purchasing.rfq_status.awarded",
+  cancelled: "purchasing.rfq_status.cancelled",
+};
+const rfqStatus = (t: (key: string) => string, status: string) => (RFQ_STATUS[status] ? t(RFQ_STATUS[status]) : status);
+
 function Rfqs({ onOpenPo, seedLines, onSeedUsed, locale, t }: { onOpenPo: (id: string) => void; seedLines?: { product_id: string; quantity: string; uom: string; unit_price: string }[]; onSeedUsed: () => void; locale: Locale; t: (key: string) => string }) {
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -343,13 +376,15 @@ function Rfqs({ onOpenPo, seedLines, onSeedUsed, locale, t }: { onOpenPo: (id: s
   return (
     <div className="flex flex-col gap-3">
       <button type="button" className="btn-primary self-start" onClick={() => setCreating(true)}>{t("purchasing.rfqs.new_btn")}</button>
+      {q.isLoading && <LoadingState />}
+      {q.isError && <ErrorState message={errorMsg(q.error)} onRetry={() => q.refetch()} />}
       {q.data && q.data.rfqs.length === 0 && <EmptyState icon="📨" title={t("purchasing.rfqs.empty")} />}
       <ul className="flex flex-col gap-2">
         {q.data?.rfqs.map((r) => (
           <li key={r.id}>
             <button type="button" className="card p-3 w-full text-start flex justify-between" onClick={() => setOpen(r.id)}>
               <span className="font-extrabold" dir="ltr">{r.number}</span>
-              <span className="text-xs font-bold text-united-muted">{r._count.lines} {t("purchasing.rfqs.items_count")} · {r.suppliers.filter((s) => s.status === "quoted").length}/{r._count.suppliers} {t("purchasing.rfqs.responses")} · {r.status}</span>
+              <span className="text-xs font-bold text-united-muted">{r._count.lines} {t("purchasing.rfqs.items_count")} · {r.suppliers.filter((s) => s.status === "quoted").length}/{r._count.suppliers} {t("purchasing.rfqs.responses")} · {rfqStatus(t, r.status)}</span>
             </button>
           </li>
         ))}
@@ -364,23 +399,28 @@ function NewRfq({ onDone, initialLines, locale, t }: { onDone: (id?: string) => 
   const [picked, setPicked] = useState<string[]>([]);
   const [neededBy, setNeededBy] = useState("");
   const [lines, setLines] = useState(initialLines?.length ? initialLines : [{ product_id: "", quantity: "", uom: "", unit_price: "" }]);
+  // A double click on save used to create two RFQs: the form submits once at a time.
+  const { busy, run } = useBusy();
   return (
-    <form className="card p-4 flex flex-col gap-3" onSubmit={async (e) => {
+    <form className="card p-4 flex flex-col gap-3" onSubmit={(e) => {
       e.preventDefault();
-      try {
-        const r = await apiPost<{ rfq: { id: string } }>("/api/purchasing/rfqs", { needed_by: neededBy || undefined, supplier_ids: picked, lines: cleanLines(lines).map(({ unit_price: _u, ...x }) => x) });
-        onDone(r.rfq.id);
-      } catch (err) { toast.show(errorMsg(err), "error"); }
+      void run("save", async () => {
+        try {
+          const r = await apiPost<{ rfq: { id: string } }>("/api/purchasing/rfqs", { needed_by: neededBy || undefined, supplier_ids: picked, lines: cleanLines(lines).map(({ unit_price: _u, ...x }) => x) });
+          onDone(r.rfq.id);
+        } catch (err) { toast.show(errorMsg(err), "error"); }
+      });
     }}>
       <div className="flex justify-between"><h3 className="font-extrabold">{t("purchasing.rfqs")}</h3><button type="button" className="btn-secondary" onClick={() => onDone()}>{t("purchasing.common.back")}</button></div>
       <Field label={t("purchasing.rfqs.neededby")}><input type="date" className="field" value={neededBy} onChange={(e) => setNeededBy(e.target.value)} /></Field>
       <LineEditor lines={lines} setLines={setLines} withPrice={false} t={t} />
-      <div className="flex flex-wrap gap-2">
+      {/* Who receives the request: each supplier is a toggle whose state is announced (aria-pressed), not shown by colour alone. */}
+      <div className="flex flex-wrap gap-2" role="group" aria-label={t("purchasing.suppliers")}>
         {(suppliers.data?.suppliers ?? []).map((s) => (
-          <button type="button" key={s.id} onClick={() => setPicked(picked.includes(s.id) ? picked.filter((x) => x !== s.id) : [...picked, s.id])} className={`tap-target px-3 rounded-xl text-sm font-extrabold ${picked.includes(s.id) ? "bg-united-green text-white" : "bg-united-dark/5"}`}>{localName(s, locale)}</button>
+          <button type="button" key={s.id} aria-pressed={picked.includes(s.id)} onClick={() => setPicked(picked.includes(s.id) ? picked.filter((x) => x !== s.id) : [...picked, s.id])} className="chip">{localName(s, locale)}</button>
         ))}
       </div>
-      <button className="btn-primary" disabled={!picked.length}>{t("purchasing.supplier.edit_terms_save")}</button>
+      <button className="btn-primary" disabled={!picked.length || !!busy} aria-busy={!!busy}>{busy ? t("ui.saving") : t("purchasing.supplier.edit_terms_save")}</button>
     </form>
   );
 }
@@ -390,7 +430,10 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
   const toast = useToast();
   const [award, setAward] = useState<Record<string, string>>({});
   const [quote, setQuote] = useState<{ supplier: string; prices: Record<string, string> }>({ supplier: "", prices: {} });
+  // Send, award and quote: one at a time, so a second tap does not come back as an error.
+  const { busy, run } = useBusy();
   const q = useQuery({ queryKey: ["purchasing", "rfq", id], queryFn: () => apiFetch<{ rfq: RfqDetail }>(`/api/purchasing/rfqs/${id}`) });
+  if (q.isError) return <ErrorState message={errorMsg(q.error)} onRetry={() => q.refetch()} />;
   if (!q.data) return <LoadingState />;
   const r = q.data.rfq;
   const refresh = () => void qc.invalidateQueries({ queryKey: ["purchasing"] });
@@ -398,11 +441,11 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
     <div className="flex flex-col gap-3">
       <div className="flex justify-between items-center"><h2 className="text-xl font-extrabold" dir="ltr">{r.number}</h2><button type="button" className="btn-secondary" onClick={onClose}>{t("purchasing.common.back")}</button></div>
       <p className="text-sm font-bold text-united-muted">
-        {r.status}
+        {rfqStatus(t, r.status)}
         {r.neededBy ? ` · ${t("purchasing.rfqs.neededby")} ${r.neededBy}` : ""} ·
         {r.invited.map((i) => `${localName(i.supplier, locale)} (${i.status === "quoted" ? t("purchasing.rfq_status.quoted") : i.status === "declined" ? t("purchasing.rfq_status.declined") : t("purchasing.rfq_status.pending")})`).join(locale === "en" ? ", " : "، ")}
       </p>
-      {r.status === "draft" && <button type="button" className="btn-primary self-start" onClick={async () => { try { await apiPost(`/api/purchasing/rfqs/${id}/send`, {}); refresh(); } catch (err) { toast.show(errorMsg(err), "error"); } }}>{t("purchasing.rfq.send_to_suppliers")}</button>}
+      {r.status === "draft" && <button type="button" className="btn-primary self-start" disabled={!!busy} aria-busy={busy === "send"} onClick={() => run("send", async () => { try { await apiPost(`/api/purchasing/rfqs/${id}/send`, {}); toast.show(t("purchasing.rfq.toast_sent"), "success"); refresh(); } catch (err) { toast.show(errorMsg(err), "error"); } })}>{busy === "send" ? t("ui.working") : t("purchasing.rfq.send_to_suppliers")}</button>}
       <section className="card p-4 flex flex-col gap-3">
         <h3 className="font-extrabold">{t("purchasing.rfq.comparison_title")}</h3>
         {r.comparison.map((c) => (
@@ -424,14 +467,14 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
           </div>
         ))}
         {r.status === "sent" && (
-          <button type="button" className="btn-primary self-start" disabled={!Object.keys(award).length} onClick={async () => {
+          <button type="button" className="btn-primary self-start" disabled={!Object.keys(award).length || !!busy} aria-busy={busy === "award"} onClick={() => run("award", async () => {
             try {
               const res = await apiPost<{ orders: { id: string; number: string }[] }>(`/api/purchasing/rfqs/${id}/award`, { awards: Object.entries(award).map(([rfq_line_id, supplier_id]) => ({ rfq_line_id, supplier_id })) });
               const nums = res.orders.map((o) => o.number).join(locale === "en" ? ", " : "، ");
               toast.show(t("purchasing.new_po.toast").replace("%s", nums), "success");
               refresh();
             } catch (err) { toast.show(errorMsg(err), "error"); }
-          }}>{t("purchasing.rfq.award_btn")}</button>
+          })}>{busy === "award" ? t("ui.working") : t("purchasing.rfq.award_btn")}</button>
         )}
       </section>
       {r.status === "sent" && (
@@ -450,13 +493,14 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
             </div>
           ))}
           {quote.supplier && (
-            <button type="button" className="btn-primary self-start" onClick={async () => {
+            <button type="button" className="btn-primary self-start" disabled={!!busy} aria-busy={busy === "quote"} onClick={() => run("quote", async () => {
               try {
                 await apiPost(`/api/purchasing/rfqs/${id}/quotes`, { supplier_id: quote.supplier, lines: Object.entries(quote.prices).filter(([, v]) => v.trim()).map(([rfq_line_id, unit_price]) => ({ rfq_line_id, unit_price })) });
                 setQuote({ supplier: "", prices: {} });
+                toast.show(t("purchasing.rfq.toast_quote_saved"), "success");
                 refresh();
               } catch (err) { toast.show(errorMsg(err), "error"); }
-            }}>{t("purchasing.rfq.save_quote_btn")}</button>
+            })}>{busy === "quote" ? t("ui.saving") : t("purchasing.rfq.save_quote_btn")}</button>
           )}
         </section>
       )}
