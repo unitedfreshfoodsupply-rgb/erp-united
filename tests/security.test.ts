@@ -161,6 +161,8 @@ async function main() {
     const res = await call("hossam", "GET", path);
     check(`STOCK_CONTROLLER sees no cost in ${label}`, res.status === 200 && costFields(res.body).length === 0, costFields(res.body).slice(0, 3));
   }
+  const pricedAudit = ((await call("hossam", "GET", "/api/stock/audit")).body.logs ?? []).filter((l: any) => l.action.startsWith("supplier_price_") || / · سعر مؤقت \d/.test(l.newValue ?? ""));
+  check("STOCK_CONTROLLER: the stock audit shows no agreed supplier price or provisional receipt cost", pricedAudit.length === 0, pricedAudit.slice(0, 3).map((l: any) => l.action));
   const supCosts = costFields((await call("sara", "GET", "/api/stock/intakes")).body);
   check("…while a supervisor (valuation.view) still sees them", supCosts.length >= 0); // presence depends on data; the redaction is permission-driven
   const ordersForFloor = (await call("ahmed", "GET", "/api/orders")).body.orders;

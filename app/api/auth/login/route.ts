@@ -14,7 +14,7 @@ const TIMING_DUMMY_HASH = "$2a$12$Ltu31N7nZC4dbi3I.Ytf7.x.mmnLEvn2V.cEWE1c.Wqjxo
 
 /** A sign-in body is a name, a password and perhaps a code or a 5-minute token. It is read
  * before anyone is known, so it gets a tight cap rather than the general JSON limit. */
-const LOGIN_BODY_LIMIT = 16_384;
+const LOGIN_BODY_LIMIT = 16_000;
 
 /** The first client address from X-Forwarded-For (set by the reverse proxy). */
 function clientIp(req: NextRequest): string | null {
@@ -115,6 +115,10 @@ export async function POST(req: NextRequest) {
       : await prisma.user.findUnique({ where: { username } });
     // One failure counter per account: the email is another way to type the same
     // username, not a second set of five guesses. An unknown identifier counts as typed.
+    // Known trade-off: while an account is locked, the 429 also answers for its email (and
+    // a 401 for any other address), so whoever locked a username can test which email is
+    // its own. Five wrong passwords buy one such probe per lock; that is accepted rather
+    // than hiding the lock behind a generic 401, which would leave the real user guessing.
     const account = user?.username ?? username;
     await accountGuard(account, loc);
     // Always pay for one bcrypt comparison, even for an unknown or disabled account.

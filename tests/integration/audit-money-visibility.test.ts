@@ -10,7 +10,7 @@ import { ROLE_PERMISSIONS, type Permission } from "@/lib/permissions";
 import { createSupplierFull, setSupplierPrices } from "@/lib/purchasing/suppliers";
 import { recordIntake } from "@/lib/stock-service";
 import { profileSection, windowOf } from "@/lib/profiles/service";
-import { visibleAuditRows, withoutProvisionalCost } from "@/lib/security/audit-visibility";
+import { stockAuditFor } from "@/lib/security/stock-audit";
 import { redactCosts } from "@/lib/security/redact";
 import { todayLocalISO } from "@/lib/localDate";
 
@@ -19,15 +19,13 @@ const buyer = actor("مشتريات", ["purchasing.suppliers.view", "purchasing.
 const receiver = actor("أمين المخزن", ["stock.receive", "stock.view"], "audm-receiver", "STOCK_CONTROLLER");
 const canOf = (perms: readonly string[]) => (p: Permission) => perms.includes(p);
 const stockController = canOf(ROLE_PERMISSIONS.STOCK_CONTROLLER);
-const accountant = canOf(ROLE_PERMISSIONS.ACCOUNTANT);
+const asStockController = { permissions: ROLE_PERMISSIONS.STOCK_CONTROLLER };
+const asAccountant = { permissions: ROLE_PERMISSIONS.ACCOUNTANT };
 
 after(async () => { await prisma.$disconnect(); });
 
-/** What GET /api/stock/audit?entity_id= reads, then answers (app/api/stock/audit/route.ts). */
-const stockAudit = async (entityId: string, can: (p: Permission) => boolean) => {
-  const logs = await prisma.auditLog.findMany({ where: { entityId }, orderBy: { timestamp: "desc" }, take: 100 });
-  return withoutProvisionalCost(visibleAuditRows(logs, can), can);
-};
+/** What GET /api/stock/audit?entity_id= answers: the route serialises stockAuditFor as is. */
+const stockAudit = async (entityId: string, viewer: { permissions: readonly string[] }) => (await stockAuditFor(viewer, entityId)).logs;
 
 test("the supplier profile's History tab drops agreed prices for a stock controller and keeps them for the buyer", async () => {
   assert.ok(!ROLE_PERMISSIONS.STOCK_CONTROLLER.includes("purchasing.prices.view"), "D-2: the stock controller has no purchase prices");
@@ -49,8 +47,8 @@ test("the supplier profile's History tab drops agreed prices for a stock control
   assert.ok(!JSON.stringify(seenAtTheGate).includes("7.75") && !JSON.stringify(seenAtTheGate).includes("7.5"));
 
   // The stock module's audit reads the same supplier rows: same rule.
-  assert.deepEqual((await stockAudit(supplier.id, stockController)).map((l) => l.action), ["supplier_created"]);
-  assert.equal((await stockAudit(supplier.id, accountant)).length, 3);
+  assert.deepEqual((await stockAudit(supplier.id, asStockController)).map((l) => l.action), ["supplier_created"]);
+  assert.equal((await stockAudit(supplier.id, asAccountant)).length, 3);
 });
 
 test("a receipt's provisional unit cost leaves the stock audit only for those who may see stock cost", async () => {
@@ -62,16 +60,16 @@ test("a receipt's provisional unit cost leaves the stock audit only for those wh
   const written = await prisma.auditLog.findFirstOrThrow({ where: { entityId: intake.id, action: "stock_intake_created" } });
   assert.match(written.newValue ?? "", / · سعر مؤقت 9\.2500$/, "the trail itself keeps the amount");
 
-  const atTheGate = (await stockAudit(intake.id, stockController)).find((l) => l.action === "stock_intake_created");
+  const atTheGate = (await stockAudit(intake.id, asStockController)).find((l) => l.action === "stock_intake_created");
   assert.ok(atTheGate?.newValue?.endsWith(" · سعر مؤقت"), atTheGate?.newValue ?? "");
   assert.ok(!atTheGate?.newValue?.includes("9.25"));
   assert.ok(atTheGate?.newValue?.startsWith(intake.receiptNumber), "the rest of the line is unchanged");
 
-  const forFinance = (await stockAudit(intake.id, accountant)).find((l) => l.action === "stock_intake_created");
+  const forFinance = (await stockAudit(intake.id, asAccountant)).find((l) => l.action === "stock_intake_created");
   assert.equal(forFinance?.newValue, written.newValue);
   // A receipt at an agreed cost is untouched.
   const agreed = (await recordIntake({ supplier_id: supplier.id, product_id: product.id, received_kg: 10, unit_cost: "6", location_id: "loc_cold_1" }, receiver)).intake;
-  assert.deepEqual(await stockAudit(agreed.id, stockController), await stockAudit(agreed.id, accountant));
+  assert.deepEqual(await stockAudit(agreed.id, asStockController), await stockAudit(agreed.id, asAccountant));
 });
 
 test("a cost-field change keeps the fact, not the amounts — its reason (written in costs) included", () => {

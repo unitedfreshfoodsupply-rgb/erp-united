@@ -18,10 +18,11 @@ export type JsonBody = Record<string, any>;
  */
 export const JSON_BODY_LIMIT = 4_000_000;
 
-/** "4 ميجا" / "16 KB": the limit as people say it, for the 413 message. */
+/** "4 ميجابايت" / "16 KB": the limit for the 413 message, in decimal units and the same
+ * words as the other size messages here ("أكبر من 2 ميجابايت"). */
 function sizeLabel(bytes: number, loc: "ar" | "en") {
-  if (bytes >= 1_000_000) return `${Number((bytes / 1_000_000).toFixed(1))} ${loc === "en" ? "MB" : "ميجا"}`;
-  return `${Math.ceil(bytes / 1024)} ${loc === "en" ? "KB" : "كيلوبايت"}`;
+  if (bytes >= 1_000_000) return `${Number((bytes / 1_000_000).toFixed(1))} ${loc === "en" ? "MB" : "ميجابايت"}`;
+  return `${Number((bytes / 1000).toFixed(1))} ${loc === "en" ? "KB" : "كيلوبايت"}`;
 }
 
 /**

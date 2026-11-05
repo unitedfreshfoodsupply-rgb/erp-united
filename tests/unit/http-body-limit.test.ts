@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 import { JSON_BODY_LIMIT, readFormLimited, readJson, readJsonLimited, readLimitedBody } from "@/lib/http";
+import { localizeServerMessage } from "@/lib/locale/server-messages";
 
 test("request body limits reject oversize streams without relying on Content-Length", async () => {
   const request = new NextRequest("http://localhost/api/admin/data-import", {
@@ -27,15 +28,18 @@ const jsonReq = (body: BodyInit | null, headers: Record<string, string> = {}) =>
 test("readJson refuses a declared Content-Length over the limit with 413, before reading", async () => {
   let pulled = 0;
   const body = new ReadableStream<Uint8Array>({ pull(c) { pulled++; c.enqueue(new Uint8Array(10)); } });
-  await assert.rejects(readJson(jsonReq(body, { "content-length": "5000000" })), (e: any) => e.status === 413 && e.message === "حجم الطلب أكبر من الحد المسموح (4 ميجا)");
+  await assert.rejects(readJson(jsonReq(body, { "content-length": "5000000" })), (e: any) => e.status === 413 && e.message === "حجم الطلب أكبر من الحد المسموح (4 ميجابايت)");
   assert.ok(pulled <= 1, "the body was not read");
-  await assert.rejects(readJson(jsonReq("{}", { "content-length": "20000", "accept-language": "en" }), 16_384), (e: any) => e.status === 413 && e.message === "The request is larger than the allowed size (16 KB)");
+  await assert.rejects(readJson(jsonReq("{}", { "content-length": "20000", "accept-language": "en" }), 16_000), (e: any) => e.status === 413 && e.message === "The request is larger than the allowed size (16 KB)");
   assert.equal(JSON_BODY_LIMIT, 4_000_000);
+  // Translated from the Arabic too, unit included (never "4 ميجابايت" inside English).
+  assert.equal(localizeServerMessage("حجم الطلب أكبر من الحد المسموح (4 ميجابايت)", "en"), "The request is larger than the allowed size (4 MB)");
+  assert.equal(localizeServerMessage("حجم الطلب أكبر من الحد المسموح (16 كيلوبايت)", "en"), "The request is larger than the allowed size (16 KB)");
 });
 
 test("readJson stops a body without a Content-Length at the limit", async () => {
   const chunks = Array.from({ length: 5 }, () => new TextEncoder().encode(`{"a":"${"x".repeat(5000)}"`));
-  await assert.rejects(readJson(jsonReq(streamOf(chunks)), 16_384), (e: any) => e.status === 413);
+  await assert.rejects(readJson(jsonReq(streamOf(chunks)), 16_000), (e: any) => e.status === 413);
 });
 
 test("readJson reads what req.json() read: objects, UTF-8 (BOM dropped), Arabic-Indic digits; 400 on bad or empty JSON", async () => {
