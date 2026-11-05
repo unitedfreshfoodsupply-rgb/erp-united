@@ -175,7 +175,10 @@ test("daily production and the daily summary: the same figures from fewer querie
     agg.required += i.requiredQuantity; agg.prepared += i.preparedQuantity ?? 0; agg.orders.add(ord.id); byKey.set(k, agg);
   }
   const key = (r: { productName: string; unit: string }) => `${r.productName}__${r.unit}`;
-  const expected = [...byKey.values()].map(({ orders, ...r }) => ({ ...r, orderCount: orders.size })).sort((a, b) => key(a).localeCompare(key(b)));
+  // Each row also carries its group key, and sums are rounded to the 3 decimals quantities have
+  // (lib/production.ts aggregateProduction, shared with the production board — PC-5/UXO-13).
+  const round3 = (n: number) => Math.round(n * 1000) / 1000;
+  const expected = [...byKey.values()].map(({ orders, ...r }) => ({ key: key(r), ...r, required: round3(r.required), prepared: round3(r.prepared), orderCount: orders.size })).sort((a, b) => key(a).localeCompare(key(b)));
   const { result, queries } = await countQueries(() => dailyProduction());
   assert.equal(queries, 2, "lines and their product names");
   assert.deepEqual([...result].sort((a, b) => key(a).localeCompare(key(b))), expected);
