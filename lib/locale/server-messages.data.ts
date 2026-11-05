@@ -671,6 +671,7 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["ورقة العمل الخارجية غير مدعومة", "External worksheets are not supported"],
   ["تعذر فتح ورقة العمل في Excel", "Could not open the Excel worksheet"],
   ["تعذر الحفظ", "Could not save"],
+  ["تعذر حفظ الصف — مرجع {}", "Could not save the row — reference {0}"],
   ["مسار ورقة العمل غير صالح", "Invalid worksheet path"],
   ["ورقة Excel لا تحتوي على بيانات", "The Excel sheet has no data"],
   ["خلية Excel بدون عنوان", "An Excel cell has no column title"],

@@ -116,3 +116,21 @@ function clientFault(err: unknown, loc: "ar" | "en"): { status: number; message:
     return { status: 400, message: msg(loc, "check_ref", "مرجع غير موجود (صنف/مكان/طرف غير معروف)"), loud: true };
   return null;
 }
+/**
+ * The message for one failed row of a batch (the data import), which reports each row
+ * instead of ending the request: the same answer handleApiError gives. A refusal keeps its
+ * own message (translated by the caller, as handleApiError does); a database fault that can
+ * only come from the row gets its fixed text; anything else is logged with a reference and
+ * the row says only that it failed and the reference — never raw Prisma or runtime text.
+ */
+export function rowErrorMessage(err: unknown, loc: "ar" | "en" = "ar"): string {
+  if (err instanceof ApiError) return err.message;
+  const ref = randomUUID().slice(0, 8);
+  const mapped = clientFault(err, loc);
+  if (mapped) {
+    (mapped.loud ? console.error : console.warn)(`[api-${mapped.status} ${ref}]`, (err as Error)?.message?.split("\n").filter(Boolean).slice(-1)[0]);
+    return mapped.message;
+  }
+  console.error(`[api-error ${ref}]`, err);
+  return loc === "en" ? `Could not save the row — reference ${ref}` : `تعذر حفظ الصف — مرجع ${ref}`;
+}
