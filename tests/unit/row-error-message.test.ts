@@ -31,7 +31,7 @@ test("a database fault the row caused gets the mapped text, in the import's lang
 });
 
 test("anything else: logged in full with a reference; the row names only the reference", () => {
-  const raw = Object.assign(new Error("\nInvalid `tx.customer.create()` invocation in\n/home/hermes/releases/united/.next/server/chunks/123.js:1:1\n\nTransaction already closed: A query cannot be executed on an expired transaction."), { name: "PrismaClientKnownRequestError", code: "P2028" });
+  const raw = Object.assign(new Error("\nInvalid `tx.customer.create()` invocation in\n/home/hermes/releases/united/.next/server/chunks/123.js:1:1\n\nTransaction already closed: A query cannot be executed on an expired transaction."), { name: "PrismaClientKnownRequestError", code: "P2010" });
   const r = quiet(() => rowErrorMessage(raw));
   const m = /^تعذر حفظ الصف — مرجع ([0-9a-f]{8})$/.exec(r.out);
   assert.ok(m, r.out);
@@ -39,6 +39,10 @@ test("anything else: logged in full with a reference; the row names only the ref
   assert.deepEqual(r.error, [[`[api-error ${m![1]}]`, raw]], "the server log has the detail under the same reference");
   assert.match(quiet(() => rowErrorMessage(new TypeError("Cannot read properties of undefined (reading 'id')"), "en")).out, /^Could not save the row — reference [0-9a-f]{8}$/);
   assert.match(quiet(() => rowErrorMessage("boom")).out, /^تعذر حفظ الصف — مرجع [0-9a-f]{8}$/);
+  // A transaction that ran out of time gets the timeout guidance (lib/rbac.ts), still without internals.
+  const timedOut = quiet(() => rowErrorMessage(Object.assign(new Error("Transaction already closed: /home/hermes/x.js"), { name: "PrismaClientKnownRequestError", code: "P2028" }))).out;
+  assert.match(timedOut, /وقت أطول من المسموح/);
+  assert.ok(!/Transaction|hermes|\.js/.test(timedOut));
   // The Arabic text is catalogued, so a caller that translates afterwards gets English too.
   assert.equal(localizeServerMessage("تعذر حفظ الصف — مرجع ab12cd34", "en"), "Could not save the row — reference ab12cd34");
 });

@@ -165,7 +165,9 @@ export async function listOrders(filters: OrderListFilters) {
         },
       ],
     },
-    include: ORDER_LIST_INCLUDE,
+    // The production board shows each product row in the UI language from these lines (PC-5,
+    // lib/production.ts), so its scope keeps the catalogue names; the other lists stay lighter.
+    include: filters.scope === "production" ? ORDER_INCLUDE : ORDER_LIST_INCLUDE,
     orderBy: [{ deliveryDate: "asc" }, { deliveryTime: "asc" }, { createdAt: "asc" }],
   });
 }
