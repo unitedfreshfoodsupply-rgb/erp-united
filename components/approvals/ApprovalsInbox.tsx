@@ -48,8 +48,12 @@ export function ApprovalsInbox() {
   const typeParam = params.get("type");
   const type = typeParam && KNOWN_TYPES.includes(typeParam) ? typeParam : "";
   const [tab, setTab] = useState<"pending" | "all">("pending");
-  const [page, setPage] = useState(1);
-  useEffect(() => setPage(1), [tab, type]);
+  // The page belongs to one tab and type: switching either starts at page 1 in the same render,
+  // so no request goes out with the old offset.
+  const listKey = `${tab}|${type}`;
+  const [paging, setPaging] = useState({ key: listKey, page: 1 });
+  const page = paging.key === listKey ? paging.page : 1;
+  const setPage = (p: number) => setPaging({ key: listKey, page: p });
 
   const qs = new URLSearchParams({ limit: String(PAGE_SIZE) });
   if (tab === "pending") qs.set("status", "pending");
@@ -61,12 +65,14 @@ export function ApprovalsInbox() {
     placeholderData: keepPreviousData,
     refetchInterval: 10_000,
   });
+  // Fetched once (and again after a decision or on focus); while it is on the polled page,
+  // that fresher copy is shown.
   const focus = useQuery({
     queryKey: ["approvals", "one", focusId],
     queryFn: () => apiFetch<Page>(`/api/approvals?id=${encodeURIComponent(focusId ?? "")}`).then((r) => r.approvals[0] ?? null),
     enabled: !!focusId,
-    refetchInterval: 10_000,
   });
+  const focused = (focusId && q.data?.approvals.find((a) => a.id === focusId)) || focus.data;
 
   const setParam = (key: "id" | "type", value: string | null) => {
     const next = new URLSearchParams(params.toString());
@@ -78,6 +84,12 @@ export function ApprovalsInbox() {
 
   const rows = (q.data?.approvals ?? []).filter((a) => a.id !== focusId);
   const total = q.data?.total ?? 0;
+  // Fewer requests than before (decided here or elsewhere): never left on a page past the last.
+  const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageGone = !!q.data && !q.isPlaceholderData && page > lastPage;
+  useEffect(() => {
+    if (pageGone) setPaging({ key: listKey, page: lastPage });
+  }, [pageGone, listKey, lastPage]);
   return (
     <div className="page-narrow">
       <PageHeader
@@ -91,9 +103,9 @@ export function ApprovalsInbox() {
             <h2 id="approval-focus" className="section-title">{tr("approvals.focus.title")}</h2>
             <button type="button" className="btn-ghost btn-sm" onClick={() => setParam("id", null)}>{tr("approvals.focus.show-all")}</button>
           </div>
-          {focus.isLoading ? <LoadingState /> : focus.isError ? <ErrorState message={errorMessage(focus.error)} onRetry={() => focus.refetch()} /> : focus.data ? (
-            <ul><ApprovalCard a={focus.data} highlighted /></ul>
-          ) : (
+          {focused ? (
+            <ul><ApprovalCard a={focused} highlighted /></ul>
+          ) : focus.isLoading ? <LoadingState /> : focus.isError ? <ErrorState message={errorMessage(focus.error)} onRetry={() => focus.refetch()} /> : (
             <p className="card p-4 text-sm text-united-muted">{tr("approvals.focus.not-found")}</p>
           )}
         </section>
@@ -109,13 +121,13 @@ export function ApprovalsInbox() {
       </div>
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
-      {q.data && q.data.approvals.length === 0 && <EmptyState icon="✅" title={tab === "pending" ? tr("approvals.empty.pending") : tr("approvals.empty.all")} />}
+      {q.data && total === 0 && <EmptyState icon="✅" title={tab === "pending" ? tr("approvals.empty.pending") : tr("approvals.empty.all")} />}
       <ul className="flex flex-col gap-3">
         {rows.map((a) => (
           <ApprovalCard key={a.id} a={a} />
         ))}
       </ul>
-      {total > PAGE_SIZE && <div className="mt-3"><Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={setPage} /></div>}
+      {total > PAGE_SIZE && !pageGone && <div className="mt-3"><Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={setPage} /></div>}
     </div>
   );
 }
@@ -164,7 +176,7 @@ function ApprovalCard({ a, highlighted = false }: { a: ApprovalDTO; highlighted?
       )}
 
       {/* Not the caller's to decide (or only as an emergency): why, and who can. */}
-      {a.status === "pending" && (!a.canDecide || a.emergency) && <WhoDecides a={a} className="mt-2" />}
+      {a.status === "pending" && (!a.canDecide || a.emergency || a.rejectOnly) && <WhoDecides a={a} className="mt-2" />}
 
       <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-united-border pt-3">
         {a.link && (

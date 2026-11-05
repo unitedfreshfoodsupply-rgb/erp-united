@@ -45,6 +45,8 @@ export type ApprovalDTO = {
   canDecide: boolean;
   /** The caller may decide only through the one-admin emergency path: approve, with a written reason. */
   emergency: boolean;
+  /** The caller may reject (withdraw) it but not approve it: the module refuses their approval only. */
+  rejectOnly?: boolean;
   blocked: "no_permission" | "already_decided" | "own_request" | "prepared_or_submitted" | "no_decider" | null;
   /** Who else can decide it (names), when the caller cannot decide it or asked. */
   approvers?: string[];
@@ -101,6 +103,7 @@ export function DecideControls({ a, onDone }: { a: ApprovalDTO; onDone?: () => v
   const [error, setError] = useState<string | null>(null);
   if (!a.canDecide) return null;
   const reasonShort = a.emergency && comment.trim().length < EMERGENCY_REASON_MIN;
+  const errorId = `approval-error-${a.id}`;
 
   async function decide(decision: "approve" | "reject") {
     if (busy) return;
@@ -151,21 +154,25 @@ export function DecideControls({ a, onDone }: { a: ApprovalDTO; onDone?: () => v
   return (
     <div className="flex flex-col gap-2">
       {a.emergency && <p className="text-sm font-medium text-united-warn">{t("approvals.emergency.hint")}</p>}
+      {a.rejectOnly && <p className="text-sm font-medium text-united-dark">{t("approvals.reject-only")}</p>}
       <div className="flex flex-wrap items-end gap-2">
         <Field label={a.emergency ? t("approvals.emergency.label") : t("approvals.comment")} className="flex-1 min-w-[12rem]">
           <input className="field" value={comment} onChange={(e) => setComment(e.target.value)} disabled={!!busy} />
         </Field>
-        <button type="button" className="btn-primary" disabled={!!busy || reasonShort} aria-busy={busy === "approve"} onClick={() => decide("approve")}>
-          {busy === "approve" ? t("approvals.busy.approve") : t("approvals.btn.approve")}
-        </button>
+        {/* Stays enabled with a short emergency reason: the click says what is missing. */}
+        {!a.rejectOnly && (
+          <button type="button" className="btn-primary" disabled={!!busy} aria-busy={busy === "approve"} aria-describedby={error ? errorId : undefined} onClick={() => decide("approve")}>
+            {busy === "approve" ? t("approvals.busy.approve") : t("approvals.btn.approve")}
+          </button>
+        )}
         {/* The emergency path approves only (recordDecision refuses a self-rejection). */}
         {!a.emergency && (
-          <button type="button" className="btn-danger" disabled={!!busy} aria-busy={busy === "reject"} onClick={() => decide("reject")}>
+          <button type="button" className="btn-danger" disabled={!!busy} aria-busy={busy === "reject"} aria-describedby={error ? errorId : undefined} onClick={() => decide("reject")}>
             {busy === "reject" ? t("approvals.busy.reject") : t("approvals.reject")}
           </button>
         )}
       </div>
-      {error && <p role="alert" className="text-sm font-medium text-united-danger">{error}</p>}
+      {error && <p id={errorId} role="alert" className="text-sm font-medium text-united-danger">{error}</p>}
     </div>
   );
 }

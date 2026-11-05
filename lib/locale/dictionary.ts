@@ -4788,6 +4788,8 @@ export const DICTIONARY = {
   "approvals.notice.elsewhere": { ar: "مستني اعتماد من حد عنده صلاحية الاعتماد — القرار بيتاخد من", en: "Awaiting approval by someone who holds the approving permission — it is decided in" },
   "approvals.notice.open": { ar: "افتح في صندوق الموافقات", en: "Open in the approvals inbox" },
   "approvals.notice.you-can": { ar: "تقدر تقرر فيه من هنا.", en: "You can decide it here." },
+  "approvals.reject-only": { ar: "انت اللي طالب الطلب ده، فالموافقة عليه لازم تكون من حد تاني — تقدر بس ترفضه (تسحبه) بسبب مكتوب.", en: "You raised this request, so someone else must approve it — you can only reject (withdraw) it, with a written reason." },
+  "approvals.notice.load-error": { ar: "مقدرناش نعرف مين يعتمد الطلب ده دلوقتي:", en: "Could not load who approves this request:" },
   "pricing.delivery.pending": { ar: "لسه في الطريق", en: "On the way" },
   "pricing.delivery.delivered": { ar: "اتسلم كامل", en: "Delivered in full" },
   "pricing.delivery.partial": { ar: "اتسلم جزئي", en: "Partially delivered" },
