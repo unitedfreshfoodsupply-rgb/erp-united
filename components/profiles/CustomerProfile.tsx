@@ -28,7 +28,9 @@ type Head = { customer: { id: string; code: string; name: string; nameAr: string
 export function CustomerProfile({ customerId }: { customerId: string }) {
   const { t, locale } = useLocale();
   const { can } = usePermissions();
-  const head = useQuery({ queryKey: ["sales", "customer", customerId], queryFn: () => apiFetch<Head>(`/api/sales/customers/${customerId}`) });
+  // Same key as the overview tab (CustomerOverview), which mounts once this has loaded: 15 s
+  // fresh, so opening the profile asks for the customer once, not twice (edits invalidate ["sales"]).
+  const head = useQuery({ queryKey: ["sales", "customer", customerId], queryFn: () => apiFetch<Head>(`/api/sales/customers/${customerId}`), staleTime: 15_000 });
   const summary = useSummary<Summary>("customer", customerId);
   const sees = (s: string) => maySeeSection("customer", s, can);
   const items: { key: Tab; label: string }[] = [

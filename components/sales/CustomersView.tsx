@@ -242,7 +242,7 @@ export function CustomerOverview({ id }: { id: string }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState(false);
-  const q = useQuery({ queryKey: ["sales", "customer", id], queryFn: () => apiFetch<{ customer: CustomerDetail }>(`/api/sales/customers/${id}`) });
+  const q = useQuery({ queryKey: ["sales", "customer", id], queryFn: () => apiFetch<{ customer: CustomerDetail }>(`/api/sales/customers/${id}`), staleTime: 15_000 });
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   const c = q.data.customer;

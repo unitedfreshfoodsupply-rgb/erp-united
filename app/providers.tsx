@@ -30,11 +30,12 @@ export function Providers({ children, locale = "ar" }: { children: React.ReactNo
         defaultOptions: {
           queries: {
             refetchOnWindowFocus: true,
-            // This app runs as dedicated always-on tablet screens, not a tab a human
-            // actively clicks between — React Query's default pauses `refetchInterval`
-            // whenever the page isn't the focused tab, which silently stalls live
-            // updates on a second monitor/tablet exactly when it matters most.
-            refetchIntervalInBackground: true,
+            // Polling (`refetchInterval`) runs while the page is visible, focused or not — a
+            // tablet or a second monitor showing a board keeps updating — and pauses only in a
+            // hidden tab (React Query checks document.visibilityState), which catches up the
+            // moment it is shown again (refetchOnWindowFocus). The wall-screen boards that chime
+            // (prep, load, supervisor, exceptions) keep polling even hidden: they say so on
+            // their own query with refetchIntervalInBackground.
             retry: 1,
           },
         },

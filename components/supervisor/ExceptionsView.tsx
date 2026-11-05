@@ -23,6 +23,8 @@ export function ExceptionsView() {
     queryKey: ["orders", "all"],
     queryFn: () => apiFetch<{ orders: OrderDTO[] }>("/api/orders"),
     refetchInterval: 5000,
+    // A wall screen that chimes: keeps polling while its tab is hidden (app/providers.tsx).
+    refetchIntervalInBackground: true,
     staleTime: 2000,
   });
 
