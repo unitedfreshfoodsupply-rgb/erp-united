@@ -585,14 +585,14 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                 item={item}
                 mode={mode}
                 busy={isBusy(item.id)}
-                onConfirm={async (qty) => {
-                  await run(item.id, () =>
+                onConfirm={(qty) =>
+                  run(item.id, () =>
                     apiPost(
                       `/api/orders/${orderId}/items/${item.id}/${mode === "prepare" ? "prepare" : "load"}`,
                       { quantity: qty, mark_done: true, expected_version: item.version }
                     )
-                  );
-                }}
+                  )
+                }
                 supervisorEdit={
                   isSupervisor
                     ? {

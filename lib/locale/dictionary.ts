@@ -4434,6 +4434,7 @@ export const DICTIONARY = {
   "orders.item.done_load": { ar: "✓ اتحمل", en: "✓ Loaded" },
   "orders.item.done_prep": { ar: "✓ اتجهز", en: "✓ Prepared" },
   "orders.item.edit_required_btn": { ar: "عدّل الكمية المطلوبة", en: "Edit required quantity" },
+  "orders.item.correct_btn": { ar: "تعديل الكمية", en: "Correct the quantity" },
   "orders.item.mismatch_warning": { ar: "الكمية مختلفة عن اللي اتجهزت", en: "Quantity differs from what was prepared" },
   "orders.item.outlier_confirm": { ar: "متأكد من الكمية؟", en: "Sure about the quantity?" },
   "orders.item.outlier_confirmed_msg": { ar: "دوس التأكيد تاني عشان تتسجل.", en: "Press confirm again to record it." },
