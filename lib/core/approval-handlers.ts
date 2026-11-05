@@ -3,7 +3,7 @@ import { asText } from "@/lib/http";
 import { ApiError } from "@/lib/rbac";
 import { inTx, type Tx } from "@/lib/tx";
 import { getSetting } from "@/lib/core/settings-service";
-import { listApprovalPage, recordDecision, type ApprovalListOptions, type ApprovalType, type ApprovalViewer, type Decider } from "@/lib/core/approvals";
+import { listApprovalPage, recordDecision, type ApprovalListOptions, type ApprovalType, type ApprovalViewer, type Decider, type DecisionRules } from "@/lib/core/approvals";
 import { applyIssueExceptionClose } from "@/lib/inventory/dispatch";
 import { releaseGradingHoldInTx } from "@/lib/inventory/documents";
 import { applyPurchaseRequestDecision } from "@/lib/purchasing/requests";
@@ -44,6 +44,9 @@ type Handler = {
    * can decide as it stands. One query at most, for every pending request of the type at once.
    */
   ineligible?: (db: Tx, rows: { entityId: string; requestedById: string | null }[]) => Promise<Map<string, string[] | null>>;
+  /** The handler refuses those people on approve only (it has no onRejected, so a rejection is
+   * the engine's alone to judge). */
+  ineligibleOnApproveOnly?: true;
 };
 
 /**
@@ -171,11 +174,13 @@ const HANDLERS: Record<ApprovalType, Handler> = {
     // Approved by someone other than the requester: the month opens again (its year must be open).
     onApproved: (tx, req, decider) => applyPeriodReopen(tx, req.entityId, req.payload, decider, requesterOf(req)),
     ineligible: theRequester,
+    ineligibleOnApproveOnly: true,
   },
   "accounting.year_reopen": {
     // Approved by someone other than the requester: the closing entry is reversed and the last month opens.
     onApproved: (tx, req, decider) => applyYearReopen(tx, req.entityId, req.payload, decider, requesterOf(req)),
     ineligible: theRequester,
+    ineligibleOnApproveOnly: true,
   },
   "accounting.manual_journal": {
     // Approved: posted as a manual journal, by someone other than the requester. Rejected: nothing posts.
@@ -204,13 +209,19 @@ const HANDLERS: Record<ApprovalType, Handler> = {
  */
 export async function listApprovalInbox(actor: ApprovalViewer, opts: ApprovalListOptions = {}, db: Tx = prisma) {
   const requireDifferentApprover = await getSetting("approvals.require_different_approver");
-  return listApprovalPage(actor, opts, {
+  return listApprovalPage(actor, opts, inboxRules(requireDifferentApprover), db);
+}
+
+/** The rules a decision will apply: the engine's setting plus each module's own refusals. */
+export function inboxRules(requireDifferentApprover: boolean): DecisionRules {
+  return {
     requireDifferentApprover,
     ineligible: async (type, rows, on) => {
       const hook = HANDLERS[type]?.ineligible;
       return hook ? hook(on, rows) : null;
     },
-  }, db);
+    approveOnly: (type) => !!HANDLERS[type]?.ineligibleOnApproveOnly,
+  };
 }
 
 export function registeredApprovalTypes() {

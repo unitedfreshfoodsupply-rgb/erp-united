@@ -331,16 +331,6 @@ export async function cancelPendingApproval(
   return closed;
 }
 
-/** Requests an actor may decide (pending, of types they hold the permission for) and
- * the ones they raised themselves. */
-export async function listApprovals(
-  actor: ApprovalViewer,
-  opts: ApprovalListOptions = {},
-  rules?: DecisionRules
-) {
-  return (await listApprovalPage(actor, opts, rules)).approvals;
-}
-
 export type ApprovalViewer = { id: string | null; permissions: readonly string[]; role?: string };
 
 export type ApprovalListOptions = {
@@ -368,6 +358,9 @@ export type DecisionRules = {
    * (lib/core/approval-handlers.ts `ineligible`); null for an entity nobody can decide as it
    * stands. Returns null for a type with no such rule. */
   ineligible?: (type: ApprovalType, rows: { entityId: string; requestedById: string | null }[], db: Tx) => Promise<Map<string, string[] | null> | null>;
+  /** Types whose module rule refuses those users on approve only: a rejection goes through
+   * the engine alone (no onRejected), so they may still reject when the engine allows it. */
+  approveOnly?: (type: ApprovalType) => boolean;
 };
 
 /** Why the caller cannot decide a pending request (the screen says so instead of offering a button). */
@@ -384,7 +377,8 @@ async function activeHolders(db: Tx): Promise<{ id: string; name: string; perms:
 }
 
 /**
- * listApprovals with paging: the window of rows plus the number that match. Each pending row
+ * Requests an actor may decide (pending, of types they hold the permission for) and the ones
+ * they raised themselves, newest first: the window of rows plus the number that match. Each pending row
  * says whether the caller may decide it, and if not why (`blocked`), and — when the caller
  * cannot decide it, or asks — who can (`approvers`: names of active holders of the type's
  * permission, minus whoever the rules exclude). Statements: the page (2), its count only when
@@ -440,22 +434,28 @@ export async function listApprovalPage(
   });
   const holders = needsNames ? await activeHolders(db) : [];
 
-  const judge = (r: (typeof rows)[number]): { canDecide: boolean; emergency: boolean; blocked: DecisionBlock | null } => {
-    if (r.status !== "pending" || !isApprovalType(r.type)) return { canDecide: false, emergency: false, blocked: null };
-    const block = (blocked: DecisionBlock) => ({ canDecide: false, emergency: false, blocked });
+  type Verdict = { canDecide: boolean; emergency: boolean; rejectOnly: boolean; blocked: DecisionBlock | null };
+  const judge = (r: (typeof rows)[number]): Verdict => {
+    if (r.status !== "pending" || !isApprovalType(r.type)) return { canDecide: false, emergency: false, rejectOnly: false, blocked: null };
+    const block = (blocked: DecisionBlock): Verdict => ({ canDecide: false, emergency: false, rejectOnly: false, blocked });
     if (!decidable.includes(r.type)) return block("no_permission");
     if (decidedBy(r, actor.id)) return block("already_decided");
     const refused = refusedFor(r);
     if (refused === null) return block("no_decider");
-    if (actor.id && refused?.includes(actor.id)) return block(ownRequest(r) ? "own_request" : "prepared_or_submitted");
+    const refusedHere = !!actor.id && !!refused?.includes(actor.id);
+    // The module refuses this caller's approval only; their rejection is the engine's to judge.
+    const approveRefused = refusedHere && !!rules.approveOnly?.(r.type);
+    if (refusedHere && !approveRefused) return block(ownRequest(r) ? "own_request" : "prepared_or_submitted");
     if (rules.requireDifferentApprover && ownRequest(r)) {
+      // The engine refuses the requester's rejection, and here the module their approval.
+      if (approveRefused) return block("own_request");
       // recordDecision's emergency path: a SUPER_ADMIN whom no other active user can replace
       // may approve (never reject) their own request, with a written reason.
       const permission = APPROVAL_TYPES[r.type as ApprovalType].approvePermission;
       const others = holders.filter((u) => u.id !== actor.id && u.perms.has(permission));
-      return actor.role === "SUPER_ADMIN" && others.length === 0 ? { canDecide: true, emergency: true, blocked: null } : block("own_request");
+      return actor.role === "SUPER_ADMIN" && others.length === 0 ? { canDecide: true, emergency: true, rejectOnly: false, blocked: null } : block("own_request");
     }
-    return { canDecide: true, emergency: false, blocked: null };
+    return { canDecide: true, emergency: false, rejectOnly: approveRefused, blocked: null };
   };
   const approversOf = (r: (typeof rows)[number]) => {
     const refused = refusedFor(r);
@@ -468,7 +468,7 @@ export async function listApprovalPage(
 
   const approvals = rows.map((r) => {
     const verdict = judge(r);
-    const named = r.status === "pending" && isApprovalType(r.type) && (opts.withApprovers || !verdict.canDecide || verdict.emergency);
+    const named = r.status === "pending" && isApprovalType(r.type) && (opts.withApprovers || !verdict.canDecide || verdict.emergency || verdict.rejectOnly);
     return {
       ...r,
       label: isApprovalType(r.type) ? APPROVAL_TYPES[r.type].label : r.type,

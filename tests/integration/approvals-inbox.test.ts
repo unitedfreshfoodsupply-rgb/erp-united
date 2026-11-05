@@ -14,8 +14,8 @@ import { countQueries } from "./_query-count";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { prisma } from "./_db";
-import { listApprovalInbox } from "@/lib/core/approval-handlers";
-import { APPROVAL_TYPES, type ApprovalType } from "@/lib/core/approvals";
+import { inboxRules, listApprovalInbox } from "@/lib/core/approval-handlers";
+import { APPROVAL_TYPES, listApprovalPage, type ApprovalType } from "@/lib/core/approvals";
 import { usersWithPermission } from "@/lib/core/notifications";
 import { applyPeriodReopen } from "@/lib/accounting/fiscal-years";
 import { ALL_PERMISSIONS, ROLE_PERMISSIONS } from "@/lib/permissions";
@@ -130,6 +130,57 @@ test("opening batch: whoever prepared it is refused even when someone else submi
   assert.equal(asPreparer.ownRequest, false);
   assert.equal(asSubmitter.blocked, "no_permission", "the submitter does not hold accounting.opening.approve");
   assert.deepEqual(asSubmitter.approvers, [], "the only holder prepared it: nobody can approve it as it stands");
+});
+
+test("payroll: a run whose submitter is unknown can be decided by nobody (HR-22), and says so", async () => {
+  const row = await rolledBack(async (tx) => {
+    const run = await tx.payrollRun.create({
+      data: { number: `${TAG}-PRL`, period: "2099-12", status: "calculated", attendanceFrom: "2099-11-26", attendanceTo: "2099-12-25", preparedById: accountant.id, preparedBy: accountant.name, calculatedAt: new Date(), calculationHash: "x" },
+    });
+    const r = await open(tx, "hr.payroll_run", accountant, run.id);
+    return mine((await listApprovalInbox(viewer.admin(), { status: "pending", limit: 200 }, tx)).approvals, r.id);
+  });
+  assert.equal(row.canDecide, false, "applyRunDecision refuses any decision on a run with no known submitter");
+  assert.equal(row.blocked, "no_decider");
+  assert.deepEqual(row.approvers, [], "and names nobody");
+});
+
+test("a multi-level request the caller already decided waits for the others, and they are named", async () => {
+  const row = await rolledBack(async (tx) => {
+    const r = await tx.approvalRequest.create({
+      data: { number: `${TAG}-${++seq}`, type: "purchasing.bill", entityType: APPROVAL_TYPES["purchasing.bill"].entityType, entityId: `${TAG}-${++seq}`, title: "اختبار مستويين", requestedById: accountant.id, requestedBy: accountant.name, requiredLevels: 2, approvedLevels: 1 },
+    });
+    await tx.approvalDecision.create({ data: { requestId: r.id, level: 1, decision: "approve", deciderId: admin.id, decider: admin.name, deciderRole: "SUPER_ADMIN" } });
+    return mine((await listApprovalInbox(viewer.admin(), { status: "pending", limit: 200 }, tx)).approvals, r.id);
+  });
+  assert.equal(row.canDecide, false, "recordDecision refuses a second decision by the same person");
+  assert.equal(row.blocked, "already_decided");
+  assert.ok(!row.approvers.includes(admin.name), "never someone who already decided");
+});
+
+test("approvals.require_different_approver OFF: the requester decides as the engine and the module allow", async () => {
+  const off = inboxRules(false);
+  const out = await rolledBack(async (tx) => {
+    const reopen = await open(tx, "accounting.period_reopen", admin);
+    const bill = await open(tx, "purchasing.bill", admin);
+    const transfer = await open(tx, "accounting.cash_transfer", accountant);
+    const asAdmin = (await listApprovalPage(viewer.admin(), { status: "pending", limit: 200 }, off, tx)).approvals;
+    const asAccountant = (await listApprovalPage(viewer.accountant(), { status: "pending", limit: 200 }, off, tx)).approvals;
+    return { reopen: mine(asAdmin, reopen.id), bill: mine(asAdmin, bill.id), transfer: mine(asAccountant, transfer.id) };
+  });
+  // Reopen: the handler refuses the requester's approval only (no onRejected): they may still
+  // withdraw it by rejecting, as before this change.
+  assert.equal(out.reopen.canDecide, true);
+  assert.equal(out.reopen.rejectOnly, true, "reject (withdraw) only");
+  assert.equal(out.reopen.emergency, false);
+  assert.ok(Array.isArray(out.reopen.approvers), "names who can approve it");
+  // No module rule: the engine lets the requester decide.
+  assert.equal(out.bill.canDecide, true);
+  assert.equal(out.bill.rejectOnly, false);
+  assert.equal(out.bill.emergency, false);
+  // The transfer handler refuses its recorder on approve and reject alike.
+  assert.equal(out.transfer.canDecide, false);
+  assert.equal(out.transfer.blocked, "own_request");
 });
 
 test("paging, the type filter and one request by id", async () => {
