@@ -50,10 +50,11 @@ async function main() {
 
     section("4. THE UNITED INVOICE (PRINT)");
     let p = await page("mona", `/sales/invoices/${inv.id}/print`);
-    check("Arabic by default: RTL, title, number, totals, payment", p.status === 200 && /dir="rtl"/.test(p.html) && p.html.includes("فاتورة ضريبية") && p.html.includes(inv.number) && p.html.includes("إجمالي الفاتورة") && p.html.includes("السداد"));
+    // Not submitted to the ETA: printed as UNITED's commercial sales invoice, never as a tax invoice (Nov 2026).
+    check("Arabic by default: RTL, title, number, totals, payment", p.status === 200 && /dir="rtl"/.test(p.html) && p.html.includes("فاتورة مبيعات") && !p.html.includes("فاتورة ضريبية") && p.html.includes(inv.number) && p.html.includes("إجمالي الفاتورة") && p.html.includes("السداد"));
     check("…no ETA error or internal state on the customer document", !/lastError|submitting|مطابقة يدوية/.test(p.html));
     p = await page("mona", `/sales/invoices/${inv.id}/print?lang=en`);
-    check("English from the same layout: LTR, English labels", p.status === 200 && /dir="ltr"/.test(p.html) && p.html.includes("Tax Invoice") && p.html.includes("Invoice total") && p.html.includes(inv.number));
+    check("English from the same layout: LTR, English labels", p.status === 200 && /dir="ltr"/.test(p.html) && p.html.includes("Sales Invoice") && !p.html.includes("Tax Invoice") && p.html.includes("Invoice total") && p.html.includes(inv.number));
     p = await page("ahmed", `/sales/invoices/${inv.id}/print`);
     check("a preparer cannot open an invoice", !p.html.includes(inv.number) && p.html.includes("مش مسموح"));
   }

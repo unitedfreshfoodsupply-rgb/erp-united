@@ -34,9 +34,12 @@ import { resolveCustomer } from "@/lib/sales/customers";
 import { applyListPrices, setAgreedLinePriceInTx } from "@/lib/sales/pricing";
 import { evaluateOrderCredit } from "@/lib/sales/credit";
 import { assertQuantityFitsUnit, commitOrderStock } from "@/lib/sales/stock-commitment";
+import { holdable, holdOrderForStockInTx } from "@/lib/sales/stock-hold";
+import { settleOrderSuggestions, syncOrderSuggestions } from "@/lib/purchasing/requests";
 import { assertPricingCleared, evaluateOrderPricing } from "@/lib/sales/price-exceptions";
 import { releaseOrderInvoiceForReopen } from "@/lib/sales/invoicing";
 import { searchWhere } from "@/lib/core/search";
+import { storedOrderCustomerName } from "@/lib/locale/names";
 
 function assertValidQuantity(quantity: unknown, label: string): asserts quantity is number {
   if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity < 0 || quantity > 999_999_999_999 || !Number.isInteger(quantity * 1000)) {
@@ -108,6 +111,8 @@ export function boardScope(now = new Date()): Prisma.OrderWhereInput {
 export function productionScope(now = new Date()): Prisma.OrderWhereInput {
   return {
     status: { not: "cancelled" },
+    // An order waiting for stock is not production until it is released (Nov 2026).
+    stockStatus: "ok",
     OR: [{ status: { in: OPEN_STATUSES } }, { deliveryDate: todayLocalISO(now) }, { updatedAt: { gte: startOfBusinessDay(now) } }],
   };
 }
@@ -121,8 +126,10 @@ export async function listOrders(filters: {
   /** Search: order number, external id, customer name / code / phone (maturity 2026-11). A
    * search looks across every order, not only today's board. */
   q?: string;
+  /** ok (the floor boards: orders that may be worked) | awaiting_stock (Nov 2026). */
+  stockStatus?: "ok" | "awaiting_stock";
 }) {
-  const unfiltered = !filters.status && !filters.date && !filters.assignedToId && !filters.q;
+  const unfiltered = !filters.status && !filters.date && !filters.assignedToId && !filters.q && !filters.stockStatus;
   const scope = filters.scope === "production" ? productionScope() : unfiltered || filters.scope === "board" ? boardScope() : {};
   return prisma.order.findMany({
     where: {
@@ -133,6 +140,7 @@ export async function listOrders(filters: {
         await searchWhere("order", filters.q),
         {
           ...(filters.assignedToId ? { assignedToId: filters.assignedToId } : {}),
+          ...(filters.stockStatus ? { stockStatus: filters.stockStatus } : {}),
           status: filters.status
             ? Array.isArray(filters.status)
               ? { in: filters.status }
@@ -163,6 +171,11 @@ export async function createOrder(
     delivery_date: string;
     delivery_time?: string;
     notes?: string;
+    /** The customer's own PO reference (e.g. the hotel's PO number). */
+    customer_po_ref?: string;
+    /** Save a short order as "awaiting stock" instead of refusing it (Nov 2026). Without it
+     * — the default, and the integration's default — a shortfall still refuses the order. */
+    allow_shortage?: boolean;
     items: RawIncomingItem[];
   },
   actor: Actor,
@@ -189,6 +202,7 @@ export async function createOrder(
   if (!Array.isArray(input.items) || input.items.length === 0) {
     throw new ApiError(400, "لازم يكون فيه صنف واحد على الأقل");
   }
+  const customerPoRef = parseCustomerPoRef(input.customer_po_ref);
   input.items.forEach((i, idx) => {
     if (!asText(i.product_name, "product_name")?.trim() && !i.stock_product_id) throw new ApiError(400, `اختار الصنف رقم ${idx + 1} من دليل الأصناف`);
     const label = i.product_name?.trim() || `الصنف رقم ${idx + 1}`;
@@ -274,6 +288,7 @@ export async function createOrder(
             // Blank means "no time given"; the DB CHECK only admits NULL or HH:mm.
             deliveryTime: asText(input.delivery_time, "delivery_time")?.trim() || null,
             notes: input.notes,
+            customerPoRef,
             source: actor.source,
             items: {
               create: validatedItems.map((i) => ({
@@ -320,8 +335,16 @@ export async function createOrder(
         await evaluateOrderPricing(tx, created.id, actor);
         if (opts.afterCreate) await opts.afterCreate(tx, created);
         // Every line is reserved in full or the order is not created (WF-01): a confirmed
-        // order never promises stock that is not sellable now.
-        await commitOrderStock(tx, created.id, stockActor(actor));
+        // order never promises stock that is not sellable now. Asked to (allow_shortage), a
+        // plain shortage saves the order "awaiting stock" instead — nothing reserved, held in
+        // "new", one procurement suggestion per short line (lib/sales/stock-hold.ts).
+        try {
+          await commitOrderStock(tx, created.id, stockActor(actor));
+        } catch (err) {
+          // commitOrderStock refuses before it writes anything, so the transaction is clean.
+          if (input.allow_shortage !== true || !holdable(err)) throw err;
+          await holdOrderForStockInTx(tx, created.id, err.shortfalls, actor);
+        }
         // Credit is judged on the priced order (quotation prices included).
         await evaluateOrderCredit(tx, created.id, creditMode, actor);
         // Re-read: the steps above set fields (credit status) on the row created above.
@@ -340,6 +363,14 @@ export async function createOrder(
   }
   if (!order) throw new ApiError(500, "مش قادرين ننشئ رقم أوردر، حاول تاني");
   return order;
+}
+
+/** The customer's PO reference: trimmed, blank = none, at most 100 characters. */
+function parseCustomerPoRef(raw: unknown): string | null {
+  const v = asText(raw, "customer_po_ref")?.trim();
+  if (!v) return null;
+  if (v.length > 100) throw new ApiError(400, "مرجع أمر الشراء بتاع العميل لازم يكون 100 حرف بالكتير");
+  return v;
 }
 
 function versionConflict(what: string, current: number): never {
@@ -528,6 +559,11 @@ export async function moveOrderStatus(
   // behind for finance — and only then may the move proceed.
   // A price exception holds the order before preparation (remediation 2026-11).
   if (order.status === "new") assertPricingCleared(order, "مينفعش يبدأ التجهيز");
+  // An order waiting for stock stays in "new" until it is re-checked and released (Nov 2026) —
+  // whoever asks, override included: nothing is reserved for it.
+  if (order.status === "new" && order.stockStatus === "awaiting_stock") {
+    throw new ApiError(409, "مينفعش يبدأ التجهيز: الأوردر مستني بضاعة — اعمل إعادة فحص المخزون والإفراج الأول", "stock_awaiting");
+  }
   if (order.status === "new") {
     const creditMode = await getSetting("sales.credit_check_mode");
     if (creditMode !== "off") {
@@ -539,12 +575,21 @@ export async function moveOrderStatus(
 
 
   return inTx(async (tx) => {
+    // Dispatch freezes the customer's name on the order (Nov 2026): the delivery note and manifest
+    // that leave now name the customer card as it is now, and a reprint keeps that name after any
+    // later rename. Open orders show the card live; only a mapped order's name is touched.
+    const card = to === "dispatched" && order.customerAccountId
+      ? await tx.customer.findUnique({ where: { id: order.customerAccountId }, select: { name: true, nameAr: true } })
+      : null;
+    const frozenName = card ? storedOrderCustomerName(card) : null;
+    const nameChanges: [string, string | null, string][] = frozenName && frozenName !== order.customerName ? [["customerName", order.customerName, frozenName]] : [];
     const updated = await casOrderUpdate(orderId, order.version, (where) =>
       tx.order.update({
         where,
         data: {
           status: to,
           version: { increment: 1 },
+          ...(nameChanges.length ? { customerName: frozenName! } : {}),
           // Whoever starts preparing an unassigned order owns it.
           ...(to === "preparing" && !order.assignedToId && actor.id ? { assignedToId: actor.id, assignedToName: actor.name } : {}),
           ...(vehicle ? { vehicle } : {}),
@@ -574,7 +619,7 @@ export async function moveOrderStatus(
           source: actor.source,
           deviceId: actor.deviceId,
         },
-        ...dispatchFieldChanges.map(([fieldChanged, oldValue, newValue]) => ({
+        ...[...dispatchFieldChanges, ...nameChanges].map(([fieldChanged, oldValue, newValue]) => ({
           userId: actor.id,
           userName: actor.name,
           role: actor.role,
@@ -880,12 +925,14 @@ export async function editOrder(
     deliveryTime: string | null;
     notes: string;
     vehicle: string;
+    customerPoRef: string | null;
   }>,
   actor: Actor,
   reason: string,
   expectedVersion?: number
 ) {
   assertPermission(actor, "orders.edit", "بس المشرف يقدر يعدّل بيانات الأوردر");
+  if (fields.customerPoRef !== undefined) fields = { ...fields, customerPoRef: parseCustomerPoRef(fields.customerPoRef) };
   if (!asText(reason, "reason")?.trim()) throw new ApiError(400, "لازم تكتب سبب التعديل");
   if (fields.customerName !== undefined && !asText(fields.customerName, "customerName")?.trim()) {
     throw new ApiError(400, "اسم العميل مطلوب");
@@ -916,7 +963,7 @@ export async function editOrder(
     if (resolution.status !== "matched") throw new ApiError(400, "اختار عميلًا نشطًا من دليل العملاء");
     const customerCard = await prisma.customer.findUnique({ where: { id: resolution.customerId }, select: { name: true, nameAr: true } });
     if (!customerCard) throw new ApiError(400, "حساب العميل مش موجود");
-    fields = { ...fields, customerAccountId: resolution.customerId, customerName: customerCard.nameAr ?? customerCard.name };
+    fields = { ...fields, customerAccountId: resolution.customerId, customerName: storedOrderCustomerName(customerCard) };
   }
 
   const changes: [string, unknown, unknown][] = [];
@@ -963,6 +1010,10 @@ export async function editOrder(
       await evaluateOrderPricing(tx, orderId, actor);
       await evaluateOrderCredit(tx, orderId, await getSetting("sales.credit_check_mode"), actor);
     }
+    // An awaiting-stock order's suggestions follow its delivery date and PO reference.
+    if (updated.stockStatus === "awaiting_stock" && (fields.deliveryDate !== undefined || fields.customerPoRef !== undefined)) {
+      await syncOrderSuggestions(tx, orderId, actor);
+    }
 
     return updated;
   });
@@ -989,14 +1040,24 @@ export async function editRequiredQuantity(
 
   const thresholdPct = await shortageTolerance();
   return inTx(async (tx) => {
+    // Serialised with "re-check and release": the line and the order's stock state are read
+    // together (lib/sales/stock-hold.ts takes the same lock).
+    await advisoryXactLock(tx, `order-stock:${orderId}`);
     const updated = await casItemUpdate(itemId, item.version, (where) =>
       tx.orderItem.update({
         where,
         data: { requiredQuantity: quantity, version: { increment: 1 } },
       })
     );
-    // A larger quantity must be reservable now, or the edit is refused (WF-01).
-    await commitOrderStock(tx, orderId, stockActor(actor));
+    const { stockStatus } = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { stockStatus: true } });
+    if (stockStatus === "awaiting_stock") {
+      // An order waiting for stock reserves nothing: the line's suggestion is resized to the
+      // new shortage instead (a line set to 0 closes it).
+      await syncOrderSuggestions(tx, orderId, actor);
+    } else {
+      // A larger quantity must be reservable now, or the edit is refused (WF-01).
+      await commitOrderStock(tx, orderId, stockActor(actor));
+    }
 
     await writeAudit({
       userId: actor.id,
@@ -1149,6 +1210,9 @@ export async function cancelOrder(
     // its credit any more.
     await releaseAllForSource(tx, "order", orderId, `إلغاء الأوردر: ${reason}`, stockActor(actor));
     await cancelPendingApproval(tx, { type: "sales.credit", entityId: orderId, reason: `الأوردر اتلغى: ${reason}`, actor });
+    // Its procurement suggestions are no longer needed (one already on a supplier PO stays
+    // with purchasing, noted on its history).
+    await settleOrderSuggestions(tx, orderId, "cancelled", reason, actor);
 
     return updated;
   });
@@ -1233,6 +1297,12 @@ export async function reopenOrder(
     // The order is live again (from cancelled or dispatched): it must hold its stock
     // in full, or it cannot be reopened (WF-01).
     await commitOrderStock(tx, orderId, stockActor(actor));
+    // A cancelled order that had been waiting for stock is now reserved in full and goes
+    // back to work: it is no longer waiting (Nov 2026).
+    if (order.stockStatus === "awaiting_stock") {
+      await tx.order.update({ where: { id: orderId }, data: { stockStatus: "ok" } });
+      await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "order_stock_released", entityType: "order", entityId: orderId, orderId, fieldChanged: "stockStatus", oldValue: "awaiting_stock", newValue: "ok", reason, source: actor.source, deviceId: actor.deviceId }, tx);
+    }
 
     await recomputeOrderFlags(tx, orderId, thresholdPct, actor);
   });

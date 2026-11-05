@@ -11,6 +11,7 @@ import { ErrorState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { todayLocalISO } from "@/lib/localDate";
 import { FilterBar, useListState } from "@/components/ui/DataTable";
+import Link from "next/link";
 
 /**
  * Purchase requests (remediation 2026-11): customer demand the shelf could not cover.
@@ -35,7 +36,11 @@ type Req = {
   availableNow: string | null;
   product: { id: string; name: string; nameAr: string | null; unit: string };
   customer: { id: string; name: string; nameAr: string | null } | null;
-  order: { id: string; orderNumber: string } | null;
+  order: { id: string; orderNumber: string; stockStatus?: string; customerPoRef?: string | null } | null;
+  /** Set when the request was suggested by a short line of an order awaiting stock (Nov 2026). */
+  orderItem?: { id: string; productName: string; unit: string } | null;
+  requiredQty?: string | null;
+  availableQty?: string | null;
   purchaseOrder: { id: string; number: string; status: string; expectedDate: string | null; supplier: { name: string } } | null;
   fulfilledOrder: { id: string; orderNumber: string } | null;
 };
@@ -108,7 +113,16 @@ export function PurchaseRequestsView() {
               <div className="text-sm text-united-muted flex gap-3 flex-wrap">
                 <span>{t("pr.requested-by", { name: r.requestedBy })}</span>
                 {r.decidedBy && <span>{t("pr.decided-by", { name: r.decidedBy })}{r.decisionNote ? ` — ${r.decisionNote}` : ""}</span>}
-                {r.order && <span>{t("pr.origin-order", { number: r.order.orderNumber })}</span>}
+                {r.order && (
+                  <Link className="underline" href={`/orders/${r.order.id}`}>
+                    {t("pr.origin-order", { number: r.order.orderNumber })}
+                    {r.order.stockStatus === "awaiting_stock" ? ` · ${t("pr.order-awaiting")}` : ""}
+                  </Link>
+                )}
+                {r.order?.customerPoRef && <span>{t("pr.customer-po", { ref: r.order.customerPoRef })}</span>}
+                {r.orderItem && r.requiredQty != null && (
+                  <span>{t("pr.origin-line", { product: r.orderItem.productName, required: r.requiredQty, available: r.availableQty ?? "0", unit: unitLabel(r.product.unit, locale) })}</span>
+                )}
                 {r.purchaseOrder && (
                   <span>
                     {t("pr.po", { number: r.purchaseOrder.number, supplier: r.purchaseOrder.supplier.name })}
@@ -139,7 +153,9 @@ export function PurchaseRequestsView() {
                 </div>
               )}
 
-              {r.status === "ordered" && r.customer && can("orders.create") && (
+              {r.orderItem && (r.status === "ordered" || r.status === "approved") && <p className="text-sm text-united-muted">{t("pr.from-order-hint")}</p>}
+
+              {r.status === "ordered" && r.customer && !r.orderItem && can("orders.create") && (
                 <div className="flex gap-2 flex-wrap items-center">
                   <button
                     className="btn-primary text-sm"

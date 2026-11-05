@@ -6,6 +6,7 @@ import { getBaseUrl } from "@/lib/absoluteUrl";
 import { orderQrSvg } from "@/lib/orderQr";
 import { PrintBar } from "@/components/print/PrintBar";
 import { PrintHeader } from "@/components/print/PrintHeader";
+import { orderDocumentCustomerName } from "@/lib/locale/names";
 import { qty, unitLabel } from "@/lib/format";
 import { printDir, printIntl, printLocale, printT } from "@/lib/locale/print";
 
@@ -31,7 +32,7 @@ export default async function PickingSheetPage({ params, searchParams }: { param
           titleAr="شيت التجهيز"
           titleEn="Picking sheet"
           orderNumber={order.orderNumber}
-          customerName={order.customerName}
+          customerName={orderDocumentCustomerName(order, locale)}
           deliveryDate={order.deliveryDate}
           deliveryTime={order.deliveryTime}
           qrSvg={qrSvg}

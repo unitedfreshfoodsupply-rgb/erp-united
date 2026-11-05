@@ -36,6 +36,18 @@ export async function productBuckets(
     where: { productId, warehouseId, ...(opts.locationId ? { locationId: opts.locationId } : {}) },
     _sum: { quantity: true },
   });
+  return toBuckets(db, sums.map((s) => ({ ...s, productId })), warehouseId);
+}
+
+/** Every non-zero bucket of one lot or one location, whatever the product (a lot's expiry or a
+ * location's type corrected: what it holds becomes sellable, or stops being). */
+export async function bucketsWhere(db: Db, where: { lotId: string } | { locationId: string }): Promise<Bucket[]> {
+  const sums = await db.stockMovement.groupBy({ by: ["productId", "warehouseId", "locationId", "lotId"], where, _sum: { quantity: true } });
+  return toBuckets(db, sums, null);
+}
+
+/** Grouped movement sums → buckets with their location and lot (zero buckets dropped). */
+async function toBuckets(db: Db, sums: { productId: string; warehouseId?: string; locationId: string; lotId: string | null; _sum: { quantity: Dec | null } }[], warehouseId: string | null): Promise<Bucket[]> {
   const live = sums.filter((s) => !D(s._sum.quantity).isZero());
   if (live.length === 0) return [];
   const [locations, lots] = await Promise.all([
@@ -45,8 +57,8 @@ export async function productBuckets(
   const loc = new Map(locations.map((l) => [l.id, l]));
   const lot = new Map(lots.map((l) => [l.id, l]));
   return live.map((s) => ({
-    productId,
-    warehouseId,
+    productId: s.productId,
+    warehouseId: s.warehouseId ?? warehouseId ?? "",
     locationId: s.locationId,
     locationCode: loc.get(s.locationId)?.code ?? "?",
     locationType: loc.get(s.locationId)?.type ?? "other",
@@ -66,8 +78,22 @@ export async function reservedQty(db: Pick<Tx, "stockReservation">, productId: s
   return D(agg._sum.quantity);
 }
 
+/**
+ * The one rule for "this stock can be sold": not in quarantine or waste, not the legacy second
+ * grade kept on the first-grade product (loc_grade_b), not in an expired lot. Availability and
+ * the awaiting-stock check (lib/inventory/availability-changes.ts) both read it.
+ */
+export function isSellableStock(b: { locationId: string; locationType: string | undefined; expiryDate: string | null | undefined }, asOf: string) {
+  if (b.expiryDate && b.expiryDate < asOf) return false;
+  return b.locationType !== "quarantine" && b.locationType !== "waste" && b.locationId !== "loc_grade_b";
+}
+
 export async function productAvailability(db: Db, productId: string, warehouseId: string, asOf = todayLocalISO()) {
   const [buckets, reserved] = await Promise.all([productBuckets(db, productId, warehouseId), reservedQty(db, productId, warehouseId)]);
+  return summarize(buckets, reserved, asOf);
+}
+
+function summarize(buckets: Bucket[], reserved: Dec, asOf: string) {
   let onHand = ZERO;
   let quarantined = ZERO;
   let expired = ZERO;
@@ -76,10 +102,29 @@ export async function productAvailability(db: Db, productId: string, warehouseId
     onHand = onHand.plus(b.quantity);
     if (b.locationType === "quarantine") quarantined = quarantined.plus(b.quantity);
     if (b.expiryDate && b.expiryDate < asOf) expired = expired.plus(b.quantity);
-    else if (b.locationType !== "quarantine" && b.locationType !== "waste") sellableOnHand = sellableOnHand.plus(b.quantity);
+    if (isSellableStock(b, asOf)) sellableOnHand = sellableOnHand.plus(b.quantity);
   }
   const available = sellableOnHand.minus(reserved);
   return { onHand, quarantined, expired, sellableOnHand, reserved, available, buckets };
+}
+
+/**
+ * productAvailability for many products at once, in four queries whatever their number (the
+ * awaiting-stock check reads every product of every order waiting on a receipt). Same rule.
+ */
+export async function productsAvailability(db: Db, productIds: string[], warehouseId: string, asOf = todayLocalISO()) {
+  const ids = [...new Set(productIds)];
+  const out = new Map<string, ReturnType<typeof summarize>>();
+  if (!ids.length) return out;
+  const [sums, reservations] = await Promise.all([
+    db.stockMovement.groupBy({ by: ["productId", "locationId", "lotId"], where: { productId: { in: ids }, warehouseId }, _sum: { quantity: true } }),
+    db.stockReservation.groupBy({ by: ["productId"], where: { productId: { in: ids }, warehouseId, status: "active" }, _sum: { quantity: true } }),
+  ]);
+  const buckets = new Map<string, Bucket[]>();
+  for (const b of await toBuckets(db, sums, warehouseId)) buckets.set(b.productId, [...(buckets.get(b.productId) ?? []), b]);
+  const reserved = new Map(reservations.map((r) => [r.productId, D(r._sum.quantity)]));
+  for (const id of ids) out.set(id, summarize(buckets.get(id) ?? [], reserved.get(id) ?? ZERO, asOf));
+  return out;
 }
 
 /** On-hand / reserved / available for every stock-tracked product in a warehouse,
@@ -110,7 +155,7 @@ export async function warehouseStock(warehouseId: string) {
     totals.onHand = totals.onHand.plus(qty);
     if (location?.type === "quarantine") totals.quarantined = totals.quarantined.plus(qty);
     if (expiry && expiry < todayLocalISO()) totals.expired = totals.expired.plus(qty);
-    else if (location?.type !== "quarantine" && location?.type !== "waste") totals.sellableOnHand = totals.sellableOnHand.plus(qty);
+    if (isSellableStock({ locationId: row.locationId, locationType: location?.type, expiryDate: expiry }, todayLocalISO())) totals.sellableOnHand = totals.sellableOnHand.plus(qty);
     stockByProduct.set(row.productId, totals);
   }
   return products

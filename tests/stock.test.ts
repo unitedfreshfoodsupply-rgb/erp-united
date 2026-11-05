@@ -95,18 +95,24 @@ async function main() {
   const prodG = (await call("hossam","POST","/api/stock/products",{name:`${TAG} GradingTest`,unit:"KG"})).body.product;
   const badG = (body: any) => call("hossam","POST","/api/stock/intakes",{supplier_id:supA.id,product_id:prodG.id,received_date:today,...body});
   check("gradeB + waste + rejected > received -> 400", (await badG({received_kg:100,grade_b_qty:60,waste_qty:50,rejected_kg:10})).status === 400);
-  const gradR = await call("hossam","POST","/api/stock/intakes",{supplier_id:supA.id,product_id:prodG.id,received_date:today,received_kg:100,grade_b_qty:30,waste_qty:20,rejected_kg:10,unit_cost:5});
+  // Grade B is its own product (Nov 2026): a Grade B quantity names it; it is never kept on the first-grade product.
+  const prodGB = (await call("hossam","POST","/api/stock/products",{name:`${TAG} GradingTest B`,unit:"KG"})).body.product;
+  const noGB = await badG({received_kg:100,grade_b_qty:30,waste_qty:20,rejected_kg:10,unit_cost:5});
+  check("grade B without its product -> 400", noGB.status === 400 && noGB.body?.code === "grade_b_product_required", noGB.body);
+  check("grade B on the first-grade product itself -> 400", (await badG({received_kg:100,grade_b_qty:30,grade_b_product_id:prodG.id,unit_cost:5})).body?.code === "grade_b_same_product");
+  const gradR = await call("hossam","POST","/api/stock/intakes",{supplier_id:supA.id,product_id:prodG.id,received_date:today,received_kg:100,grade_b_qty:30,waste_qty:20,rejected_kg:10,unit_cost:5,grade_b_product_id:prodGB.id});
   check("graded intake -> 201", gradR.status===201, gradR.body);
   const gi = gradR.body.intake;
   check("good = received − gradeB − waste − rejected (40)", near(gi.goodKg, 40), gi.goodKg);
   check("grading splits surfaced on the intake", near(gi.gradeBQty,30) && near(gi.wasteQty,20) && near(gi.rejectedQty,10), [gi.gradeBQty, gi.wasteQty, gi.rejectedQty]);
   const gradLed = await call("hossam","GET",`/api/stock/ledger?product_id=${prodG.id}&limit=500`);
   const gm = gradLed.body.movements.filter((m: any)=>m.intakeId===gi.id);
-  check("graded intake wrote good+gradeB+waste movements", gm.filter((m:any)=>m.kind==="intake").length===3, gm.map((m:any)=>[m.kind,m.quantityKg,m.locationId]));
-  check("gradeB movement sits in the grade-B location", gm.some((m:any)=>m.locationId==="loc_grade_b"&&near(m.quantityKg,30)), gm.map((m:any)=>[m.locationId,m.quantityKg]));
+  check("graded intake wrote good+waste movements on the product", gm.filter((m:any)=>m.kind==="intake").length===2, gm.map((m:any)=>[m.kind,m.quantityKg,m.locationId]));
+  const gbm = (await call("hossam","GET",`/api/stock/ledger?product_id=${prodGB.id}&limit=50`)).body.movements.filter((m: any)=>m.intakeId===gi.id);
+  check("gradeB movement sits on the Grade B product, never at loc_grade_b", gbm.some((m:any)=>near(m.quantityKg,30)&&m.locationId!=="loc_grade_b"), gbm.map((m:any)=>[m.locationId,m.quantityKg]));
   check("waste movement sits in the waste location at cost", gm.some((m:any)=>m.locationId==="loc_waste"&&near(m.quantityKg,20)), gm.map((m:any)=>[m.locationId,m.quantityKg]));
   check("good movement in a receiving location", gm.some((m:any)=>m.locationId!=="loc_grade_b"&&m.locationId!=="loc_waste"&&near(m.quantityKg,40)), gm.map((m:any)=>[m.locationId,m.quantityKg]));
-  const waste0 = (await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supA.id,product_id:prodG.id,received_date:today,received_kg:100,grade_b_qty:10,rejected_kg:5})).body.intake;
+  const waste0 = (await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supA.id,product_id:prodG.id,received_date:today,received_kg:100,grade_b_qty:10,rejected_kg:5,grade_b_product_id:prodGB.id})).body.intake;
   check("waste defaults to zero when omitted", near(waste0.wasteQty,0) && near(waste0.goodKg,85), [waste0.wasteQty, waste0.goodKg]);
   check("gradeB defaults to zero when omitted", near((await call("hossam","POST","/api/stock/intakes",{ provisional_unit_cost: "1",supplier_id:supB.id,product_id:prodG.id,received_date:today,received_kg:50,rejected_kg:0})).body.intake.gradeBQty,0));
 

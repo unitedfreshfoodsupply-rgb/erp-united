@@ -17,7 +17,7 @@ async function main() {
   check("the clerk signs in", (await call(clerk, "POST", "/api/auth/login", { username: clerk, password: "longenoughpw" })).status === 200);
 
   const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} عميل` })).body.customer;
-  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مورد` })).body.supplier;
+  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} مورد` })).body.supplier;
   const account = (await call("karim", "GET", "/api/accounting/accounts")).body.accounts?.[0];
   check("fixtures ready", !!customer?.id && !!supplier?.id && !!account?.id, [customer?.id, supplier?.id, account?.id]);
   // L2: the cash box never goes negative — reversing the clerk's 25 receipt after the 15

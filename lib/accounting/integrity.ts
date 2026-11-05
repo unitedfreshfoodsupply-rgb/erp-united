@@ -71,16 +71,18 @@ export async function createOpeningBalance(input: unknown, actor: ServiceActor) 
 /**
  * A customer's or supplier's open item at go-live, inside the caller's transaction: the
  * statement/aging document and its entry together. Customer: Dr AR / Cr opening equity;
- * supplier: Cr AP / Dr opening equity (a negative amount reverses).
+ * supplier: Cr AP / Dr opening equity (a negative amount reverses). A phase batch of the
+ * opening migration posts against the provisional clearing account instead, and every batch
+ * names itself on the row (openingBatchId), so each balance is traced to the batch that posted it.
  */
-export async function postPartyOpeningInTx(tx: Tx, v: { partyType: "customer" | "supplier"; partyId: string; date: string; dueDate: string; amount: Prisma.Decimal; reference: string | null; idempotencyKey?: string | null; requestHash?: string | null }, actor: ServiceActor) {
+export async function postPartyOpeningInTx(tx: Tx, v: { partyType: "customer" | "supplier"; partyId: string; date: string; dueDate: string; amount: Prisma.Decimal; reference: string | null; idempotencyKey?: string | null; requestHash?: string | null; counterKey?: "opening_equity" | "opening_clearing"; openingBatchId?: string | null }, actor: ServiceActor) {
   const party = v.partyType === "customer" ? await tx.customer.findUnique({ where: { id: v.partyId }, select: { id: true, name: true } }) : await tx.supplier.findUnique({ where: { id: v.partyId }, select: { id: true, name: true } });
   if (!party) throw new ApiError(404, v.partyType === "customer" ? "العميل مش موجود" : "المورد مش موجود");
-  const row = await tx.partyOpeningBalance.create({ data: { partyType: v.partyType, partyId: party.id, date: v.date, dueDate: v.dueDate, amount: v.amount, reference: v.reference, idempotencyKey: v.idempotencyKey ?? null, requestHash: v.requestHash ?? null, createdById: actor.id, createdBy: actor.name } });
+  const row = await tx.partyOpeningBalance.create({ data: { partyType: v.partyType, partyId: party.id, date: v.date, dueDate: v.dueDate, amount: v.amount, reference: v.reference, idempotencyKey: v.idempotencyKey ?? null, requestHash: v.requestHash ?? null, createdById: actor.id, createdBy: actor.name, openingBatchId: v.openingBatchId ?? null } });
   const partyLine = v.partyType === "customer" ? { key: "ar" as const, amount: v.amount } : { key: "ap" as const, amount: v.amount.negated() };
   await postJournal(tx, {
     date: v.date, description: `رصيد افتتاحي — ${party.name}${v.reference ? ` (${v.reference})` : ""}`, sourceType: "opening_balance", sourceId: row.id,
-    lines: [{ ...partyLine, party: { type: v.partyType, id: party.id } }, { key: "opening_equity", amount: partyLine.amount.negated() }],
+    lines: [{ ...partyLine, party: { type: v.partyType, id: party.id } }, { key: v.counterKey ?? "opening_equity", amount: partyLine.amount.negated() }],
   }, actor);
   await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "opening_balance_recorded", entityType: "journal_entry", entityId: row.id, fieldChanged: v.partyType, newValue: `${party.name} · ${v.amount.toFixed(2)}`, source: "user", deviceId: actor.deviceId }, tx);
   return row;
@@ -138,6 +140,21 @@ async function partyMismatches(kind: "customer" | "supplier") {
   return rows.map((r) => ({ id: r.id, subledger: D(r.sub).toFixed(2), ledger: D(r.gl).toFixed(2) }));
 }
 
+/**
+ * Ledger lines and opening balances name their customer, supplier or employee by id with no
+ * database foreign key (the reference is polymorphic). An id that points at no record — or a
+ * party type nothing knows — is listed here, so it is found rather than assumed away.
+ */
+export async function danglingPartyReferences(db: Pick<Prisma.TransactionClient, "$queryRaw"> = prisma) {
+  const known = (alias: "l" | "o") => Prisma.raw(`(${alias}."partyType" = 'customer' AND EXISTS (SELECT 1 FROM "Customer" p WHERE p."id" = ${alias}."partyId"))
+    OR (${alias}."partyType" = 'supplier' AND EXISTS (SELECT 1 FROM "Supplier" p WHERE p."id" = ${alias}."partyId"))
+    OR (${alias}."partyType" = 'employee' AND EXISTS (SELECT 1 FROM "Employee" p WHERE p."id" = ${alias}."partyId"))`);
+  const rows = await db.$queryRaw<{ source: string; partyType: string | null; partyId: string; n: bigint }[]>`
+    SELECT 'journal_line' AS source, l."partyType", l."partyId", count(*) AS n FROM "JournalLine" l WHERE l."partyId" IS NOT NULL AND NOT (${known("l")}) GROUP BY 2, 3
+    UNION ALL SELECT 'opening_balance', o."partyType", o."partyId", count(*) FROM "PartyOpeningBalance" o WHERE NOT (${known("o")}) GROUP BY 2, 3`;
+  return rows.map((r) => ({ source: r.source, partyType: r.partyType, partyId: r.partyId, count: Number(r.n) }));
+}
+
 export async function integrityReport() {
   // The checks are independent read-only queries: run them together (the pool caps the
   // concurrency) instead of one after another. The result keeps the same order.
@@ -186,7 +203,7 @@ export async function integrityReport() {
         OR (e."sourceType" = 'opening_balance' AND NOT EXISTS (SELECT 1 FROM "PartyOpeningBalance" d WHERE d."id" = e."sourceId"))
         OR (e."sourceType" = 'payroll_run' AND NOT EXISTS (SELECT 1 FROM "PayrollRun" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
         OR (e."sourceType" = 'payroll_payment' AND NOT EXISTS (SELECT 1 FROM "PayrollPayment" d WHERE d."id" = e."sourceId" AND d."journalEntryId" = e."id"))
-        OR (e."sourceType" = 'opening_batch' AND NOT EXISTS (SELECT 1 FROM "OpeningBatch" d WHERE d."status" = 'posted' AND e."sourceId" IN (d."id" || ':gl', d."id" || ':assets')))
+        OR (e."sourceType" = 'opening_batch' AND NOT EXISTS (SELECT 1 FROM "OpeningBatch" d WHERE d."status" = 'posted' AND e."sourceId" IN (d."id" || ':gl', d."id" || ':assets', d."id" || ':stock', d."id" || ':equity')))
         OR (e."sourceType" = 'asset_acquisition' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."entryId" = e."id" AND d."type" = 'acquisition'))
         OR (e."sourceType" = 'asset_improvement' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."entryId" = e."id" AND d."type" = 'improvement'))
         OR (e."sourceType" = 'asset_disposal' AND NOT EXISTS (SELECT 1 FROM "AssetEvent" d WHERE d."id" = e."sourceId" AND d."entryId" = e."id"))
@@ -199,6 +216,12 @@ export async function integrityReport() {
         OR (e."sourceType" = 'cash_transfer_reversal' AND NOT EXISTS (SELECT 1 FROM "CashTransfer" d WHERE d."id" = e."sourceId" AND d."reversalEntryId" = e."id"))
         OR (e."sourceType" = 'stock_valuation' AND NOT EXISTS (SELECT 1 FROM "StockValuationPosting" p WHERE p."entryId" = e."id") AND e."sourceId" NOT LIKE '%|%')`;
     return { key: "traceable", label: "كل قيد له مستند مصدر", ok: Number(orphans?.n ?? 0) === 0, count: Number(orphans?.n ?? 0) };
+  })(),
+  // Party references (Nov 2026): see danglingPartyReferences.
+  (async (): Promise<Check> => {
+    const rows = await danglingPartyReferences();
+    const count = rows.reduce((n, r) => n + r.count, 0);
+    return { key: "party_references", label: "كل قيد ورصيد افتتاحي بيشاور على عميل أو مورد أو موظف موجود", ok: count === 0, count, detail: rows.slice(0, 20) };
   })(),
   // Receivables: customer documents vs the AR account, in total and per customer.
   (async (): Promise<Check> => {

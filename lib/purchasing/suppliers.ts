@@ -4,7 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
 import { writeAudit, writeAuditMany, type AuditInput } from "@/lib/audit";
-import { assertPermission } from "@/lib/authz-core";
+import { actorCan, assertPermission, forbiddenMessage } from "@/lib/authz-core";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { inTx, type Tx } from "@/lib/tx";
 import { todayLocalISO } from "@/lib/localDate";
@@ -27,6 +27,16 @@ import { searchIds } from "@/lib/core/search";
  */
 
 export const SUPPLIER_TYPES = ["farm", "grower", "wholesaler", "market_trader", "importer", "packaging", "services", "other"] as const;
+/**
+ * The business's two supplier categories (Nov 2026). Every supplier created or edited here is
+ * classified; NULL exists only for a supplier the stock gate added on the spot (createSupplier in
+ * lib/stock-service.ts), which stays visibly "unclassified" until purchasing classifies it, and a
+ * classified supplier cannot be made unclassified again (decision D-1).
+ */
+export const SUPPLIER_CATEGORIES = ["vegetable", "fruit", "other"] as const;
+const category = z.enum(SUPPLIER_CATEGORIES, {
+  errorMap: (issue) => ({ message: issue.code === "invalid_type" ? "فئة المورد مطلوبة — اختار خضار أو فاكهة أو أخرى/خدمات" : "فئة المورد لازم خضار أو فاكهة أو أخرى/خدمات" }),
+});
 
 const audit = (actor: ServiceActor, a: Omit<AuditInput, "userId" | "userName" | "role" | "source" | "deviceId">): AuditInput => ({
   userId: actor.id,
@@ -48,6 +58,7 @@ const days = (label: string) => z.number({ invalid_type_error: `${label} لاز�
 const termsInput = z.object({
   name_ar: optText("اسم المورد بالعربي").optional(),
   type: z.enum(SUPPLIER_TYPES, { errorMap: () => ({ message: "نوع المورد غير معروف" }) }).optional(),
+  category: category.optional(),
   tax_registration_no: taxId.optional(),
   commercial_reg_no: optText("السجل التجاري", 40).optional(),
   email: optText("الإيميل").optional(),
@@ -62,6 +73,7 @@ const termsInput = z.object({
 const FIELDS: [keyof z.infer<typeof termsInput>, keyof Supplier][] = [
   ["name_ar", "nameAr"],
   ["type", "type"],
+  ["category", "category"],
   ["tax_registration_no", "taxRegistrationNo"],
   ["commercial_reg_no", "commercialRegNo"],
   ["email", "email"],
@@ -81,12 +93,14 @@ export async function getSupplier(id: string) {
   return s;
 }
 
-export async function listSuppliersFull(opts: { q?: string; includeInactive?: boolean; type?: string } = {}) {
+export async function listSuppliersFull(opts: { q?: string; includeInactive?: boolean; type?: string; category?: string } = {}) {
   const q = opts.q?.trim();
   return prisma.supplier.findMany({
     where: {
       ...(opts.includeInactive ? {} : { active: true }),
       ...(opts.type ? { type: opts.type as never } : {}),
+      // "none" = not classified yet; an unknown value filters nothing rather than matching nothing.
+      ...(opts.category === "none" ? { category: null } : (SUPPLIER_CATEGORIES as readonly string[]).includes(opts.category ?? "") ? { category: opts.category } : {}),
       ...(q ? { OR: [{ id: { in: await searchIds("supplier", q) } }, { name: { contains: q, mode: "insensitive" } }, { nameAr: { contains: q } }, { code: { contains: q.toUpperCase() } }, { phone: { contains: q } }] } : {}),
     },
     orderBy: [{ active: "desc" }, { name: "asc" }],
@@ -98,7 +112,7 @@ export async function listSuppliersFull(opts: { q?: string; includeInactive?: bo
  * their quick name-only creation for a farmer arriving unannounced). */
 export async function createSupplierFull(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "purchasing.suppliers.manage");
-  const v = parse(termsInput.extend({ code: partyCode.optional(), name: text("اسم المورد"), phone: optText("التليفون", 40).optional(), notes: optText("ملاحظات", 1000).optional() }), input);
+  const v = parse(termsInput.extend({ code: partyCode.optional(), name: text("اسم المورد"), phone: optText("التليفون", 40).optional(), notes: optText("ملاحظات", 1000).optional(), category }), input);
   try {
     return await inTx(async (tx) => {
       if (v.code && /^(CUS|SUP)-\d+$/.test(v.code)) throw new ApiError(400, "أكواد CUS-/SUP- برقم محجوزة للترقيم التلقائي — استخدم كودكم أو سيب العمود فاضي");
@@ -111,6 +125,7 @@ export async function createSupplierFull(input: unknown, actor: ServiceActor) {
           phone: v.phone ?? null,
           notes: v.notes ?? null,
           type: v.type ?? "other",
+          category: v.category,
           taxRegistrationNo: v.tax_registration_no ?? null,
           commercialRegNo: v.commercial_reg_no ?? null,
           email: v.email ?? null,
@@ -132,9 +147,33 @@ export async function createSupplierFull(input: unknown, actor: ServiceActor) {
   }
 }
 
-export async function updateSupplierTerms(id: string, input: unknown, actor: ServiceActor) {
-  assertPermission(actor, "purchasing.suppliers.manage");
-  const v = parse(termsInput, input);
+/** Identity fields the stock screens may also edit (a receiver correcting a farmer's name or
+ * phone at the gate); every other supplier attribute is purchasing's. */
+const BASIC_FIELDS: [keyof z.infer<typeof masterInput>, keyof Supplier][] = [
+  ["name", "name"],
+  ["phone", "phone"],
+  ["notes", "notes"],
+  ["active", "active"],
+];
+const masterInput = termsInput.extend({
+  name: text("اسم المورد").optional(),
+  phone: optText("التليفون", 40).optional(),
+  notes: optText("ملاحظات", 1000).optional(),
+  active: active().optional(),
+});
+
+/**
+ * The one way to change a supplier's master data (Nov 2026). Every screen and route — the
+ * supplier profile, the purchasing list, the stock setup panel — comes here, so a change is
+ * made once, checked once and audited field by field. The permission rule lives here, not in
+ * the routes: name, phone, notes and active with purchasing.suppliers.manage or
+ * stock.manage_suppliers; anything else with purchasing.suppliers.manage.
+ */
+export async function updateSupplierMaster(id: string, input: unknown, actor: ServiceActor) {
+  if (!actorCan(actor, "purchasing.suppliers.manage") && !actorCan(actor, "stock.manage_suppliers")) throw new ApiError(403, forbiddenMessage(["purchasing.suppliers.manage"]));
+  const v = parse(masterInput, input);
+  const basicKeys = new Set(BASIC_FIELDS.map(([k]) => k));
+  if (FIELDS.some(([k]) => v[k] !== undefined && !basicKeys.has(k))) assertPermission(actor, "purchasing.suppliers.manage");
   try {
     return await inTx(async (tx) => {
       const cur = await tx.supplier.findUnique({ where: { id } });
@@ -142,13 +181,15 @@ export async function updateSupplierTerms(id: string, input: unknown, actor: Ser
       if (v.expected_version !== undefined && v.expected_version !== cur.version) throw new ApiError(409, "بيانات المورد اتغيرت، حدّث الشاشة");
       const data: Record<string, unknown> = {};
       const audits: AuditInput[] = [];
-      for (const [k, col] of FIELDS) {
+      for (const [k, col] of [...BASIC_FIELDS, ...FIELDS]) {
         if (v[k] === undefined) continue;
         const next = v[k] as unknown;
         const prev = cur[col] as unknown;
         if (next === prev) continue;
         data[col] = next;
-        audits.push(audit(actor, { action: "supplier_terms_changed", entityType: "supplier", entityId: id, fieldChanged: col, oldValue: prev == null ? null : String(prev), newValue: next == null ? null : String(next) }));
+        // The two action names already in the history: identity edits and commercial terms.
+        const action = basicKeys.has(k) ? "supplier_updated" : "supplier_terms_changed";
+        audits.push(audit(actor, { action, entityType: "supplier", entityId: id, fieldChanged: col, oldValue: prev == null ? null : String(prev), newValue: next == null ? null : String(next) }));
       }
       if (!audits.length) return cur;
       let updated: Supplier;
@@ -163,11 +204,14 @@ export async function updateSupplierTerms(id: string, input: unknown, actor: Ser
     });
   } catch (err) {
     const e = err as { code?: string; meta?: { target?: unknown } };
-    if (e?.code === "P2002") throw new ApiError(409, "الرقم الضريبي ده متسجل لمورد تاني");
+    if (e?.code === "P2002") throw new ApiError(409, String(e.meta?.target ?? "").includes("tax") ? "الرقم الضريبي ده متسجل لمورد تاني" : "فيه مورد بنفس الاسم");
     if (e?.code === "P2003") throw new ApiError(400, "العملة مش معروفة");
     throw err;
   }
 }
+
+/** The purchasing route's name for the same single editor. */
+export const updateSupplierTerms = updateSupplierMaster;
 
 const contactInput = z.object({
   name: text("اسم جهة الاتصال"),

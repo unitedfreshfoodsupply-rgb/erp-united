@@ -8,6 +8,7 @@ import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, fmtMoney } from "@/components/stock/inventory/shared";
+import { ProvisionalOpeningBanner } from "@/components/accounting/OpeningMigrationView";
 
 /**
  * Comparative P&L and balance sheet (this range against the prior period or the same range
@@ -55,6 +56,7 @@ export function ComparativesView() {
   );
   return (
     <div className="flex flex-col gap-4">
+      <ProvisionalOpeningBanner />
       <div className="card p-3 flex flex-wrap gap-2 items-end">
         <Field label={t("vat.period-from")}><input type="date" className="field" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /></Field>
         <Field label={t("vat.period-to")}><input type="date" className="field" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></Field>

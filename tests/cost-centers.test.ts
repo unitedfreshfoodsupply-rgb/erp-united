@@ -51,7 +51,7 @@ async function main() {
   // CTL-01: a manual journal waits for a second person (202) and posts on approval.
   const realloc = await manualJournal({ date: today, description: `${TAG} إعادة توزيع`, lines: [{ account_id: "acc_6200", debit: 100, cost_center_id: wh.id }, { account_id: "acc_6200", credit: 100, cost_center_id: van.id }] });
   check("reallocation between centers on the same account (manual journal) -> 202, approved by someone else, posted", realloc.submit.status === 202 && realloc.decision?.status === 200 && !!realloc.journal?.id, [realloc.submit.body, realloc.decision?.body]);
-  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} صيانة` })).body.supplier;
+  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} صيانة` })).body.supplier;
   r = await call("karim", "POST", "/api/purchasing/bills", { kind: "service", supplier_id: supplier.id, supplier_invoice_no: `${TAG}-1`, bill_date: today, lines: [{ account_id: "acc_6200", description: "صيانة", amount: "200", tax_code: "VAT14", cost_center_id: van.id }, { account_id: "acc_6100", description: "كهربا المخزن", amount: "150", tax_code: "VAT14", cost_center_id: wh.id }] });
   const bill = r.body.bill;
   check("a service bill with a center per line -> 201", r.status === 201, r.body);

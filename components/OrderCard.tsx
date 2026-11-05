@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, Clock, Hourglass, OctagonAlert, PauseCircle } from "lucide-react";
+import { AlertTriangle, ArrowRight, Clock, Hourglass, OctagonAlert, PackageX, PauseCircle } from "lucide-react";
 import type { OrderDTO } from "@/lib/client-types";
 import { StatusBadge } from "./StatusBadge";
 import { orderUrgency, hasActiveProblem, isWaitingTooLong, isStalledInProgress } from "@/lib/orderPresentation";
@@ -61,7 +61,11 @@ export function OrderCard({ order }: { order: OrderDTO }) {
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-united-muted">
         <span dir="ltr" className="font-medium">{order.orderNumber}</span>
         {order.externalId && <span dir="ltr">{t("order.customer-ref")}: {order.externalId}</span>}
+        {order.customerPoRef && <span>{t("order.po-ref")}: <bdi>{order.customerPoRef}</bdi></span>}
         <span>{srcLabel[order.source] ?? order.source}</span>
+        {order.stockStatus === "awaiting_stock" && order.status !== "cancelled" && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-[#FFF4E0] px-2 py-0.5 font-bold text-united-warn"><PackageX size={12} aria-hidden />{t("order.awaiting-stock")}</span>
+        )}
       </div>
 
       {/* Progress: items done of items ordered */}

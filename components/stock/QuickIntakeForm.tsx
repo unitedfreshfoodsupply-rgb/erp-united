@@ -334,8 +334,9 @@ export function QuickIntakeForm({ date }: { date: string }) {
             className="field"
             value={gradeBProductId}
             onChange={(e) => setGradeBProductId(e.target.value)}
-           aria-label={t("stock.grade-b-same-product")}>
-            <option value="">{t("stock.grade-b-same-product")}</option>
+           aria-label={t("stock.grade-b-choose")} required>
+            {/* Grade B is its own product with its own price: it is never kept on the first-grade product. */}
+            <option value="" disabled>{t("stock.grade-b-choose")}</option>
             {products
               .filter((p) => p.stockTracked && p.unit === "KG" && p.id !== productId)
               .map((p) => (
@@ -394,7 +395,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
         <input value={notes} onChange={(e) => setNotes(e.target.value)} className="field" />
       </Field>
 
-      <button type="submit" disabled={busy || !preview} className="btn-primary w-full text-lg">
+      <button type="submit" disabled={busy || !preview || (Number(gradeBKg) > 0 && !gradeBProductId)} className="btn-primary w-full text-lg">
         {busy ? t("stock.saving") : t("stock.record-intake")}
       </button>
     </form>

@@ -18,7 +18,7 @@ import { ProductCosting } from "./ProductCosting";
 import { Pagination } from "@/components/ui/Pagination";
 import { useLocale } from "@/lib/locale";
 import { formatNumber, unitLabel } from "@/lib/format";
-import { localName } from "@/lib/locale/names";
+import { localName, orderCustomerName } from "@/lib/locale/names";
 import { SortHeader, useSorted } from "@/components/ui/SortableTable";
 
 /**
@@ -451,7 +451,7 @@ function Expiring({ onOpen }: { onOpen: (id: string) => void }) {
 type ExceptionDTO = {
   id: string; orderId: string; productName: string; unit: string; requestedQty: string; issuedQty: string;
   reason: "unmapped" | "unit_mismatch" | "insufficient"; status: string; resolution: string | null; resolvedBy: string | null; version: number; createdAt: string;
-  order: { orderNumber: string; customerName: string; deliveryDate: string };
+  order: { orderNumber: string; customerName: string; customerAccount?: { name: string; nameAr: string | null } | null; deliveryDate: string };
   document: { number: string } | null;
 };
 
@@ -483,7 +483,7 @@ function Exceptions() {
 function ExceptionCard({ x, canResolve }: { x: ExceptionDTO; canResolve: boolean }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [text, setText] = useState("");
   const [action, setAction] = useState<"issue_now" | "close_no_movement">("issue_now");
   const [productId, setProductId] = useState("");
@@ -493,7 +493,7 @@ function ExceptionCard({ x, canResolve }: { x: ExceptionDTO; canResolve: boolean
     <li className="card p-4 flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <span className="font-extrabold">{x.productName}</span>
-        <span className="text-xs font-bold text-united-muted">{t("stock.exception-ordered")} {x.order.orderNumber} · {x.order.customerName}</span>
+        <span className="text-xs font-bold text-united-muted">{t("stock.exception-ordered")} {x.order.orderNumber} · {orderCustomerName(x.order, locale)}</span>
       </div>
       <p className="text-sm font-bold text-united-warn">{EXCEPTION_REASON[x.reason] ? t(EXCEPTION_REASON[x.reason]) : x.reason}</p>
       <p className="text-sm font-bold">

@@ -76,7 +76,7 @@ async function main() {
   await call("karim", "PATCH", `/api/sales/customers/${hotel.id}/credit`, { payment_terms_days: 30, reason: "إعداد UAT" });
   await call("karim", "PATCH", `/api/sales/customers/${chain.id}/credit`, { payment_terms_days: 14, reason: "إعداد UAT" });
   check("three customers: two B2B with tax numbers, one cash café", [hotel, chain, cafe].every((c) => c?.id) && !!hotel.taxRegistrationNo && !cafe.taxRegistrationNo, [hotel, chain, cafe]);
-  const sup = async (name: string, days: number) => (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${T} ${name}`, payment_terms_days: days })).body.supplier;
+  const sup = async (name: string, days: number) => (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${T} ${name}`, payment_terms_days: days })).body.supplier;
   const farm = await sup("مزرعة الصالحية", 30);
   const market = await sup("سوق العبور — المعلم حسن", 0);
   check("two suppliers (farm on terms, market on cash)", !!farm?.id && !!market?.id);
@@ -590,7 +590,7 @@ async function main() {
     const en = await page("mona", `/sales/invoices/${inv.id}/print?lang=en`);
     const figures = [fmt(full.net), fmt(full.taxTotal), fmt(full.total), ...full.lines.map((l: any) => fmt(l.total))];
     check(`${I.number}: Arabic print is RTL with number, every line total, net, tax and total`, /dir="rtl"/.test(ar.html) && ar.html.includes(I.number) && figures.every((f) => ar.html.includes(f)), figures.filter((f) => !ar.html.includes(f)));
-    check(`${I.number}: English print is LTR with the same figures`, /dir="ltr"/.test(en.html) && en.html.includes("Tax Invoice") && figures.every((f) => en.html.includes(f)));
+    check(`${I.number}: English print is LTR with the same figures`, /dir="ltr"/.test(en.html) && en.html.includes("Sales Invoice") && figures.every((f) => en.html.includes(f)));
     check(`${I.number}: paid / balance printed from the receipts`, ar.html.includes(Number(full.open) <= 0 ? "مدفوعة بالكامل" : fmt(full.open)), [full.open]);
   }
 

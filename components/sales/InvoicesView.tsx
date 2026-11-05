@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { newClientKey } from "@/lib/clientKey";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
+import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
@@ -18,6 +18,8 @@ import { formatNumber } from "@/lib/format";
 import { DataTable, FilterBar, useListQuery, useListState, type Column } from "@/components/ui/DataTable";
 import { href as profileHref } from "@/lib/profiles/links";
 import { DocLink, PartyLink } from "@/components/profiles/EntityLink";
+import { AttachmentsPanel } from "@/components/AttachmentsPanel";
+import { DraftMasterData, type DraftParties } from "@/components/sales/DraftMasterData";
 
 /**
  * Invoicing for the accountant: orders that left and are not invoiced yet, drafts to
@@ -28,7 +30,10 @@ type InvRow = { id: string; number: string | null; status: string; issueDate: st
 type InvDetail = Omit<InvRow, "customer"> & {
   customer: { id: string; code: string; name: string; nameAr: string | null };
   version: number; currencyCode: string; buyerName: string | null; buyerTaxId: string | null; net: string; taxTotal: string; discountTotal: string; gross: string; voidReason: string | null;
-  order: { id: string; orderNumber: string; deliveryDate: string } | null;
+  order: { id: string; orderNumber: string; deliveryDate: string; customerPoRef: string | null } | null;
+  notes: string | null;
+  /** A draft: the current company and customer cards issue will freeze, and what they lack. */
+  current: DraftParties | null;
   lines: { id: string; lineNo: number; description: string; uomCode: string; quantity: string; unitPrice: string; discountPct: string; taxRate: string; net: string; tax: string; total: string; creditedQty: string }[];
   creditNotes: { id: string; number: string; issueDate: string; reason: string; total: string; createdBy: string }[];
   paid: string;
@@ -128,6 +133,26 @@ function InvoiceList({ status, onOpen }: { status: string; onOpen: (id: string) 
   );
 }
 
+/** A draft's notes, printed on the invoice. Audited with the previous and the new text. */
+function DraftNotes({ id, notes, version, onSaved }: { id: string; notes: string | null; version: number; onSaved: () => void }) {
+  const { t } = useLocale();
+  const toast = useToast();
+  const [text, setText] = useState(notes ?? "");
+  const [busy, setBusy] = useState(false);
+  const changed = text.trim() !== (notes ?? "");
+  return (
+    <section className="card p-4 flex flex-col gap-2">
+      <Field label={t("doc.draft-notes")}><textarea className="field min-h-[4rem]" maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} /></Field>
+      <button type="button" className="btn-secondary self-start" disabled={!changed || busy} onClick={async () => {
+        setBusy(true);
+        try { await apiPatch(`/api/sales/invoices/${id}`, { notes: text, expected_version: version }); onSaved(); toast.show(t("doc.draft-notes-saved"), "success"); }
+        catch (err) { toast.show(err instanceof ApiClientError ? err.message : t("ui.error"), "error"); }
+        finally { setBusy(false); }
+      }}>{t("ui.save")}</button>
+    </section>
+  );
+}
+
 function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const { can } = usePermissions();
   const qc = useQueryClient();
@@ -156,16 +181,26 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
   };
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex justify-between items-center gap-2">
-        <div>
+      <div className="flex flex-wrap justify-between items-start gap-2">
+        <div className="min-w-0">
           <h2 className="text-xl font-extrabold" dir="ltr">{inv.number ?? t("sales.invoice.draft_number")}</h2>
           <p className="text-sm font-bold text-united-muted"><PartyLink kind="customer" id={inv.customer.id} name={inv.buyerName ?? localName(inv.customer, locale)} />{inv.buyerTaxId ? ` · ${t("sales.invoice.tax_id_prefix")}${inv.buyerTaxId}` : ""}{inv.order ? <> · <DocLink href={profileHref.order(inv.order.id)}>{inv.order.orderNumber}</DocLink></> : ""}</p>
         </div>
-        <div className="flex gap-2">
-          {inv.status === "issued" && <Link href={`/sales/invoices/${inv.id}/print${locale === "en" ? "?lang=en" : ""}`} target="_blank" className="btn-secondary">{t("sales.invoice.print")}</Link>}
+        <div className="flex flex-wrap gap-2">
+          {inv.status === "issued" && <Link href={`/sales/invoices/${inv.id}/print`} target="_blank" className="btn-secondary">{t("doc.print-ar")}</Link>}
+          {inv.status === "issued" && <Link href={`/sales/invoices/${inv.id}/print?lang=en`} target="_blank" className="btn-secondary">{t("doc.print-en")}</Link>}
           <button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button>
         </div>
       </div>
+      {inv.order && (
+        <p className="text-sm font-bold text-united-muted">
+          {t("doc.order")} <DocLink href={profileHref.order(inv.order.id)}>{inv.order.orderNumber}</DocLink>
+          {inv.order.customerPoRef && <> · {t("doc.customer-po")} <bdi dir="ltr">{inv.order.customerPoRef}</bdi></>}
+          {` · ${t("doc.delivery")} ${inv.order.deliveryDate}`}
+        </p>
+      )}
+      {inv.status === "draft" && inv.current && <DraftMasterData parties={inv.current} customerId={inv.customer.id} />}
+      {manage && inv.status === "draft" && <DraftNotes id={inv.id} notes={inv.notes} version={inv.version} onSaved={refresh} />}
       <span className={`self-start rounded-full px-3 py-1 text-sm font-extrabold ${statusLabels[inv.status]?.cls}`}>{statusLabels[inv.status]?.label}{inv.issueDate ? ` ${t("sales.invoice.due_date_text")}${inv.dueDate}` : ""}</span>
       <section className="card p-4 flex flex-col divide-y divide-united-dark/5">
         {inv.lines.map((l) => (
@@ -216,6 +251,10 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
           </div>
         </section>
       )}
+      <section className="card p-4">
+        <h3 className="font-extrabold mb-2">{t("doc.attachments")}</h3>
+        <AttachmentsPanel entityType="sales_invoice" entityId={inv.id} canManage={manage} />
+      </section>
       {manage && inv.status === "issued" && creditable && (
         <section className="card p-4 flex flex-col gap-2">
           <h3 className="font-extrabold">{t("sales.invoice.credit_note_heading")}</h3>

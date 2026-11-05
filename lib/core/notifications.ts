@@ -69,6 +69,29 @@ export async function notify(
   return res.count;
 }
 
+/**
+ * notify() for many events at once (the awaiting-stock check after one receipt): one insert per
+ * 500 rows instead of one per event. Recipients are given resolved; duplicate keys are skipped.
+ */
+export async function notifyMany(tx: Pick<Tx, "notification">, events: { userIds: string[]; n: NotificationInput }[]) {
+  const data = events.flatMap(({ userIds, n }) =>
+    [...new Set(userIds)].map((recipientId) => ({
+      recipientId,
+      type: n.type,
+      severity: n.severity ?? "info",
+      title: n.title,
+      body: n.body ?? null,
+      entityType: n.entityType ?? null,
+      entityId: n.entityId ?? null,
+      link: n.link ?? null,
+      dedupeKey: n.dedupeKey ?? null,
+    }))
+  );
+  let count = 0;
+  for (let i = 0; i < data.length; i += 500) count += (await tx.notification.createMany({ data: data.slice(i, i + 500), skipDuplicates: true })).count;
+  return count;
+}
+
 // --- the signed-in user's own inbox. Every query is scoped to recipientId, so one
 // user can never read or mark another user's notifications (no IDOR by id). ------
 

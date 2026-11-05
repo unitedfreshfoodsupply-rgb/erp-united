@@ -43,7 +43,7 @@ async function main() {
 
   section("0. DATA: a supplier, a product and a customer with a receipt, a bill, an order, an invoice and a collection of the run's own");
   const today = todayBiz();
-  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مزرعة`, payment_terms_days: 15 })).body.supplier;
+  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} مزرعة`, payment_terms_days: 15 })).body.supplier;
   const product = (await call("hossam", "POST", "/api/stock/products", { name: `${TAG} خيار`, unit: "KG" })).body.product;
   const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} مطعم`, tax_registration_no: taxNo() })).body.customer;
   const rc = await call("hossam", "POST", "/api/stock/intakes", { supplier_id: supplier?.id, product_id: product?.id, received_date: today, received_kg: 200, waste_qty: 10, unit_cost: "5" });

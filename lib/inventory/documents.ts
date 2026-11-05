@@ -5,7 +5,7 @@ import { ApiError } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { assertPermission } from "@/lib/authz-core";
-import { inTx, type Tx } from "@/lib/tx";
+import { afterCommit, inTx, type Tx } from "@/lib/tx";
 import { todayLocalISO } from "@/lib/localDate";
 import { isValidISODate } from "@/lib/dates";
 import { getSetting } from "@/lib/core/settings-service";
@@ -14,7 +14,8 @@ import { requestApproval } from "@/lib/core/approvals";
 import type { ServiceActor } from "@/lib/core/actor";
 import { D, parseQty, type Dec } from "@/lib/inventory/decimal";
 import { postMovements, bucketBalance, lockForMoves, lockProductValuations, productValuation, type MoveInput } from "@/lib/inventory/ledger";
-import { computeGradingCosts, type GradingCostPolicy, type WasteLossPolicy } from "@/lib/inventory/grading";
+import { syncPoCoverage } from "@/lib/purchasing/receiving";
+import { assertGradeBProduct, computeGradingCosts, type GradingCostPolicy, type WasteLossPolicy } from "@/lib/inventory/grading";
 import { gradingPrices } from "@/lib/sales/pricing";
 import { allocate, lockAvailability, PickClaims } from "@/lib/inventory/picking";
 import { resolveLocation, resolveWarehouse, receivingLocation } from "@/lib/inventory/context";
@@ -202,7 +203,10 @@ async function idempotent<T extends InventoryDocument>(key: string | null, reque
   try {
     return { document: await run(), replayed: false };
   } catch (err) {
-    if (key && (err as { code?: string })?.code === "P2002") {
+    // The same keyed request committed by a concurrent submit: whatever this attempt ran into
+    // (the unique key, or a check that now sees the winner's effect — a quantity already
+    // graded, a bucket already drawn), it is a replay of that document, not a failure.
+    if (key && ((err as { code?: string })?.code === "P2002" || err instanceof ApiError)) {
       const winner = await existingByKey(key);
       if (winner) {
         assertSameRequest(winner);
@@ -246,6 +250,11 @@ export async function createTransfer(input: Record<string, unknown>, actor: Serv
         const qty = await lineQty(tx, product, l);
         const from = await resolveLocation(tx, wh.id, l.location_id as string);
         if (from.type === "quarantine") throw new ApiError(400, "المخزون المحجوز لا يُنقل — استخدم التقرير للإفراج أولًا");
+        // Waste is not saleable and leaves the books only by a scrap (write-off): moving it to a
+        // sellable location would put it back on sale at full cost with no approval.
+        if (from.type === "waste") throw new ApiError(400, "الهالك مينفعش يتنقل لمكان تاني — بيخرج من المخزون بإعدام بس", "waste_transfer_refused");
+        // Legacy second grade kept on the first-grade product: moving it to a sellable location would sell it as first grade.
+        if (from.id === "loc_grade_b") throw new ApiError(400, "الفرزة على صنف الدرجة الأولى مينفعش تتنقل لمكان بيع — افرزها على صنف الفرزة", "grade_b_transfer_refused");
         if (!l.to_location_id) throw new ApiError(400, "حدد المكان اللي هيتحول له");
         const to = await resolveLocation(tx, wh.id, l.to_location_id as string);
         if (from.id === to.id) throw new ApiError(400, "مينفعش تحوّل لنفس المكان");
@@ -337,6 +346,8 @@ export async function releaseFromQuarantine(input: Record<string, unknown>, acto
       await postMovements(tx, [{ ...moves[1], unitCost: D(outRow.unitCost), costSource: "lot" }], mctx);
       await auditDoc(tx, doc, actor, "inventory_quarantine_release",
         `إفراج ${rawQty.toFixed(3)} كجم ${product.name} من ${from.code} إلى ${to.code}${lotId ? ` · ${lotId.slice(0, 8)}` : ""}${inspectionNote ? ` · فحص: ${inspectionNote}` : ""}`);
+      // Released stock may cover an order waiting for it: postMovements reports it, and the
+      // orders' people are told at commit (lib/inventory/availability-changes.ts).
       return doc;
     })
   );
@@ -384,6 +395,7 @@ export async function releaseGradingHoldInTx(
     await postMovements(tx, [{ productId: l.productId, warehouseId: wh.id, locationId: (l.destinationLocationId ? dest.get(l.destinationLocationId)! : to).id, lotId: l.lotId, quantity: qty, kind: "release_in", reason, documentId: doc.id, unitCost: D(outRow.unitCost), costSource: "lot" }], mctx);
   }
   await auditDoc(tx, doc, actor as ServiceActor, "grading_loss_released", `${from.code} → ${to.code}`);
+  // The released goods may cover an order waiting for stock: told at commit (availability-changes).
   return doc;
 }
 
@@ -695,6 +707,7 @@ export async function createSorting(input: Record<string, unknown>, actor: Servi
         if (!gradeBProduct) throw new ApiError(400, "المنتج المحدد للفرزة مش موجود");
         if (!gradeBProduct.stockTracked) throw new ApiError(400, "المنتج المحدد للفرزة مش متتبع مخزنيًا");
       }
+      assertGradeBProduct(intake.product, gradeBKg, gradeBProduct);
 
       const wh = await resolveWarehouse(tx, intake.warehouseId);
 
@@ -738,6 +751,13 @@ export async function createSorting(input: Record<string, unknown>, actor: Servi
         held.push({ productId, lotId, quantity: qty.toFixed(), destinationLocationId: intended });
         return quarantine.id;
       };
+      // A receipt's kilos are graded once: everything its sortings took in never exceeds what it
+      // accepted as good (graded good returned to the bucket is not raw stock to grade again).
+      await advisoryXactLock(tx, `inventory:intake-sorting:${intake.id}`);
+      const sortedSoFar = await tx.stockMovement.aggregate({ where: { intakeId: intake.id, kind: "sorting_out" }, _sum: { quantity: true } });
+      const alreadyGraded = D(sortedSoFar._sum.quantity ?? 0).negated();
+      const ungraded = Prisma.Decimal.max(D(intake.goodQty).minus(alreadyGraded), 0);
+      if (inputKg.gt(ungraded)) throw new ApiError(400, `الاستلام ده اتفرز منه ${alreadyGraded.toFixed()} من ${D(intake.goodQty).toFixed()} — الباقي من غير فرز ${ungraded.toFixed()} بس`, "already_graded");
       const moves: MoveInput[] = [];
 
       // 1. Take the raw stock being sorted out of the intake's own bucket.
@@ -783,7 +803,8 @@ export async function createSorting(input: Record<string, unknown>, actor: Servi
               productId: gradeBProduct.id,
               lotNumber: await nextDocumentNumber(tx, "inventory.lot", date),
               receivedDate: intake.receivedDate,
-              expiryDate: null,
+              // The same produce from the same receipt: it keeps the receipt's expiry (alerts, FEFO).
+              expiryDate: intake.lot?.expiryDate ?? null,
               supplierId: intake.supplierId,
               unitCost: gcSort.gradeBUnitCost,
             },
@@ -859,6 +880,13 @@ export async function createSorting(input: Record<string, unknown>, actor: Servi
         });
       }
       await auditDoc(tx, doc, actor, "inventory_sorting_posted", `فرز ${inputKg.toFixed(3)} كجم → ممتاز ${goodKg.toFixed(3)} · فرزة ${gradeBKg.toFixed(3)} · هالك ${wasteKg.toFixed(3)}`);
+      // Grading a PO's delivery can leave its order line short of what the PO "delivered": the
+      // suggestions of the orders that PO serves are re-sized (release gate D-1).
+      // After commit, outside this sort's stock locks (as after a receipt: lib/purchasing/receiving.ts).
+      if (intake.purchaseOrderLineId) {
+        const { poId } = await tx.purchaseOrderLine.findUniqueOrThrow({ where: { id: intake.purchaseOrderLineId }, select: { poId: true } });
+        if (!afterCommit(tx, `po-coverage:${poId}`, () => inTx((t) => syncPoCoverage(t, poId, actor)))) await syncPoCoverage(tx, poId, actor);
+      }
       return doc;
     })
   );

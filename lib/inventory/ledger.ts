@@ -5,6 +5,9 @@ import { ApiError } from "@/lib/rbac";
 import { advisoryXactLock } from "@/lib/dbLock";
 import type { Tx } from "@/lib/tx";
 import { D, ZERO, q3, q4, type Dec } from "@/lib/inventory/decimal";
+import { isSellableStock } from "@/lib/inventory/balances";
+import { availabilityChanged } from "@/lib/inventory/availability-changes";
+import { todayLocalISO } from "@/lib/localDate";
 
 /**
  * THE stock ledger write path. Every receipt, correction, void, adjustment, transfer,
@@ -309,6 +312,16 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
   }
   // ---- 4. the value of these movements reaches the GL in this same transaction ---
   await postMovementValuation(tx, valued, { id: ctx.actorId, name: ctx.actorName, effectiveDate: ctx.effectiveDate });
+  // ---- 5. what they did to sellable stock: orders waiting for it are re-checked at commit ---
+  const today = todayLocalISO();
+  await availabilityChanged(
+    tx,
+    moves
+      .filter((m) => isSellableStock({ locationId: m.locationId, locationType: locationById.get(m.locationId)!.type, expiryDate: m.lotId ? lotById.get(m.lotId)?.expiryDate : null }, today))
+      .map((m) => ({ productId: m.productId, delta: q3(m.quantity) })),
+    { id: ctx.actorId, name: ctx.actorName },
+    moves.filter((m) => m.lotId && locationById.get(m.locationId)!.type === "quarantine").map((m) => ({ lotId: m.lotId!, delta: q3(m.quantity) }))
+  );
   return created;
 }
 

@@ -21,11 +21,15 @@ import { Field, fmtMoney } from "@/components/stock/inventory/shared";
  * from a spreadsheet, first row = column names).
  */
 
-type BatchRow = { id: string; number: string; kind: "initial" | "correction"; cutoverDate: string; status: string; createdBy: string; submittedBy: string | null; decidedBy: string | null; _count: { lines: number } };
-type Validation = { totals: { debit: string; credit: string; residual: string }; trialBalance: { account: { id: string; code: string; name: string; nameAr: string }; debit: string; credit: string }[]; subledgers: Record<string, string>; problems: { code: string; params?: Record<string, string> }[]; warnings: { code: string; params?: Record<string, string> }[]; lineProblems: { lineNo: number; message: string }[] };
+type BatchRow = { id: string; number: string; kind: "initial" | "correction" | "phase"; segment: "suppliers" | "customers" | "other" | null; sourceFile: string | null; cutoverDate: string; status: string; createdBy: string; submittedBy: string | null; decidedBy: string | null; _count: { lines: number } };
+type Validation = { clearing?: string; totals: { debit: string; credit: string; residual: string }; trialBalance: { account: { id: string; code: string; name: string; nameAr: string }; debit: string; credit: string; provisional?: boolean }[]; subledgers: Record<string, string>; problems: { code: string; params?: Record<string, string> }[]; warnings: { code: string; params?: Record<string, string> }[]; lineProblems: { lineNo: number; message: string }[] };
 type Batch = BatchRow & { notes: string | null; lines: { id: string; lineNo: number; kind: string; data: Record<string, unknown>; debit: string; credit: string }[]; validation: Validation };
-const KINDS = ["gl", "customer", "supplier", "stock", "asset"] as const;
+const KINDS = ["gl", "customer", "supplier", "stock", "asset", "equity_transfer"] as const;
 type Kind = (typeof KINDS)[number];
+/** What a phase batch of the opening migration holds, by segment (the server enforces the same). */
+const SEGMENT_KINDS: Record<string, readonly Kind[]> = { suppliers: ["supplier"], customers: ["customer"], other: ["gl", "stock", "asset", "equity_transfer"] };
+const kindsFor = (b: { kind: string; segment: string | null }): readonly Kind[] =>
+  b.kind === "phase" ? SEGMENT_KINDS[b.segment ?? ""] ?? [] : b.kind === "initial" ? KINDS.filter((k) => k !== "equity_transfer") : ["gl", "customer", "supplier"];
 
 /** The columns each kind accepts (CSV header names, and the form's fields). */
 const COLUMNS: Record<Kind, string[]> = {
@@ -34,6 +38,8 @@ const COLUMNS: Record<Kind, string[]> = {
   supplier: ["party_id", "amount", "due_date", "reference"],
   stock: ["product_id", "quantity", "unit_cost", "expiry_date"],
   asset: ["category_id", "name", "cost", "accumulated", "acquisition_date", "in_service_date", "useful_life_months", "months_used", "plate_number", "serial_number", "location"],
+  // The amount is read from the ledger (what 3300 holds, reversed) when left empty.
+  equity_transfer: ["description"],
 };
 /** The columns a pasted sheet uses: records by the code people know (ids are accepted too). */
 const PASTE_COLUMNS: Record<Kind, string[]> = {
@@ -42,6 +48,7 @@ const PASTE_COLUMNS: Record<Kind, string[]> = {
   supplier: ["party_code", "amount", "due_date", "reference"],
   stock: ["sku", "quantity", "unit_cost", "expiry_date"],
   asset: COLUMNS.asset,
+  equity_transfer: ["amount", "description"],
 };
 const INT_FIELDS = new Set(["useful_life_months", "months_used"]);
 
@@ -77,12 +84,15 @@ function parsePasted(kind: Kind, text: string): Record<string, unknown>[] {
   });
 }
 
-export function OpeningBatchView() {
+/** `open`/`setOpen` let the opening migration control center open a batch here; `phased` hides the one-batch opening once the phased migration has started. */
+export function OpeningBatchView(props: { open?: string | null; setOpen?: (id: string | null) => void; phased?: boolean } = {}) {
   const { t } = useLocale();
   const { can } = usePermissions();
   const toast = useToast();
   const qc = useQueryClient();
-  const [open, setOpen] = useState<string | null>(null);
+  const [ownOpen, setOwnOpen] = useState<string | null>(null);
+  const open = props.setOpen ? props.open ?? null : ownOpen;
+  const setOpen = props.setOpen ?? setOwnOpen;
   const [cutover, setCutover] = useState(todayLocalISO());
   const q = useQuery({ queryKey: ["acc", "opening-batches"], queryFn: () => apiFetch<{ batches: BatchRow[] }>("/api/accounting/opening-batches").then((r) => r.batches) });
   const initialPosted = q.data?.some((b) => b.kind === "initial" && b.status === "posted");
@@ -93,10 +103,10 @@ export function OpeningBatchView() {
   return (
     <section className="flex flex-col gap-3" aria-labelledby="opening-batches">
       <h2 id="opening-batches" className="section-title">{t("opening.title")}</h2>
-      <p className="text-sm text-united-muted">{t("opening.explain")}</p>
-      {can("accounting.manage") && (
+      <p className="text-sm text-united-muted">{t(props.phased ? "openmig.batches-explain" : "opening.explain")}</p>
+      {can("accounting.manage") && !(props.phased && !initialPosted) && (
         <div className="card p-3 flex flex-wrap items-end gap-2">
-          {!initialPosted ? (
+          {!initialPosted && !props.phased ? (
             <>
               <Field label={t("opening.cutover")} hint={t("opening.cutover-hint")}><input type="date" className="field" value={cutover} onChange={(e) => setCutover(e.target.value)} /></Field>
               <button type="button" className="btn-primary" onClick={() => create("initial")}>{t("opening.new-initial")}</button>
@@ -108,7 +118,7 @@ export function OpeningBatchView() {
         <ul className="flex flex-col gap-2">
           {q.data.map((b) => (
             <li key={b.id} className="card p-3 flex flex-wrap items-center justify-between gap-2">
-              <button type="button" className="font-extrabold text-start" onClick={() => setOpen(open === b.id ? null : b.id)}><bdi dir="ltr">{b.number}</bdi> · {t(`opening.kind.${b.kind}`)} · <bdi dir="ltr">{b.cutoverDate}</bdi> · {t("opening.lines-n", { n: String(b._count.lines) })}</button>
+              <button type="button" className="font-extrabold text-start" onClick={() => setOpen(open === b.id ? null : b.id)}><bdi dir="ltr">{b.number}</bdi> · {t(`opening.kind.${b.kind}`)}{b.segment ? ` — ${t(`openmig.segment.${b.segment}`)}` : ""} · <bdi dir="ltr">{b.cutoverDate}</bdi> · {t("opening.lines-n", { n: String(b._count.lines) })}{b.sourceFile ? ` · ${b.sourceFile}` : ""}</button>
               <StatusPill tone={b.status === "posted" ? "success" : b.status === "pending_approval" ? "warn" : b.status === "cancelled" ? "neutral" : "info"}>{t(`opening.status.${b.status}`)}</StatusPill>
             </li>
           ))}
@@ -126,7 +136,7 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const dialogs = useDialogs();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["acc", "opening-batch", id], queryFn: () => apiFetch<{ batch: Batch }>(`/api/accounting/opening-batches/${id}`).then((r) => r.batch) });
-  const [kind, setKind] = useState<Kind>("gl");
+  const [kind, setKind] = useState<Kind | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [paste, setPaste] = useState("");
   const accounts = useQuery({ queryKey: ["acc", "accounts"], queryFn: () => apiFetch<{ accounts: { id: string; code: string; name: string; nameAr: string; postable: boolean; active: boolean; systemKey: string | null; controlledBy: string | null }[] }>("/api/accounting/accounts").then((r) => r.accounts) });
@@ -141,9 +151,12 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
   };
   const b = q.data;
   if (!b) return q.isError ? <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} /> : <LoadingState />;
+  const allowed = kindsFor(b);
+  // The line kind defaults to the first one the batch holds (a supplier batch holds supplier lines).
+  if (kind === null || !allowed.includes(kind)) { if (allowed.length && kind !== allowed[0]) setKind(allowed[0]); return <LoadingState />; }
   const v = b.validation;
   const draft = b.status === "draft" && can("accounting.manage");
-  const glAccounts = (accounts.data ?? []).filter((a) => a.postable && a.active && !a.controlledBy && !["ar", "ap", "inventory", "grni", "employee_advances", "employee_payable", "vat_input", "vat_output", "vat_payable", "opening_equity"].includes(a.systemKey ?? ""));
+  const glAccounts = (accounts.data ?? []).filter((a) => a.postable && a.active && !a.controlledBy && !["ar", "ap", "inventory", "grni", "employee_advances", "employee_payable", "vat_input", "vat_output", "vat_payable", "opening_equity", "opening_clearing"].includes(a.systemKey ?? ""));
   const options: Record<string, { id: string; label: string }[]> = {
     account_id: glAccounts.map((a) => ({ id: a.id, label: `${a.code} · ${localName({ name: a.name, nameAr: a.nameAr }, locale)}` })),
     party_id: ((kind === "customer" ? customers.data : suppliers.data) ?? []).map((p) => ({ id: p.id, label: localName(p, locale) })),
@@ -153,6 +166,8 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const lineText = (l: Batch["lines"][number]) => {
     const d = l.data as Record<string, string>;
     const acc = accounts.data?.find((a) => a.id === d.account_id);
+    if (l.kind === "equity_transfer") return `3300 → 3900${d.description ? ` · ${d.description}` : ""}`;
+    if ((l.kind === "customer" || l.kind === "supplier") && d.source_row) return `${d.source_name ?? ""} · ${d.source_file ?? b.sourceFile ?? ""} #${d.source_row}`;
     return l.kind === "gl" ? `${acc?.code ?? ""} ${acc ? localName({ name: acc.name, nameAr: acc.nameAr }, locale) : ""}` : l.kind === "asset" ? `${d.name} (${d.in_service_date})` : l.kind === "stock" ? `${d.quantity} × ${d.unit_cost}` : `${d.reference ?? ""} ${d.due_date ?? ""}`;
   };
   return (
@@ -167,6 +182,7 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <div><dt className="font-bold text-united-muted">{t("opening.total-credit")}</dt><dd className="font-extrabold" dir="ltr">{fmtMoney(v.totals.credit)}</dd></div>
           <div><dt className="font-bold text-united-muted">{t("opening.residual")}</dt><dd className={`font-extrabold ${Number(v.totals.residual) ? "text-united-danger" : "text-united-green"}`} dir="ltr">{fmtMoney(v.totals.residual)}</dd></div>
           <div><dt className="font-bold text-united-muted">{t("opening.lines")}</dt><dd className="font-extrabold">{b.lines.length}</dd></div>
+          {b.kind === "phase" && <div className="sm:col-span-2"><dt className="font-bold text-united-muted">{t("openmig.batch-clearing")}</dt><dd className="font-extrabold text-united-warn" dir="ltr">{fmtMoney(v.clearing ?? "0")}</dd></div>}
           {(["customers", "suppliers", "stock", "assetsCost", "assetsAccumulated"] as const).map((k) => <div key={k}><dt className="font-bold text-united-muted">{t(`opening.sub.${k}`)}</dt><dd className="font-extrabold" dir="ltr">{fmtMoney(v.subledgers[k] ?? "0")}</dd></div>)}
         </dl>
         {v.problems.length > 0 && <ul className="text-sm font-bold text-united-danger">{v.problems.map((p) => <li key={p.code}>{t(`opening.problem.${p.code}`, p.params ?? {})}</li>)}</ul>}
@@ -189,7 +205,7 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
         )}
         {draft && (
           <div className="border border-united-border rounded-xl p-3 flex flex-col gap-2">
-            <Field label={t("opening.line-kind")}><select className="field" value={kind} onChange={(e) => { setKind(e.target.value as Kind); setForm({}); }}>{KINDS.filter((k) => b.kind === "initial" || k === "gl" || k === "customer" || k === "supplier").map((k) => <option key={k} value={k}>{t(`opening.kind-line.${k}`)}</option>)}</select></Field>
+            <Field label={t("opening.line-kind")}><select className="field" value={kind} onChange={(e) => { setKind(e.target.value as Kind); setForm({}); }}>{allowed.map((k) => <option key={k} value={k}>{t(`opening.kind-line.${k}`)}</option>)}</select></Field>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
               {COLUMNS[kind].map((c) => options[c] ? (
                 <Field key={c} label={t(`opening.col.${c}`)}><select className="field" value={form[c] ?? ""} onChange={(e) => setForm({ ...form, [c]: e.target.value })}><option value="">—</option>{options[c].map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select></Field>
@@ -223,7 +239,7 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
             <summary className="font-extrabold cursor-pointer">{t("opening.tb")}</summary>
             <table className="data-table mt-2">
               <thead><tr><th>{t("chart.col.code")}</th><th>{t("chart.col.name")}</th><th className="num">{t("opening.debit")}</th><th className="num">{t("opening.credit")}</th></tr></thead>
-              <tbody>{v.trialBalance.map((r) => <tr key={r.account.id}><td dir="ltr">{r.account.code}</td><td>{localName(r.account, locale)}</td><td className="num" dir="ltr">{Number(r.debit) ? fmtMoney(r.debit) : ""}</td><td className="num" dir="ltr">{Number(r.credit) ? fmtMoney(r.credit) : ""}</td></tr>)}</tbody>
+              <tbody>{v.trialBalance.map((r) => <tr key={r.account.id}><td dir="ltr">{r.account.code}</td><td>{localName(r.account, locale)}{r.provisional && <span className="ms-2 pill-warn">{t("openmig.provisional")}</span>}</td><td className="num" dir="ltr">{Number(r.debit) ? fmtMoney(r.debit) : ""}</td><td className="num" dir="ltr">{Number(r.credit) ? fmtMoney(r.credit) : ""}</td></tr>)}</tbody>
             </table>
           </details>
         )}

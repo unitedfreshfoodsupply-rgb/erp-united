@@ -56,7 +56,7 @@ async function main() {
   // cash reversal, the VAT payment (bank) and the manual journals (cash).
   await fundCash("cash_main", 20000, { date: D1 });
   await fundCash("bank_main", 5000, { date: D1 });
-  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مالك المخزن` })).body.supplier;
+  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} مالك المخزن` })).body.supplier;
   let r = await call("karim", "POST", "/api/purchasing/bills", { kind: "service", supplier_id: supplier.id, supplier_invoice_no: `${TAG}-1`, bill_date: D1, lines: [{ account_id: "acc_6100", description: "إيجار", amount: "400", tax_code: "VAT14" }] });
   const bill1 = r.body.bill;
   r = await postBill(bill1?.id);
@@ -113,7 +113,7 @@ async function main() {
   const inv = (await call("karim", "POST", "/api/sales/invoices", { order_id: o.id })).body.invoice;
   r = await call("karim", "POST", `/api/sales/invoices/${inv?.id}/issue`, { issue_date: D2 });
   check("a taxed invoice issued on D2: 4000 + 560 output VAT", r.status === 200 && n(r.body.invoice?.taxTotal) === 560 && r.body.invoice.issueDate === D2, r.body);
-  const supplier2 = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} صيانة` })).body.supplier;
+  const supplier2 = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} صيانة` })).body.supplier;
   r = await call("karim", "POST", "/api/purchasing/bills", { kind: "service", supplier_id: supplier2.id, supplier_invoice_no: `${TAG}-2`, bill_date: D2, lines: [{ account_id: "acc_6200", description: "صيانة عربية", amount: "300", tax_code: "VAT14" }] });
   await postBill(r.body.bill?.id);
   const p3 = (await call("karim", "GET", `/api/accounting/vat-returns/preview?from=${D2}&to=${D2end}`)).body.preview;

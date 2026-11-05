@@ -20,6 +20,7 @@ import { listLimit } from "@/lib/core/list-window";
 import { requestApproval, type Decider } from "@/lib/core/approvals";
 import { requestFingerprint } from "@/lib/core/idempotency";
 import { searchWhere } from "@/lib/core/search";
+import { assertCustodyCovers, checkCustodyCategory, lockCustody } from "@/lib/hr/custody";
 
 /**
  * Cash and bank: customer receipts and supplier payments (each allocated to invoices /
@@ -281,44 +282,91 @@ export async function allocateReceipt(id: string, input: unknown, actor: Service
 // Supplier payments
 // ---------------------------------------------------------------------------
 
-type MoneyInput = z.infer<typeof moneyIn>;
+/**
+ * A supplier payment's money comes from a cash/bank account OR from an employee's purchasing
+ * custody (عهدة شراء, lib/hr/custody.ts) — exactly one (also DB-enforced). A custody payment
+ * posts Dr AP (supplier) / Cr 1600 employee advances (employee) instead of the cash leg.
+ */
+const moneyOut = moneyIn.extend({
+  cash_account_id: z.string().trim().nullable().optional(),
+  custody_employee_id: z.string().trim().nullable().optional(),
+  /** Paying a supplier outside the buyer's purchasing category: a written reason (accounting.manage). */
+  custody_override_reason: optText("سبب الاستثناء", 500).optional(),
+});
+type MoneyInput = z.infer<typeof moneyOut>;
+/** The source a payment names, as one comparable value (idempotency replays compare it). */
+const sourceKey = (cashAccountId: string | null | undefined, custodyEmployeeId: string | null | undefined) => (custodyEmployeeId ? `custody:${custodyEmployeeId}` : cashAccountId ?? "");
+
+function parsePayment(input: unknown) {
+  const v = parse(moneyOut, input);
+  const cash = v.cash_account_id || null;
+  const custody = v.custody_employee_id || null;
+  if (!!cash === !!custody) throw new ApiError(400, "اختار مصدر الفلوس: خزينة / بنك أو عهدة موظف (واحد بس)");
+  return { ...v, cash_account_id: cash ?? undefined, custody_employee_id: custody ?? undefined };
+}
 
 /**
  * Records a supplier payment. With accounting.payment_approval on (the default) and the
  * amount above its threshold, the payment is recorded as a request and nothing moves until
  * someone other than the requester approves it (ACC-04) — the same rule as transfers and
  * manual journals. Returns { payment } when it posted, { paymentRequest } when it waits.
+ *
+ * A payment from an employee's purchasing custody ALWAYS waits for approval, whatever the
+ * amount or setting (safe default, pending owner decision): custody falls only once a second
+ * person has seen the supplier, the bill and the receipt.
  */
 export async function createPayment(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "accounting.payments.manage");
-  const v = parse(moneyIn, input);
+  const v = parsePayment(input);
   const date = v.date ?? todayLocalISO();
+  if (v.custody_employee_id) return requestPayment(v, date, actor);
   const [approvalOn, threshold] = await Promise.all([getSetting("accounting.payment_approval"), getSetting("accounting.payment_approval_threshold")]);
   if (approvalOn && v.amount.greaterThan(D(threshold))) return requestPayment(v, date, actor);
   const payment = await inTx((tx) => postPaymentInTx(tx, v, date, actor));
   return { payment, document: { status: "posted" as const } };
 }
 
-/** Validates what a payment would do (supplier, cash account, deductions, allocations, cash on hand) without posting. */
+/**
+ * The custody side of a payment: the employee, the buyer ↔ supplier category rule and the custody
+ * that must cover what leaves. `phase` request reserves pending requests too; post counts what is posted.
+ */
+async function checkCustodySource(
+  tx: Tx, v: MoneyInput, supplier: { name: string; nameAr: string | null; category: string | null }, out: Prisma.Decimal, actor: ServiceActor,
+  phase: "request" | "post", preApprovedOverride = false
+) {
+  const employee = await tx.employee.findUnique({ where: { id: v.custody_employee_id! } });
+  if (!employee) throw new ApiError(404, "الموظف مش موجود");
+  const { overridden } = checkCustodyCategory(employee, supplier, actor, { reason: v.custody_override_reason, preApproved: preApprovedOverride });
+  await lockCustody(tx, employee.id);
+  await assertCustodyCovers(tx, employee, out, phase);
+  return { employee, overridden };
+}
+
+/** Validates what a payment would do (supplier, cash account or custody, deductions, allocations, cash on hand) without posting. */
 async function checkPayment(tx: Tx, v: MoneyInput, actor: ServiceActor) {
   const supplier = await tx.supplier.findUnique({ where: { id: v.party_id } });
   if (!supplier) throw new ApiError(404, "المورد مش موجود");
-  const cash = await accountOf(tx, v.cash_account_id);
+  const cash = v.cash_account_id ? await accountOf(tx, v.cash_account_id) : null;
   const deductions = await resolveDeductions(tx, "payment", v.deductions, v.amount, actor);
   allocate(await openBills(tx, supplier.id), v.amount, v.allocations, v.auto);
+  const out = v.amount.minus(deductedOf(deductions));
   // Cash and bank never go below zero (the database refuses it at posting): say so now,
   // not after someone has approved a payment that cannot post.
-  if (!cash.allowOverdraft) {
+  if (cash && !cash.allowOverdraft) {
     const bal = await tx.journalLine.aggregate({ where: { accountId: cash.accountId }, _sum: { debit: true, credit: true } });
     const available = D(bal._sum.debit ?? 0).minus(bal._sum.credit ?? 0);
-    const out = v.amount.minus(deductedOf(deductions));
     if (available.lessThan(out)) throw new ApiError(409, `رصيد ${cash.nameAr ?? cash.name} ${available.toFixed(2)} مش كفاية للسداد ${out.toFixed(2)} — الخزينة/البنك مينفعش يبقى بالسالب`, "cash_account_negative");
   }
-  return { supplier, cash };
+  const custody = v.custody_employee_id ? await checkCustodySource(tx, v, supplier, out, actor, "request") : null;
+  return { supplier, cash, custody };
 }
 
 async function requestPayment(v: MoneyInput, date: string, actor: ServiceActor) {
-  const requestHash = requestFingerprint({ party: v.party_id, cash: v.cash_account_id, date, amount: v.amount, method: v.method, allocations: v.allocations ?? null, auto: v.auto ?? null, deductions: v.deductions ?? null, reference: v.reference ?? null });
+  // The custody fields join the fingerprint only when given, so a cash request hashes as before.
+  const requestHash = requestFingerprint({
+    party: v.party_id, cash: v.cash_account_id, date, amount: v.amount, method: v.method, allocations: v.allocations ?? null, auto: v.auto ?? null, deductions: v.deductions ?? null, reference: v.reference ?? null,
+    ...(v.custody_employee_id ? { custody: v.custody_employee_id, override: v.custody_override_reason ?? null } : {}),
+  });
   const result = await inTx(async (tx) => {
     if (v.idempotency_key) {
       await advisoryXactLock(tx, `accounting:money-key:${v.idempotency_key}`);
@@ -329,25 +377,31 @@ async function requestPayment(v: MoneyInput, date: string, actor: ServiceActor) 
       }
     }
     await advisoryXactLock(tx, `accounting:supplier:${v.party_id}`);
-    const { supplier, cash } = await checkPayment(tx, v, actor);
+    const { supplier, cash, custody } = await checkPayment(tx, v, actor);
+    const override = custody?.overridden ? { reason: v.custody_override_reason!, byId: actor.id, by: actor.name } : null;
     const req = await tx.supplierPaymentRequest.create({
       data: {
         number: await nextDocumentNumber(tx, "accounting.payment_request", date),
-        supplierId: supplier.id, cashAccountId: cash.id, date, amount: v.amount, method: v.method, reference: v.reference ?? null, notes: v.notes ?? null,
-        request: { allocations: (v.allocations ?? null) as Prisma.InputJsonValue, auto: v.auto ?? null, deductions: (v.deductions ?? null) as Prisma.InputJsonValue } as Prisma.InputJsonValue,
+        supplierId: supplier.id, cashAccountId: cash?.id ?? null, custodyEmployeeId: custody?.employee.id ?? null, date, amount: v.amount, method: v.method, reference: v.reference ?? null, notes: v.notes ?? null,
+        request: { allocations: (v.allocations ?? null) as Prisma.InputJsonValue, auto: v.auto ?? null, deductions: (v.deductions ?? null) as Prisma.InputJsonValue, ...(override ? { custodyOverride: override } : {}) } as Prisma.InputJsonValue,
         status: "pending_approval", idempotencyKey: v.idempotency_key ?? null, requestHash, requestedById: actor.id, requestedBy: actor.name,
       },
     });
-    await requestApproval(tx, { type: "accounting.supplier_payment", entityId: req.id, title: `سداد ${req.number} لـ ${supplier.nameAr ?? supplier.name} من ${cash.nameAr ?? cash.name}`, amount: v.amount, requester: actor });
-    await audit(tx, actor, "supplier_payment_request", req.id, "payment_requested", `${req.number} · ${supplier.code} · ${v.amount.toFixed(2)}`);
+    const from = cash ? cash.nameAr ?? cash.name : `عهدة ${custody!.employee.nameAr ?? custody!.employee.name}`;
+    await requestApproval(tx, { type: "accounting.supplier_payment", entityId: req.id, title: `سداد ${req.number} لـ ${supplier.nameAr ?? supplier.name} من ${from}`, amount: v.amount, requester: actor });
+    await audit(tx, actor, "supplier_payment_request", req.id, "payment_requested", `${req.number} · ${supplier.code} · ${v.amount.toFixed(2)}${custody ? ` · custody ${custody.employee.code}` : ""}`);
+    if (override) await auditOverride(tx, actor, "supplier_payment_request", req.id, `${req.number} · ${custody!.employee.code} (${custody!.employee.purchasingCategory ?? "-"}) → ${supplier.code} (${supplier.category ?? "-"})`, override.reason);
     return { paymentRequest: req, replayed: false };
   });
   return { paymentRequest: result.paymentRequest, document: { status: "pending_approval" as const }, replayed: result.replayed };
 }
 
+const auditOverride = (tx: Tx, actor: { id: string | null; name: string; role: string; deviceId?: string }, entityType: "supplier_payment" | "supplier_payment_request", id: string, detail: string, reason: string) =>
+  writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "custody_category_override", entityType, entityId: id, newValue: detail, reason, source: "user", deviceId: actor.deviceId }, tx);
+
 /**
  * Approval handler (ACC-04): approved → the payment posts now, re-validated against today's
- * open bills and cash, recorded as the requester's with the approver on the request;
+ * open bills and cash (or custody), recorded as the requester's with the approver on the request;
  * rejected → nothing moves. The requester can never decide their own request.
  */
 export async function applyPaymentRequestDecision(tx: Tx, requestId: string, approved: boolean, decider: Decider, comment?: string) {
@@ -359,52 +413,58 @@ export async function applyPaymentRequestDecision(tx: Tx, requestId: string, app
     await audit(tx, decider as ServiceActor, "supplier_payment_request", req.id, "payment_request_rejected", req.number);
     return;
   }
-  const asked = req.request as { allocations?: { document_id: string; amount: string }[] | null; auto?: boolean | null; deductions?: { kind: string; amount: string; reference?: string }[] | null };
-  const v = parse(moneyIn, {
-    party_id: req.supplierId, cash_account_id: req.cashAccountId, date: req.date, amount: req.amount.toFixed(2), method: req.method,
+  const asked = req.request as { allocations?: { document_id: string; amount: string }[] | null; auto?: boolean | null; deductions?: { kind: string; amount: string; reference?: string }[] | null; custodyOverride?: { reason: string } | null };
+  const v = parse(moneyOut, {
+    party_id: req.supplierId, cash_account_id: req.cashAccountId ?? undefined, custody_employee_id: req.custodyEmployeeId ?? undefined, custody_override_reason: asked.custodyOverride?.reason ?? undefined,
+    date: req.date, amount: req.amount.toFixed(2), method: req.method,
     reference: req.reference ?? undefined, notes: req.notes ?? undefined, allocations: asked.allocations ?? undefined, auto: asked.auto ?? undefined, deductions: asked.deductions ?? undefined,
   });
   const requester = { id: req.requestedById, name: req.requestedBy, role: "ACCOUNTANT", permissions: [] as string[] } as unknown as ServiceActor;
-  const payment = await postPaymentInTx(tx, v, req.date, requester, decider as ServiceActor);
+  // A category override was authorised (accounting.manage + reason) when the request was made.
+  const payment = await postPaymentInTx(tx, v, req.date, requester, decider as ServiceActor, { preApprovedOverride: !!asked.custodyOverride });
   await tx.supplierPaymentRequest.update({ where: { id: req.id, version: req.version }, data: { status: "posted", paymentId: payment.id, decidedBy: decider.name, decidedAt: new Date(), decisionNote: comment ?? null, version: { increment: 1 } } });
   await audit(tx, decider as ServiceActor, "supplier_payment_request", req.id, "payment_request_approved", `${req.number} → ${payment.number}`);
 }
 
 /** Posts a supplier payment in the caller's transaction. `poster` defaults to the requester. */
-async function postPaymentInTx(tx: Tx, v: MoneyInput, date: string, actor: ServiceActor, poster: ServiceActor = actor) {
+async function postPaymentInTx(tx: Tx, v: MoneyInput, date: string, actor: ServiceActor, poster: ServiceActor = actor, opts: { preApprovedOverride?: boolean } = {}) {
     if (v.idempotency_key) await advisoryXactLock(tx, `accounting:money-key:${v.idempotency_key}`);
     await advisoryXactLock(tx, `accounting:supplier:${v.party_id}`);
     if (v.idempotency_key) {
       const prev = await tx.supplierPayment.findUnique({ where: { idempotencyKey: v.idempotency_key }, include: { deductions: true } });
       if (prev) {
-        sameMoney({ partyId: prev.supplierId, amount: prev.amount, cashAccountId: prev.cashAccountId, deductions: prev.deductions }, v);
+        sameMoney({ partyId: prev.supplierId, amount: prev.amount, cashAccountId: sourceKey(prev.cashAccountId, prev.custodyEmployeeId), deductions: prev.deductions }, { ...v, cash_account_id: sourceKey(v.cash_account_id, v.custody_employee_id) });
         return prev;
       }
     }
     const supplier = await tx.supplier.findUnique({ where: { id: v.party_id } });
     if (!supplier) throw new ApiError(404, "المورد مش موجود");
-    const cash = await accountOf(tx, v.cash_account_id);
+    const cash = v.cash_account_id ? await accountOf(tx, v.cash_account_id) : null;
     const deductions = await resolveDeductions(tx, "payment", v.deductions, v.amount, actor);
     const allocations = allocate(await openBills(tx, supplier.id), v.amount, v.allocations, v.auto);
+    const out = v.amount.minus(deductedOf(deductions));
+    const custody = v.custody_employee_id ? await checkCustodySource(tx, v, supplier, out, actor, "post", opts.preApprovedOverride) : null;
     const payment = await tx.supplierPayment.create({
       data: {
         number: await nextDocumentNumber(tx, "accounting.payment", date),
-        supplierId: supplier.id, cashAccountId: cash.id, date, amount: v.amount, method: v.method, reference: v.reference ?? null, notes: v.notes ?? null, idempotencyKey: v.idempotency_key ?? null,
+        supplierId: supplier.id, cashAccountId: cash?.id ?? null, custodyEmployeeId: custody?.employee.id ?? null, date, amount: v.amount, method: v.method, reference: v.reference ?? null, notes: v.notes ?? null, idempotencyKey: v.idempotency_key ?? null,
         createdById: actor.id, createdBy: actor.name,
         allocations: { createMany: { data: allocations.map((a) => ({ billId: a.target === "bill" ? a.id : null, openingBalanceId: a.target === "opening_balance" ? a.id : null, amount: a.amount })) } },
         ...(deductions.length ? { deductions: { createMany: { data: deductions } } } : {}),
       },
     });
     await postJournal(tx, {
-      date, description: `سداد ${payment.number} لـ ${supplier.name}${v.reference ? ` (${v.reference})` : ""}`, sourceType: "supplier_payment", sourceId: payment.id,
+      date, description: custody ? `سداد ${payment.number} لـ ${supplier.name} من عهدة ${custody.employee.name}${v.reference ? ` (${v.reference})` : ""}` : `سداد ${payment.number} لـ ${supplier.name}${v.reference ? ` (${v.reference})` : ""}`, sourceType: "supplier_payment", sourceId: payment.id,
       lines: [
         { key: "ap", amount: v.amount, party: { type: "supplier", id: supplier.id } },
-        { accountId: cash.accountId, amount: v.amount.minus(deductedOf(deductions)).negated() },
+        // The money left the company when the custody was issued: paying from it reduces what the employee holds.
+        custody ? { key: "employee_advances", amount: out.negated(), party: { type: "employee", id: custody.employee.id } } : { accountId: cash!.accountId, amount: out.negated() },
         ...deductions.map((d) => ({ accountId: d.accountId, amount: d.amount.negated(), description: DEDUCTION_LABEL[d.kind] + (d.reference ? ` (${d.reference})` : "") })),
       ],
     }, poster);
     const applied = allocations.reduce((s, a) => s.plus(a.amount), D(0));
-    await audit(tx, poster, "supplier_payment", payment.id, "payment_created", `${payment.number} · ${supplier.code} · ${v.amount.toFixed(2)} · مخصص ${applied.toFixed(2)}${deductionNote(deductions)}`);
+    await audit(tx, poster, "supplier_payment", payment.id, "payment_created", `${payment.number} · ${supplier.code} · ${v.amount.toFixed(2)} · مخصص ${applied.toFixed(2)}${deductionNote(deductions)}${custody ? ` · custody ${custody.employee.code}` : ""}`);
+    if (custody?.overridden) await auditOverride(tx, poster, "supplier_payment", payment.id, `${payment.number} · ${custody.employee.code} (${custody.employee.purchasingCategory ?? "-"}) → ${supplier.code} (${supplier.category ?? "-"})`, v.custody_override_reason ?? "");
     return payment;
 }
 
@@ -475,7 +535,7 @@ export async function reversePayment(id: string, input: unknown, actor: ServiceA
     const head = await tx.supplierPayment.findUnique({ where: { id }, select: { supplierId: true } });
     if (!head) throw new ApiError(404, "السداد مش موجود");
     await advisoryXactLock(tx, `accounting:supplier:${head.supplierId}`);
-    const p = await tx.supplierPayment.findUniqueOrThrow({ where: { id }, include: { reversal: true, deductions: true, supplier: { select: { name: true, nameAr: true } }, cashAccount: { select: { accountId: true } } } });
+    const p = await tx.supplierPayment.findUniqueOrThrow({ where: { id }, include: { reversal: true, deductions: true, supplier: { select: { name: true, nameAr: true } }, cashAccount: { select: { accountId: true } }, custodyEmployee: { select: { code: true } } } });
     if (p.reversal) throw new ApiError(409, "السداد ده اتعكس قبل كده");
     const date = v.date ?? todayLocalISO();
     if (date < p.date) throw new ApiError(400, "تاريخ العكس قبل تاريخ السداد");
@@ -484,11 +544,12 @@ export async function reversePayment(id: string, input: unknown, actor: ServiceA
       date, description: `عكس سداد ${p.number} لـ ${p.supplier.name}: ${v.reason}`, sourceType: "payment_reversal", sourceId: rev.id,
       lines: [
         { key: "ap", amount: p.amount.negated(), party: { type: "supplier", id: p.supplierId } },
-        { accountId: p.cashAccount.accountId, amount: p.amount.minus(deductedOf(p.deductions)) },
+        // A custody payment's money goes back to the employee's custody, not to a cash box.
+        p.custodyEmployeeId ? { key: "employee_advances" as const, amount: p.amount.minus(deductedOf(p.deductions)), party: { type: "employee" as const, id: p.custodyEmployeeId } } : { accountId: p.cashAccount!.accountId, amount: p.amount.minus(deductedOf(p.deductions)) },
         ...p.deductions.map((d) => ({ accountId: d.accountId, amount: d.amount, description: DEDUCTION_LABEL[d.kind as DeductionKind] })),
       ],
     }, actor);
-    await audit(tx, actor, "supplier_payment", p.id, "payment_reversed", `${p.number} · ${p.amount.toFixed(2)} · ${v.reason}`);
+    await audit(tx, actor, "supplier_payment", p.id, "payment_reversed", `${p.number} · ${p.amount.toFixed(2)} · ${v.reason}${p.custodyEmployee ? ` · custody ${p.custodyEmployee.code}` : ""}`);
     return rev;
   });
 }
@@ -526,9 +587,18 @@ export async function listPayments(filters: { supplierId?: string; limit?: numbe
   const where = { ...(filters.supplierId ? { supplierId: filters.supplierId } : {}), ...dateRange(filters), ...(await searchWhere("supplierPayment", filters.q)) };
   const [total, rows] = await Promise.all([
     prisma.supplierPayment.count({ where }),
-    prisma.supplierPayment.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { allocations: true, deductions: { include: { account: { select: { code: true } } } }, reversal: true, supplier: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true, nameAr: true } } }, skip, take }),
+    prisma.supplierPayment.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { allocations: true, deductions: { include: { account: { select: { code: true } } } }, reversal: true, supplier: { select: { id: true, code: true, name: true, nameAr: true } }, cashAccount: { select: { name: true, nameAr: true } }, custodyEmployee: { select: { id: true, code: true, name: true, nameAr: true } } }, skip, take }),
   ]);
-  return { payments: rows.map((r) => ({ ...present(r), supplier: r.supplier, cashAccount: r.cashAccount.name, cashAccountAr: r.cashAccount.nameAr })), pagination: { total, limit: take, offset: skip } };
+  // A custody payment with no file attached is a missing receipt (lib/hr/custody.ts).
+  const custodyIds = rows.filter((r) => r.custodyEmployeeId).map((r) => r.id);
+  const filed = custodyIds.length ? new Set((await prisma.attachment.groupBy({ by: ["entityId"], where: { entityType: "supplier_payment", entityId: { in: custodyIds }, deletedAt: null } })).map((f) => f.entityId)) : new Set<string>();
+  return {
+    payments: rows.map((r) => ({
+      ...present(r), supplier: r.supplier, cashAccount: r.cashAccount?.name ?? null, cashAccountAr: r.cashAccount?.nameAr ?? null,
+      custodyEmployee: r.custodyEmployee, ...(r.custodyEmployeeId ? { missingReceipt: !r.reversal && !filed.has(r.id) } : {}),
+    })),
+    pagination: { total, limit: take, offset: skip },
+  };
 }
 
 /**

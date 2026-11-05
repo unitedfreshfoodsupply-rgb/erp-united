@@ -110,3 +110,19 @@ export function namesForSave(en: string, ar: string): { name: string; name_ar: s
 export function orderCustomerName(order: { customerName: string; customerAccount?: LocalizedNameSource | null }, locale: NameLocale): string {
   return order.customerAccount ? localName(order.customerAccount, locale) : order.customerName;
 }
+
+/** The name an order stores for its mapped customer: the card's Arabic name, else its name
+ * (the rule used when an order is mapped, and again when it is dispatched). */
+export function storedOrderCustomerName(account: { name: string; nameAr?: string | null }): string {
+  return account.nameAr || account.name;
+}
+
+/**
+ * The customer on a document printed from an order (Nov 2026). While the order is open it is the
+ * customer card as of now, in the document's language. Once the order has left (or was cancelled)
+ * the document is history: it shows the name stored on the order, which dispatch froze to the card's
+ * name at that moment, so a reprint matches the copy that left with the truck.
+ */
+export function orderDocumentCustomerName(order: { status: string; customerName: string; customerAccount?: LocalizedNameSource | null }, locale: NameLocale): string {
+  return order.status === "dispatched" || order.status === "cancelled" ? order.customerName : orderCustomerName(order, locale);
+}

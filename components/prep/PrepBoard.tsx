@@ -28,7 +28,7 @@ export function PrepBoard() {
   const { t } = useLocale();
   const { data, isLoading, isError, error, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["orders", "prep"],
-    queryFn: () => apiFetch<{ orders: OrderDTO[] }>("/api/orders?status=new,preparing"),
+    queryFn: () => apiFetch<{ orders: OrderDTO[] }>("/api/orders?status=new,preparing&stock=ok"),
     refetchInterval: 3000,
   });
 

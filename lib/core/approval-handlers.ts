@@ -16,6 +16,7 @@ import { applyCreditDecision } from "@/lib/sales/credit";
 import { applyPoDecision } from "@/lib/purchasing/orders";
 import { applyBillDecision } from "@/lib/purchasing/bills";
 import { applyExpenseDecision } from "@/lib/hr/service";
+import { applyCustodyAdvanceDecision } from "@/lib/hr/custody";
 import { applyCorrectionDecision } from "@/lib/hr/attendance";
 import { applyLeaveDecision } from "@/lib/hr/leave";
 import { applyCompensationDecision } from "@/lib/hr/compensation";
@@ -25,6 +26,7 @@ import { applyPaymentRequestDecision } from "@/lib/accounting/cash";
 import { applyJournalRequestDecision } from "@/lib/accounting/ledger";
 import { applyPeriodReopen, applyYearReopen } from "@/lib/accounting/fiscal-years";
 import { applyOpeningBatchDecision } from "@/lib/accounting/opening-batches";
+import { applyClosureDecision } from "@/lib/accounting/opening-migration";
 
 /**
  * What each approval type DOES once decided. Kept apart from the engine core so the
@@ -90,6 +92,12 @@ const HANDLERS: Record<ApprovalType, Handler> = {
     onApproved: (tx, req, decider, comment) => applyExpenseDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyExpenseDecision(tx, req.entityId, false, decider, comment),
   },
+  "hr.custody_advance": {
+    // Approved by someone other than the requester: the custody advance posts (Dr 1600 employee /
+    // Cr cash-bank). Rejected: nothing moves.
+    onApproved: (tx, req, decider, comment) => applyCustodyAdvanceDecision(tx, req.entityId, true, decider, comment),
+    onRejected: (tx, req, decider, comment) => applyCustodyAdvanceDecision(tx, req.entityId, false, decider, comment),
+  },
   "hr.attendance_correction": {
     // Approved: the day takes the requested values (a locked day's pay difference goes to the
     // next payroll run). Rejected: the day stays as it was. The requester may not decide.
@@ -123,6 +131,11 @@ const HANDLERS: Record<ApprovalType, Handler> = {
     // Approved by someone who neither prepared nor submitted it: posted whole, once. Rejected: back to draft.
     onApproved: (tx, req, decider, comment) => applyOpeningBatchDecision(tx, req.entityId, true, decider, comment),
     onRejected: (tx, req, decider, comment) => applyOpeningBatchDecision(tx, req.entityId, false, decider, comment),
+  },
+  "accounting.opening_migration_close": {
+    // Approved by someone other than the requester, and only if every closure check still passes: closed for good. Rejected: open again.
+    onApproved: (tx, req, decider, comment) => applyClosureDecision(tx, req.entityId, true, decider, comment),
+    onRejected: (tx, req, decider, comment) => applyClosureDecision(tx, req.entityId, false, decider, comment),
   },
   "accounting.period_reopen": {
     // Approved by someone other than the requester: the month opens again (its year must be open).

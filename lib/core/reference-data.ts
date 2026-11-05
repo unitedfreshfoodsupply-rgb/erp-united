@@ -167,6 +167,8 @@ export const CHART_OF_ACCOUNTS: { id: string; code: string; name: string; nameAr
   { id: "acc_3100", code: "3100", name: "Capital", nameAr: "رأس المال", type: "equity", parentId: "acc_3000", postable: true, systemKey: "capital", cashFlowCategory: "financing" },
   { id: "acc_3300", code: "3300", name: "Opening balance equity", nameAr: "أرصدة افتتاحية", type: "equity", parentId: "acc_3000", postable: true, systemKey: "opening_equity", cashFlowCategory: "financing" },
   { id: "acc_3200", code: "3200", name: "Retained earnings", nameAr: "الأرباح المحتجزة", type: "equity", parentId: "acc_3000", postable: true, systemKey: "retained_earnings", cashFlowCategory: "financing" },
+  // Phased opening migration (Nov 2026): the provisional other side of each phase batch; zero when the migration closes.
+  { id: "acc_3900", code: "3900", name: "Opening balance clearing (provisional)", nameAr: "حساب وسيط الأرصدة الافتتاحية (مؤقت)", type: "equity", parentId: "acc_3000", postable: true, systemKey: "opening_clearing", cashFlowCategory: "financing" },
   { id: "acc_4000", code: "4000", name: "Revenue", nameAr: "الإيرادات", type: "revenue", parentId: null, postable: false, systemKey: null },
   { id: "acc_4100", code: "4100", name: "Sales", nameAr: "المبيعات", type: "revenue", parentId: "acc_4000", postable: true, systemKey: "sales" },
   { id: "acc_4200", code: "4200", name: "Sales returns and allowances", nameAr: "مردودات ومسموحات المبيعات", type: "revenue", parentId: "acc_4000", postable: true, systemKey: "sales_returns" },

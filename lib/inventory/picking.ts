@@ -101,7 +101,7 @@ export async function allocate(
     // explicitly (scrap what came back, move inspected goods to a cold room, dispose waste),
     // that location is what they mean — quarantine and waste included.
     .filter((b) => b.quantity.gt(0)
-      && (input.locationId !== undefined || (b.locationType !== "quarantine" && b.locationType !== "waste"))
+      && (input.locationId !== undefined || (b.locationType !== "quarantine" && b.locationType !== "waste" && b.locationId !== "loc_grade_b"))
       && !(input.excludeExpiredOn && b.expiryDate && b.expiryDate < input.excludeExpiredOn));
   const ordered = orderBuckets(buckets, input.strategy, { expiredLastOn: input.expiredLastOn });
   const pickable = ordered.reduce((s, b) => s.plus(b.quantity), ZERO);

@@ -94,6 +94,11 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The integration suites run on the seeded test database, as locally (approvals and
+      # notifications reference real users): the same reset the end-to-end step uses.
+      - name: Seed the test database
+        run: npm run test:reset
+
       - name: Integration tests
         run: npm run test:integration
 

@@ -7,6 +7,7 @@ import { ChartView } from "@/components/accounting/ChartView";
 import { VatReturnsView } from "@/components/accounting/VatReturnsView";
 import { PeriodsView } from "@/components/accounting/PeriodsView";
 import { OpeningBatchView } from "@/components/accounting/OpeningBatchView";
+import { OpeningMigrationView, ProvisionalOpeningBanner } from "@/components/accounting/OpeningMigrationView";
 import { ComparativesView } from "@/components/accounting/ComparativesView";
 import { CostCentersView, CostCenterSelect } from "@/components/accounting/CostCentersView";
 import { JournalRequests } from "@/components/accounting/JournalRequests";
@@ -27,7 +28,10 @@ import { localName, type LocalizedNameSource } from "@/lib/locale/names";
 import { useDialogs } from "@/components/ui/Dialog";
 import { LIST_PAGE, ListMore } from "@/components/ui/ListMore";
 import { FilterBar, useListState } from "@/components/ui/DataTable";
-import { PartyLink } from "@/components/profiles/EntityLink";
+import { DocLink, PartyLink } from "@/components/profiles/EntityLink";
+import { href as docHref } from "@/lib/profiles/links";
+import { AttachmentsPanel } from "@/components/AttachmentsPanel";
+import { StatusPill } from "@/components/ui/StatusPill";
 
 /**
  * Finance: cash position, customer receipts, supplier payments, journals, trial
@@ -86,8 +90,12 @@ type SettlementRow = {
   number: string;
   date: string;
   method: string;
-  cashAccount: string;
+  /** Null for a supplier payment made from an employee's purchasing custody. */
+  cashAccount: string | null;
   cashAccountAr?: string | null;
+  custodyEmployee?: (LocalizedNameSource & { id: string; code: string }) | null;
+  /** A custody payment with no receipt attached yet. */
+  missingReceipt?: boolean;
   reference: string | null;
   amount: string;
   cashAmount: string;
@@ -152,6 +160,17 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
   });
   const [party, setParty] = useState("");
   const [form, setForm] = useState({ amount: "", method: "cash", cash_account_id: "cash_main", reference: "", date: todayLocalISO() });
+  // Supplier payments: the money comes from a cash box / bank, or from a buyer's purchasing custody.
+  const [source, setSource] = useState<"cash" | "custody">("cash");
+  const [custody, setCustody] = useState({ employee_id: "", override_reason: "" });
+  const [filesFor, setFilesFor] = useState<string | null>(null);
+  const holders = useQuery({
+    queryKey: ["acc", "custody-holders"],
+    queryFn: () => apiFetch<{ holders: (LocalizedNameSource & { id: string; code: string; active: boolean; purchasingCategory: string | null; available: string })[] }>("/api/hr/custody").then((r) => r.holders),
+    enabled: !isReceipt && manage && source === "custody",
+  });
+  const fromCustody = !isReceipt && source === "custody";
+  const holder = holders.data?.find((h) => h.id === custody.employee_id);
   const [alloc, setAlloc] = useState<Record<string, string>>({});
   // Settled without cash: tax the customer withheld, a bank charge, a small difference
   // (receipts); tax we withheld (payments). Each kind needs its account configured.
@@ -200,9 +219,32 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
             <Field label={t("accounting.form.amount")}><input className="field" dir="ltr" inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
             <Field label={t("accounting.form.date")}><input type="date" className="field" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
             <Field label={t("accounting.form.method")}><select className="field" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>{Object.entries(METHOD_LABELS).map(([k, vk]) => <option key={k} value={k}>{t(vk)}</option>)}</select></Field>
-            <Field label={t("accounting.form.account.label")}><CashAccountSelect value={form.cash_account_id} onChange={(id) => setForm({ ...form, cash_account_id: id })} /></Field>
+            {!isReceipt && (
+              <Field label={t("accounting.custody.source")}>
+                <select className="field" value={source} onChange={(e) => setSource(e.target.value === "custody" ? "custody" : "cash")}>
+                  <option value="cash">{t("accounting.custody.source-cash")}</option>
+                  <option value="custody">{t("accounting.custody.source-custody")}</option>
+                </select>
+              </Field>
+            )}
+            {fromCustody ? (
+              <Field label={t("accounting.custody.employee")} hint={holder ? `${t("accounting.custody.available")} ${fmtMoney(holder.available)}${holder.purchasingCategory ? ` · ${t(`hr.custody.category.${holder.purchasingCategory}`)}` : ""}` : undefined}>
+                <select className="field" value={custody.employee_id} onChange={(e) => setCustody({ ...custody, employee_id: e.target.value })}>
+                  <option value="">{t("accounting.form.party.placeholder")}</option>
+                  {holders.data?.filter((h) => Number(h.available) > 0).map((h) => <option key={h.id} value={h.id}>{h.code} · {getPartyName(h, locale)}</option>)}
+                </select>
+              </Field>
+            ) : (
+              <Field label={t("accounting.form.account.label")}><CashAccountSelect value={form.cash_account_id} onChange={(id) => setForm({ ...form, cash_account_id: id })} /></Field>
+            )}
             <Field label={t("accounting.form.reference-hint")}><input className="field" dir="ltr" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></Field>
+            {fromCustody && can("accounting.manage") && (
+              <Field label={t("accounting.custody.override")} hint={t("accounting.custody.override-hint")}>
+                <input className="field" maxLength={500} value={custody.override_reason} onChange={(e) => setCustody({ ...custody, override_reason: e.target.value })} />
+              </Field>
+            )}
           </div>
+          {fromCustody && <p className="text-xs font-bold text-united-muted">{t("accounting.custody.notice")}</p>}
           <details className="rounded-xl border border-united-border p-2" open={deductions.length > 0}>
             <summary className="text-sm font-extrabold cursor-pointer">{isReceipt ? t("accounting.deductions.receipt-title") : t("accounting.deductions.payment-title")}</summary>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
@@ -225,14 +267,16 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
             </ul>
           ) : <p className="text-sm font-bold text-united-muted">{t("accounting.empty.no-open-docs")}</p>)}
           <p className="text-xs font-bold text-united-muted">{t("accounting.notice.auto-allocate")}</p>
-          <button type="button" className="btn-primary" disabled={!party || !form.amount || busy} onClick={async () => {
+          <button type="button" className="btn-primary" disabled={!party || !form.amount || busy || (fromCustody && !custody.employee_id)} onClick={async () => {
             setBusy(true);
             try {
-              const r = await apiPost<Record<string, { number: string }>>(`/api/accounting/${kind}`, { party_id: party, amount: form.amount, method: form.method, cash_account_id: form.cash_account_id, reference: form.reference || null, date: form.date, idempotency_key: key, ...(deductions.length ? { deductions } : {}), ...(explicit.length ? { allocations: explicit } : { auto: true }) });
+              const from = fromCustody ? { custody_employee_id: custody.employee_id, ...(custody.override_reason.trim() ? { custody_override_reason: custody.override_reason.trim() } : {}) } : { cash_account_id: form.cash_account_id };
+              const r = await apiPost<Record<string, { number: string }>>(`/api/accounting/${kind}`, { party_id: party, amount: form.amount, method: form.method, ...from, reference: form.reference || null, date: form.date, idempotency_key: key, ...(deductions.length ? { deductions } : {}), ...(explicit.length ? { allocations: explicit } : { auto: true }) });
               toast.show(r.paymentRequest ? t("accounting.toast-payment-pending", { ref: r.paymentRequest.number }) : t("accounting.toast-recorded", { ref: (r.receipt ?? r.payment).number }), "success");
               setForm({ ...form, amount: "", reference: "" });
               setAlloc({});
               setDed({ withholding: "", withholding_ref: "", bank_charge: "", write_off: "" });
+              setCustody({ ...custody, override_reason: "" });
               setKey(newClientKey());
               void qc.invalidateQueries({ queryKey: ["acc"] });
             } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); } finally { setBusy(false); }
@@ -248,7 +292,14 @@ function MoneyIn({ kind }: { kind: "receipts" | "payments" }) {
           <li key={r.id} className={`card p-3 flex justify-between gap-2 text-sm font-bold ${r.reversal ? "opacity-70" : ""}`}>
             <div>
               <div className="font-extrabold"><span dir="ltr">{r.number}</span> · {r.customer ? <PartyLink kind="customer" id={r.customer.id} name={getPartyName(r.customer, locale)} /> : r.supplier ? <PartyLink kind="supplier" id={r.supplier.id} name={getPartyName(r.supplier, locale)} /> : null}</div>
-              <div className="text-xs text-united-muted">{r.date} · {METHOD_LABELS[r.method] ? t(METHOD_LABELS[r.method]) : r.method} · {localName({ name: r.cashAccount, nameAr: r.cashAccountAr }, locale)}{r.reference ? <> · <span dir="ltr">{r.reference}</span></> : null}{Number(r.unallocated) > 0 ? ` · ${t("accounting.unallocated")} ${fmtMoney(r.unallocated)}` : ""}</div>
+              <div className="text-xs text-united-muted">{r.date} · {METHOD_LABELS[r.method] ? t(METHOD_LABELS[r.method]) : r.method} · {r.custodyEmployee ? t("accounting.custody.from", { name: getPartyName(r.custodyEmployee, locale) }) : localName({ name: r.cashAccount ?? "", nameAr: r.cashAccountAr }, locale)}{r.reference ? <> · <span dir="ltr">{r.reference}</span></> : null}{Number(r.unallocated) > 0 ? ` · ${t("accounting.unallocated")} ${fmtMoney(r.unallocated)}` : ""}</div>
+              {r.custodyEmployee && (
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  {r.missingReceipt && <StatusPill tone="warn">{t("hr.custody.missing_receipt")}</StatusPill>}
+                  <button type="button" className="underline text-united-muted" onClick={() => { if (filesFor === r.id) void qc.invalidateQueries({ queryKey: ["acc", kind] }); setFilesFor(filesFor === r.id ? null : r.id); }}>{t("accounting.custody.receipts")}</button>
+                </div>
+              )}
+              {filesFor === r.id && <div className="mt-2"><AttachmentsPanel entityType="supplier_payment" entityId={r.id} canManage={can("accounting.payments.manage")} /></div>}
               {(r.deductions?.length ?? 0) > 0 && (
                 <div className="text-xs text-united-muted">
                   {r.deductions!.map((d) => `${t(`accounting.deductions.kind.${d.kind}`)} ${fmtMoney(d.amount)}${d.reference ? ` (${d.reference})` : ""}`).join(" · ")} · {isReceipt ? t("accounting.deductions.cash-in") : t("accounting.deductions.cash-out")} <span dir="ltr">{fmtMoney(r.cashAmount)}</span>
@@ -377,7 +428,13 @@ function Refunds({ kind }: { kind: "customer" | "supplier" }) {
   );
 }
 
-type Journal = { id: string; number: string; date: string; description: string; sourceType: string; total: string; reversedBy?: { number: string } | null; lines?: { id: string; debit: string; credit: string; description: string | null; account: { code: string; name?: string; nameAr: string } }[] };
+/** Journal sources that open as a document (by its id); the link is dropped for viewers who cannot open it. */
+const SOURCE_DOC: Record<string, ((id: string) => string) | undefined> = {
+  sales_invoice: docHref.invoice,
+  supplier_bill: docHref.bill,
+};
+
+type Journal = { id: string; number: string; date: string; description: string; sourceType: string; sourceId?: string | null; total: string; reversedBy?: { number: string } | null; lines?: { id: string; debit: string; credit: string; description: string | null; account: { code: string; name?: string; nameAr: string } }[] };
 
 function Journals() {
   const { can } = usePermissions();
@@ -442,6 +499,9 @@ function Journals() {
               <div className="min-w-0">
                 <h3 className="section-title"><bdi dir="ltr">{j.number}</bdi> · {j.date}</h3>
                 <p className="text-sm text-united-muted">{t(SOURCE_TYPES[j.sourceType])} · <bdi>{systemText(j.description, locale)}</bdi></p>
+                {j.sourceId && SOURCE_DOC[j.sourceType] && (
+                  <p className="text-sm font-bold" data-testid="journal-source"><span className="text-united-muted">{t("doc.source-document")} </span><DocLink href={SOURCE_DOC[j.sourceType]!(j.sourceId)}>{t("doc.open-source")}</DocLink></p>
+                )}
               </div>
               <button type="button" className="btn-secondary btn-sm shrink-0" onClick={() => setOpen(null)}>{t("accounting.button.close")}</button>
             </div>
@@ -517,6 +577,7 @@ function Trial() {
   });
   return (
     <div className="flex flex-col gap-3">
+      <ProvisionalOpeningBanner />
       <div className="flex flex-wrap gap-2"><label className="text-xs font-bold">{t("accounting.date-from")} <input type="date" className="field ms-1" value={from} onChange={(e) => setFrom(e.target.value)} /></label><label className="text-xs font-bold">{t("accounting.date-to")} <input type="date" className="field ms-1" value={to} onChange={(e) => setTo(e.target.value)} /></label></div>
       {q.isLoading && <LoadingState />}
       {q.data && (
@@ -726,6 +787,7 @@ function Health() {
   };
   return (
     <div className="flex flex-col gap-3">
+      <ProvisionalOpeningBanner />
       <section className={`card p-4 font-extrabold ${r.ok ? "bg-united-green/10 text-united-green" : "bg-united-danger/10 text-united-danger"}`}>
         {r.ok ? t("accounting.health-matched") : t("accounting.health-diff")}
         <div className="text-xs font-bold text-united-muted mt-1">{t("accounting.last-checked")} {new Date(r.checkedAt).toLocaleString(intlLocale(locale))}</div>
@@ -781,9 +843,15 @@ function Opening() {
   const [stock, setStock] = useState<{ product_id: string; quantity: string; unit_cost: string; expiry_date: string }[]>([{ product_id: "", quantity: "", unit_cost: "", expiry_date: "" }]);
   const parties = b.party_type === "customer" ? customers.data : suppliers.data;
   const done = (msg: string) => { toast.show(msg, "success"); void qc.invalidateQueries({ queryKey: ["acc"] }); };
+  // The phased opening migration (Nov 2026): once started, its batches carry every opening figure and the direct forms close.
+  const [openBatch, setOpenBatch] = useState<string | null>(null);
+  const migration = useQuery({ queryKey: ["acc", "opening-migration"], queryFn: () => apiFetch<{ overview: { migration: unknown } }>("/api/accounting/opening-migration").then((r) => r.overview) });
+  const phased = !!migration.data?.migration;
   return (
     <div className="flex flex-col gap-3">
-      <OpeningBatchView />
+      <OpeningMigrationView onOpenBatch={setOpenBatch} />
+      <OpeningBatchView open={openBatch} setOpen={setOpenBatch} phased={phased} />
+      {phased ? <p className="text-sm font-bold text-united-muted">{t("openmig.direct-closed")}</p> : <>
       <h2 className="section-title mt-4">{t("opening.direct-title")}</h2>
       <p className="text-sm font-bold text-united-muted">{t("opening.direct-explain")}</p>
       <p className="text-sm font-bold text-united-muted">{t("accounting.info-go-live")}</p>
@@ -816,6 +884,7 @@ function Opening() {
           }}>{t("accounting.button.record-stock")}</button>
         </div>
       </section>
+      </>}
       <ul className="flex flex-col gap-1 text-sm font-bold">
         {list.data?.openingBalances.map((o) => (
           <li key={o.id} className="card p-2 flex justify-between"><span>{o.partyType === "customer" ? t("accounting.info-type-customer") : t("accounting.info-type-supplier")} · {getPartyName(o.party, locale)} · {o.date}{o.reference ? ` · ${o.reference}` : ""}</span><span dir="ltr">{fmtMoney(o.amount)}</span></li>

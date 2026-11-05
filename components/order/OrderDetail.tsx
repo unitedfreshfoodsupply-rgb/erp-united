@@ -36,6 +36,8 @@ import { orderCustomerName } from "@/lib/locale/names";
 import { PartyLink } from "@/components/profiles/EntityLink";
 import { OrderStepper } from "@/components/order/OrderStepper";
 import { Field } from "@/components/ui/Field";
+import { StockHoldPanel } from "@/components/order/StockHoldPanel";
+import { OrderInvoices } from "@/components/order/OrderInvoices";
 
 // Map order source → translation key
 const SOURCE_TKEY: Record<string, string> = {
@@ -67,6 +69,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     delivery_date: "",
     delivery_time: "",
     notes: "",
+    customer_po_ref: "",
     reason: "",
   });
   // The values the form opened with: only what the user changed is sent, so an unchanged
@@ -179,6 +182,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       delivery_date: order!.deliveryDate,
       delivery_time: order!.deliveryTime ?? "",
       notes: order!.notes ?? "",
+      customer_po_ref: order!.customerPoRef ?? "",
       reason: "",
     };
     setEditBase(base);
@@ -192,7 +196,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       setError(t("orders.edit.required_reason"));
       return;
     }
-    const changed = (["customer_account_id", "customer_name", "delivery_date", "delivery_time", "notes"] as const).filter((k) => editForm[k] !== editBase[k]);
+    const changed = (["customer_account_id", "customer_name", "delivery_date", "delivery_time", "notes", "customer_po_ref"] as const).filter((k) => editForm[k] !== editBase[k]);
     if (changed.length === 0) return setEditing(false);
     // The customer is one identity: its id and name go together when either changed.
     const fields = changed.some((k) => k.startsWith("customer_")) ? [...new Set([...changed, "customer_account_id", "customer_name"] as const)] : changed;
@@ -249,6 +253,13 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           )
         }
       />
+    );
+  } else if (canPrep && order.status === "new" && order.stockStatus === "awaiting_stock") {
+    // Saved short on purpose: preparation waits for the stock and the release (server-gated too).
+    stickyAction = (
+      <button disabled className="btn-secondary w-full text-xl">
+        {t("hold.prep-blocked")}
+      </button>
     );
   } else if (canPrep && order.status === "new") {
     stickyAction = (
@@ -394,7 +405,12 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       <div className="card p-5">
         <div className="flex items-start justify-between gap-2 mb-1">
           <h1 className="text-2xl font-extrabold text-united-dark"><PartyLink kind="customer" id={order.customerAccountId} name={orderCustomerName(order, locale === "en" ? "en" : "ar")} /></h1>
-          <StatusBadge status={order.status} />
+          <div className="flex flex-col items-end gap-1">
+            <StatusBadge status={order.status} />
+            {order.stockStatus === "awaiting_stock" && order.status !== "cancelled" && (
+              <span className="rounded-full bg-[#FFF4E0] px-2.5 py-0.5 text-xs font-bold text-united-warn">{t("order.awaiting-stock")}</span>
+            )}
+          </div>
         </div>
         {/* What the stage actually means, not just its name. */}
         <p className="text-sm font-bold text-united-muted mb-2">{(locale === "en" ? STATUS_MEANING_EN : STATUS_MEANING)[order.status]}</p>
@@ -414,6 +430,12 @@ export function OrderDetail({ orderId }: { orderId: string }) {
             <dt>{t("orders.reference.external")}</dt>
             <dd dir="ltr" className="font-bold text-united-dark/70">{orDash(order.externalId, t("orders.empty"))}</dd>
           </div>
+          {order.customerPoRef && (
+            <div className="flex gap-1">
+              <dt>{t("orders.reference.po")}</dt>
+              <dd className="font-bold text-united-dark/70"><bdi>{order.customerPoRef}</bdi></dd>
+            </div>
+          )}
           <div className="flex gap-1">
             <dt>{t("orders.reference.source")}</dt>
             <dd className="font-bold text-united-dark/70">{SOURCE_TKEY[order.source] ? t(SOURCE_TKEY[order.source] as Parameters<typeof t>[0]) : order.source}</dd>
@@ -497,6 +519,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
             </a>
           )}
         </div>
+        <div className="mt-2"><OrderInvoices orderId={orderId} /></div>
       </div>
 
       {(urgency === "late" || urgency === "soon") && (
@@ -518,6 +541,8 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       )}
 
       {error && <p className="bg-red-50 text-united-danger font-bold rounded-xl p-3 mt-3">{error}</p>}
+
+      <StockHoldPanel order={order} />
 
       {/* Items */}
       <div className="mt-4">
@@ -617,6 +642,14 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                   value={editForm.notes}
                   onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
                   className="field"
+                />
+              </Field>
+              <Field label={t("orders.edit.po_ref")}>
+                <input
+                  value={editForm.customer_po_ref}
+                  onChange={(e) => setEditForm((f) => ({ ...f, customer_po_ref: e.target.value }))}
+                  className="field"
+                  maxLength={100}
                 />
               </Field>
               <Field label={t("orders.edit.reason_placeholder")}>

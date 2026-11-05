@@ -47,7 +47,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | `sales.invoices.manage` — إصدار الفواتير | ✓ |  |  |  |  |  | ✓ |  |  |
 | `sales.tax.manage` — إدارة التصنيف الضريبي | ✓ |  |  |  |  |  | ✓ |  |  |
 | `sales.credit.manage` — إدارة الائتمان | ✓ |  |  |  |  |  | ✓ |  |  |
-| `purchasing.suppliers.view` — عرض الموردين | ✓ | ✓ |  |  |  |  | ✓ | ✓ | ✓ |
+| `purchasing.suppliers.view` — عرض الموردين | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |
 | `purchasing.suppliers.manage` — إدارة الموردين (التجاري) | ✓ |  |  |  |  |  | ✓ | ✓ |  |
 | `purchasing.prices.view` — عرض أسعار الشراء | ✓ | ✓ |  |  |  |  | ✓ | ✓ |  |
 | `purchasing.prices.manage` — إدارة أسعار الموردين | ✓ |  |  |  |  |  |  | ✓ |  |
@@ -176,6 +176,17 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/accounting/opening-batches/[id]/submit` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/accounting/opening-batches` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/opening-batches` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/attest` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/close` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/close/withdraw` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/exceptions/[id]` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/opening-migration/exceptions` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/exceptions` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/opening-migration/export` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration/import` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/opening-migration/position` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/accounting/opening-migration` | `accounting.view` | ✓ |  |  |  |  |  | ✓ |  |  |
+| POST | `/api/accounting/opening-migration` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/opening-stock` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/accounting/payments/[id]/allocate` | `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/accounting/payments/[id]/reverse` | `accounting.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
@@ -309,11 +320,14 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/hr/compensation/[id]/cancel` | any of `hr.compensation.manage`, `hr.payroll.approve` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/compensation` | any of `hr.compensation.view` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/hr/compensation` | `hr.compensation.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/hr/custody/missing-receipts` | any of `hr.advances.manage`, `hr.employees.manage`, `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
+| GET | `/api/hr/custody` | any of `hr.advances.manage`, `hr.employees.manage`, `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/hr/departments` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/documents/expiring` | `hr.private.view` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/hr/employees/[id]/bank-accounts/[accountId]/deactivate` | `hr.private.manage` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/hr/employees/[id]/bank-accounts/[accountId]/reveal` | `hr.private.view` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/hr/employees/[id]/bank-accounts` | `hr.private.manage` | ✓ |  |  |  |  |  |  |  |  |
+| GET | `/api/hr/employees/[id]/custody` | any of `hr.advances.manage`, `hr.employees.manage`, `accounting.view`, `accounting.payments.manage` | ✓ |  |  |  |  |  | ✓ |  | ✓ |
 | POST | `/api/hr/employees/[id]/documents` | `hr.private.manage` | ✓ |  |  |  |  |  |  |  |  |
 | POST | `/api/hr/employees/[id]/employment` | `hr.employees.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/hr/employees/[id]/private` | `hr.private.view` | ✓ |  |  |  |  |  |  |  |  |
@@ -445,11 +459,13 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | PATCH | `/api/orders/[id]/items/[itemId]/price` | `sales.price_override` | ✓ |  |  |  |  | ✓ |  |  |  |
 | POST | `/api/orders/[id]/items/[itemId]/required` | `orders.edit` | ✓ | ✓ |  |  |  |  |  |  |  |
 | GET | `/api/orders/[id]/pricing` | `sales.pricing.view` | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  |
+| POST | `/api/orders/[id]/release-stock` | `orders.edit` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/orders/[id]/reopen` | `orders.edit` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/orders/[id]/reprice` | `sales.price_override` | ✓ |  |  |  |  | ✓ |  |  |  |
 | GET | `/api/orders/[id]` | `orders.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
 | PATCH | `/api/orders/[id]` | `orders.edit` | ✓ | ✓ |  |  |  |  |  |  |  |
 | POST | `/api/orders/[id]/status` | `orders.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
+| GET | `/api/orders/[id]/stock` | `orders.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
 | GET | `/api/orders/entry/catalog` | `orders.create` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | GET | `/api/orders/entry/price` | `orders.create` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | GET | `/api/orders` | `orders.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
@@ -493,11 +509,11 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/purchasing/suppliers/[id]/contacts` | `purchasing.suppliers.manage` | ✓ |  |  |  |  |  | ✓ | ✓ |  |
 | GET | `/api/purchasing/suppliers/[id]/prices` | `purchasing.prices.view` | ✓ | ✓ |  |  |  |  | ✓ | ✓ |  |
 | POST | `/api/purchasing/suppliers/[id]/prices` | `purchasing.prices.manage` | ✓ |  |  |  |  |  |  | ✓ |  |
-| GET | `/api/purchasing/suppliers/[id]` | `purchasing.suppliers.view` | ✓ | ✓ |  |  |  |  | ✓ | ✓ | ✓ |
-| PATCH | `/api/purchasing/suppliers/[id]` | `purchasing.suppliers.manage` | ✓ |  |  |  |  |  | ✓ | ✓ |  |
+| GET | `/api/purchasing/suppliers/[id]` | `purchasing.suppliers.view` | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |
+| PATCH | `/api/purchasing/suppliers/[id]` | any of `purchasing.suppliers.manage`, `stock.manage_suppliers` | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |
 | GET | `/api/purchasing/suppliers/[id]/statement/export` | `purchasing.bills.view` | ✓ |  |  |  |  |  | ✓ | ✓ | ✓ |
 | GET | `/api/purchasing/suppliers/[id]/statement` | `purchasing.bills.view` | ✓ |  |  |  |  |  | ✓ | ✓ | ✓ |
-| GET | `/api/purchasing/suppliers` | `purchasing.suppliers.view` | ✓ | ✓ |  |  |  |  | ✓ | ✓ | ✓ |
+| GET | `/api/purchasing/suppliers` | `purchasing.suppliers.view` | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |
 | POST | `/api/purchasing/suppliers` | `purchasing.suppliers.manage` | ✓ |  |  |  |  |  | ✓ | ✓ |  |
 | GET | `/api/reports/[key]/export` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | GET | `/api/reports/[key]` | signed in (checked per record in the service) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -510,6 +526,8 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | PATCH | `/api/sales/customers/[id]/contacts/[contactId]` | `sales.customers.manage` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | POST | `/api/sales/customers/[id]/contacts` | `sales.customers.manage` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | PATCH | `/api/sales/customers/[id]/credit` | `sales.credit.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
+| GET | `/api/sales/customers/[id]/eta-identity` | any of `sales.customers.view`, `accounting.eta.view` | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
+| POST | `/api/sales/customers/[id]/eta-identity` | `sales.customers.manage` | ✓ | ✓ |  |  |  | ✓ |  |  |  |
 | GET | `/api/sales/customers/[id]/exposure` | any of `sales.invoices.view`, `sales.credit.manage` | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
 | GET | `/api/sales/customers/[id]/history` | `sales.customers.view` | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | PATCH | `/api/sales/customers/[id]/price-list` | `sales.pricing.manage` | ✓ |  |  |  |  | ✓ |  |  |  |
@@ -527,6 +545,7 @@ Enforcement is verified end to end by `tests/security.test.ts` (every handler ×
 | POST | `/api/sales/invoices/[id]/recover` | `sales.invoices.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/sales/invoices/[id]/reprice` | `sales.invoices.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/sales/invoices/[id]` | `sales.invoices.view` | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
+| PATCH | `/api/sales/invoices/[id]` | `sales.invoices.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | POST | `/api/sales/invoices/[id]/void` | `sales.invoices.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | GET | `/api/sales/invoices` | `sales.invoices.view` | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
 | POST | `/api/sales/invoices` | `sales.invoices.manage` | ✓ |  |  |  |  |  | ✓ |  |  |

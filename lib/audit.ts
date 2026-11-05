@@ -101,7 +101,10 @@ export type AuditInput = {
     | "product_packaging"
     | "customer_group"
     | "customer_legal_entity"
-    | "purchase_request";
+    | "opening_migration"
+    | "purchase_request"
+    // Purchasing custody (Nov 2026)
+    | "employee_custody_request";
   entityId: string;
   orderId?: string | null;
   fieldChanged?: string;

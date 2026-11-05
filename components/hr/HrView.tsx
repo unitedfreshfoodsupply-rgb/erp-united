@@ -20,6 +20,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
 import { localName, namesForEdit, namesForSave } from "@/lib/locale/names";
+import { CustodyView } from "@/components/hr/CustodyView";
 
 /**
  * HR and expenses on today's schema: expenses (above the threshold they wait for approval),
@@ -35,32 +36,32 @@ type Emp = {
   id: string; code: string; name: string; nameAr?: string | null; active: boolean; department: { id: string; name: string; nameAr?: string | null } | null;
   // HR/finance only:
   jobTitle?: string | null; phone?: string | null; hireDate?: string | null; departmentId?: string | null; userId?: string | null; version?: number; balance?: string;
+  /** The supplier category the employee buys for with purchasing custody. */
+  purchasingCategory?: string | null;
 };
-type Tab = "expenses" | "employees" | "departments";
+type Tab = "expenses" | "employees" | "departments" | "custody";
 
 const useEmployees = () =>
   useQuery({ queryKey: ["hr", "employees"], queryFn: () => apiFetch<{ employees: Emp[]; departments: Dept[] }>("/api/hr/employees") });
 
-export function HrView() {
+export function HrView({ initialTab }: { initialTab?: string } = {}) {
   const { can } = usePermissions();
   const { t } = useLocale();
-  const [tab, setTab] = useState<Tab>("expenses");
   const manage = can("hr.employees.manage");
+  // Purchasing custody: whoever pays advances, keeps the employee register, or reads the books.
+  const custody = manage || can("hr.advances.manage") || can("accounting.view");
+  // Permissions may still be loading on the first render: keep the asked-for tab, render it only if allowed.
+  const [tab, setTab] = useState<Tab>(initialTab === "custody" || initialTab === "employees" || initialTab === "departments" ? initialTab : "expenses");
+  const items: { key: Tab; label: string }[] = [
+    { key: "expenses", label: t("hr.expenses") },
+    ...(manage ? [{ key: "employees" as Tab, label: t("hr.employees") }, { key: "departments" as Tab, label: t("hr.departments") }] : []),
+    ...(custody ? [{ key: "custody" as Tab, label: t("hr.custody.tab") }] : []),
+  ];
   return (
     <div className="page-container">
       <PageHeader title={t("hr.title")} description={manage ? t("hr.page.description") : t("hr.page.description_expenses")} />
-      {manage && (
-        <Tabs
-          value={tab}
-          onChange={setTab}
-          items={[
-            { key: "expenses", label: t("hr.expenses") },
-            { key: "employees", label: t("hr.employees") },
-            { key: "departments", label: t("hr.departments") },
-          ]}
-        />
-      )}
-      {tab === "expenses" || !manage ? <Expenses /> : tab === "employees" ? <Employees /> : <Departments />}
+      {items.length > 1 && <Tabs value={tab} onChange={setTab} items={items} />}
+      {tab === "custody" && custody ? <CustodyView /> : tab === "expenses" || !manage ? <Expenses /> : tab === "employees" ? <Employees /> : <Departments />}
     </div>
   );
 }
@@ -360,6 +361,7 @@ function EmployeeDialog({ employee, departments, onClose }: { employee: Emp | nu
     department_id: employee?.department?.id ?? employee?.departmentId ?? "",
     hire_date: employee?.hireDate ?? "",
     active: employee?.active ?? true,
+    purchasing_category: employee?.purchasingCategory ?? "",
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -370,7 +372,7 @@ function EmployeeDialog({ employee, departments, onClose }: { employee: Emp | nu
     setBusy(true);
     setError(null);
     // Only the fields this form shows are sent; the linked user account is left as it is.
-    const body = { ...namesForSave(f.name, f.name_ar), job_title: f.job_title.trim() || null, phone: f.phone.trim() || null, department_id: f.department_id || null, hire_date: f.hire_date || undefined, active: f.active };
+    const body = { ...namesForSave(f.name, f.name_ar), job_title: f.job_title.trim() || null, phone: f.phone.trim() || null, department_id: f.department_id || null, hire_date: f.hire_date || undefined, active: f.active, purchasing_category: f.purchasing_category || null };
     try {
       if (employee) await apiPatch(`/api/hr/employees/${employee.id}`, { ...body, expected_version: employee.version });
       else await apiPost("/api/hr/employees", body);
@@ -418,6 +420,14 @@ function EmployeeDialog({ employee, departments, onClose }: { employee: Emp | nu
         </Field>
         <Field label={t("hr.col.hire_date")}>
           <input type="date" className="field" value={f.hire_date} onChange={(e) => setF({ ...f, hire_date: e.target.value })} />
+        </Field>
+        <Field label={t("hr.custody.purchasing_category")} hint={t("hr.custody.purchasing_category_hint")}>
+          <select className="field" value={f.purchasing_category} onChange={(e) => setF({ ...f, purchasing_category: e.target.value })}>
+            <option value="">{t("hr.custody.category.none")}</option>
+            <option value="vegetable">{t("hr.custody.category.vegetable")}</option>
+            <option value="fruit">{t("hr.custody.category.fruit")}</option>
+            <option value="other">{t("hr.custody.category.other")}</option>
+          </select>
         </Field>
         {employee && (
           <label className="flex items-start gap-3 rounded-lg border border-united-border p-3 sm:col-span-2">
@@ -514,7 +524,7 @@ function StatementDialog({ employee, onClose }: { employee: Emp; onClose: () => 
   const { t, locale } = useLocale();
   const q = useQuery({
     queryKey: ["hr", "statement", employee.id],
-    queryFn: () => apiFetch<{ statement: { rows: { date: string; number: string; description: string; account: string; debit: string; credit: string }[]; advancesHeld: string; owedToEmployee: string } }>(`/api/hr/employees/${employee.id}/statement`).then((r) => r.statement),
+    queryFn: () => apiFetch<{ statement: { rows: { date: string; number: string; description: string; account: string; debit: string; credit: string }[]; advancesHeld: string; custodyHeld?: string; salaryAdvancesHeld?: string; owedToEmployee: string } }>(`/api/hr/employees/${employee.id}/statement`).then((r) => r.statement),
   });
   return (
     <Modal open onClose={onClose} size="xl" title={t("hr.statement.title")} description={localName(employee, locale)} footer={<button type="button" className="btn-secondary" onClick={onClose}>{t("ui.close")}</button>}>
@@ -526,6 +536,9 @@ function StatementDialog({ employee, onClose }: { employee: Emp; onClose: () => 
             <Metric label={t("hr.statement.advances_held")} value={fmtMoney(q.data.advancesHeld)} ltr tone={Number(q.data.advancesHeld) > 0 ? "text-united-warn" : undefined} />
             <Metric label={t("hr.statement.owed")} value={fmtMoney(q.data.owedToEmployee)} ltr tone={Number(q.data.owedToEmployee) > 0 ? "text-united-danger" : undefined} />
           </dl>
+          {Number(q.data.custodyHeld ?? 0) !== 0 && (
+            <p className="text-xs text-united-muted">{t("hr.statement.custody_split", { custody: fmtMoney(q.data.custodyHeld ?? "0"), salary: fmtMoney(q.data.salaryAdvancesHeld ?? "0") })}</p>
+          )}
           {q.data.rows.length === 0 ? (
             <EmptyState icon="📄" title={t("hr.statement.empty")} />
           ) : (

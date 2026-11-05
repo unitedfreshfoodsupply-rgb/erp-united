@@ -46,7 +46,7 @@ type Actorish = { id: string | null; name: string; role: string; deviceId?: stri
 
 export type SystemKey =
   | "cash" | "bank" | "ar" | "inventory" | "vat_input" | "employee_advances" | "ap" | "grni" | "vat_output" | "employee_payable"
-  | "capital" | "retained_earnings" | "opening_equity" | "sales" | "sales_returns" | "cogs" | "inventory_adjustment" | "ppv" | "general_expenses" | "transport_expenses" | "salaries"
+  | "capital" | "retained_earnings" | "opening_equity" | "opening_clearing" | "sales" | "sales_returns" | "cogs" | "inventory_adjustment" | "ppv" | "general_expenses" | "transport_expenses" | "salaries"
   | "vat_payable" | "fa_disposal_gain" | "fa_depreciation" | "fa_disposal_loss";
 
 export type PostLine = {

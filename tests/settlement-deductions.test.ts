@@ -36,7 +36,7 @@ async function main() {
   };
   check("four accounts created", Object.values(accounts).every((a: any) => !!a?.id), accounts);
   const customer = (await call("mona", "POST", "/api/sales/customers", { name: `${TAG} فندق` })).body.customer;
-  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مزرعة` })).body.supplier;
+  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} مزرعة` })).body.supplier;
   // The open documents this suite settles are go-live balances. CTL-01 closes direct
   // opening entries by default (409); the setup opens them by an audited settings change
   // for these three documents only and restores the default right after.

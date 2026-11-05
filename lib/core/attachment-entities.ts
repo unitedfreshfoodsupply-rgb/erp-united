@@ -52,6 +52,25 @@ export const ATTACHMENT_ENTITIES: Record<string, EntityDef> = {
     manage: ["hr.private.manage"],
     exists: (db, id) => db.employee.findUnique({ where: { id }, select: { id: true } }).then(found),
   },
+  // The supplier's receipt or invoice for a payment — for a payment from purchasing custody, a
+  // payment with no file is a missing receipt (lib/hr/custody.ts). Finance and payment clerks.
+  // The supplier's own invoice (scan or PDF) and its supporting documents, on UNITED's bill.
+  supplier_bill: {
+    view: ["purchasing.bills.view"],
+    manage: ["purchasing.bills.manage"],
+    exists: (db, id) => db.supplierBill.findUnique({ where: { id }, select: { id: true } }).then(found),
+  },
+  // A sales invoice's supporting documents (the customer's signed delivery note, their PO).
+  sales_invoice: {
+    view: ["sales.invoices.view"],
+    manage: ["sales.invoices.manage"],
+    exists: (db, id) => db.salesInvoice.findUnique({ where: { id }, select: { id: true } }).then(found),
+  },
+  supplier_payment: {
+    view: ["accounting.view", "accounting.payments.manage"],
+    manage: ["accounting.payments.manage"],
+    exists: (db, id) => db.supplierPayment.findUnique({ where: { id }, select: { id: true } }).then(found),
+  },
   // A medical certificate or other proof for a leave request: seen by whoever handles leave.
   leave_request: {
     view: ["hr.leave.request", "hr.leave.approve"],
@@ -98,4 +117,7 @@ export const ATTACHMENT_CATEGORY_LABEL: Record<AttachmentCategory, string> = {
 export const ATTACHMENT_CATEGORIES_FOR: Partial<Record<string, readonly AttachmentCategory[]>> = {
   leave_request: ["medical", "certificate", "other"],
   employee: ["id_document", "employment_contract", "insurance_form", "certificate", "medical", "other"],
+  supplier_payment: ["receipt", "invoice", "purchase_document", "other"],
+  supplier_bill: ["invoice", "tax_document", "purchase_document", "delivery_note", "other"],
+  sales_invoice: ["delivery_note", "purchase_document", "contract", "other"],
 };

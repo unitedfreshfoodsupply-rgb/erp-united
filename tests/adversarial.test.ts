@@ -124,7 +124,7 @@ async function main() {
   section("5. VAT RETURN FILED WHILE BILLS ARE POSTED INTO ITS PERIOD");
   const vat = (await call("karim", "GET", "/api/accounting/vat-returns")).body;
   const P1 = vat.nextFrom ?? "2025-01-01", P2 = addDays(P1, 2);
-  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} مورد` })).body.supplier;
+  const supplier = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} مورد` })).body.supplier;
   const bills: string[] = [];
   for (let i = 0; i < 4; i++) {
     const b = (await call("karim", "POST", "/api/purchasing/bills", { kind: "service", supplier_id: supplier.id, supplier_invoice_no: `${TAG}-v${i}`, bill_date: P1, lines: [{ account_id: "acc_6100", description: "خدمة", amount: "100", tax_code: "VAT14" }] })).body.bill;

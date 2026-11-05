@@ -52,8 +52,10 @@ test("each role's drill-downs follow its page permissions", () => {
   assert.equal(mayOpenLink("/orders/o1", sales), true);
   const stock = can("STOCK_CONTROLLER");
   assert.equal(mayOpenLink("/purchasing?po=po1", stock), true, "STOCK_CONTROLLER sees purchase orders");
-  assert.equal(mayOpenLink("/purchasing?supplier=s1", stock), false, "but not the suppliers tab");
-  assert.equal(mayOpenLink("/purchasing/suppliers/s1", stock), false, "nor a supplier's profile");
+  // D-2 (Nov 2026): the stock controller reads supplier profiles — but never a supplier's money.
+  assert.equal(mayOpenLink("/purchasing?supplier=s1", stock), true, "and the supplier profile (read-only, D-2)");
+  assert.equal(mayOpenLink("/purchasing/suppliers/s1", stock), true, "the profile page itself");
+  assert.equal(mayOpenLink("/purchasing?tab=bills", stock), false, "but not supplier bills");
   assert.equal(mayOpenLink("/stock/products/p1", stock), true);
   assert.equal(mayOpenLink("/orders/o1", stock), false);
   const buyer = can("PURCHASER");

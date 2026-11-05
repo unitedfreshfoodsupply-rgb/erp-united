@@ -154,7 +154,9 @@ test("each GL entry is reversed on its own: a receipt and a correction that each
 
 test("standard cost: a graded receipt voids with its price variance; after the standard changes it is refused", async () => {
   const p = await product("Std", { costingMethod: "standard", standardCost: "7" });
-  const r = await receive(p.id, { received_kg: 100, grade_b_qty: 10, waste_qty: 5, unit_cost: "9" });
+  // Grade B is its own product (Nov 2026), never a bucket of the first-grade one.
+  const pb = await product("StdB", {});
+  const r = await receive(p.id, { received_kg: 100, grade_b_qty: 10, grade_b_product_id: pb.id, waste_qty: 5, unit_cost: "9" });
   assert.equal(Object.keys(await receiptGl(r.id)).includes("ppv"), true, "the receipt carried a variance");
   await voidIt(r.id);
   assert.deepEqual(await receiptGl(r.id), {}, "inventory, GRNI and the variance all back");

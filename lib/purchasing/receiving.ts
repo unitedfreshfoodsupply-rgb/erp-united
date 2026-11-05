@@ -2,8 +2,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
 import { advisoryXactLock } from "@/lib/dbLock";
-import type { Tx } from "@/lib/tx";
-import { refreshPoReceiptStatus } from "@/lib/purchasing/orders";
+import { afterCommit, inTx, type Tx } from "@/lib/tx";
+import { refreshPoReceiptStatus, releasePoCoverage } from "@/lib/purchasing/orders";
 
 /**
  * The purchase-order side of a goods receipt.
@@ -40,10 +40,13 @@ export function poLineUnitCost(line: { unitPrice: Prisma.Decimal; quantity: Pris
 /**
  * Inside the receipt's transaction, before it is written: locks the order (receipts
  * against the same PO queue), re-checks it can still be received against, and that
- * `good` (plus every other posted receipt on the line, except `excludeIntakeId` when
- * correcting) stays within the tolerance.
+ * `accepted` (plus every other posted receipt on the line, except `excludeIntakeId` when
+ * correcting) stays within the tolerance. Accepted = received − rejected: everything that
+ * enters stock and GRNI and that the supplier bills for — first grade, second grade and the
+ * waste graded out of it alike. (Measuring the good quantity alone let a receipt graded into
+ * Grade B or waste pass well beyond the approved quantity.)
  */
-export async function guardPoReceipt(tx: Tx, input: { lineId: string; good: Prisma.Decimal; tolerancePct: number; excludeIntakeId?: string }) {
+export async function guardPoReceipt(tx: Tx, input: { lineId: string; accepted: Prisma.Decimal; tolerancePct: number; excludeIntakeId?: string }) {
   const line = await tx.purchaseOrderLine.findUniqueOrThrow({ where: { id: input.lineId }, include: { po: true, product: true } });
   await advisoryXactLock(tx, `purchasing:po:${line.poId}`);
   const po = await tx.purchaseOrder.findUniqueOrThrow({ where: { id: line.poId } });
@@ -52,15 +55,16 @@ export async function guardPoReceipt(tx: Tx, input: { lineId: string; good: Pris
   }
   const others = await tx.stockIntake.aggregate({
     where: { purchaseOrderLineId: line.id, status: "posted", ...(input.excludeIntakeId ? { id: { not: input.excludeIntakeId } } : {}) },
-    _sum: { goodQty: true },
+    _sum: { receivedQty: true, rejectedQty: true },
   });
-  const total = D(others._sum.goodQty ?? 0).plus(input.good);
+  const before = D(others._sum.receivedQty ?? 0).minus(D(others._sum.rejectedQty ?? 0));
+  const total = before.plus(input.accepted);
   const ceiling = D(line.baseQuantity).times(D(100).plus(input.tolerancePct)).dividedBy(100);
   if (total.greaterThan(ceiling)) {
-    const left = Prisma.Decimal.max(ceiling.minus(D(others._sum.goodQty ?? 0)), 0);
+    const left = Prisma.Decimal.max(ceiling.minus(before), 0);
     throw new ApiError(
       409,
-      `"${line.product.name}": المطلوب في ${po.number} ${D(line.baseQuantity).toFixed()} ${line.product.unit} — أقصى استلام سليم باقي ${left.toFixed()} (سماحية ${input.tolerancePct}%)`
+      `"${line.product.name}": المطلوب في ${po.number} ${D(line.baseQuantity).toFixed()} ${line.product.unit} — أقصى استلام مقبول باقي ${left.toFixed()} (سماحية ${input.tolerancePct}%)`
     );
   }
   return { line, po };
@@ -73,8 +77,30 @@ export async function lockPoForReceipt(tx: Tx, lineId: string) {
   return line.poId;
 }
 
+/**
+ * After a receipt against a PO is posted, corrected or voided: the PO's receiving status, then
+ * the suggestions of the orders it serves (release gate D-1, Nov 2026). What the PO still has to
+ * bring just changed, so may what its order lines lack beyond it — a rejected or graded-out part
+ * of a delivery that closed the line, a voided receipt. A receipt voided or corrected down after
+ * the PO was closed can leave a request with nothing accepted on it: it is released as the close
+ * would have released it.
+ *
+ * The purchasing side runs once the receipt has committed, in its own transaction, outside the
+ * receipt's stock locks: a receipt never waits for, deadlocks with or fails on a purchase request
+ * being decided at the same moment. Should it fail, it is logged and the next re-size corrects it.
+ */
 export async function afterPoReceipt(tx: Tx, poId: string, actor: { id: string | null; name: string; role: string; deviceId?: string }) {
-  return refreshPoReceiptStatus(tx, poId, actor);
+  const status = await refreshPoReceiptStatus(tx, poId, actor);
+  if (!afterCommit(tx, `po-coverage:${poId}`, () => inTx((t) => syncPoCoverage(t, poId, actor)))) await syncPoCoverage(tx, poId, actor);
+  return status;
+}
+
+export async function syncPoCoverage(tx: Tx, poId: string, actor: { id: string | null; name: string; role: string; deviceId?: string }) {
+  await advisoryXactLock(tx, `purchasing:po:${poId}`);
+  const po = await tx.purchaseOrder.findUniqueOrThrow({ where: { id: poId } });
+  if (po.status === "closed") await releasePoCoverage(tx, po, "closed", "استلام اتلغى أو اتعدّل بعد قفل أمر الشراء", actor, { noteKept: false });
+  const { syncSuggestionsOfPo } = await import("@/lib/purchasing/requests");
+  await syncSuggestionsOfPo(tx, poId, actor);
 }
 
 /** What is still expected, per open PO line, for the receiving screen (no prices). */
@@ -87,14 +113,16 @@ export async function openLinesForReceiving(filters: { supplierId?: string }) {
   });
   const lineIds = pos.flatMap((p) => p.lines.map((l) => l.id));
   const got = lineIds.length
-    ? await prisma.stockIntake.groupBy({ by: ["purchaseOrderLineId"], where: { status: "posted", purchaseOrderLineId: { in: lineIds } }, _sum: { goodQty: true } })
+    ? await prisma.stockIntake.groupBy({ by: ["purchaseOrderLineId"], where: { status: "posted", purchaseOrderLineId: { in: lineIds } }, _sum: { goodQty: true, receivedQty: true, rejectedQty: true } })
     : [];
   const goodBy = new Map(got.map((g) => [g.purchaseOrderLineId!, D(g._sum.goodQty ?? 0)]));
+  const acceptedBy = new Map(got.map((g) => [g.purchaseOrderLineId!, D(g._sum.receivedQty ?? 0).minus(D(g._sum.rejectedQty ?? 0))]));
   return pos.flatMap((p) =>
     p.lines
       .map((l) => {
         const good = goodBy.get(l.id) ?? D(0);
-        const remaining = Prisma.Decimal.max(D(l.baseQuantity).minus(good), 0);
+        // Still expected: the ordered quantity less what was accepted (graded output included).
+        const remaining = Prisma.Decimal.max(D(l.baseQuantity).minus(acceptedBy.get(l.id) ?? D(0)), 0);
         return { lineId: l.id, poId: p.id, poNumber: p.number, expectedDate: p.expectedDate, supplier: p.supplier, product: l.product, ordered: D(l.baseQuantity).toString(), receivedGood: good.toString(), remaining: remaining.toString(), orderedAs: `${l.quantity.toString()} ${l.uomCode}` };
       })
       .filter((x) => Number(x.remaining) > 0)

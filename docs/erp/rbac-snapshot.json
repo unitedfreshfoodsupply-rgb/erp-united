@@ -127,6 +127,7 @@
     ],
     "STOCK_CONTROLLER": [
       "purchasing.orders.view",
+      "purchasing.suppliers.view",
       "stock.adjust",
       "stock.manage_products",
       "stock.manage_suppliers",
@@ -620,6 +621,116 @@
     {
       "method": "POST",
       "path": "/api/accounting/opening-batches",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-migration/attest",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-migration/close",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-migration/close/withdraw",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-migration/exceptions/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/opening-migration/exceptions",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-migration/exceptions",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/opening-migration/export",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-migration/import",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/opening-migration/position",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounting/opening-migration",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "accounting.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounting/opening-migration",
       "gate": {
         "kind": "all",
         "permissions": [
@@ -1958,6 +2069,32 @@
       }
     },
     {
+      "method": "GET",
+      "path": "/api/hr/custody/missing-receipts",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.advances.manage",
+          "hr.employees.manage",
+          "accounting.view",
+          "accounting.payments.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/custody",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.advances.manage",
+          "hr.employees.manage",
+          "accounting.view",
+          "accounting.payments.manage"
+        ]
+      }
+    },
+    {
       "method": "POST",
       "path": "/api/hr/departments",
       "gate": {
@@ -2004,6 +2141,19 @@
         "kind": "all",
         "permissions": [
           "hr.private.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/hr/employees/[id]/custody",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "hr.advances.manage",
+          "hr.employees.manage",
+          "accounting.view",
+          "accounting.payments.manage"
         ]
       }
     },
@@ -3370,6 +3520,16 @@
     },
     {
       "method": "POST",
+      "path": "/api/orders/[id]/release-stock",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "orders.edit"
+        ]
+      }
+    },
+    {
+      "method": "POST",
       "path": "/api/orders/[id]/reopen",
       "gate": {
         "kind": "all",
@@ -3411,6 +3571,16 @@
     {
       "method": "POST",
       "path": "/api/orders/[id]/status",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "orders.view"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/orders/[id]/stock",
       "gate": {
         "kind": "all",
         "permissions": [
@@ -3861,9 +4031,10 @@
       "method": "PATCH",
       "path": "/api/purchasing/suppliers/[id]",
       "gate": {
-        "kind": "all",
+        "kind": "any",
         "permissions": [
-          "purchasing.suppliers.manage"
+          "purchasing.suppliers.manage",
+          "stock.manage_suppliers"
         ]
       }
     },
@@ -4009,6 +4180,27 @@
         "kind": "all",
         "permissions": [
           "sales.credit.manage"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/sales/customers/[id]/eta-identity",
+      "gate": {
+        "kind": "any",
+        "permissions": [
+          "sales.customers.view",
+          "accounting.eta.view"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/sales/customers/[id]/eta-identity",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "sales.customers.manage"
         ]
       }
     },
@@ -4180,6 +4372,16 @@
         "kind": "all",
         "permissions": [
           "sales.invoices.view"
+        ]
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/sales/invoices/[id]",
+      "gate": {
+        "kind": "all",
+        "permissions": [
+          "sales.invoices.manage"
         ]
       }
     },

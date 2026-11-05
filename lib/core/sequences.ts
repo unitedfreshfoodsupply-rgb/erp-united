@@ -64,6 +64,7 @@ export const SEQUENCE_DEFS = {
   "accounting.supplier_refund": { prefix: "SRF", padding: 5, reset: "yearly", label: "استرداد مبلغ من مورد" },
   "hr.employee": { prefix: "EMP", padding: 5, reset: "never", label: "كود موظف" },
   "hr.expense": { prefix: "EXP", padding: 5, reset: "yearly", label: "مصروف" },
+  "hr.custody_request": { prefix: "CST", padding: 5, reset: "yearly", label: "طلب عهدة شراء" },
   "hr.attendance_correction": { prefix: "ATC", padding: 5, reset: "yearly", label: "تصحيح حضور" },
   "hr.leave_request": { prefix: "LVR", padding: 5, reset: "yearly", label: "طلب إجازة" },
   "hr.compensation": { prefix: "CMP", padding: 5, reset: "yearly", label: "مرتب مقترح" },

@@ -294,7 +294,8 @@ async function receivedSoFar(db: Pick<Tx, "stockIntake">, poId: string) {
     where: { status: "posted", purchaseOrderLine: { poId } },
     _sum: { goodQty: true, rejectedQty: true, receivedQty: true },
   });
-  return new Map(rows.map((r) => [r.purchaseOrderLineId!, { good: D(r._sum.goodQty ?? 0), rejected: D(r._sum.rejectedQty ?? 0), received: D(r._sum.receivedQty ?? 0) }]));
+  // accepted = received − rejected: what entered stock (all grades) and what the supplier bills for.
+  return new Map(rows.map((r) => [r.purchaseOrderLineId!, { good: D(r._sum.goodQty ?? 0), rejected: D(r._sum.rejectedQty ?? 0), received: D(r._sum.receivedQty ?? 0), accepted: D(r._sum.receivedQty ?? 0).minus(D(r._sum.rejectedQty ?? 0)) }]));
 }
 
 export async function cancelPurchaseOrder(id: string, input: unknown, actor: ServiceActor) {
@@ -310,8 +311,67 @@ export async function cancelPurchaseOrder(id: string, input: unknown, actor: Ser
     if (po.status === "pending_approval") await cancelPendingApproval(tx, { type: "purchasing.order", entityId: id, reason: `أمر الشراء اتلغى: ${v.reason}`, actor });
     const updated = await transition(tx, po, { status: "cancelled", cancelReason: v.reason, closedAt: new Date() });
     await auditPo(tx, actor, po, "purchase_order_cancelled", null, v.reason);
+    await releasePoCoverage(tx, po, "cancelled", v.reason, actor);
     return updated;
   });
+}
+
+/**
+ * A cancelled or closed PO no longer covers the purchase requests it was made from (Nov 2026;
+ * closing since release gate D-1 — it used to keep "covering" them). A request nothing was
+ * accepted against goes back from "ordered" to "approved", unlinked from the PO, so purchasing
+ * can source it again — it used to stay "ordered" for ever and could not even be cancelled. A
+ * line suggestion whose order line already has another open request is cancelled instead (one
+ * open request per line). A request the closed PO partly delivered stays "ordered" on it — that
+ * is what was bought, and it is what the order is served by at release — but the PO brings
+ * nothing more. Either way each order's suggestions are re-sized to the line's current shortage
+ * (syncOrderSuggestions): what the PO will not bring is raised again, once.
+ */
+export async function releasePoCoverage(tx: Tx, po: PurchaseOrder, how: "cancelled" | "closed", reason: string, actor: { id: string | null; name: string; role: string; deviceId?: string }, opts: { noteKept?: boolean } = {}) {
+  const rows = await tx.purchaseRequest.findMany({ where: { purchaseOrderId: po.id, status: "ordered" }, orderBy: { createdAt: "asc" } });
+  const got = rows.length ? await receivedSoFar(tx, po.id) : new Map();
+  const resync = new Set<string>();
+  for (const r of rows) {
+    await advisoryXactLock(tx, `purchasing:request:${r.id}`);
+    // The order's suggestion lock before its line can gain an open request again: two POs of
+    // one line released at once, or a receipt re-sizing the same order, wait for each other
+    // instead of both reopening (the one-open-request index would refuse the second).
+    if (r.orderId && r.orderItemId) await advisoryXactLock(tx, `purchasing:order-suggestions:${r.orderId}`);
+    // A cancelled PO has received nothing (cancelling is refused once anything came).
+    const accepted = (r.purchaseOrderLineId ? got.get(r.purchaseOrderLineId)?.accepted : undefined) ?? D(0);
+    if (accepted.gt(0)) {
+      // Noted once, at the close itself (not again on each later correction of its receipts).
+      if (opts.noteKept !== false) await writeAudit({
+        userId: actor.id, userName: actor.name, role: actor.role,
+        action: "purchase_request_po_closed",
+        entityType: "purchase_request", entityId: r.id, orderId: r.orderId,
+        fieldChanged: "purchaseOrder", oldValue: po.number, newValue: `${r.number} · ${po.number} اتقفل بعد استلام ${accepted.toFixed()} من ${r.quantity.toFixed()} ${r.uomCode}`,
+        reason, source: "user", deviceId: actor.deviceId,
+      }, tx);
+      if (r.orderId && r.orderItemId) resync.add(r.orderId);
+      continue;
+    }
+    const otherOpen = r.orderItemId
+      ? await tx.purchaseRequest.count({ where: { orderItemId: r.orderItemId, id: { not: r.id }, status: { in: ["pending_approval", "approved"] } } })
+      : 0;
+    const data = otherOpen
+      ? { status: "cancelled", cancelReason: `أمر الشراء ${po.number} ${how === "closed" ? "اتقفل" : "اتلغى"}: ${reason}`, purchaseOrderId: null, purchaseOrderLineId: null }
+      : { status: "approved", purchaseOrderId: null, purchaseOrderLineId: null };
+    const res = await tx.purchaseRequest.updateMany({ where: { id: r.id, version: r.version, status: "ordered" }, data: { ...data, version: { increment: 1 } } });
+    if (res.count !== 1) throw new ApiError(409, "طلب الشراء اتغيّر، حدّث الشاشة");
+    await writeAudit({
+      userId: actor.id, userName: actor.name, role: actor.role,
+      action: otherOpen ? "purchase_request_cancelled" : "purchase_request_reopened",
+      entityType: "purchase_request", entityId: r.id, orderId: r.orderId,
+      fieldChanged: "status", oldValue: "ordered", newValue: `${r.number} · ${otherOpen ? "cancelled" : "approved"} · ${po.number}`,
+      reason, source: "user", deviceId: actor.deviceId,
+    }, tx);
+    if (r.orderId && r.orderItemId) resync.add(r.orderId);
+  }
+  if (resync.size) {
+    const { syncOrderSuggestions } = await import("@/lib/purchasing/requests");
+    for (const orderId of resync) await syncOrderSuggestions(tx, orderId, actor, { forOrder: true });
+  }
 }
 
 /** Stop waiting for what has not come (a short delivery the supplier will not make up). */
@@ -325,6 +385,7 @@ export async function closePurchaseOrder(id: string, input: unknown, actor: Serv
     if (!["sent", "approved", "partially_received", "received"].includes(po.status)) throw new ApiError(409, "بس أمر الشراء الشغال يتقفل");
     const updated = await transition(tx, po, { status: "closed", closedAt: new Date(), cancelReason: v.reason });
     await auditPo(tx, actor, po, "purchase_order_closed", null, v.reason);
+    await releasePoCoverage(tx, po, "closed", v.reason, actor);
     return updated;
   });
 }
@@ -332,14 +393,14 @@ export async function closePurchaseOrder(id: string, input: unknown, actor: Serv
 /**
  * Re-derives an order's receiving status from its posted receipts, in the caller's
  * transaction (every receipt create / correction / void calls it). A line counts as
- * delivered when its good quantity reaches what was ordered.
+ * delivered when its accepted quantity (received − rejected, every grade) reaches what was ordered.
  */
 export async function refreshPoReceiptStatus(tx: Tx, poId: string, actor: { id: string | null; name: string; role: string; deviceId?: string }) {
   const po = await tx.purchaseOrder.findUnique({ where: { id: poId }, include: { lines: true } });
   if (!po || ["cancelled", "closed", "draft", "pending_approval"].includes(po.status)) return po?.status ?? null;
   const got = await receivedSoFar(tx, poId);
   const anyIn = [...got.values()].some((x) => x.received.gt(0));
-  const allIn = po.lines.every((l) => (got.get(l.id)?.good ?? D(0)).greaterThanOrEqualTo(l.baseQuantity));
+  const allIn = po.lines.every((l) => (got.get(l.id)?.accepted ?? D(0)).greaterThanOrEqualTo(l.baseQuantity));
   const next = allIn ? "received" : anyIn ? "partially_received" : po.sentAt ? "sent" : "approved";
   if (next !== po.status) {
     await transition(tx, po, { status: next });
@@ -352,13 +413,13 @@ export async function refreshPoReceiptStatus(tx: Tx, poId: string, actor: { id: 
 // Reads
 // ---------------------------------------------------------------------------
 
-function present(po: Prisma.PurchaseOrderGetPayload<{ include: { supplier: { select: { id: true; code: true; name: true; nameAr: true } }; lines: { include: { product: { select: { name: true; nameAr: true; unit: true } } } } } }>, got: Map<string, { good: Prisma.Decimal; rejected: Prisma.Decimal; received: Prisma.Decimal }>, withPrices: boolean) {
+function present(po: Prisma.PurchaseOrderGetPayload<{ include: { supplier: { select: { id: true; code: true; name: true; nameAr: true } }; lines: { include: { product: { select: { name: true; nameAr: true; unit: true } } } } } }>, got: Map<string, { good: Prisma.Decimal; rejected: Prisma.Decimal; received: Prisma.Decimal; accepted: Prisma.Decimal }>, withPrices: boolean) {
   const lines = po.lines
     .sort((a, b) => a.lineNo - b.lineNo)
     .map((l) => {
-      const g = got.get(l.id) ?? { good: D(0), rejected: D(0), received: D(0) };
-      // A cancelled or closed order expects nothing more.
-      const remaining = ["cancelled", "closed"].includes(po.status) ? D(0) : Prisma.Decimal.max(D(l.baseQuantity).minus(g.good), 0);
+      const g = got.get(l.id) ?? { good: D(0), rejected: D(0), received: D(0), accepted: D(0) };
+      // A cancelled or closed order expects nothing more; otherwise what is not yet accepted.
+      const remaining = ["cancelled", "closed"].includes(po.status) ? D(0) : Prisma.Decimal.max(D(l.baseQuantity).minus(g.accepted), 0);
       return {
         id: l.id,
         lineNo: l.lineNo,

@@ -26,7 +26,7 @@ async function main() {
   for (const u of ["admin", "karim", "omar", "ahmed", "mona"]) await login(u);
   const rent = (await call("karim", "POST", "/api/accounting/accounts", { code: code("61"), name: `${TAG} Rent`, name_ar: `${TAG} إيجار`, parent_id: "acc_6000" })).body.account;
   const truck = (await call("karim", "POST", "/api/accounting/accounts", { code: code("18"), name: `${TAG} Equipment`, name_ar: `${TAG} معدات`, parent_id: "acc_1000" })).body.account;
-  const landlord = (await call("omar", "POST", "/api/purchasing/suppliers", { name: `${TAG} المالك` })).body.supplier;
+  const landlord = (await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: `${TAG} المالك` })).body.supplier;
   check("rent and equipment accounts, a supplier", !!rent?.id && !!truck?.id && !!landlord?.id, { rent, truck, landlord });
   const vatBefore = (await call("karim", "GET", `/api/accounting/vat-summary?from=${today}&to=${today}`)).body.summary;
 

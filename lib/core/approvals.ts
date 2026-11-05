@@ -99,6 +99,15 @@ export const APPROVAL_TYPES = {
     levels: 1,
     link: () => "/hr",
   },
+  // Purchasing custody (Nov 2026): money handed to a buyer leaves the treasury only once someone
+  // other than the requester approves it — the same approver as a supplier payment.
+  "hr.custody_advance": {
+    label: "اعتماد عهدة شراء",
+    entityType: "employee_custody_request",
+    approvePermission: "accounting.manage",
+    levels: 1,
+    link: () => "/hr?tab=custody",
+  },
   "hr.attendance_correction": {
     label: "اعتماد تصحيح حضور",
     entityType: "attendance_correction",
@@ -151,6 +160,13 @@ export const APPROVAL_TYPES = {
   "accounting.opening_batch": {
     label: "اعتماد الأرصدة الافتتاحية",
     entityType: "opening_batch",
+    approvePermission: "accounting.opening.approve",
+    levels: 1,
+    link: () => "/accounting?tab=opening",
+  },
+  "accounting.opening_migration_close": {
+    label: "قفل الترحيل الافتتاحي",
+    entityType: "opening_migration",
     approvePermission: "accounting.opening.approve",
     levels: 1,
     link: () => "/accounting?tab=opening",

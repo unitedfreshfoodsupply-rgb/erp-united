@@ -3,6 +3,9 @@ import type { MovementKind } from "@/lib/stock-service";
 export type SupplierDTO = {
   id: string;
   name: string;
+  nameAr?: string | null;
+  /** vegetable | fruit; null = unclassified (added at the stock gate, purchasing classifies it). */
+  category?: string | null;
   phone: string | null;
   notes: string | null;
   active: boolean;

@@ -12,9 +12,10 @@ import { cancelPendingApproval, requestApproval } from "@/lib/core/approvals";
 import { optText, parse, text, version } from "@/lib/core/validation";
 import type { ServiceActor } from "@/lib/core/actor";
 import { isoDate, money, qty, createPoInTx } from "@/lib/purchasing/orders";
-import { assertQuantityFitsUnit, sellableNow } from "@/lib/sales/stock-commitment";
+import { assertQuantityFitsUnit, assessOrderStock, sellableNow, unitPrecision } from "@/lib/sales/stock-commitment";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { searchWhere } from "@/lib/core/search";
+import { resolveWarehouse } from "@/lib/inventory/context";
 
 /**
  * Purchase requests (remediation 2026-11, WF-01).
@@ -64,7 +65,8 @@ const fulfilInput = z.object({
 const INCLUDE = {
   product: { select: { id: true, name: true, nameAr: true, unit: true, sku: true } },
   customer: { select: { id: true, code: true, name: true, nameAr: true } },
-  order: { select: { id: true, orderNumber: true, status: true } },
+  order: { select: { id: true, orderNumber: true, status: true, stockStatus: true, customerPoRef: true } },
+  orderItem: { select: { id: true, productName: true, unit: true, requiredQuantity: true } },
   purchaseOrder: { select: { id: true, number: true, status: true, expectedDate: true, supplier: { select: { id: true, name: true } } } },
   purchaseOrderLine: { select: { id: true, quantity: true, uomCode: true, intakes: { where: { status: "posted" }, select: { goodQty: true } } } },
   fulfilledOrder: { select: { id: true, orderNumber: true, status: true } },
@@ -205,6 +207,9 @@ export async function fulfilPurchaseRequest(id: string, input: unknown, actor: S
   assertVersion(r, v.expected_version);
   if (r.status !== "ordered") throw new ApiError(409, r.status === "fulfilled" ? "طلب الشراء اتنفذ بالفعل" : "طلب الشراء لسه ما اتحولش لأمر شراء");
   if (!r.customerId) throw new ApiError(409, "طلب الشراء مش مربوط بعميل — اعمل أوردر عادي");
+  // A suggestion raised for a line of an order waiting for stock is served by that same order
+  // (re-check and release on the order) — a second order here would sell the goods twice.
+  if (r.orderItemId) throw new ApiError(409, "طلب الشراء ده لسطر في أوردر مستني بضاعة — كمّل من الأوردر نفسه (إعادة فحص المخزون والإفراج)");
   const { createOrder } = await import("@/lib/orders-service");
   const order = await createOrder(
     {
@@ -230,7 +235,7 @@ export async function fulfilPurchaseRequest(id: string, input: unknown, actor: S
 
 function present(r: Prisma.PurchaseRequestGetPayload<{ include: typeof INCLUDE }>, available: Prisma.Decimal | null) {
   const received = r.purchaseOrderLine ? r.purchaseOrderLine.intakes.reduce((a, i) => a.plus(i.goodQty), new Prisma.Decimal(0)) : null;
-  return { ...r, quantity: r.quantity.toFixed(), receivedGood: received?.toFixed() ?? null, availableNow: available?.toFixed() ?? null };
+  return { ...r, quantity: r.quantity.toFixed(), requiredQty: r.requiredQty?.toFixed() ?? null, availableQty: r.availableQty?.toFixed() ?? null, receivedGood: received?.toFixed() ?? null, availableNow: available?.toFixed() ?? null };
 }
 
 export async function listPurchaseRequests(filters: { status?: string; customerId?: string; orderId?: string; limit?: number; q?: string }, actor: ServiceActor) {
@@ -251,4 +256,246 @@ export async function getPurchaseRequest(id: string, actor: ServiceActor) {
   const r = await prisma.purchaseRequest.findUnique({ where: { id }, include: INCLUDE });
   if (!r) throw new ApiError(404, "طلب الشراء مش موجود");
   return present(r, (await sellableNow(prisma, r.productId)).available);
+}
+
+// --- Procurement suggestions from awaiting-stock orders (Nov 2026) -------------------------
+//
+// An order saved "awaiting stock" gets one purchase request per short line, raised by the
+// system on behalf of whoever saved the order. It is the same request as a hand-raised one —
+// same approval by someone else, same conversion to a supplier PO by purchasing — and carries
+// the order AND the line. The quantity is what the line still needs beyond what is already on
+// a purchase order for it; re-saving or editing the line resizes the one open request instead
+// of adding another (a partial unique index backs this). It is a recommendation: nothing here
+// buys, reserves or moves stock.
+//
+// "On a purchase order" means still to come from it (release gate D-1, Nov 2026): what a LIVE PO
+// line has yet to deliver (ordered − accepted), plus what it delivered that is still held in
+// quarantine (a grading loss waiting for approval — it is in the house, not yet sellable). It used
+// to be the full quantity of every converted request, whatever became of its PO — a closed PO,
+// a rejected delivery or a short one kept "covering" the line, and the order waited with no
+// suggestion open.
+
+type SuggestionActor = Actorish & { source?: string };
+
+const OPEN_SUGGESTION = ["pending_approval", "approved"];
+const PO_DONE = ["cancelled", "closed"];
+
+/**
+ * What each converted ("ordered") request still brings to its line, base unit, by request id:
+ *  - its PO line's outstanding quantity (ordered − accepted over posted receipts, every grade —
+ *    the PO's own receiving rule) while the PO is live, nothing once it is cancelled or closed;
+ *  - plus what that line delivered of the product that is still in quarantine (its receipts'
+ *    lots), whatever the PO's state: held for a grading-loss approval, it is not sellable yet but
+ *    it is not to be bought again either. When it leaves quarantine — released or written off —
+ *    the line is re-sized (syncSuggestionsForLots).
+ * What a line delivered and released is stock now (or graded out of it), not "on order".
+ */
+export async function stillOnOrder(tx: Tx, rows: PurchaseRequest[]): Promise<Map<string, Prisma.Decimal>> {
+  const ordered = rows.filter((r) => r.status === "ordered");
+  const out = new Map<string, Prisma.Decimal>();
+  if (!ordered.length) return out;
+  const lineIds = ordered.map((r) => r.purchaseOrderLineId).filter((x): x is string => !!x);
+  const poIds = ordered.map((r) => r.purchaseOrderId).filter((x): x is string => !!x);
+  const [pos, lines, receipts, lots, quarantines] = await Promise.all([
+    tx.purchaseOrder.findMany({ where: { id: { in: poIds } }, select: { id: true, status: true } }),
+    tx.purchaseOrderLine.findMany({ where: { id: { in: lineIds } }, select: { id: true, productId: true, baseQuantity: true } }),
+    tx.stockIntake.groupBy({ by: ["purchaseOrderLineId"], where: { status: "posted", purchaseOrderLineId: { in: lineIds } }, _sum: { receivedQty: true, rejectedQty: true } }),
+    // A lot past its expiry will never be sold: it is not "coming" either.
+    tx.stockIntake.findMany({ where: { status: "posted", purchaseOrderLineId: { in: lineIds }, lot: { OR: [{ expiryDate: null }, { expiryDate: { gte: todayLocalISO() } }] } }, select: { purchaseOrderLineId: true, lotId: true } }),
+    // The warehouse whose stock the order lines are judged against.
+    resolveWarehouse(tx, undefined).then((wh) => tx.storageLocation.findMany({ where: { type: "quarantine", warehouseId: wh.id }, select: { id: true } })),
+  ]);
+  const zero = new Prisma.Decimal(0);
+  const lineBy = new Map(lines.map((l) => [l.id, l]));
+  const heldByLine = new Map<string, Prisma.Decimal>();
+  if (lots.length && quarantines.length) {
+    const held = await tx.stockMovement.groupBy({ by: ["lotId", "productId"], where: { lotId: { in: [...new Set(lots.map((l) => l.lotId!))] }, locationId: { in: quarantines.map((q) => q.id) } }, _sum: { quantity: true } });
+    const heldBy = new Map(held.map((h) => [`${h.lotId}|${h.productId}`, new Prisma.Decimal(h._sum.quantity ?? 0)]));
+    for (const lineId of new Set(lots.map((l) => l.purchaseOrderLineId!))) {
+      const productId = lineBy.get(lineId)?.productId;
+      const lotIds = new Set(lots.filter((l) => l.purchaseOrderLineId === lineId).map((l) => l.lotId!));
+      heldByLine.set(lineId, [...lotIds].reduce((a, lot) => a.plus(Prisma.Decimal.max(zero, heldBy.get(`${lot}|${productId}`) ?? zero)), zero));
+    }
+  }
+  const poStatus = new Map(pos.map((p) => [p.id, p.status]));
+  const accepted = new Map(receipts.map((g) => [g.purchaseOrderLineId!, new Prisma.Decimal(g._sum.receivedQty ?? 0).minus(g._sum.rejectedQty ?? 0)]));
+  for (const r of ordered) {
+    const status = r.purchaseOrderId ? poStatus.get(r.purchaseOrderId) : undefined;
+    const live = !!status && !PO_DONE.includes(status);
+    const line = r.purchaseOrderLineId ? lineBy.get(r.purchaseOrderLineId) : undefined;
+    // A link to the PO without its line (never written since conversions record both): the request's own quantity.
+    if (!line) out.set(r.id, live ? r.quantity : zero);
+    else if (line.productId !== r.productId) out.set(r.id, zero);
+    else out.set(r.id, (live ? Prisma.Decimal.max(zero, line.baseQuantity.minus(accepted.get(line.id) ?? zero)) : zero).plus(heldByLine.get(line.id) ?? zero));
+  }
+  return out;
+}
+
+const suggestionAudit = (tx: Tx, actor: SuggestionActor, r: { id: string; number: string }, orderId: string, action: string, detail: string, reason?: string) =>
+  writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action, entityType: "purchase_request", entityId: r.id, orderId, newValue: `${r.number} · ${detail}`, reason, source: actor.source === "n8n" || actor.source === "hermes" ? actor.source : actor.source === "system" ? "system" : "user", deviceId: actor.deviceId }, tx);
+
+async function closeSuggestion(tx: Tx, r: PurchaseRequest, actor: SuggestionActor, reason: string) {
+  if (r.status === "pending_approval") await cancelPendingApproval(tx, { type: "purchasing.request", entityId: r.id, reason, actor });
+  await casUpdate(tx, r, { status: "cancelled", cancelReason: reason });
+  await suggestionAudit(tx, actor, r, r.orderId!, "purchase_request_cancelled", "إلغاء تلقائي", reason);
+}
+
+/**
+ * Brings an order's line suggestions in step with its current shortage: creates the missing
+ * one, resizes an open one whose quantity changed, closes one no longer needed. Runs in the
+ * caller's transaction; safe to call any number of times (idempotent). For an order that is
+ * not (or no longer) awaiting stock it closes every open suggestion.
+ */
+export async function syncOrderSuggestions(tx: Tx, orderId: string, actor: SuggestionActor, opts: { forOrder?: boolean } = {}) {
+  await advisoryXactLock(tx, `purchasing:order-suggestions:${orderId}`);
+  const order = await tx.order.findUnique({ where: { id: orderId }, select: { id: true, orderNumber: true, status: true, stockStatus: true, customerAccountId: true, customerPoRef: true, deliveryDate: true } });
+  if (!order) return { created: 0, updated: 0, closed: 0 };
+  const held = order.stockStatus === "awaiting_stock" && order.status === "new";
+  const assessment = held ? await assessOrderStock(tx, orderId) : null;
+  const coverage = new Map((assessment?.coverage ?? []).map((c) => [c.itemId, c]));
+  const where = { orderId, orderItemId: { not: null }, status: { in: [...OPEN_SUGGESTION, "ordered"] } };
+  // An open suggestion may be approved or converted right now (the request's own lock): take
+  // those locks, then read, so a resize never trips over a decision (it used to answer 409).
+  const openRows = await tx.purchaseRequest.findMany({ where: { ...where, status: { in: OPEN_SUGGESTION } }, select: { id: true }, orderBy: { id: "asc" } });
+  for (const r of openRows) await advisoryXactLock(tx, `purchasing:request:${r.id}`);
+  const existing = await tx.purchaseRequest.findMany({ where, orderBy: { createdAt: "asc" } });
+  const coming = await stillOnOrder(tx, existing);
+  const itemIds = [...new Set([...coverage.keys(), ...existing.map((e) => e.orderItemId!)])];
+  let created = 0, updated = 0, closed = 0;
+  for (const itemId of itemIds) {
+    const c = coverage.get(itemId);
+    const mine = existing.filter((e) => e.orderItemId === itemId);
+    let open = mine.find((e) => OPEN_SUGGESTION.includes(e.status)) ?? null;
+    // The line now names another product (a re-mapping): the old suggestion no longer fits.
+    if (open && c && open.productId !== c.productId) {
+      await closeSuggestion(tx, open, actor, "صنف السطر اتغيّر");
+      closed++;
+      open = null;
+    }
+    // Still to come on a live purchase order for this line (base unit: suggestions are raised in it).
+    const ordered = mine.filter((e) => e.status === "ordered" && (!c || e.productId === c.productId)).reduce((a, e) => a.plus(coming.get(e.id) ?? 0), new Prisma.Decimal(0));
+    let need = new Prisma.Decimal(0);
+    if (c && c.shortage.gt(0)) {
+      const precision = (await unitPrecision(tx, c.baseUnit)) ?? 3;
+      need = Prisma.Decimal.max(0, c.shortage.minus(ordered)).toDecimalPlaces(precision, Prisma.Decimal.ROUND_UP);
+    }
+    if (need.lte(0)) {
+      if (open) {
+        await closeSuggestion(tx, open, actor, held ? "الناقص اتغطى" : "الأوردر مبقاش مستني بضاعة");
+        closed++;
+      }
+      continue;
+    }
+    const sizing = { quantity: need, requiredQty: c!.requestedBase, availableQty: Prisma.Decimal.max(0, c!.available), neededBy: order.deliveryDate, customerReference: order.customerPoRef ?? null };
+    if (open) {
+      const same = open.quantity.equals(need) && D3(open.requiredQty).equals(sizing.requiredQty) && D3(open.availableQty).equals(sizing.availableQty) && open.neededBy === sizing.neededBy && (open.customerReference ?? null) === sizing.customerReference;
+      if (same) continue;
+      // A larger quantity on an approved suggestion goes back for approval: the approver
+      // signed off a smaller buy. A smaller one keeps its approval.
+      const reapprove = open.status === "approved" && need.gt(open.quantity);
+      const next = await casUpdate(tx, open, {
+        ...sizing,
+        ...(reapprove ? { status: "pending_approval", decidedById: null, decidedBy: null, decidedAt: null, decisionNote: null } : {}),
+      });
+      if (!open.quantity.equals(need)) {
+        await suggestionAudit(tx, actor, open, orderId, "purchase_request_quantity_changed", `${open.quantity.toFixed()} ← ${need.toFixed()} ${open.uomCode}`, `أوردر ${order.orderNumber}`);
+      }
+      if (reapprove) {
+        const product = await tx.stockProduct.findUniqueOrThrow({ where: { id: open.productId }, select: { name: true, nameAr: true } });
+        await requestApproval(tx, {
+          type: "purchasing.request",
+          entityId: next.id,
+          title: `طلب شراء ${next.number} · ${product.nameAr ?? product.name}`,
+          summary: `${need.toFixed()} ${next.uomCode} · أوردر ${order.orderNumber}${order.customerPoRef ? ` · ${order.customerPoRef}` : ""}`,
+          requester: { id: next.requestedById, name: next.requestedBy, role: actor.role, deviceId: actor.deviceId },
+        });
+      }
+      updated++;
+      continue;
+    }
+    const product = await tx.stockProduct.findUniqueOrThrow({ where: { id: c!.productId }, select: { id: true, name: true, nameAr: true, unit: true } });
+    // Raised by whoever acts on the order; when a PO-side event raises it (a PO closed, a
+    // receipt, grading, stock leaving quarantine), on behalf of whoever saved the order, as at
+    // saving — the buyer who closed the PO must still be able to approve it (four eyes).
+    const raiser = opts.forOrder ? await orderCreator(tx, orderId, actor) : actor;
+    const r = await tx.purchaseRequest.create({
+      data: {
+        number: await nextDocumentNumber(tx, "purchasing.request", todayLocalISO()),
+        productId: product.id,
+        uomCode: product.unit,
+        ...sizing,
+        customerId: order.customerAccountId,
+        orderId,
+        orderItemId: itemId,
+        notes: `ناقص في أوردر ${order.orderNumber} (سطر ${c!.line})`,
+        requestedById: raiser.id,
+        requestedBy: raiser.name,
+      },
+    });
+    await requestApproval(tx, {
+      type: "purchasing.request",
+      entityId: r.id,
+      title: `طلب شراء ${r.number} · ${product.nameAr ?? product.name}`,
+      summary: `${need.toFixed()} ${product.unit} · أوردر ${order.orderNumber}${order.customerPoRef ? ` · ${order.customerPoRef}` : ""}`,
+      requester: { id: raiser.id, name: raiser.name, role: raiser.role, deviceId: actor.deviceId },
+    });
+    await suggestionAudit(tx, actor, r, orderId, "purchase_request_created", `${product.name} · ${need.toFixed()} ${product.unit} · أوردر ${order.orderNumber}`);
+    created++;
+  }
+  return { created, updated, closed };
+}
+
+async function orderCreator(tx: Tx, orderId: string, fallback: SuggestionActor): Promise<{ id: string | null; name: string; role: string }> {
+  const row = await tx.auditLog.findFirst({ where: { orderId, action: "order_created" }, orderBy: { timestamp: "asc" }, select: { userId: true, userName: true, role: true } });
+  return row ? { id: row.userId, name: row.userName, role: row.role } : fallback;
+}
+
+/** Re-sizes the suggestions of every order a purchase order serves (its converted line requests). */
+export async function syncSuggestionsOfPo(tx: Tx, poId: string, actor: SuggestionActor) {
+  const rows = await tx.purchaseRequest.findMany({ where: { purchaseOrderId: poId, status: "ordered", orderItemId: { not: null } }, select: { orderId: true } });
+  for (const orderId of new Set(rows.map((r) => r.orderId).filter((x): x is string => !!x))) await syncOrderSuggestions(tx, orderId, actor, { forOrder: true });
+}
+
+/**
+ * Stock left quarantine from these lots (released, written off, moved): when a lot came in on a
+ * PO, what that PO still "brings" changed (stillOnOrder counts its held part), so the orders it
+ * serves are re-sized. Called at commit by lib/inventory/availability-changes.ts.
+ */
+export async function syncSuggestionsForLots(tx: Tx, lotIds: string[], actor: SuggestionActor) {
+  if (!lotIds.length) return;
+  const intakes = await tx.stockIntake.findMany({ where: { lotId: { in: lotIds }, purchaseOrderLineId: { not: null } }, select: { purchaseOrderLine: { select: { poId: true } } } });
+  for (const poId of new Set(intakes.map((i) => i.purchaseOrderLine!.poId))) await syncSuggestionsOfPo(tx, poId, actor);
+}
+
+/**
+ * The order is done with its suggestions: cancelled (open ones are cancelled; one already on
+ * a supplier PO stays with purchasing — the PO is theirs to keep or cancel — and is noted), or
+ * released with every line reserved (open ones are cancelled as covered; one on a PO is
+ * fulfilled by this order).
+ */
+export async function settleOrderSuggestions(tx: Tx, orderId: string, outcome: "cancelled" | "released", reason: string, actor: SuggestionActor) {
+  await advisoryXactLock(tx, `purchasing:order-suggestions:${orderId}`);
+  const rows = await tx.purchaseRequest.findMany({ where: { orderId, orderItemId: { not: null }, status: { in: [...OPEN_SUGGESTION, "ordered"] } }, orderBy: { createdAt: "asc" } });
+  const order = rows.length ? await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { orderNumber: true } }) : null;
+  for (const r of rows) {
+    if (OPEN_SUGGESTION.includes(r.status)) {
+      await closeSuggestion(tx, r, actor, outcome === "cancelled" ? `الأوردر اتلغى: ${reason}` : `البضاعة اتوفرت والأوردر اتفرج عنه`);
+    } else if (outcome === "released") {
+      await casUpdate(tx, r, { status: "fulfilled", fulfilledOrderId: orderId });
+      await suggestionAudit(tx, actor, r, orderId, "purchase_request_fulfilled", `أوردر ${order!.orderNumber}`);
+    } else {
+      await suggestionAudit(tx, actor, r, orderId, "purchase_request_origin_cancelled", `أوردر ${order!.orderNumber}`, reason);
+    }
+  }
+  return rows.length;
+}
+
+/** The order's line suggestions, as its screen shows them (purchasing.requests.view). */
+export async function orderSuggestions(orderId: string) {
+  const rows = await prisma.purchaseRequest.findMany({ where: { orderId, orderItemId: { not: null } }, include: INCLUDE, orderBy: { createdAt: "asc" } });
+  return rows.map((r) => present(r, null));
+}
+
+function D3(v: Prisma.Decimal | null) {
+  return v ?? new Prisma.Decimal(-1);
 }

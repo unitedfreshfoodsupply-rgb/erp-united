@@ -16,6 +16,7 @@ export const CONTROL_ACCOUNTS: Record<string, string> = {
   vat_input: "فاتورة مورد أو إشعار مدين أو إقرار ضريبة القيمة المضافة",
   vat_output: "فاتورة مبيعات أو إشعار دائن أو بيع أصل أو إقرار ضريبة القيمة المضافة",
   vat_payable: "إقرار ضريبة القيمة المضافة وسداده",
+  opening_clearing: "دفعة أرصدة افتتاحية مرحلية معتمدة (الترحيل الافتتاحي)",
 };
 /** Accounts owned by a subledger through their own column (category accounts of fixed assets). */
 const CONTROLLED_BY: Record<string, string> = {

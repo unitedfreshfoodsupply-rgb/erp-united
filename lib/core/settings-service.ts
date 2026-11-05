@@ -4,7 +4,7 @@ import { ApiError } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { assertPermission } from "@/lib/authz-core";
-import { inTx } from "@/lib/tx";
+import { currentTx, inTx } from "@/lib/tx";
 import type { ServiceActor } from "@/lib/core/actor";
 import {
   SETTING_DEFS,
@@ -40,9 +40,18 @@ export function invalidateSettingsCache() {
   invalidate();
 }
 
+/**
+ * Inside an inTx transaction a cache miss is read through that transaction (release gate D-3,
+ * Nov 2026). The pool may hold a single connection (Supavisor, connection_limit=1), which the
+ * open transaction already has: read through the global client, the miss waited for a second
+ * connection until the pool timeout and failed the transaction — the load test hit it on
+ * receipts. Read through the transaction it is one more query; the result is not shared, since
+ * it may include the transaction's own uncommitted writes.
+ */
 async function loadAll(): Promise<Map<SettingKey, unknown>> {
   if (cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.values;
-  const rows = await prisma.systemSetting.findMany();
+  const tx = currentTx();
+  const rows = await (tx ?? prisma).systemSetting.findMany();
   const values = new Map<SettingKey, unknown>();
   for (const key of SETTING_KEYS) values.set(key, SETTING_DEFS[key].default);
   for (const row of rows) {
@@ -55,7 +64,7 @@ async function loadAll(): Promise<Map<SettingKey, unknown>> {
       console.error(`[settings] stored value for ${row.key} is invalid (${parsed.error}); using default`);
     }
   }
-  cache = { at: Date.now(), values };
+  if (!tx) cache = { at: Date.now(), values };
   return values;
 }
 

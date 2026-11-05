@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleApiError } from "@/lib/rbac";
-import { requirePermission } from "@/lib/authz";
+import { requireAnyPermission, requirePermission } from "@/lib/authz";
 import { readJson } from "@/lib/http";
 import { serviceActorFromContext } from "@/lib/core/actor";
-import { getSupplier, updateSupplierTerms } from "@/lib/purchasing/suppliers";
+import { getSupplier, updateSupplierMaster } from "@/lib/purchasing/suppliers";
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -16,8 +16,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const ctx = await requirePermission(req, "purchasing.suppliers.manage");
-    return NextResponse.json({ supplier: await updateSupplierTerms(params.id, await readJson(req), serviceActorFromContext(ctx)) });
+    // The single supplier editor; which fields this user may change is decided in the service.
+    const ctx = await requireAnyPermission(req, ["purchasing.suppliers.manage", "stock.manage_suppliers"]);
+    return NextResponse.json({ supplier: await updateSupplierMaster(params.id, await readJson(req), serviceActorFromContext(ctx)) });
   } catch (err) {
     return handleApiError(err, req);
   }

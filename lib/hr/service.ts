@@ -15,6 +15,7 @@ import { active, optText, parse, text } from "@/lib/core/validation";
 import type { ServiceActor } from "@/lib/core/actor";
 import { postJournal, type PostLine } from "@/lib/accounting/ledger";
 import { applyEmploymentChange, createHireRecord } from "@/lib/hr/employment";
+import { CUSTODY, advancesBalance, custodyAvailable, custodyBalance, lockCustody, purchasingCategoryField, requestCustodyAdvance } from "@/lib/hr/custody";
 
 /**
  * HR and expenses — the minimum UNITED needs: who works where, what they spend, and
@@ -28,6 +29,9 @@ import { applyEmploymentChange, createHireRecord } from "@/lib/hr/employment";
  *      advance        Dr Employee advances (employee)   Cr cash/bank
  *      reimbursement  Dr Employee payable (employee)    Cr cash/bank
  *      advance_return Dr cash/bank                      Cr Employee advances (employee)
+ *  - A purchasing-custody advance (purpose purchasing_custody) is the exception: it waits for a
+ *    second person's approval and posts only then (lib/hr/custody.ts). Custody and salary advances
+ *    share 1600 but are capped, returned and recovered separately.
  *  - An employee's balance is read from the journal (party = employee), never stored.
  */
 
@@ -83,6 +87,8 @@ const employeeInput = z.object({
   expected_version: z.number().int().positive().optional(),
   /** Why the placement changed (department, job title, active) — recorded in the employment history. */
   change_reason: optText("سبب التغيير", 500).optional(),
+  /** The supplier category this employee buys for with purchasing custody (null = not a buyer). */
+  purchasing_category: purchasingCategoryField.nullable().optional(),
 });
 
 export async function saveEmployee(id: string | null, input: unknown, actor: ServiceActor) {
@@ -99,6 +105,7 @@ export async function saveEmployee(id: string | null, input: unknown, actor: Ser
     if (v.phone !== undefined) data.phone = v.phone ?? null;
     if (v.user_id !== undefined) data.userId = v.user_id ?? null;
     if (v.hire_date !== undefined) data.hireDate = v.hire_date ?? null;
+    if (v.purchasing_category !== undefined) data.purchasingCategory = v.purchasing_category ?? null;
     if (!id) {
       if (v.department_id !== undefined) data.departmentId = v.department_id ?? null;
       if (v.job_title !== undefined) data.jobTitle = v.job_title ?? null;
@@ -140,7 +147,7 @@ export async function saveEmployee(id: string | null, input: unknown, actor: Ser
         e = await tx.employee.findUniqueOrThrow({ where: { id: e.id } });
       }
     }
-    await audit(tx, actor, "employee", e.id, id ? "employee_updated" : "employee_created", `${e.code} · ${e.name}${e.active ? "" : " · موقوف"}`);
+    await audit(tx, actor, "employee", e.id, id ? "employee_updated" : "employee_created", `${e.code} · ${e.name}${e.active ? "" : " · موقوف"}${e.purchasingCategory ? ` · شراء ${e.purchasingCategory}` : ""}`);
     return e;
   });
 }
@@ -198,8 +205,24 @@ const expenseInput = z.object({
   idempotency_key: idempotencyKeyField,
 });
 
+/**
+ * An expense "spent from an advance" may use the employee's salary-side advance only, never the
+ * purchasing custody: produce bought with custody is a supplier payment against a bill (PO →
+ * receipt → bill → payment from custody), so it reaches stock and AP — an expense would skip both.
+ * Only refused when custody is held and the expense would reach into it; nothing else changes.
+ */
+async function assertNotFromCustody(tx: Tx, employeeId: string, amount: Prisma.Decimal) {
+  const custody = await custodyBalance(tx, employeeId);
+  if (!custody.gt(0)) return;
+  const salarySide = Prisma.Decimal.max(D(0), (await advancesBalance(tx, employeeId)).minus(custody));
+  if (amount.greaterThan(salarySide)) {
+    throw new ApiError(409, `الموظف معاه عهدة شراء ${custody.toFixed(2)} — المصروف مينفعش يتخصم من العهدة (السلفة العادية المتاحة ${salarySide.toFixed(2)}). مشتريات العهدة بتتسجل سداد مورد من العهدة على فاتورته`, "custody_not_expense");
+  }
+}
+
 async function postExpense(tx: Tx, expenseId: string, actor: Actorish) {
   const e = await tx.expense.findUniqueOrThrow({ where: { id: expenseId } });
+  if (e.paymentMode === "advance" && e.employeeId) await assertNotFromCustody(tx, e.employeeId, e.amount);
   const credit: PostLine =
     e.paymentMode === "cash"
       ? { accountId: (await tx.cashAccount.findUniqueOrThrow({ where: { id: e.cashAccountId! } })).accountId, amount: e.amount.negated() }
@@ -225,6 +248,8 @@ export async function createExpense(input: unknown, actor: ServiceActor) {
     if (!account || account.type !== "expense" || !account.postable || !account.active) throw new ApiError(400, "بند المصروف لازم يكون حساب مصروفات");
     if (v.employee_id && !(await tx.employee.findFirst({ where: { id: v.employee_id, active: true } }))) throw new ApiError(400, "الموظف مش موجود أو موقوف");
     if (v.cash_account_id && !(await tx.cashAccount.findFirst({ where: { id: v.cash_account_id, active: true } }))) throw new ApiError(400, "الخزينة مش موجودة");
+    // Said now, not only when an approver tries to post it (postExpense checks again).
+    if (v.payment_mode === "advance" && v.employee_id) await assertNotFromCustody(tx, v.employee_id, v.amount);
     const { checkCostCenter } = await import("@/lib/accounting/cost-centers");
     const costCenterId = await checkCostCenter(tx, v.cost_center_id, account);
     const auto = v.amount.lessThanOrEqualTo(threshold);
@@ -272,20 +297,33 @@ export async function listExpenses(actor: ServiceActor, filters: { status?: stri
 
 export async function createEmployeeTransaction(input: unknown, actor: ServiceActor) {
   assertPermission(actor, "hr.advances.manage");
-  const v = parse(z.object({ employee_id: text("الموظف"), type: z.enum(["advance", "reimbursement", "advance_return", "salary_on_account"]), amount, cash_account_id: text("الخزينة"), date, payroll_period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "شهر المرتب لازم يكون YYYY-MM").optional(), notes: optText("ملاحظات", 500).optional(), idempotency_key: idempotencyKeyField }), input);
+  const v = parse(z.object({
+    employee_id: text("الموظف"), type: z.enum(["advance", "reimbursement", "advance_return", "salary_on_account"]), amount, cash_account_id: text("الخزينة"), date,
+    payroll_period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "شهر المرتب لازم يكون YYYY-MM").optional(), notes: optText("ملاحظات", 500).optional(), idempotency_key: idempotencyKeyField,
+    /** salary (default) | purchasing_custody — custody is an advance or a return of purchasing funds. */
+    purpose: z.enum(["salary", CUSTODY], { errorMap: () => ({ message: "الغرض لازم يكون سلفة مرتب أو عهدة شراء" }) }).optional(),
+    reference: optText("المرجع", 100).optional(),
+  }), input);
   const d = v.date ?? todayLocalISO();
+  const purpose = v.purpose ?? "salary";
+  if (purpose === CUSTODY && v.type !== "advance" && v.type !== "advance_return") throw new ApiError(400, "العهدة بتكون صرف عهدة أو رد عهدة بس");
+  // Issuing purchasing custody waits for a second person (hr.custody_advance); nothing moves now.
+  if (purpose === CUSTODY && v.type === "advance") {
+    return requestCustodyAdvance({ employee_id: v.employee_id, cash_account_id: v.cash_account_id, amount: v.amount, date: d, reference: v.reference ?? null, notes: v.notes ?? null, idempotency_key: v.idempotency_key }, actor);
+  }
   // Part of a month's salary paid early: an advance that month's payroll recovers in full.
   const payrollPeriod = v.type === "salary_on_account" ? v.payroll_period ?? null : null;
   if (v.type === "salary_on_account" && !payrollPeriod) throw new ApiError(400, "حدد شهر المرتب اللي هيتخصم منه");
   if (payrollPeriod && (await prisma.payrollRun.findFirst({ where: { period: payrollPeriod, runType: "regular", status: { in: ["pending_approval", "approved", "posted"] } } }))) {
     throw new ApiError(409, `مسير ${payrollPeriod} اتبعت للاعتماد — الصرف تحت الحساب يتسجل على شهر تاني`);
   }
-  const requestHash = requestFingerprint({ employeeId: v.employee_id, type: v.type, amount: v.amount, cashAccountId: v.cash_account_id, date: d, notes: v.notes ?? null, ...(payrollPeriod ? { payrollPeriod } : {}) });
+  // Purpose and reference join the fingerprint only when given, so a salary request hashes as before.
+  const requestHash = requestFingerprint({ employeeId: v.employee_id, type: v.type, amount: v.amount, cashAccountId: v.cash_account_id, date: d, notes: v.notes ?? null, ...(payrollPeriod ? { payrollPeriod } : {}), ...(purpose !== "salary" ? { purpose } : {}), ...(v.reference ? { reference: v.reference } : {}) });
   return inTx(async (tx) => {
     await lockKey(tx, v.idempotency_key);
     if (v.idempotency_key) {
       const prev = await tx.employeeTransaction.findUnique({ where: { idempotencyKey: v.idempotency_key } });
-      if (prev) return replayRequest(prev, requestHash, prev.employeeId === v.employee_id && prev.type === v.type && D(prev.amount).equals(v.amount) && prev.cashAccountId === v.cash_account_id && prev.date === d && prev.notes === (v.notes ?? null) && prev.payrollPeriod === payrollPeriod);
+      if (prev) return replayRequest(prev, requestHash, prev.employeeId === v.employee_id && prev.type === v.type && D(prev.amount).equals(v.amount) && prev.cashAccountId === v.cash_account_id && prev.date === d && prev.notes === (v.notes ?? null) && prev.payrollPeriod === payrollPeriod && prev.purpose === purpose);
     }
     const emp = await tx.employee.findUnique({ where: { id: v.employee_id } });
     if (!emp) throw new ApiError(404, "الموظف مش موجود");
@@ -301,18 +339,25 @@ export async function createEmployeeTransaction(input: unknown, actor: ServiceAc
       if (v.amount.greaterThan(due)) throw new ApiError(400, `المستحق للموظف ${due.toFixed(2)} بس`);
     }
     if (v.type === "advance_return") {
-      const held = await tx.journalLine.aggregate({ where: { partyType: "employee", partyId: emp.id, account: { systemKey: "employee_advances" } }, _sum: { debit: true, credit: true } });
-      const open = D(held._sum.debit ?? 0).minus(held._sum.credit ?? 0);
-      if (v.amount.greaterThan(open)) throw new ApiError(400, `السلفة المفتوحة ${open.toFixed(2)} بس`);
+      // A return closes one side only: custody is returned against custody (less what pending
+      // custody payments already promise), a salary advance against the rest of 1600.
+      if (purpose === CUSTODY) {
+        await lockCustody(tx, emp.id);
+        const { available } = await custodyAvailable(tx, emp.id);
+        if (v.amount.greaterThan(available)) throw new ApiError(400, `العهدة المتاحة للرد ${available.toFixed(2)} بس`);
+      } else {
+        const open = (await advancesBalance(tx, emp.id)).minus(await custodyBalance(tx, emp.id));
+        if (v.amount.greaterThan(open)) throw new ApiError(400, `السلفة المفتوحة ${open.toFixed(2)} بس`);
+      }
     }
-    const t = await tx.employeeTransaction.create({ data: { employeeId: emp.id, type: v.type, date: d, amount: v.amount, cashAccountId: cash.id, notes: v.notes ?? null, payrollPeriod, idempotencyKey: v.idempotency_key ?? null, requestHash, createdById: actor.id, createdBy: actor.name } });
-    const label = { advance: "سلفة", reimbursement: "صرف مستحقات", advance_return: "رد سلفة", salary_on_account: `صرف تحت حساب مرتب ${payrollPeriod}` }[v.type];
+    const t = await tx.employeeTransaction.create({ data: { employeeId: emp.id, type: v.type, purpose, reference: v.reference ?? null, date: d, amount: v.amount, cashAccountId: cash.id, notes: v.notes ?? null, payrollPeriod, idempotencyKey: v.idempotency_key ?? null, requestHash, createdById: actor.id, createdBy: actor.name } });
+    const label = purpose === CUSTODY ? "رد عهدة شراء" : { advance: "سلفة", reimbursement: "صرف مستحقات", advance_return: "رد سلفة", salary_on_account: `صرف تحت حساب مرتب ${payrollPeriod}` }[v.type];
     const lines: PostLine[] =
       v.type === "advance" || v.type === "salary_on_account" ? [{ key: "employee_advances", amount: v.amount, party }, { accountId: cash.accountId, amount: v.amount.negated() }]
       : v.type === "reimbursement" ? [{ key: "employee_payable", amount: v.amount, party }, { accountId: cash.accountId, amount: v.amount.negated() }]
       : [{ accountId: cash.accountId, amount: v.amount }, { key: "employee_advances", amount: v.amount.negated(), party }];
     await postJournal(tx, { date: d, description: `${label} — ${emp.name}`, sourceType: "employee_transaction", sourceId: t.id, lines }, actor);
-    await audit(tx, actor, "employee_transaction", t.id, `employee_${v.type}`, `${emp.code} · ${v.amount.toFixed(2)}`);
+    await audit(tx, actor, "employee_transaction", t.id, `employee_${v.type}`, `${emp.code} · ${v.amount.toFixed(2)}${purpose === CUSTODY ? ` · ${CUSTODY}` : ""}${v.reference ? ` · ${v.reference}` : ""}`);
     return t;
   });
 }
@@ -328,5 +373,7 @@ export async function employeeStatement(id: string) {
     else payable = payable.plus(l.credit).minus(l.debit);
     return { date: l.entry.date, number: l.entry.number, description: l.entry.description, account: l.account.systemKey, debit: l.debit.toFixed(2), credit: l.credit.toFixed(2) };
   });
-  return { employee: { id: emp.id, code: emp.code, name: emp.name }, rows, advancesHeld: advances.toFixed(2), owedToEmployee: payable.toFixed(2) };
+  // The advances held split into purchasing custody (lib/hr/custody.ts) and salary advances.
+  const custody = await custodyBalance(prisma, id);
+  return { employee: { id: emp.id, code: emp.code, name: emp.name }, rows, advancesHeld: advances.toFixed(2), custodyHeld: custody.toFixed(2), salaryAdvancesHeld: advances.minus(custody).toFixed(2), owedToEmployee: payable.toFixed(2) };
 }

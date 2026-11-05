@@ -114,7 +114,7 @@ async function main() {
   }
   const suppliers: { id: string }[] = [];
   for (const s of SUPPLIERS) {
-    const b = await must("omar", "POST", "/api/purchasing/suppliers", { name: s.name, name_ar: s.ar, payment_terms_days: s.terms });
+    const b = await must("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: s.name, name_ar: s.ar, payment_terms_days: s.terms });
     if (b?.supplier) suppliers.push({ id: b.supplier.id });
   }
   const vehicle = (await must("sara", "POST", "/api/operations/vehicles", { code: "TRK-01", plate: "ن ص ر 4821", capacity_kg: 3000 }))?.vehicle;

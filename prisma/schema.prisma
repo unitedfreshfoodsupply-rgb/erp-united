@@ -157,6 +157,13 @@ model Order {
   /// ok | pending_approval | rejected — a price exception (below cost, discount over the
   /// limit) holds the order until someone else approves it (sales.price_exception).
   pricingStatus String   @default("ok")
+  /// The customer's own purchase-order reference (e.g. a hotel's PO number), as typed on
+  /// entry or received from the integration. Searchable; carried to its purchase requests.
+  customerPoRef String?
+  /// ok | awaiting_stock — an order saved on purpose with lines the stock cannot cover yet
+  /// (allow_shortage). It reserves nothing, cannot leave "new" and stays off the floor boards
+  /// until "re-check stock and release" reserves every line in full.
+  stockStatus   String   @default("ok")
   version       Int      @default(1)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -189,6 +196,8 @@ model Order {
   @@index([deliveryDate])
   @@index([customerAccountId])
   @@index([updatedAt])
+  @@index([customerPoRef])
+  @@index([stockStatus])
 }
 
 model OrderItem {
@@ -218,7 +227,9 @@ model OrderItem {
   /// return lines as they are, never carry prices.
   price          OrderItemPrice?
 
-  deliveryLines DeliveryLine[]
+  deliveryLines    DeliveryLine[]
+  /// Procurement suggestions raised for this line's shortage (awaiting-stock orders).
+  purchaseRequests PurchaseRequest[]
 
   @@index([orderId])
   @@index([stockProductId])
@@ -281,6 +292,8 @@ model Supplier {
 
   /// farm | grower | wholesaler | market_trader | importer | packaging | services | other
   type              String  @default("other")
+  /// vegetable | fruit — the business's two supplier categories (Nov 2026). NULL = not classified yet.
+  category          String?
   taxRegistrationNo String? @unique
   commercialRegNo   String?
   email             String?
@@ -310,6 +323,7 @@ model Supplier {
   paymentRequests SupplierPaymentRequest[]
 
   @@index([active])
+  @@index([category])
 }
 
 model SupplierContact {
@@ -668,6 +682,17 @@ model Company {
   address                String?
   phone                  String?
   email                  String?
+  /// Printed on invoices only when configured (commercial invoices, Nov 2026): the legal form
+  /// and issued capital (Companies Law 159/1981 Art. 6), bank details and invoice terms.
+  legalForm              String?
+  issuedCapital          String?
+  bankName               String?
+  bankAccountName        String?
+  bankAccountNumber      String?
+  /// Egyptian IBAN (EG + 27 digits).
+  iban                   String?
+  /// The commercial terms printed at the foot of sales invoices.
+  invoiceTerms           String?
   baseCurrencyCode       String
   active                 Boolean  @default(true)
   version                Int      @default(1)
@@ -1488,6 +1513,10 @@ model SalesInvoice {
   issuedById    String?
   issuedBy      String?
   issuedAt      DateTime?
+  /// The seller, buyer contact, order references and line product codes as they were at
+  /// issue (lib/sales/invoice-snapshot.ts). Frozen with the invoice; null on drafts and on
+  /// invoices issued before Nov 2026.
+  issueSnapshot Json?
 
   customer    Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
   order       Order?             @relation(fields: [orderId], references: [id], onDelete: Restrict)
@@ -1668,6 +1697,13 @@ model PurchaseRequest {
   customerId          String?
   /// The order the customer asked on (its other lines went ahead without this one).
   orderId             String?
+  /// The order line whose shortage raised this request (a suggestion from an awaiting-stock
+  /// order). At most one open (pending_approval/approved) request per line — DB index.
+  orderItemId         String?
+  /// What the line asked and what was sellable when the suggestion was last sized, in the
+  /// product's base unit (quantity = what is still to buy). NULL for a manual request.
+  requiredQty         Decimal?  @db.Decimal(18, 3)
+  availableQty        Decimal?  @db.Decimal(18, 3)
   customerReference   String?
   neededBy            String?
   notes               String?
@@ -1689,6 +1725,7 @@ model PurchaseRequest {
   product           StockProduct       @relation(fields: [productId], references: [id], onDelete: Restrict)
   customer          Customer?          @relation(fields: [customerId], references: [id], onDelete: Restrict)
   order             Order?             @relation("PurchaseRequestOrigin", fields: [orderId], references: [id], onDelete: Restrict)
+  orderItem         OrderItem?         @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
   purchaseOrder     PurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
   purchaseOrderLine PurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id], onDelete: Restrict)
   fulfilledOrder    Order?             @relation("PurchaseRequestFulfilment", fields: [fulfilledOrderId], references: [id], onDelete: Restrict)
@@ -1697,6 +1734,7 @@ model PurchaseRequest {
   @@index([productId])
   @@index([customerId])
   @@index([orderId])
+  @@index([orderItemId])
   @@index([purchaseOrderId])
   @@index([fulfilledOrderId])
 }
@@ -1818,6 +1856,9 @@ model SupplierBill {
   createdById       String?
   createdBy         String
   createdAt         DateTime  @default(now())
+  /// The supplier, the buyer (company) and line product codes, POs and receipts as they were
+  /// when the bill posted. Frozen with the bill; null until then.
+  postSnapshot      Json?
 
   supplier     Supplier                  @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   lines        SupplierBillLine[]
@@ -2289,6 +2330,7 @@ model CashAccount {
   reconciliations BankReconciliation[]
   payrollPayments PayrollPayment[]
   paymentRequests SupplierPaymentRequest[]
+  custodyRequests EmployeeCustodyRequest[]
 }
 
 /// Money in from a customer, allocated to invoices; what is not allocated is a credit
@@ -2356,29 +2398,34 @@ model ReceiptAllocation {
 }
 
 model SupplierPayment {
-  id             String   @id @default(cuid())
+  id                String   @id @default(cuid())
   /// PAY-YYYY-#####
-  number         String   @unique
+  number            String   @unique
   /// Client-supplied key: a retried or double-tapped submit returns the first document instead of recording money twice.
-  idempotencyKey String?  @unique
-  supplierId     String
-  cashAccountId  String
-  date           String
-  amount         Decimal  @db.Decimal(18, 2)
-  method         String
-  reference      String?
-  notes          String?
-  createdById    String?
-  createdBy      String
-  createdAt      DateTime @default(now())
+  idempotencyKey    String?  @unique
+  supplierId        String
+  /// Where the money came from: a cash/bank account OR an employee's purchasing custody — exactly one (DB CHECK SupplierPayment_one_source).
+  cashAccountId     String?
+  /// Paid by this employee out of the purchasing custody they hold (Cr 1600 employee advances, party = employee).
+  custodyEmployeeId String?
+  date              String
+  amount            Decimal  @db.Decimal(18, 2)
+  method            String
+  reference         String?
+  notes             String?
+  createdById       String?
+  createdBy         String
+  createdAt         DateTime @default(now())
 
-  supplier    Supplier                 @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  cashAccount CashAccount              @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
-  allocations PaymentAllocation[]
-  deductions  PaymentDeduction[]
-  reversal    SupplierPaymentReversal?
-  request     SupplierPaymentRequest?
+  supplier        Supplier                 @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  cashAccount     CashAccount?             @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  custodyEmployee Employee?                @relation("SupplierPaymentCustody", fields: [custodyEmployeeId], references: [id], onDelete: Restrict)
+  allocations     PaymentAllocation[]
+  deductions      PaymentDeduction[]
+  reversal        SupplierPaymentReversal?
+  request         SupplierPaymentRequest?
 
+  @@index([custodyEmployeeId])
   @@index([supplierId])
 }
 
@@ -2456,24 +2503,29 @@ model Department {
 }
 
 model Employee {
-  id           String   @id @default(cuid())
+  id                 String   @id @default(cuid())
   /// EMP-#####
-  code         String   @unique
-  name         String
-  nameAr       String?
-  departmentId String?
-  jobTitle     String?
-  phone        String?
+  code               String   @unique
+  name               String
+  nameAr             String?
+  departmentId       String?
+  jobTitle           String?
+  phone              String?
   /// The system user, when the employee signs in.
-  userId       String?  @unique
-  hireDate     String?
-  active       Boolean  @default(true)
-  version      Int      @default(1)
-  createdAt    DateTime @default(now())
+  userId             String?  @unique
+  hireDate           String?
+  active             Boolean  @default(true)
+  /// The supplier category this employee buys for with purchasing custody: vegetable | fruit | other (NULL = not a buyer).
+  purchasingCategory String?
+  version            Int      @default(1)
+  createdAt          DateTime @default(now())
 
-  department   Department?           @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  expenses     Expense[]
-  transactions EmployeeTransaction[]
+  department             Department?              @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  expenses               Expense[]
+  transactions           EmployeeTransaction[]
+  custodyRequests        EmployeeCustodyRequest[]
+  custodyPayments        SupplierPayment[]        @relation("SupplierPaymentCustody")
+  custodyPaymentRequests SupplierPaymentRequest[] @relation("SupplierPaymentRequestCustody")
 
   employments        EmployeeEmployment[]      @relation("EmploymentEmployee")
   reportsInHistory   EmployeeEmployment[]      @relation("EmploymentManager")
@@ -3332,6 +3384,10 @@ model EmployeeTransaction {
   requestHash    String?
   /// advance | reimbursement | advance_return | salary_on_account
   type           String
+  /// salary (default) | purchasing_custody — custody is an advance or advance_return of purchasing funds,
+  /// kept apart from salary advances: never recovered from pay automatically.
+  purpose        String   @default("salary")
+  reference      String?
   /// YYYY-MM — for salary_on_account: the month whose payroll must recover it in full.
   payrollPeriod  String?
   date           String
@@ -3342,10 +3398,12 @@ model EmployeeTransaction {
   createdBy      String
   createdAt      DateTime @default(now())
 
-  employee    Employee             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  advancePlan EmployeeAdvancePlan?
+  employee       Employee                @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  advancePlan    EmployeeAdvancePlan?
+  custodyRequest EmployeeCustodyRequest?
 
   @@index([employeeId])
+  @@index([employeeId, purpose])
 }
 
 // ---------------------------------------------------------------------------
@@ -3518,11 +3576,15 @@ model PartyOpeningBalance {
   createdById    String?
   createdBy      String
   createdAt      DateTime @default(now())
+  /// The opening batch that posted it (phased migration, Nov 2026); NULL for a direct entry or an older batch.
+  openingBatchId String?
 
   receiptAllocations ReceiptAllocation[]
   paymentAllocations PaymentAllocation[]
+  openingBatch       OpeningBatch?       @relation(fields: [openingBatchId], references: [id], onDelete: Restrict)
 
   @@index([partyType, partyId])
+  @@index([openingBatchId])
 }
 
 /// A customer receipt taken back: a bounced cheque, money recorded on the wrong customer.
@@ -4084,7 +4146,7 @@ model OpeningBatch {
   id             String    @id @default(cuid())
   /// OPN-####
   number         String    @unique
-  /// initial | correction
+  /// initial | correction | phase (one segment of the phased opening migration, posted against the clearing account)
   kind           String    @default("initial")
   cutoverDate    String
   /// draft | pending_approval | posted | cancelled
@@ -4104,8 +4166,79 @@ model OpeningBatch {
   /// The journal entries the posting created.
   entryIds       Json?
   version        Int       @default(1)
+  /// Phase batches: the migration they belong to and their segment (suppliers | customers | other).
+  migrationId    String?
+  segment        String?
+  /// The source the lines came from (file name, its SHA-256), kept as evidence.
+  sourceFile     String?
+  sourceSha256   String?
 
-  lines OpeningBatchLine[]
+  lines         OpeningBatchLine[]
+  migration     OpeningMigration?     @relation(fields: [migrationId], references: [id], onDelete: Restrict)
+  partyOpenings PartyOpeningBalance[]
+
+  @@index([migrationId])
+}
+
+/// The phased opening migration (Nov 2026): suppliers first, customers later, then the rest
+/// (cash, banks, stock, assets, capital…). Each phase batch posts against the provisional
+/// clearing account (3900, system key opening_clearing); the migration closes only when every
+/// reconciliation passes, the clearing account is zero and a second person approves. One per company.
+model OpeningMigration {
+  id                 String    @id @default(cuid())
+  key                String    @unique @default("opening")
+  cutoverDate        String
+  /// open | closing (closure requested, awaiting approval) | closed
+  status             String    @default("open")
+  notes              String?
+  /// People's confirmations the data cannot give (cash count, bank statements…): { key: { by, byId, at, note } }
+  attestations       Json?
+  createdById        String?
+  createdBy          String
+  createdAt          DateTime  @default(now())
+  closeRequestedById String?
+  closeRequestedBy   String?
+  closeRequestedAt   DateTime?
+  closedById         String?
+  closedBy           String?
+  closedAt           DateTime?
+  /// The closure checks as they stood when the migration closed.
+  closeEvidence      Json?
+  version            Int       @default(1)
+
+  batches    OpeningBatch[]
+  exceptions OpeningException[]
+}
+
+/// A source row that could not be posted (no ERP record, another category, a figure to decide).
+/// Kept with its evidence until resolved or excluded, with a reason; never deleted.
+model OpeningException {
+  id           String    @id @default(cuid())
+  migrationId  String
+  /// suppliers | customers | other
+  segment      String
+  sourceFile   String
+  sourceRow    String
+  sourceName   String
+  sourceAmount Decimal   @db.Decimal(18, 2)
+  /// no_match | category_mismatch | duplicate | needs_decision | …
+  reason       String
+  detail       String?
+  /// open | resolved | excluded
+  status       String    @default("open")
+  resolution   String?
+  resolvedById String?
+  resolvedBy   String?
+  resolvedAt   DateTime?
+  createdById  String?
+  createdBy    String
+  createdAt    DateTime  @default(now())
+  version      Int       @default(1)
+
+  migration OpeningMigration @relation(fields: [migrationId], references: [id], onDelete: Restrict)
+
+  @@unique([migrationId, segment, sourceFile, sourceRow])
+  @@index([migrationId, status])
 }
 
 /// One staged opening line. `data` holds the kind's fields (account, party, product, asset
@@ -4114,7 +4247,7 @@ model OpeningBatchLine {
   id      String  @id @default(cuid())
   batchId String
   lineNo  Int
-  /// gl | customer | supplier | stock | asset
+  /// gl | customer | supplier | stock | asset | equity_transfer
   kind    String
   data    Json
   debit   Decimal @default(0) @db.Decimal(18, 2)
@@ -4273,35 +4406,75 @@ model StandardCostChange {
 /// ACC-04: a supplier payment waiting for a second person (accounting.payment_approval).
 /// It posts as a SupplierPayment only when someone other than the requester approves it.
 model SupplierPaymentRequest {
-  id             String    @id @default(cuid())
+  id                String    @id @default(cuid())
   /// SPR-YYYY-#####
+  number            String    @unique
+  supplierId        String
+  /// Exactly one of cashAccountId / custodyEmployeeId (DB CHECK SupplierPaymentRequest_one_source).
+  cashAccountId     String?
+  custodyEmployeeId String?
+  date              String
+  amount            Decimal   @db.Decimal(18, 2)
+  method            String
+  reference         String?
+  notes             String?
+  /// What was asked (allocations, deductions, auto), re-validated when approved.
+  request           Json
+  /// pending_approval | posted | rejected
+  status            String
+  paymentId         String?   @unique
+  idempotencyKey    String?   @unique
+  requestHash       String?
+  requestedById     String?
+  requestedBy       String
+  createdAt         DateTime  @default(now())
+  decidedBy         String?
+  decidedAt         DateTime?
+  decisionNote      String?
+  version           Int       @default(1)
+
+  supplier        Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  cashAccount     CashAccount?     @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  custodyEmployee Employee?        @relation("SupplierPaymentRequestCustody", fields: [custodyEmployeeId], references: [id], onDelete: Restrict)
+  payment         SupplierPayment? @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([status])
+  @@index([supplierId])
+  @@index([custodyEmployeeId])
+}
+
+/// A purchasing-custody advance (عهدة شراء) waiting for a second person (approval type
+/// hr.custody_advance). Nothing moves while it waits; on approval the EmployeeTransaction
+/// (type advance, purpose purchasing_custody) and its journal (Dr 1600 employee / Cr cash-bank)
+/// are written in the approval's transaction. Permanent: a guard trigger keeps what was asked.
+model EmployeeCustodyRequest {
+  id             String    @id @default(cuid())
+  /// CST-YYYY-#####
   number         String    @unique
-  supplierId     String
+  employeeId     String
   cashAccountId  String
   date           String
   amount         Decimal   @db.Decimal(18, 2)
-  method         String
   reference      String?
   notes          String?
-  /// What was asked (allocations, deductions, auto), re-validated when approved.
-  request        Json
   /// pending_approval | posted | rejected
   status         String
-  paymentId      String?   @unique
+  transactionId  String?   @unique
   idempotencyKey String?   @unique
   requestHash    String?
   requestedById  String?
   requestedBy    String
   createdAt      DateTime  @default(now())
+  decidedById    String?
   decidedBy      String?
   decidedAt      DateTime?
   decisionNote   String?
   version        Int       @default(1)
 
-  supplier    Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  cashAccount CashAccount      @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
-  payment     SupplierPayment? @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  employee    Employee             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  cashAccount CashAccount          @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  transaction EmployeeTransaction? @relation(fields: [transactionId], references: [id], onDelete: Restrict)
 
   @@index([status])
-  @@index([supplierId])
+  @@index([employeeId])
 }

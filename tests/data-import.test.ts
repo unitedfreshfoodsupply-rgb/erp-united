@@ -105,9 +105,14 @@ async function main() {
   const customer = (await call("mona", "GET", `/api/sales/customers?q=${encodeURIComponent(`${TAG} Main`)}`)).body.customers[0];
   check("customer import persists a stable master ID and external reference", !!customer?.id && customer.externalRef === `${TAG}-C1`, customer);
 
-  const supplierCsv = csv(`name,type,currency_code\n"${TAG} Farm",farm,EGP\n`);
+  const supplierCsv = csv(`name,category,type,currency_code\n"${TAG} Farm",vegetable,farm,EGP\n`);
   const supplierCommit = await upload("admin", "suppliers", "suppliers.csv", supplierCsv, "commit");
   check("CSV commit creates supplier", supplierCommit.status === 200 && supplierCommit.body.created === 1 && !!supplierCommit.body.results[0].code, supplierCommit.body);
+  // D-1 (Nov 2026): every imported supplier is classified — the column is required and closed.
+  const noCategory = await upload("admin", "suppliers", "suppliers-nocat.csv", csv(`name\n"${TAG} Uncl Farm"\n`), "preview");
+  check("a supplier file without a category column is refused", noCategory.status === 400 && /category/.test(JSON.stringify(noCategory.body)), noCategory.body);
+  const badCategory = await upload("admin", "suppliers", "suppliers-badcat.csv", csv(`name,category\n"${TAG} Herb Farm",herbs\n`), "preview");
+  check("an unknown category is a preview error, nothing imported", badCategory.status === 200 && badCategory.body.errorCount === 1 && badCategory.body.rows[0].errors.join(" ").includes("category"), badCategory.body);
   const supplier = (await call("omar", "GET", `/api/purchasing/suppliers?q=${encodeURIComponent(`${TAG} Farm`)}`)).body.suppliers[0];
   check("supplier import persists a stable master ID", !!supplier?.id, supplier);
 
@@ -175,7 +180,7 @@ async function main() {
   const biProduct = (await call("hossam", "GET", "/api/stock/products?all=1")).body.products.find((p: any) => p.sku === BSKU);
   check("product stores code as SKU, English as name and Arabic as nameAr — not swapped", biProduct?.name === `${TAG} Guava` && biProduct?.nameAr === `جوافة ${TAG}`, biProduct);
 
-  const biSupplierCsv = csv(`name_en,name_ar,type\n"${TAG} Delta Farm","مزرعة الدلتا ${TAG}",farm\n`);
+  const biSupplierCsv = csv(`name_en,name_ar,type,category\n"${TAG} Delta Farm","مزرعة الدلتا ${TAG}",farm,vegetable\n`);
   const biSupplierPreview = await upload("admin", "suppliers", "suppliers-bi.csv", biSupplierCsv, "preview");
   check("supplier preview accepts name_ar", biSupplierPreview.status === 200 && biSupplierPreview.body.errorCount === 0, biSupplierPreview.body);
   const biSupplierCommit = await upload("admin", "suppliers", "suppliers-bi.csv", biSupplierCsv, "commit");
@@ -184,7 +189,7 @@ async function main() {
   check("supplier keeps both names and is searchable by its Arabic name", biSupplier?.name === `${TAG} Delta Farm` && biSupplier?.nameAr === `مزرعة الدلتا ${TAG}` && biSupplier?.code === biSupplierCommit.body.results[0].code, biSupplier);
 
   // Arabic-only English column + Latin-only Arabic column: the classic swap.
-  const swappedCsv = csv(`name,name_ar\n"مزرعة ${TAG.replace(/\D/g, "")}","${TAG} Farm Two"\n`);
+  const swappedCsv = csv(`name,name_ar,category\n"مزرعة ${TAG.replace(/\D/g, "")}","${TAG} Farm Two",vegetable\n`);
   const swapped = await upload("admin", "suppliers", "suppliers-swapped.csv", swappedCsv, "preview");
   check("swapped name columns are reported in preview, not imported", swapped.status === 200 && swapped.body.errorCount === 1 && swapped.body.rows[0].errors.join(" ").includes("متبدلين"), swapped.body);
   const swappedCommit = await upload("admin", "suppliers", "suppliers-swapped.csv", swappedCsv, "commit");
@@ -218,7 +223,7 @@ async function main() {
   check("…and stays Arabic without Accept-Language: en", arMissing.status === 400 && arMissing.body.error === "أعمدة مطلوبة ناقصة: unit", arMissing.body);
   const enCommit = await upload("admin", "suppliers", "suppliers-swapped.csv", swappedCsv, "commit", undefined, "en");
   check("a refused commit says how many rows need fixing, in English", enCommit.status === 400 && enCommit.body.error === "1 row(s) need fixing — nothing was saved", enCommit.body);
-  const enService = await call("omar", "POST", "/api/purchasing/suppliers", { name: biSupplier.name }, { "accept-language": "en" });
+  const enService = await call("omar", "POST", "/api/purchasing/suppliers", { category: "vegetable", name: biSupplier.name }, { "accept-language": "en" });
   check("a service error (duplicate supplier) is English and keeps the supplier's name", enService.status === 409 && enService.body.error === `Supplier "${biSupplier.name}" already exists`, enService.body);
 
   section("9. AUTHORITATIVE CODES, BOTH NAMES AND TAX/LEGAL FIELDS ARE KEPT");
@@ -236,12 +241,12 @@ async function main() {
   check("legal names, tax registration and commercial registry kept", full?.legalName === `Nile Hotels Co ${stamp}` && full?.legalNameAr === `شركة فنادق النيل ${stamp}` && /^\d{9}$/.test(full?.taxRegistrationNo ?? "") && full?.commercialRegNo === `CR-${stamp}`, [full?.legalName, full?.taxRegistrationNo, full?.commercialRegNo]);
   const again = await upload("admin", "customers", "customers-coded.csv", csv(`code,name\n${custCode},Another ${stamp}\n`), "preview");
   check("a code already in use is refused in the preview", again.status === 200 && again.body.rows[0].errors.join(" ").includes(custCode), again.body);
-  const dupInFile = await upload("admin", "suppliers", "suppliers-dup.csv", csv(`code,name\n${supCode},Farm A ${stamp}\n${supCode.toLowerCase()},Farm B ${stamp}\n`), "preview");
+  const dupInFile = await upload("admin", "suppliers", "suppliers-dup.csv", csv(`code,name,category\n${supCode},Farm A ${stamp},fruit\n${supCode.toLowerCase()},Farm B ${stamp},fruit\n`), "preview");
   check("the same code twice in one file is refused (case-insensitive)", dupInFile.status === 200 && dupInFile.body.rows[1].errors.length > 0, dupInFile.body);
-  const supCommit = await upload("admin", "suppliers", "suppliers-coded.csv", csv(`code,name,name_ar,tax_registration_no\n${supCode},Green Farm ${stamp},مزرعة خضراء ${stamp},\n`), "commit");
+  const supCommit = await upload("admin", "suppliers", "suppliers-coded.csv", csv(`code,name,name_ar,tax_registration_no,category\n${supCode},Green Farm ${stamp},مزرعة خضراء ${stamp},,vegetable\n`), "commit");
   const sup = (await call("admin", "GET", `/api/purchasing/suppliers?q=${encodeURIComponent(supCode)}`)).body.suppliers?.find((x: any) => x.code === supCode);
   check("a supplier keeps the supplied code and both names", supCommit.body?.created === 1 && sup?.name === `Green Farm ${stamp}` && sup?.nameAr === `مزرعة خضراء ${stamp}`, [supCommit.status, sup]);
-  const generated = await upload("admin", "suppliers", "suppliers-nocode.csv", csv(`code,name\n,Plain Farm ${stamp}\n`), "commit");
+  const generated = await upload("admin", "suppliers", "suppliers-nocode.csv", csv(`code,name,category\n,Plain Farm ${stamp},vegetable\n`), "commit");
   check("an empty code still gets a generated one", generated.body?.created === 1 && /^SUP-\d+$/.test(generated.body?.results?.[0]?.code ?? ""), generated.body);
 
   finish("DATA IMPORT");

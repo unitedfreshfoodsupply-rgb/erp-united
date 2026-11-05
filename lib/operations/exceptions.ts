@@ -77,7 +77,7 @@ export async function listExceptions(filters: { status?: string; type?: string; 
     take: 300,
   });
   const orderIds = [...new Set(rows.map((r) => r.orderId).filter((x): x is string => !!x))];
-  const orders = new Map((await prisma.order.findMany({ where: { id: { in: orderIds } }, select: { id: true, orderNumber: true, customerName: true } })).map((o) => [o.id, o]));
+  const orders = new Map((await prisma.order.findMany({ where: { id: { in: orderIds } }, select: { id: true, orderNumber: true, customerName: true, customerAccount: { select: { name: true, nameAr: true } } } })).map((o) => [o.id, o]));
   return rows.map((r) => ({ ...r, quantity: r.quantity?.toString() ?? null, order: r.orderId ? orders.get(r.orderId) ?? null : null }));
 }
 
