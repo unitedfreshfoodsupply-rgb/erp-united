@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { handleApiError, ApiError } from "@/lib/rbac";
+import { handleApiError, ApiError, rowErrorMessage } from "@/lib/rbac";
 import { requireServiceActor } from "@/lib/core/actor";
 import { readJsonLimited, readLimitedBody } from "@/lib/http";
 import { parseCsv, type CsvRecord } from "@/lib/data-import/csv";
@@ -444,7 +444,7 @@ export async function POST(req: NextRequest) {
           }
           results.push({ rowNumber: row.rowNumber, status: "تم" });
         } catch (err) {
-          results.push({ rowNumber: row.rowNumber, status: "فشل", error: err instanceof Error ? err.message : "تعذر الحفظ" });
+          results.push({ rowNumber: row.rowNumber, status: "فشل", error: rowErrorMessage(err, locale) });
         }
       }
       return NextResponse.json({ created: results.filter((r) => r.status === "تم").length, failed: results.filter((r) => r.status === "فشل").length, results: localizeResults(results) });
@@ -477,7 +477,8 @@ export async function POST(req: NextRequest) {
           }
           group.forEach((r) => results.push({ rowNumber: r.rowNumber, status: "تم" }));
         } catch (err) {
-          group.forEach((r) => results.push({ rowNumber: r.rowNumber, status: "فشل", error: err instanceof Error ? err.message : "تعذر الحفظ" }));
+          const error = rowErrorMessage(err, locale);
+          group.forEach((r) => results.push({ rowNumber: r.rowNumber, status: "فشل", error }));
         }
       }
       results.sort((a, b) => a.rowNumber - b.rowNumber);
@@ -544,7 +545,7 @@ export async function POST(req: NextRequest) {
         }
         results.push({ rowNumber: row.rowNumber, status: "تم", code });
       } catch (err) {
-        results.push({ rowNumber: row.rowNumber, status: "فشل", error: err instanceof Error ? err.message : "تعذر الحفظ" });
+        results.push({ rowNumber: row.rowNumber, status: "فشل", error: rowErrorMessage(err, locale) });
       }
     }
     return NextResponse.json({ created: results.filter((r) => r.status === "تم").length, failed: results.filter((r) => r.status === "فشل").length, results: localizeResults(results) });

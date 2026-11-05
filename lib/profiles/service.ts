@@ -9,6 +9,7 @@ import { debitedByBill, supplierPayable } from "@/lib/purchasing/bills";
 import { valuedQuantity } from "@/lib/sales/pricing";
 import { lineAmounts, sumAmounts } from "@/lib/sales/money";
 import { MONEY, maySeeSection, type ProfileKind } from "./access";
+import { visibleAuditRows } from "@/lib/security/audit-visibility";
 import { href, linkFor, refundsLink } from "./links";
 
 /**
@@ -385,9 +386,11 @@ async function supplierProducts(id: string, can: Can, w: Window): Promise<Sectio
   };
 }
 
-async function supplierHistory(id: string): Promise<SectionResult> {
-  const logs = await prisma.auditLog.findMany({ where: { entityType: "supplier", entityId: id }, orderBy: { timestamp: "desc" }, take: 200, select: { id: true, action: true, userName: true, timestamp: true, fieldChanged: true, oldValue: true, newValue: true, reason: true } });
-  return { rows: [], total: logs.length, data: logs };
+/** The supplier's audit trail, under the same money rules as /api/audit: agreed prices only with MONEY.purchasePrice. */
+async function supplierHistory(id: string, can: Can): Promise<SectionResult> {
+  const logs = await prisma.auditLog.findMany({ where: { entityType: "supplier", entityId: id }, orderBy: { timestamp: "desc" }, take: 200, select: { id: true, action: true, entityType: true, userName: true, timestamp: true, fieldChanged: true, oldValue: true, newValue: true, reason: true } });
+  const visible = visibleAuditRows(logs, can);
+  return { rows: [], total: visible.length, data: visible };
 }
 
 async function supplierSummary(id: string, can: Can) {
@@ -592,7 +595,7 @@ export async function profileSection(kind: string, id: string, section: string, 
       case "payments": return merge([await supplierPayments(id, can, w)], w.limit);
       case "returns": return merge([await returnDocuments({ type: "supplier_return", supplierId: id, reversalOfId: null, ...range("businessDate", w) }, can, "supplier", w)], w.limit);
       case "products": return supplierProducts(id, can, w);
-      case "history": return supplierHistory(id);
+      case "history": return supplierHistory(id, can);
       case "timeline": return merge(await Promise.all([
         sees("orders") ? supplierOrders(id, can, w) : null, sees("receipts") ? intakes({ supplierId: id }, can, w, "product") : null,
         sees("bills") ? supplierBills(id, can, w) : null, sees("payments") ? supplierPayments(id, can, w) : null,

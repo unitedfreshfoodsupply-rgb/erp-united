@@ -12,6 +12,10 @@ import { readJson } from "@/lib/http";
  * knows. It only exists so a failed lookup costs the same time as a failed password. */
 const TIMING_DUMMY_HASH = "$2a$12$Ltu31N7nZC4dbi3I.Ytf7.x.mmnLEvn2V.cEWE1c.WqjxoRn1KGGm";
 
+/** A sign-in body is a name, a password and perhaps a code or a 5-minute token. It is read
+ * before anyone is known, so it gets a tight cap rather than the general JSON limit. */
+const LOGIN_BODY_LIMIT = 16_000;
+
 /** The first client address from X-Forwarded-For (set by the reverse proxy). */
 function clientIp(req: NextRequest): string | null {
   const xff = req.headers.get("x-forwarded-for");
@@ -21,17 +25,25 @@ function clientIp(req: NextRequest): string | null {
 
 type UserRow = { id: string; name: string; username: string; role: string; sessionEpoch: number; mustChangePassword: boolean };
 
-async function lockGuards(username: string, ip: string | null, loc: "ar" | "en") {
+async function ipGuard(ip: string | null, loc: "ar" | "en") {
   // IP-wide lockout first: a brute force that spreads guesses across usernames
   // still trips it, because the lock is on where the guesses come from.
   const ipLock = await isIpLoginLocked(ip, await getSetting("auth.login_ip_lockout_threshold"));
   if (ipLock.locked) {
     throw new ApiError(429, loc === "en" ? `Too many failed attempts from this IP — try again in ${Math.ceil(ipLock.retryAfterSec / 60)} minutes` : `محاولات كتير غلط من العنوان ده — حاول تاني بعد ${Math.ceil(ipLock.retryAfterSec / 60)} دقيقة`);
   }
+}
+
+async function accountGuard(username: string, loc: "ar" | "en") {
   const lockState = await isLoginLocked(username);
   if (lockState.locked) {
     throw new ApiError(429, loc === "en" ? `Too many failed attempts — try again in ${Math.ceil(lockState.retryAfterSec / 60)} minutes` : `محاولات كتير غلط — حاول تاني بعد ${Math.ceil(lockState.retryAfterSec / 60)} دقيقة`);
   }
+}
+
+async function lockGuards(username: string, ip: string | null, loc: "ar" | "en") {
+  await ipGuard(ip, loc);
+  await accountGuard(username, loc);
 }
 
 /** Issues the session (cookie + the same token for the tab) and the response body. */
@@ -63,7 +75,7 @@ async function signIn(user: UserRow, mfaEnrolled: boolean) {
 export async function POST(req: NextRequest) {
   try {
     const loc = req.headers.get("accept-language") === "en" ? "en" : "ar";
-    const body = await readJson(req);
+    const body = await readJson(req, LOGIN_BODY_LIMIT);
     const ip = clientIp(req);
     const invalid = () => new ApiError(401, loc === "en" ? "Invalid login credentials" : "بيانات الدخول غلط");
 
@@ -94,19 +106,27 @@ export async function POST(req: NextRequest) {
     if (typeof username !== "string" || typeof password !== "string" || !username || !password) {
       throw new ApiError(400, loc === "en" ? "Enter username and password" : "دخّل اسم المستخدم وكلمة السر");
     }
-    await lockGuards(username, ip, loc);
+    await ipGuard(ip, loc);
 
     // The username, or the account's email (stored lower-case) when the identifier has an "@".
     const identifier = username.trim();
     const user = identifier.includes("@")
       ? await prisma.user.findUnique({ where: { email: identifier.toLowerCase() } })
       : await prisma.user.findUnique({ where: { username } });
+    // One failure counter per account: the email is another way to type the same
+    // username, not a second set of five guesses. An unknown identifier counts as typed.
+    // Known trade-off: while an account is locked, the 429 also answers for its email (and
+    // a 401 for any other address), so whoever locked a username can test which email is
+    // its own. Five wrong passwords buy one such probe per lock; that is accepted rather
+    // than hiding the lock behind a generic 401, which would leave the real user guessing.
+    const account = user?.username ?? username;
+    await accountGuard(account, loc);
     // Always pay for one bcrypt comparison, even for an unknown or disabled account.
     // Answering those instantly while a real account takes ~250ms tells anyone timing
     // the endpoint which usernames exist.
     const ok = await verifyPassword(password, user?.passwordHash ?? TIMING_DUMMY_HASH);
     if (!user || !user.active || !ok) {
-      await recordLoginFailure(username, ip);
+      await recordLoginFailure(account, ip);
       throw invalid();
     }
 
@@ -126,7 +146,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ mfa_required: true, mfa_token: await createPreAuthToken({ userId: user.id, sessionEpoch: user.sessionEpoch }) });
     }
 
-    await recordLoginSuccess(username, ip);
+    await recordLoginSuccess(account, ip);
     return signIn(user, false);
   } catch (err) {
     return handleApiError(err, req);

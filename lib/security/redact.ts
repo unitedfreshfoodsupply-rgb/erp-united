@@ -8,7 +8,8 @@ import { jsonResponse } from "@/lib/http-response";
  * forgot to strip it — the rule lives in one place, not in each route.
  *
  * Redaction is by field name, deep: cost fields become null. Audit rows that record a
- * change to a cost field keep the fact of the change but lose the old and new values.
+ * change to a cost field keep the fact of the change but lose the old and new values, and
+ * the reason too: it is written in costs ("سعر مؤقت 10.0000 بفاتورة …", "إعادة تقييم …").
  */
 
 const COST_KEYS = new Set(["unitCost", "standardCost", "averageCost", "stockValue", "totalValue", "valuation", "goodUnitCost", "gradeBUnitCost", "wasteUnitCost", "wasteLoss"]);
@@ -37,7 +38,7 @@ export function redactCosts<T>(data: T): T {
     const costChange = typeof v.fieldChanged === "string" && COST_KEYS.has(v.fieldChanged);
     for (const [k, val] of Object.entries(v)) {
       if (COST_KEYS.has(k)) out[k] = null;
-      else if (costChange && (k === "oldValue" || k === "newValue")) out[k] = null;
+      else if (costChange && (k === "oldValue" || k === "newValue" || k === "reason")) out[k] = null;
       else out[k] = walk(val);
     }
     return out;

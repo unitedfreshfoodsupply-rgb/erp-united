@@ -7,6 +7,7 @@ import { mayOpenLink } from "@/lib/reports/page-access";
 import type { ReportColumn, ReportDef, ReportParams, ReportResult } from "@/lib/reports/types";
 import type { Permission } from "@/lib/permissions";
 import { systemText } from "@/lib/locale/system-text";
+import { csvCell } from "@/lib/core/csv-export";
 
 type Viewer = { can: (p: Permission) => boolean };
 
@@ -80,11 +81,10 @@ const cell = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 
 /** CSV in the chosen language: UTF-8 with a BOM (Excel opens Arabic correctly), header row, rows, totals row. */
 export function reportCsv(r: Ran, lang: "ar" | "en") {
-  const esc = (s: string) => (/[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
   const head = r.columns.map((c) => c.label[lang]);
   const lines = [head, ...localRows(r, lang).map((row) => r.columns.map((c) => cell(row[c.key])))];
   if (Object.keys(r.totals).length) lines.push(r.columns.map((c, i) => (i === 0 ? (lang === "ar" ? "الإجمالي" : "Total") : cell(r.totals[c.key]))));
-  return "﻿" + lines.map((l) => l.map((x) => esc(x)).join(",")).join("\r\n") + "\r\n";
+  return "﻿" + lines.map((l) => l.map((x) => csvCell(x)).join(",")).join("\r\n") + "\r\n";
 }
 
 /**
