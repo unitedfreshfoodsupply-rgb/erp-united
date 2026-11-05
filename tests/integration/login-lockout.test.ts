@@ -1,4 +1,4 @@
-/* SEC-2 (Nov 2026): the per-account sign-in lock counts the account, not the spelling. The
+/* SEC-2 / SEC-3 (Nov 2026): the per-account sign-in lock counts the account, not the spelling. The
    username and the account's email are two ways to type the same account, so five wrong
    passwords across both lock it (before, each had its own five). Only failures are driven
    here: the route is called directly, without a server, and a success would set a cookie.
@@ -51,4 +51,17 @@ test("an unknown identifier still counts as typed, and does not lock a real acco
   assert.equal((await attempt(ghost)).status, 429);
   assert.equal(await prisma.loginAttempt.count({ where: { username: ghost } }), 5);
   assert.equal((await attempt(`${TAG}-other`)).status, 401, "another account is not affected");
+});
+
+test("SEC-3: a sign-in body over 16 KB is refused with 413 before anything is looked up or counted", async () => {
+  const before = await prisma.loginAttempt.count();
+  const huge = JSON.stringify({ username: `${TAG}-huge`, password: "x".repeat(20_000) });
+  const res = await POST(new NextRequest("http://localhost/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: huge }));
+  assert.equal(res.status, 413);
+  assert.equal((await res.json()).error, "حجم الطلب أكبر من الحد المسموح (16 كيلوبايت)");
+  const en = await POST(new NextRequest("http://localhost/api/auth/login", { method: "POST", headers: { "content-type": "application/json", "accept-language": "en" }, body: huge }));
+  assert.equal((await en.json()).error, "The request is larger than the allowed size (16 KB)");
+  assert.equal(await prisma.loginAttempt.count(), before);
+  // An ordinary body is unaffected.
+  assert.equal((await attempt(`${TAG}-nobody`)).status, 401);
 });

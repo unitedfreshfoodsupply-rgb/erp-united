@@ -12,6 +12,10 @@ import { readJson } from "@/lib/http";
  * knows. It only exists so a failed lookup costs the same time as a failed password. */
 const TIMING_DUMMY_HASH = "$2a$12$Ltu31N7nZC4dbi3I.Ytf7.x.mmnLEvn2V.cEWE1c.WqjxoRn1KGGm";
 
+/** A sign-in body is a name, a password and perhaps a code or a 5-minute token. It is read
+ * before anyone is known, so it gets a tight cap rather than the general JSON limit. */
+const LOGIN_BODY_LIMIT = 16_384;
+
 /** The first client address from X-Forwarded-For (set by the reverse proxy). */
 function clientIp(req: NextRequest): string | null {
   const xff = req.headers.get("x-forwarded-for");
@@ -71,7 +75,7 @@ async function signIn(user: UserRow, mfaEnrolled: boolean) {
 export async function POST(req: NextRequest) {
   try {
     const loc = req.headers.get("accept-language") === "en" ? "en" : "ar";
-    const body = await readJson(req);
+    const body = await readJson(req, LOGIN_BODY_LIMIT);
     const ip = clientIp(req);
     const invalid = () => new ApiError(401, loc === "en" ? "Invalid login credentials" : "بيانات الدخول غلط");
 

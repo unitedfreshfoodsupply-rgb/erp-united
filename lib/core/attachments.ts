@@ -88,7 +88,8 @@ export async function uploadAttachment(
   const file = input.file;
   if (!file || typeof file === "string") throw new ApiError(400, "مفيش ملف");
   const maxMb = await getSetting("documents.max_upload_mb");
-  // Checked on the declared size BEFORE reading the body into memory.
+  // The route already refused a request body over this limit before reading it
+  // (app/api/attachments); this is the file's own size.
   if (file.size > maxMb * 1024 * 1024) throw new ApiError(413, `الملف أكبر من ${maxMb} ميجا`);
   if (file.size === 0) throw new ApiError(400, "الملف فاضي");
   const bytes = new Uint8Array(await file.arrayBuffer());

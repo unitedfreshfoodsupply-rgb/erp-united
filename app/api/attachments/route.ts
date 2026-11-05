@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ApiError, handleApiError } from "@/lib/rbac";
+import { handleApiError } from "@/lib/rbac";
 import { requireAuth } from "@/lib/authz";
 import { serviceActorFromContext } from "@/lib/core/actor";
 import { listAttachments, uploadAttachment } from "@/lib/core/attachments";
+import { getSetting } from "@/lib/core/settings-service";
+import { readFormLimited } from "@/lib/http";
+
+/** Room for the form's other fields and the multipart framing around the file. */
+const FORM_OVERHEAD_BYTES = 64 * 1024;
 
 /** GET ?entity_type=order&entity_id=… — the record's attachments. */
 export async function GET(req: NextRequest) {
@@ -18,16 +23,19 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** multipart/form-data: entity_type, entity_id, category, description?, file. */
+/**
+ * multipart/form-data: entity_type, entity_id, category, description?, file.
+ *
+ * The body is read against documents.max_upload_mb before it is parsed: a declared size
+ * over the limit is refused without reading it, and an undeclared one stops at the limit
+ * (req.formData() buffered the whole upload first). uploadAttachment then checks the file
+ * itself, its type and who may attach it.
+ */
 export async function POST(req: NextRequest) {
   try {
     const actor = serviceActorFromContext(await requireAuth(req));
-    let form: FormData;
-    try {
-      form = await req.formData();
-    } catch {
-      throw new ApiError(400, "الطلب لازم يكون multipart/form-data فيه ملف");
-    }
+    const maxMb = await getSetting("documents.max_upload_mb");
+    const form = await readFormLimited(req, maxMb * 1024 * 1024 + FORM_OVERHEAD_BYTES, `الملف أكبر من ${maxMb} ميجا`, "الطلب لازم يكون multipart/form-data فيه ملف");
     const file = form.get("file");
     const result = await uploadAttachment(
       {

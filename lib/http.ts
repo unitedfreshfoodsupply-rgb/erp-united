@@ -11,18 +11,40 @@ import { ApiError } from "@/lib/rbac";
 export type JsonBody = Record<string, any>;
 
 /**
- * Reads a JSON request body, or fails with 400.
+ * The largest JSON body an endpoint reads unless it says otherwise (SEC-3, Nov 2026). Far
+ * above what the screens send — the biggest batches the schemas allow (an opening-balance
+ * sheet of 5,000 rows, 2,000 batch lines, 1,000 attendance events) stay under it even with
+ * long names — yet small enough that a flood of huge bodies cannot fill the server's memory.
+ */
+export const JSON_BODY_LIMIT = 4_000_000;
+
+/** "4 ميجا" / "16 KB": the limit as people say it, for the 413 message. */
+function sizeLabel(bytes: number, loc: "ar" | "en") {
+  if (bytes >= 1_000_000) return `${Number((bytes / 1_000_000).toFixed(1))} ${loc === "en" ? "MB" : "ميجا"}`;
+  return `${Math.ceil(bytes / 1024)} ${loc === "en" ? "KB" : "كيلوبايت"}`;
+}
+
+/**
+ * Reads a JSON request body, or fails with 400 (413 when it is larger than `maxBytes`).
  *
  * `req.json()` throws a SyntaxError on a malformed or empty body, which the route's
  * catch-all turned into a 500 "server error" — telling an integration that retrying
  * might help, when the request itself is wrong. A body that is not a JSON object is
  * refused the same way: every endpoint here takes named fields.
+ *
+ * The body is read with a real streaming limit (readLimitedBody), not `req.json()`, which
+ * buffered whatever arrived: a declared Content-Length over the limit is refused before
+ * reading, and a body without one stops at the limit.
  */
-export async function readJson(req: NextRequest): Promise<JsonBody> {
+export async function readJson(req: NextRequest, maxBytes: number = JSON_BODY_LIMIT): Promise<JsonBody> {
   let body: unknown;
   const loc = req.headers.get("accept-language") === "en" ? "en" : "ar";
+  const tooLarge = loc === "en" ? `The request is larger than the allowed size (${sizeLabel(maxBytes, loc)})` : `حجم الطلب أكبر من الحد المسموح (${sizeLabel(maxBytes, loc)})`;
+  if (Number(req.headers.get("content-length")) > maxBytes) throw new ApiError(413, tooLarge);
+  const bytes = await readLimitedBody(req, maxBytes, tooLarge);
   try {
-    body = await req.json();
+    // UTF-8 with a leading BOM dropped, as req.json() decoded it.
+    body = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     throw new ApiError(400, loc === "en" ? "Request body is not valid JSON" : "جسم الطلب مش JSON صالح");
   }
@@ -60,6 +82,22 @@ export async function readLimitedBody(req: NextRequest, maxBytes: number, label?
   let offset = 0;
   for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
   return body;
+}
+
+/**
+ * A multipart form read under `maxBytes` — a declared Content-Length over it is refused
+ * before reading, an undeclared body stops at it (413 `tooLarge`) — then parsed; 400
+ * `notAForm` when it is not one. `req.formData()` would buffer the whole upload first.
+ */
+export async function readFormLimited(req: NextRequest, maxBytes: number, tooLarge: string, notAForm: string): Promise<FormData> {
+  if (Number(req.headers.get("content-length")) > maxBytes) throw new ApiError(413, tooLarge);
+  const bytes = await readLimitedBody(req, maxBytes, tooLarge);
+  try {
+    // readLimitedBody's bytes own their whole ArrayBuffer.
+    return await new Request(req.url, { method: "POST", headers: { "content-type": req.headers.get("content-type") ?? "" }, body: bytes as Uint8Array<ArrayBuffer> }).formData();
+  } catch {
+    throw new ApiError(400, notAForm);
+  }
 }
 
 export async function readJsonLimited(req: NextRequest, maxBytes: number): Promise<JsonBody> {
