@@ -28,12 +28,15 @@ async function quietly<T>(fn: () => T): Promise<T> {
   }
 }
 
-test("an expired interactive transaction (P2028) → 503, says nothing was saved, keeps the ref", async () => {
+test("an expired interactive transaction (P2028) → 503, says this step was cancelled and to check before retrying, keeps the ref", async () => {
   const res = await quietly(() => handleApiError(prismaError("P2028", "Transaction API error: Transaction already closed: A query cannot be executed on an expired transaction. The timeout for this transaction was 20000 ms, however 20012 ms passed since the start of the transaction."), req()));
   assert.equal(res.status, 503);
   const body = await res.json();
-  assert.match(body.error, /اتلغت/);
-  assert.match(body.error, /مفيش حاجة منها اتسجلت/);
+  assert.match(body.error, /الخطوة دي اتلغت/);
+  // A route may have committed an earlier transaction before this one timed out (e.g. a trip's
+  // per-stop status moves), so the text never promises that nothing was saved.
+  assert.ok(!/مفيش حاجة|اتسجلت/.test(body.error), "no promise that nothing was saved");
+  assert.match(body.error, /اتأكد من الحالة قبل ما تجرّب تاني/);
   assert.match(body.error, /رقم المرجع/);
   assert.match(body.ref, /^[0-9a-f]{8}$/);
   assert.ok(!/Transaction|expired|20000/.test(body.error), "no internals in the message");
@@ -48,7 +51,8 @@ test("P2028 'unable to start' and P2024 (pool) → 503 busy, which does not prom
     assert.equal(res.status, 503, e.message);
     const body = await res.json();
     assert.match(body.error, /مشغول/);
-    assert.ok(!/مفيش حاجة منها اتسجلت/.test(body.error), "a busy server may have saved an earlier step");
+    assert.ok(!/مفيش حاجة|اتسجلت/.test(body.error), "a busy server may have saved an earlier step");
+    assert.match(body.error, /اتأكد من الحالة قبل ما تجرّب تاني/);
     assert.match(body.ref, /^[0-9a-f]{8}$/);
   }
 });
@@ -56,7 +60,9 @@ test("P2028 'unable to start' and P2024 (pool) → 503 busy, which does not prom
 test("English requests get the English text", async () => {
   const res = await quietly(() => handleApiError(prismaError("P2028", "Transaction already closed"), req("en")));
   const body = await res.json();
-  assert.match(body.error, /nothing from it was saved/);
+  assert.match(body.error, /this step was cancelled/);
+  assert.match(body.error, /check the current state before trying again/);
+  assert.ok(!/nothing .*saved/i.test(body.error), "no promise that nothing was saved");
   const busy = await (await quietly(() => handleApiError(prismaError("P2024", "Timed out fetching a new connection"), req("en")))).json();
   assert.match(busy.error, /server is busy/);
 });

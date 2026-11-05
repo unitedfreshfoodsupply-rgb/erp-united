@@ -26,7 +26,7 @@ const ERRORS_AR: Record<string, string> = {
   check_ref: "مرجع غير موجود (صنف/مكان/طرف غير معروف)",
   check_default: "البيانات مخالفة لقاعدة:",
   server: "خطأ في السيرفر",
-  tx_timeout: "العملية خدت وقت أطول من المسموح فاتلغت، ومفيش حاجة منها اتسجلت — حدّث الصفحة وجرّب تاني بعد شوية، ولو اتكررت بلّغ مدير النظام برقم المرجع",
+  tx_timeout: "العملية خدت وقت أطول من المسموح والخطوة دي اتلغت — حدّث الصفحة واتأكد من الحالة قبل ما تجرّب تاني بعد شوية، ولو اتكررت بلّغ مدير النظام برقم المرجع",
   busy: "السيرفر مشغول دلوقتي والعملية مكملتش — حدّث الصفحة واتأكد من الحالة قبل ما تجرّب تاني بعد شوية، ولو اتكررت بلّغ مدير النظام برقم المرجع",
   "auth.required": "لازم تسجل دخول الأول",
   "auth.change-password": "لازم تغيّر كلمة السر الأول",
@@ -44,7 +44,7 @@ const ERRORS_EN: Record<string, string> = {
   check_ref: "Reference not found (product/location/party unknown)",
   check_default: "Data violates rule:",
   server: "Server error",
-  tx_timeout: "The operation took longer than allowed and was cancelled — nothing from it was saved. Refresh the page and try again in a little while; if it happens again, give the system administrator the reference number",
+  tx_timeout: "The operation took longer than allowed and this step was cancelled — refresh the page and check the current state before trying again in a little while; if it happens again, give the system administrator the reference number",
   busy: "The server is busy right now and the operation did not finish — refresh the page and check the current state before trying again in a little while; if it happens again, give the system administrator the reference number",
   "auth.required": "You must sign in first",
   "auth.change-password": "You must change your password first",
@@ -110,7 +110,7 @@ export function handleApiError(err: unknown, req?: NextRequest) {
  * - a lost optimistic-lock race (P2025 on an update guarded by its version);
  * - PostgreSQL refusing a NUL character in text.
  * Plus the one server condition a user can act on: running out of time or connections
- * (503, with what was and was not saved). Everything else stays a 500.
+ * (503, asking to check the current state before retrying). Everything else stays a 500.
  */
 function clientFault(err: unknown, loc: "ar" | "en"): { status: number; message: string; loud?: boolean } | null {
   const e = err as { name?: string; code?: string; message?: string } | null;
@@ -121,11 +121,12 @@ function clientFault(err: unknown, loc: "ar" | "en"): { status: number; message:
   // transaction rolled back; nothing was written).
   if (e.name === "PrismaClientKnownRequestError" && e.code === "P2025") return { status: 409, message: msg(loc, "stale", "السجل اتغيّر من واحد تاني في نفس اللحظة — حدّث الشاشة وجرّب تاني") };
   // Out of time (lib/tx.ts: maxWait 15 s, timeout 20 s; one pooled connection in production).
-  // P2028 on a transaction that ran past its timeout: Prisma rolled it back, so nothing of it
-  // was written. P2028 "unable to start" (waited 15 s for the connection) and P2024 (a plain
-  // query waited for the pool) only say the server was busy: the request may have committed an
-  // earlier step, so that message asks to check before retrying. Matched on the code, not the
-  // text — a late P2028 on an already-closed transaction reads differently. Loud: logged with the ref.
+  // P2028 on a transaction that ran past its timeout: Prisma rolled that transaction back, but a
+  // route that committed earlier transactions first (dispatchTrip's per-stop status moves,
+  // syncUnposted…) keeps those, so the message says "this step" and asks to check before
+  // retrying. P2028 "unable to start" (waited 15 s for the connection) and P2024 (a plain query
+  // waited for the pool) say the server was busy, with the same advice. Matched on the code, not
+  // the text — a late P2028 on an already-closed transaction reads differently. Loud: logged with the ref.
   if (e.name === "PrismaClientKnownRequestError" && e.code === "P2028") {
     const notStarted = typeof e.message === "string" && /Unable to start a transaction in the given time/i.test(e.message);
     return notStarted ? { status: 503, message: msg(loc, "busy", ERRORS_AR.busy), loud: true } : { status: 503, message: msg(loc, "tx_timeout", ERRORS_AR.tx_timeout), loud: true };
