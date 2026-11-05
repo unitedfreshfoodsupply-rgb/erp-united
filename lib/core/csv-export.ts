@@ -1,10 +1,22 @@
 /** Excel-safe CSV export helpers (UTF-8 BOM + RFC 4180 quoting). */
 const BOM = "\uFEFF";
 
+/**
+ * A cell a spreadsheet would run as a formula — "=HYPERLINK(…)", "@SUM(…)", a leading tab
+ * or CR, or "+"/"-" followed by anything but a number — opens as the text it is: a leading
+ * apostrophe is added (CSV formula injection). Names and notes typed at the gate or sent by
+ * an integration reach these files. Signed amounts and phone numbers ("-12.50", "+2010…")
+ * are not formulas and stay exactly as stored.
+ */
+function asText(s: string): string {
+  const formula = /^[=@\t\r]/.test(s) || (/^[+-]/.test(s) && !/^[+-]?[\d\s.,()]*%?$/.test(s));
+  return formula ? `'${s}` : s;
+}
+
 /** Quote a cell per RFC 4180: wrap in quotes, double any inner quotes. */
 export function csvCell(v: unknown): string {
   if (v === null || v === undefined) return "";
-  const s = String(v);
+  const s = asText(String(v));
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
