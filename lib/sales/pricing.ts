@@ -179,34 +179,65 @@ export async function setPrices(priceListId: string, input: unknown, actor: Serv
     const pl = await tx.priceList.findUnique({ where: { id: priceListId } });
     if (!pl) throw new ApiError(404, "قائمة الأسعار مش موجودة");
     if (!pl.active) throw new ApiError(400, "القائمة موقوفة");
+    // Every product, unit and existing row the prices touch, read at once (PW-4, Nov 2026: ~4
+    // round trips per price — a daily update of ~130+ prices ran past 20 s and saved nothing).
+    // The prices are then applied in order exactly as one by one: a (product, unit) sent twice is
+    // created by its first occurrence and corrected by the next, the same counts and audit rows,
+    // the same first refusal; the rows are written at the end in two statements.
+    const productIds = [...new Set(v.prices.map((p) => p.product_id))];
+    const products = new Map((await tx.stockProduct.findMany({ where: { id: { in: productIds } }, include: { packagings: true } })).map((x) => [x.id, x]));
+    const undeclared = v.prices.flatMap((p) => {
+      const product = products.get(p.product_id);
+      const uom = p.uom || product?.unit;
+      return product && uom && uom !== product.unit && !product.packagings.some((x) => x.uomCode === uom && x.active) ? [uom, product.unit] : [];
+    });
+    const units = new Map((undeclared.length ? await tx.unitOfMeasure.findMany({ where: { code: { in: [...new Set(undeclared)] } } }) : []).map((u) => [u.code, u]));
+    const rows = await tx.priceListItem.findMany({ where: { priceListId, validFrom: v.valid_from, productId: { in: productIds } } });
+    const usedBy = new Map((rows.length ? await tx.orderItemPrice.groupBy({ by: ["priceListItemId"], where: { priceListItemId: { in: rows.map((r) => r.id) } }, _count: { _all: true } }) : []).map((g) => [g.priceListItemId!, g._count._all]));
+    // The (product, unit) rows of that date as the loop sees them: stored, or created by an earlier price of this request.
+    const current = new Map<string, { id: string | null; productId: string; uom: string; unitPrice: Prisma.Decimal; validTo: string | null; changed: boolean }>(
+      rows.map((r) => [`${r.productId}|${r.uomCode}`, { id: r.id, productId: r.productId, uom: r.uomCode, unitPrice: r.unitPrice, validTo: r.validTo, changed: false }])
+    );
+    const validTo = v.valid_to ?? null;
     const audits: AuditInput[] = [];
     let created = 0;
     let replaced = 0;
     for (const p of v.prices) {
-      const product = await tx.stockProduct.findUnique({ where: { id: p.product_id }, include: { packagings: true } });
+      const product = products.get(p.product_id);
       if (!product) throw new ApiError(404, "الصنف مش موجود");
       const uom = p.uom || product.unit;
       if (uom !== product.unit && !product.packagings.some((x) => x.uomCode === uom && x.active)) {
-        const u = await tx.unitOfMeasure.findUnique({ where: { code: uom } });
-        const base = await tx.unitOfMeasure.findUnique({ where: { code: product.unit } });
+        const u = units.get(uom);
+        const base = units.get(product.unit);
         if (!u || !base || u.category !== base.category || u.category === "package") throw new ApiError(400, `الوحدة ${uom} مش متعرّفة للصنف "${product.name}"`);
       }
-      const key = { priceListId_productId_uomCode_validFrom: { priceListId, productId: product.id, uomCode: uom, validFrom: v.valid_from } };
-      const existing = await tx.priceListItem.findUnique({ where: key });
+      const existing = current.get(`${product.id}|${uom}`);
       if (existing) {
-        if (existing.unitPrice.equals(p.unit_price) && existing.validTo === (v.valid_to ?? null)) continue;
-        const used = await tx.orderItemPrice.count({ where: { priceListItemId: existing.id } });
+        if (existing.unitPrice.equals(p.unit_price) && existing.validTo === validTo) continue;
+        const used = existing.id ? usedBy.get(existing.id) ?? 0 : 0;
         if (used) throw new ApiError(409, `سعر "${product.name}" من ${v.valid_from} اتسعّر بيه أوردرات بالفعل — حط السعر الجديد من تاريخ بعده`);
-        await tx.priceListItem.update({ where: { id: existing.id }, data: { unitPrice: p.unit_price, validTo: v.valid_to ?? null, createdById: actor.id, createdBy: actor.name } });
         audits.push(audit(actor, { action: "price_corrected", entityType: "price_list", entityId: priceListId, fieldChanged: `${product.name} / ${uom} @ ${v.valid_from}`, oldValue: existing.unitPrice.toString(), newValue: p.unit_price.toString(), reason: v.reason ?? undefined }));
+        Object.assign(existing, { unitPrice: p.unit_price, validTo, changed: true });
         replaced++;
       } else {
-        await tx.priceListItem.create({
-          data: { priceListId, productId: product.id, uomCode: uom, unitPrice: p.unit_price, validFrom: v.valid_from, validTo: v.valid_to ?? null, createdById: actor.id, createdBy: actor.name },
-        });
+        current.set(`${product.id}|${uom}`, { id: null, productId: product.id, uom, unitPrice: p.unit_price, validTo, changed: true });
         audits.push(audit(actor, { action: "price_set", entityType: "price_list", entityId: priceListId, fieldChanged: `${product.name} / ${uom} @ ${v.valid_from}`, newValue: p.unit_price.toString(), reason: v.reason ?? undefined }));
         created++;
       }
+    }
+    const fresh = [...current.values()].filter((r) => !r.id);
+    if (fresh.length) {
+      await tx.priceListItem.createMany({
+        data: fresh.map((r) => ({ priceListId, productId: r.productId, uomCode: r.uom, unitPrice: r.unitPrice, validFrom: v.valid_from, validTo: r.validTo, createdById: actor.id, createdBy: actor.name })),
+      });
+    }
+    const corrected = [...current.values()].filter((r) => r.id && r.changed);
+    if (corrected.length) {
+      // What tx.priceListItem.update wrote for each corrected row, all rows in one statement.
+      const values = Prisma.join(corrected.map((r) => Prisma.sql`(${r.id}, ${r.unitPrice.toString()}::numeric)`));
+      await tx.$executeRaw`
+        UPDATE "PriceListItem" AS p SET "unitPrice" = v.unit_price, "validTo" = ${validTo}, "createdById" = ${actor.id}, "createdBy" = ${actor.name}
+        FROM (VALUES ${values}) AS v(id, unit_price) WHERE p."id" = v.id`;
     }
     await writeAuditMany(audits, tx);
     return { created, replaced };
