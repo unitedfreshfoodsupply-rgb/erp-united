@@ -11,7 +11,11 @@
    before the change (GOLDEN_CAPTURE=1 writes it instead of comparing): AVCO, FIFO and standard
    products, several buckets and lots, FIFO outflows across several layers (and a layer made in
    the same call), zero-cost stock, a reversal, packaging units, two lines of one product, and
-   the negative-bucket and other refusals. Synthetic data on the test database. */
+   the negative-bucket and other refusals. Synthetic data on the test database.
+
+   Sales-cost movements (issue, customer_return) here are valued in whole piastres: the COGS
+   report and the GL round at different levels, and other suites reconcile the two over the
+   whole database. Four-decimal average costs are exercised on adjustment and scrap moves. */
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -187,7 +191,7 @@ test("postMovements writes the same movements, layers, FIFO consumption and GL l
     mv(A, "loc_cold_1", LA1, "-4", "scrap", "mixed-A"),
     mv(A, "loc_cold_2", null, "-12.345", "issue", "mixed-A"),
     mv(A, "loc_cold_1", LA1, "-1", "issue", "mixed-A"),
-    mv(A, "loc_cold_2", null, "2.5", "customer_return", "mixed-A", { unitCost: D("11.1111"), costSource: "lot" }),
+    mv(A, "loc_cold_2", null, "2.5", "adjustment", "mixed-A", { unitCost: D("11.1111"), costSource: "lot" }),
   ]);
   // FIFO: lot-first consumption, an outflow across several layers, and a layer received in the
   // same call consumed by a later move of that call.
@@ -224,7 +228,7 @@ test("postMovements writes the same movements, layers, FIFO consumption and GL l
   })));
   // Several products in one call: per-product state and one entry per counter account.
   await post("multi-product", [
-    mv(A, "loc_cold_2", null, "-3", "issue", "multi-product"),
+    mv(A, "loc_cold_2", null, "-3", "scrap", "multi-product"),
     mv(F, "loc_cold_1", LF1, "4", "customer_return", "multi-product", { unitCost: D(5), costSource: "lot" }),
     mv(S, "loc_cold_2", null, "-2", "scrap", "multi-product"),
     mv(A, "loc_cold_1", LA1, "6", "intake", "multi-product", { unitCost: D("12.75"), costSource: "purchase" }),
@@ -290,8 +294,8 @@ test("dispatch and reopen issue, reverse and re-reserve the same stock at the sa
     recv(D1, "loc_cold_2", null, "3", "10"),
     recv(D1, "loc_cold_1", L1, "10", "12"),
     recv(D1, "loc_cold_2", L2, "10", "11"),
-    recv(D1, "loc_cold_1", LX, "5", "9"),
-    recv(D1, "loc_quarantine", LQ, "4", "10"),
+    recv(D1, "loc_cold_1", LX, "5", "12"),
+    recv(D1, "loc_quarantine", LQ, "4", "12"),
     recv(D2, "loc_cold_1", M1, "8", "5"),
     recv(D2, "loc_cold_2", M2, "6", "7"),
     recv(D3, "loc_cold_1", P1, "60", "2"),

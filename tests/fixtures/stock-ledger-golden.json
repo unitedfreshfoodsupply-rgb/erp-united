@@ -299,7 +299,7 @@
         "product": "A-avco",
         "location": "COLD-2",
         "lot": null,
-        "kind": "customer_return",
+        "kind": "adjustment",
         "qty": "2.5",
         "unitCost": "11.1111",
         "reason": "TAG mixed-A",
@@ -329,34 +329,34 @@
     },
     "journal": [
       {
-        "description": "قيمة مخزون — صرف لعميل، تسوية، scrap، مرتجع عميل TAG-DOC1",
+        "description": "قيمة مخزون — صرف لعميل، تسوية، scrap TAG-DOC1",
         "sourceType": "stock_valuation",
         "sourceIsFirstMovement": true,
         "date": "today",
-        "total": "204.36",
+        "total": "235.92",
         "lines": [
           {
             "account": "1400",
             "debit": "0",
-            "credit": "12",
-            "description": "تسويات وهالك وتحويلات"
-          },
-          {
-            "account": "1400",
-            "debit": "0",
-            "credit": "192.36",
+            "credit": "220.14",
             "description": "صرف ومرتجعات عملاء"
           },
           {
+            "account": "1400",
+            "debit": "15.78",
+            "credit": "0",
+            "description": "تسويات وهالك وتحويلات"
+          },
+          {
             "account": "5100",
-            "debit": "192.36",
+            "debit": "220.14",
             "credit": "0",
             "description": "صرف ومرتجعات عملاء"
           },
           {
             "account": "5200",
-            "debit": "12",
-            "credit": "0",
+            "debit": "0",
+            "credit": "15.78",
             "description": "تسويات وهالك وتحويلات"
           }
         ]
@@ -1172,7 +1172,7 @@
         "product": "A-avco",
         "location": "COLD-2",
         "lot": null,
-        "kind": "issue",
+        "kind": "scrap",
         "qty": "-3",
         "unitCost": "11.8311",
         "reason": "TAG multi-product",
@@ -1337,29 +1337,29 @@
     },
     "journal": [
       {
-        "description": "قيمة مخزون — صرف لعميل، مرتجع عميل، scrap، استلام، تحويل، تسوية TAG-DOC1، TAG-RC1-0",
+        "description": "قيمة مخزون — scrap، مرتجع عميل، استلام، تحويل، تسوية TAG-DOC1، TAG-RC1-0",
         "sourceType": "stock_valuation",
         "sourceIsFirstMovement": true,
         "date": "today",
-        "total": "124.02",
+        "total": "195.01",
         "lines": [
           {
             "account": "1400",
             "debit": "0",
-            "credit": "39.01",
+            "credit": "74.51",
             "description": "تسويات وهالك وتحويلات"
+          },
+          {
+            "account": "1400",
+            "debit": "44",
+            "credit": "0",
+            "description": "صرف ومرتجعات عملاء"
           },
           {
             "account": "1400",
             "debit": "76.5",
             "credit": "0",
             "description": "استلامات ومرتجعات موردين"
-          },
-          {
-            "account": "1400",
-            "debit": "8.51",
-            "credit": "0",
-            "description": "صرف ومرتجعات عملاء"
           },
           {
             "account": "2150",
@@ -1370,12 +1370,12 @@
           {
             "account": "5100",
             "debit": "0",
-            "credit": "8.51",
+            "credit": "44",
             "description": "صرف ومرتجعات عملاء"
           },
           {
             "account": "5200",
-            "debit": "39.01",
+            "debit": "74.51",
             "credit": "0",
             "description": "تسويات وهالك وتحويلات"
           }
@@ -1581,13 +1581,13 @@
         "lot": "D1-LX-expired",
         "kind": "intake",
         "qty": "5",
-        "unitCost": "9",
+        "unitCost": "12",
         "reason": "TAG setup",
         "effectiveDate": "today",
         "layer": {
           "qty": "5",
-          "unitCost": "9",
-          "value": "45",
+          "unitCost": "12",
+          "value": "60",
           "remainingQty": "5",
           "costSource": "purchase",
           "priceVariance": "0"
@@ -1600,13 +1600,13 @@
         "lot": "D1-LQ-quarantine",
         "kind": "intake",
         "qty": "4",
-        "unitCost": "10",
+        "unitCost": "12",
         "reason": "TAG setup",
         "effectiveDate": "today",
         "layer": {
           "qty": "4",
-          "unitCost": "10",
-          "value": "40",
+          "unitCost": "12",
+          "value": "48",
           "remainingQty": "4",
           "costSource": "purchase",
           "priceVariance": "0"
@@ -1691,18 +1691,18 @@
         "sourceType": "stock_valuation",
         "sourceIsFirstMovement": true,
         "date": "today",
-        "total": "547",
+        "total": "570",
         "lines": [
           {
             "account": "1400",
-            "debit": "547",
+            "debit": "570",
             "credit": "0",
             "description": "استلامات ومرتجعات موردين"
           },
           {
             "account": "2150",
             "debit": "0",
-            "credit": "547",
+            "credit": "570",
             "description": "استلامات ومرتجعات موردين"
           }
         ]
@@ -1721,7 +1721,7 @@
     "totals": {
       "D1-avco-fefo": {
         "qty": "32",
-        "value": "345"
+        "value": "368"
       },
       "D2-fifo": {
         "qty": "14",
@@ -1762,13 +1762,13 @@
         "lot": null,
         "kind": "issue",
         "qty": "-3",
-        "unitCost": "10.7813",
+        "unitCost": "11.5",
         "reason": null,
         "effectiveDate": "today",
         "layer": {
           "qty": "-3",
-          "unitCost": "10.7813",
-          "value": "-32.3439",
+          "unitCost": "11.5",
+          "value": "-34.5",
           "remainingQty": "0",
           "costSource": "average",
           "priceVariance": "0"
@@ -1781,13 +1781,13 @@
         "lot": "D1-L2",
         "kind": "issue",
         "qty": "-9",
-        "unitCost": "10.7812",
+        "unitCost": "11.5",
         "reason": null,
         "effectiveDate": "today",
         "layer": {
           "qty": "-9",
-          "unitCost": "10.7812",
-          "value": "-97.0308",
+          "unitCost": "11.5",
+          "value": "-103.5",
           "remainingQty": "0",
           "costSource": "average",
           "priceVariance": "0"
@@ -1857,13 +1857,13 @@
         "lot": "D1-L2",
         "kind": "issue",
         "qty": "-1",
-        "unitCost": "10.7813",
+        "unitCost": "11.5",
         "reason": null,
         "effectiveDate": "today",
         "layer": {
           "qty": "-1",
-          "unitCost": "10.7813",
-          "value": "-10.7813",
+          "unitCost": "11.5",
+          "value": "-11.5",
           "remainingQty": "0",
           "costSource": "average",
           "priceVariance": "0"
@@ -1876,13 +1876,13 @@
         "lot": "D1-L1",
         "kind": "issue",
         "qty": "-5",
-        "unitCost": "10.7813",
+        "unitCost": "11.5",
         "reason": null,
         "effectiveDate": "today",
         "layer": {
           "qty": "-5",
-          "unitCost": "10.7813",
-          "value": "-53.9065",
+          "unitCost": "11.5",
+          "value": "-57.5",
           "remainingQty": "0",
           "costSource": "average",
           "priceVariance": "0"
@@ -1909,17 +1909,17 @@
         "sourceType": "stock_valuation",
         "sourceIsFirstMovement": true,
         "date": "today",
-        "total": "296.06",
+        "total": "309",
         "lines": [
           {
             "account": "1400",
             "debit": "0",
-            "credit": "296.06",
+            "credit": "309",
             "description": "صرف ومرتجعات عملاء"
           },
           {
             "account": "5100",
-            "debit": "296.06",
+            "debit": "309",
             "credit": "0",
             "description": "صرف ومرتجعات عملاء"
           }
@@ -1946,7 +1946,7 @@
     "totals": {
       "D1-avco-fefo": {
         "qty": "14",
-        "value": "150.9375"
+        "value": "161"
       },
       "D2-fifo": {
         "qty": "4",
@@ -1989,13 +1989,13 @@
         "lot": "D1-L1",
         "kind": "customer_return",
         "qty": "5",
-        "unitCost": "10.7813",
+        "unitCost": "11.5",
         "reason": "إلغاء ISS-#",
         "effectiveDate": "today",
         "layer": {
           "qty": "5",
-          "unitCost": "10.7813",
-          "value": "53.9065",
+          "unitCost": "11.5",
+          "value": "57.5",
           "remainingQty": "5",
           "costSource": "average",
           "priceVariance": "0"
@@ -2008,13 +2008,13 @@
         "lot": "D1-L2",
         "kind": "customer_return",
         "qty": "1",
-        "unitCost": "10.7813",
+        "unitCost": "11.5",
         "reason": "إلغاء ISS-#",
         "effectiveDate": "today",
         "layer": {
           "qty": "1",
-          "unitCost": "10.7813",
-          "value": "10.7813",
+          "unitCost": "11.5",
+          "value": "11.5",
           "remainingQty": "1",
           "costSource": "average",
           "priceVariance": "0"
@@ -2084,13 +2084,13 @@
         "lot": "D1-L2",
         "kind": "customer_return",
         "qty": "9",
-        "unitCost": "10.7812",
+        "unitCost": "11.5",
         "reason": "إلغاء ISS-#",
         "effectiveDate": "today",
         "layer": {
           "qty": "9",
-          "unitCost": "10.7812",
-          "value": "97.0308",
+          "unitCost": "11.5",
+          "value": "103.5",
           "remainingQty": "9",
           "costSource": "average",
           "priceVariance": "0"
@@ -2103,13 +2103,13 @@
         "lot": null,
         "kind": "customer_return",
         "qty": "3",
-        "unitCost": "10.7813",
+        "unitCost": "11.5",
         "reason": "إلغاء ISS-#",
         "effectiveDate": "today",
         "layer": {
           "qty": "3",
-          "unitCost": "10.7813",
-          "value": "32.3439",
+          "unitCost": "11.5",
+          "value": "34.5",
           "remainingQty": "3",
           "costSource": "average",
           "priceVariance": "0"
@@ -2136,18 +2136,18 @@
         "sourceType": "stock_valuation",
         "sourceIsFirstMovement": true,
         "date": "today",
-        "total": "296.06",
+        "total": "309",
         "lines": [
           {
             "account": "1400",
-            "debit": "296.06",
+            "debit": "309",
             "credit": "0",
             "description": "صرف ومرتجعات عملاء"
           },
           {
             "account": "5100",
             "debit": "0",
-            "credit": "296.06",
+            "credit": "309",
             "description": "صرف ومرتجعات عملاء"
           }
         ]
@@ -2180,7 +2180,7 @@
     "totals": {
       "D1-avco-fefo": {
         "qty": "32",
-        "value": "345"
+        "value": "368"
       },
       "D2-fifo": {
         "qty": "14",
@@ -2221,13 +2221,13 @@
         "lot": null,
         "kind": "issue",
         "qty": "-3",
-        "unitCost": "10.7813",
+        "unitCost": "11.5",
         "reason": null,
         "effectiveDate": "today",
         "layer": {
           "qty": "-3",
-          "unitCost": "10.7813",
-          "value": "-32.3439",
+          "unitCost": "11.5",
+          "value": "-34.5",
           "remainingQty": "0",
           "costSource": "average",
           "priceVariance": "0"
@@ -2240,13 +2240,13 @@
         "lot": "D1-L2",
         "kind": "issue",
         "qty": "-9",
-        "unitCost": "10.7812",
+        "unitCost": "11.5",
         "reason": null,
         "effectiveDate": "today",
         "layer": {
           "qty": "-9",
-          "unitCost": "10.7812",
-          "value": "-97.0308",
+          "unitCost": "11.5",
+          "value": "-103.5",
           "remainingQty": "0",
           "costSource": "average",
           "priceVariance": "0"
@@ -2316,13 +2316,13 @@
         "lot": "D1-L2",
         "kind": "issue",
         "qty": "-1",
-        "unitCost": "10.7813",
+        "unitCost": "11.5",
         "reason": null,
         "effectiveDate": "today",
         "layer": {
           "qty": "-1",
-          "unitCost": "10.7813",
-          "value": "-10.7813",
+          "unitCost": "11.5",
+          "value": "-11.5",
           "remainingQty": "0",
           "costSource": "average",
           "priceVariance": "0"
@@ -2335,13 +2335,13 @@
         "lot": "D1-L1",
         "kind": "issue",
         "qty": "-5",
-        "unitCost": "10.7813",
+        "unitCost": "11.5",
         "reason": null,
         "effectiveDate": "today",
         "layer": {
           "qty": "-5",
-          "unitCost": "10.7813",
-          "value": "-53.9065",
+          "unitCost": "11.5",
+          "value": "-57.5",
           "remainingQty": "0",
           "costSource": "average",
           "priceVariance": "0"
@@ -2368,17 +2368,17 @@
         "sourceType": "stock_valuation",
         "sourceIsFirstMovement": true,
         "date": "today",
-        "total": "296.06",
+        "total": "309",
         "lines": [
           {
             "account": "1400",
             "debit": "0",
-            "credit": "296.06",
+            "credit": "309",
             "description": "صرف ومرتجعات عملاء"
           },
           {
             "account": "5100",
-            "debit": "296.06",
+            "debit": "309",
             "credit": "0",
             "description": "صرف ومرتجعات عملاء"
           }
@@ -2419,7 +2419,7 @@
     "totals": {
       "D1-avco-fefo": {
         "qty": "14",
-        "value": "150.9375"
+        "value": "161"
       },
       "D2-fifo": {
         "qty": "4",
