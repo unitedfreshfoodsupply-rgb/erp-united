@@ -3,6 +3,7 @@
 import { createContext, useCallback, useEffect, useState, type ReactNode } from "react";
 import { DICTIONARY } from "./dictionary";
 import { setActiveLocale } from "./active";
+import { localeCookie, preferredLocale, readLocaleCookie } from "./cookie";
 
 export type Locale = "ar" | "en";
 
@@ -18,18 +19,20 @@ export type LocaleContextValue = {
 
 const STORAGE_KEY = "united_locale";
 
-function getInitialLocale(): Locale {
-  if (typeof window === "undefined") return "ar";
-  let stored: string | null = null;
+function readStored(): string | null {
   try {
-    stored = window.localStorage.getItem(STORAGE_KEY);
+    return window.localStorage.getItem(STORAGE_KEY);
   } catch {
-    // Storage blocked — fall through to the browser preference.
+    return null; // Storage blocked — the cookie and the browser preference still decide.
   }
-  if (stored === "ar" || stored === "en") return stored;
-  // Respect browser language preference
-  const browserLang = navigator.language?.slice(0, 2);
-  return browserLang === "en" ? "en" : "ar";
+}
+
+function writeStored(l: Locale) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, l);
+  } catch {
+    // Storage blocked (private mode / policy): the cookie still carries the choice.
+  }
 }
 
 export const LocaleContext = createContext<LocaleContextValue>({
@@ -45,36 +48,52 @@ export const LocaleContext = createContext<LocaleContextValue>({
   isEN: false,
 });
 
-export function LocaleProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>("ar");
-  const [mounted, setMounted] = useState(false);
+/**
+ * `initialLocale` is the language the server rendered the page in (app/layout.tsx, from the
+ * u_locale cookie — lib/locale/cookie.ts), so the first render here matches the server HTML
+ * and the page is shown as soon as it arrives.
+ */
+export function LocaleProvider({ children, initialLocale = "ar" }: { children: ReactNode; initialLocale?: Locale }) {
+  const [locale, setLocaleState] = useState<Locale>(initialLocale);
 
+  // The cookie and localStorage (which lib/api-client.ts reads) agree from here on. A choice
+  // made before the cookie existed is still only in localStorage: it moves into the cookie,
+  // and that browser sees the switch once, on its first load after this release.
   useEffect(() => {
-    setLocaleState(getInitialLocale());
-    setMounted(true);
+    const cookie = readLocaleCookie(document.cookie);
+    const stored = readStored();
+    if (cookie) {
+      if (stored !== cookie) writeStored(cookie);
+      if (cookie !== initialLocale) setLocaleState(cookie);
+      return;
+    }
+    if (stored === "ar" || stored === "en") {
+      document.cookie = localeCookie(stored);
+      if (stored !== initialLocale) setLocaleState(stored);
+      return;
+    }
+    // No choice made: the browser's language, as the server guessed from Accept-Language.
+    const preferred = preferredLocale(navigator.language);
+    if (preferred !== initialLocale) setLocaleState(preferred);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on load
   }, []);
 
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l);
-    try {
-      window.localStorage.setItem(STORAGE_KEY, l);
-    } catch {
-      // Storage blocked (private mode / policy): the switch still applies to this page.
-    }
+    document.cookie = localeCookie(l);
+    writeStored(l);
   }, []);
 
-  // <html lang/dir> and the font follow the active locale, whichever way it was set —
-  // including the locale restored from storage on load, which previously left the
-  // document RTL/Arabic under an English UI until the language was toggled by hand.
+  // <html lang/dir> and the font follow the active locale, whichever way it was set. The
+  // server already rendered them for the initial one; this keeps them right after a switch.
   useEffect(() => {
-    if (!mounted) return;
     document.documentElement.lang = locale;
     document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
     document.body.classList.toggle("font-arabic", locale === "ar");
     document.body.classList.toggle("font-english", locale === "en");
-    // The layout's <title> is fixed server-side in Arabic; follow the chosen language.
+    // The server titled the page in the initial language (app/layout.tsx); follow a switch.
     document.title = DICTIONARY["app.title"][locale];
-  }, [locale, mounted]);
+  }, [locale]);
 
   const toggleLocale = useCallback(() => {
     setLocale(locale === "ar" ? "en" : "ar");
@@ -98,17 +117,17 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   );
 
   const dir: "ltr" | "rtl" = locale === "ar" ? "rtl" : "ltr";
-  setActiveLocale(locale);
+  // Browser only: on the server this is one module-wide value shared by concurrent requests,
+  // so it stays "ar" there (lib/locale/active.ts) rather than follow one request's cookie.
+  if (typeof window !== "undefined") setActiveLocale(locale);
   const isRTL = locale === "ar";
   const isEN = locale === "en";
 
-  // Hidden until the stored locale is known, so Arabic never flashes before English.
-  // The element tree is the same before and after mount (only the style changes):
-  // swapping wrappers here used to remount the whole app once on load, discarding
-  // component state and firing every query twice.
+  // Shown from the first byte: the server rendered this same locale (no hidden page until
+  // hydration). The wrapper stays so the element tree is the one the app has always had.
   return (
     <LocaleContext.Provider value={{ locale, setLocale, toggleLocale, t, dir, isRTL, isEN }}>
-      <div style={mounted ? { display: "contents" } : { display: "contents", visibility: "hidden" }}>{children}</div>
+      <div style={{ display: "contents" }}>{children}</div>
     </LocaleContext.Provider>
   );
 }

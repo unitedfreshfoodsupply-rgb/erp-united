@@ -4,10 +4,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { ToastProvider } from "@/components/ui/Toast";
 import { DialogProvider } from "@/components/ui/Dialog";
-import { LocaleProvider } from "@/lib/locale";
+import { LocaleProvider, type Locale } from "@/lib/locale";
 import { unlockAudio } from "@/lib/sound";
 
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({ children, locale = "ar" }: { children: React.ReactNode; locale?: Locale }) {
   // Browsers won't play audio until a real user gesture happens — catch the
   // very first tap/click anywhere on the app and use it to unlock notification sounds.
   useEffect(() => {
@@ -42,7 +42,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   );
   return (
     <QueryClientProvider client={client}>
-      <LocaleProvider>
+      <LocaleProvider initialLocale={locale}>
         <ToastProvider>
           <DialogProvider>{children}</DialogProvider>
         </ToastProvider>
