@@ -22,6 +22,7 @@ import { orderValue } from "@/lib/sales/pricing";
 import { profileSection } from "@/lib/profiles/service";
 import { myNotifications } from "@/lib/core/notifications";
 import { homeSummary } from "@/lib/home/summary";
+import { commandCenter } from "@/lib/management/command-center";
 import { OPEN_STATUSES } from "@/lib/orderPresentation";
 import { APPROVAL_TYPES, type ApprovalType } from "@/lib/core/approvals";
 import { todayLocalISO } from "@/lib/localDate";
@@ -227,6 +228,28 @@ test("home dashboard (PM-9): every figure as the separate queries gave it, in on
   }
   const stockOnly = await countQueries(() => homeSummary({ id: ids.hossam, permissions: new Set<string>(ROLE_PERMISSIONS.STOCK_CONTROLLER) }));
   assert.equal(stockOnly.queries, 1, "a viewer without the finance sections: one statement");
+});
+
+test("command center (PM-9): the scalar figures in one statement, as the separate queries gave them", async () => {
+  const floor = { can: (p: string) => ["reports.view", "stock.view", "stock.valuation.view"].includes(p) };
+  const { result, queries } = await countQueries(() => commandCenter(floor as never, {}));
+  assert.equal(queries, 1, "operations, produce and inventory: one statement");
+  const rows = await prisma.order.groupBy({ by: ["status"], where: { status: { in: OPEN_STATUSES } }, _count: { _all: true } });
+  const from = `${today.slice(0, 7)}-01`;
+  same(result.orders, {
+    byStatus: Object.fromEntries(rows.map((r) => [r.status, r._count._all])),
+    late: await prisma.order.count({ where: { status: { in: OPEN_STATUSES }, deliveryDate: { lt: today } } }),
+    needsReview: await prisma.order.count({ where: { status: { in: OPEN_STATUSES }, needsReview: true } }),
+    dispatchedInPeriod: (await prisma.inventoryDocument.findMany({ where: { type: "issue", status: "posted", sourceType: "order", businessDate: { gte: from, lte: today } }, select: { sourceId: true }, distinct: ["sourceId"] })).length,
+  });
+  const inv = result.inventory as { value: string; openExceptions: number };
+  assert.equal(inv.value, D((await prisma.stockValuationLayer.aggregate({ _sum: { value: true } }))._sum.value).toFixed(2));
+  assert.equal(inv.openExceptions, await prisma.stockIssueException.count({ where: { status: "open" } }));
+  const approvals = await prisma.approvalRequest.groupBy({ by: ["type"], where: { status: "pending" }, _count: { _all: true } });
+  same(result.approvals, Object.fromEntries(approvals.map((r) => [r.type, r._count._all])));
+  const noCost = await commandCenter({ can: (p: string) => p === "stock.view" } as never, {});
+  assert.equal((noCost.inventory as { value: unknown }).value, null, "no stock value without stock.valuation.view");
+  assert.equal(((noCost.produce as { current: { wasteValue: unknown } }).current).wasteValue, null);
 });
 
 test("customer and supplier summaries (PM-9): the same counts and sums from one statement each", async () => {

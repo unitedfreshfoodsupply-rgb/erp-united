@@ -34,7 +34,8 @@ async function outcome(orderId: string, itemId: string) {
   const i = await prisma.orderItem.findUniqueOrThrow({ where: { id: itemId } });
   const audit = await prisma.auditLog.findMany({ where: { orderId }, orderBy: [{ timestamp: "asc" }, { id: "asc" }], select: { action: true, entityType: true, entityId: true, fieldChanged: true, oldValue: true, newValue: true, reason: true, userId: true, userName: true, role: true, source: true } });
   const approvals = await prisma.approvalRequest.findMany({ where: { type: "orders.shortage", entityId: orderId }, select: { status: true, summary: true, payload: true } });
-  const lines = (approvals[0]?.payload as { lines?: { id: string }[] } | undefined)?.lines?.map(({ id: _id, ...l }) => l);
+  // The payload lists the lines in the order the database returns them (no ORDER BY, before as now).
+  const lines = (approvals[0]?.payload as { lines?: { id: string; product: string }[] } | undefined)?.lines?.map(({ id: _id, ...l }) => l).sort((x, y) => x.product.localeCompare(y.product));
   return {
     order: o,
     item: { preparedQuantity: i.preparedQuantity, preparationStatus: i.preparationStatus, loadedQuantity: i.loadedQuantity, loadingStatus: i.loadingStatus, notes: i.notes },

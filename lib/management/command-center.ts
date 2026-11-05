@@ -53,19 +53,34 @@ async function profit(from: string, to: string) {
   return { revenue: revenue.toFixed(2), costOfSales: costOfSales.toFixed(2), grossProfit: gross.toFixed(2), operatingExpenses: opex.toFixed(2), otherIncome: otherIncome.toFixed(2), netProfit: gross.minus(opex).plus(otherIncome).toFixed(2), grossMarginPct: revenue.isZero() ? null : gross.div(revenue).times(100).toFixed(1) };
 }
 
-async function purchases(from: string, to: string) {
-  const [b] = await prisma.$queryRaw<{ n: Prisma.Decimal | null }[]>`SELECT sum("net") n FROM "SupplierBill" WHERE "status" = 'posted' AND "billDate" BETWEEN ${from} AND ${to}`;
-  const [d] = await prisma.$queryRaw<{ n: Prisma.Decimal | null }[]>`SELECT sum("net") n FROM "DebitNote" WHERE "issueDate" BETWEEN ${from} AND ${to}`;
-  return D(b.n).minus(D(d.n)).toFixed(2);
+// The command center's scalar figures are subqueries of ONE statement (PM-9): on the single pooled
+// connection each separate query waited for the one before. A section the viewer may not see adds
+// no subquery; the profit rows, the agings and the bills falling due stay separate queries.
+type Cols = { sql: Prisma.Sql[]; add: (name: string, sql: Prisma.Sql) => void };
+const columns = (): Cols => {
+  const sql: Prisma.Sql[] = [];
+  return { sql, add: (name, q) => sql.push(Prisma.sql`(${q}) AS ${Prisma.raw(`"${name}"`)}`) };
+};
+
+/** Posted bills less debit notes in a period, before VAT. */
+function purchases(c: Cols, key: string, from: string, to: string) {
+  c.add(`${key}_bills`, Prisma.sql`SELECT sum("net") FROM "SupplierBill" WHERE "status" = 'posted' AND "billDate" BETWEEN ${from} AND ${to}`);
+  c.add(`${key}_debits`, Prisma.sql`SELECT sum("net") FROM "DebitNote" WHERE "issueDate" BETWEEN ${from} AND ${to}`);
+  return (r: Row) => dec(r, `${key}_bills`).minus(dec(r, `${key}_debits`)).toFixed(2);
 }
 
-async function produce(from: string, to: string) {
-  const [r] = await prisma.$queryRaw<{ rec: Prisma.Decimal | null; g: Prisma.Decimal | null; b: Prisma.Decimal | null; w: Prisma.Decimal | null; wv: Prisma.Decimal | null }[]>`
-    SELECT sum(i."receivedQty") rec, sum(i."goodQty") g, sum(i."gradeBQty") b, sum(i."wasteQty") w, sum(i."wasteQty" * i."unitCost") wv
-    FROM "StockIntake" i JOIN "StockProduct" p ON p."id" = i."productId" WHERE i."status" = 'posted' AND p."unit" = 'KG' AND i."receivedDate" BETWEEN ${from} AND ${to}`;
-  const rec = D(r.rec);
-  return { receivedKg: rec.toFixed(1), goodKg: D(r.g).toFixed(1), gradeBKg: D(r.b).toFixed(1), wasteKg: D(r.w).toFixed(1), wastePct: rec.isZero() ? null : D(r.w).div(rec).times(100).toFixed(1), wasteValue: D(r.wv).toFixed(2) };
+/** Weighed produce received in a period and how it graded. */
+function produce(c: Cols, key: string, from: string, to: string) {
+  for (const [name, expr] of [["rec", Prisma.sql`i."receivedQty"`], ["g", Prisma.sql`i."goodQty"`], ["b", Prisma.sql`i."gradeBQty"`], ["w", Prisma.sql`i."wasteQty"`], ["wv", Prisma.sql`i."wasteQty" * i."unitCost"`]] as const) {
+    c.add(`${key}_${name}`, Prisma.sql`SELECT sum(${expr}) FROM "StockIntake" i JOIN "StockProduct" p ON p."id" = i."productId" WHERE i."status" = 'posted' AND p."unit" = 'KG' AND i."receivedDate" BETWEEN ${from} AND ${to}`);
+  }
+  return (r: Row) => {
+    const rec = dec(r, `${key}_rec`), w = dec(r, `${key}_w`);
+    return { receivedKg: rec.toFixed(1), goodKg: dec(r, `${key}_g`).toFixed(1), gradeBKg: dec(r, `${key}_b`).toFixed(1), wasteKg: w.toFixed(1), wastePct: rec.isZero() ? null : w.div(rec).times(100).toFixed(1), wasteValue: dec(r, `${key}_wv`).toFixed(2) };
+  };
 }
+type Row = Record<string, Prisma.Decimal | number | Record<string, number> | null>;
+const dec = (r: Row, k: string) => D(r[k] as Prisma.Decimal | null);
 
 export async function commandCenter(viewer: Viewer, q: { from?: string | null; to?: string | null }) {
   const p = periods(q.from, q.to);
@@ -75,9 +90,14 @@ export async function commandCenter(viewer: Viewer, q: { from?: string | null; t
   const out: Record<string, unknown> = { period: { from: p.from, to: p.to, prevFrom: p.prevFrom, prevTo: p.prevTo } };
   const tasks: Promise<unknown>[] = [];
 
+  const c = columns();
+  const fill: ((r: Row) => void)[] = [];
+  const n = (r: Row, k: string) => Number(r[k] ?? 0);
+
   if (fin) {
     tasks.push(Promise.all([profit(p.from, p.to), profit(p.prevFrom, p.prevTo)]).then(([cur, prev]) => { out.profit = { current: cur, previous: prev }; }));
-    tasks.push(Promise.all([purchases(p.from, p.to), purchases(p.prevFrom, p.prevTo)]).then(([cur, prev]) => { out.purchases = { current: cur, previous: prev }; }));
+    const cur = purchases(c, "pur_cur", p.from, p.to), prev = purchases(c, "pur_prev", p.prevFrom, p.prevTo);
+    fill.push((r) => { out.purchases = { current: cur(r), previous: prev(r) }; });
     tasks.push(Promise.all([agingReport(p.today), apAgingReport(p.today)]).then(([ar, ap]) => {
       const overdue = (t: Record<string, unknown>) => D(t.d1_30 as string).plus(D(t.d31_60 as string)).plus(D(t.d61_90 as string)).plus(D(t.d90_plus as string)).toFixed(2);
       out.receivables = { total: D(ar.totals.total).toFixed(2), overdue: overdue(ar.totals) };
@@ -92,34 +112,41 @@ export async function commandCenter(viewer: Viewer, q: { from?: string | null; t
       out.upcomingPayments = { bills: open.length, total: open.reduce((s, o) => s.plus(o), D(0)).toFixed(2), until: week };
     }));
     // Cash and bank as of today (postings may be dated later in the month; they are not money yet).
-    tasks.push(prisma.$queryRaw<{ type: string; b: Prisma.Decimal | null }[]>`SELECT c."type", sum(l."debit" - l."credit") b FROM "CashAccount" c JOIN "JournalLine" l ON l."accountId" = c."accountId" JOIN "JournalEntry" e ON e."id" = l."entryId" WHERE c."active" AND e."date" <= ${p.today} GROUP BY 1`.then((rows) => {
-      const of = (t: string) => D(rows.find((r) => r.type === t)?.b);
-      out.cash = { cash: of("cash").toFixed(2), bank: of("bank").toFixed(2), total: of("cash").plus(of("bank")).toFixed(2) };
-    }));
-    tasks.push(prisma.openingBatch.count({ where: { kind: "initial", status: "posted" } }).then((n) => { out.openingBalancesComplete = n > 0; }));
+    for (const type of ["cash", "bank"]) {
+      c.add(type, Prisma.sql`SELECT sum(l."debit" - l."credit") FROM "CashAccount" c JOIN "JournalLine" l ON l."accountId" = c."accountId" JOIN "JournalEntry" e ON e."id" = l."entryId" WHERE c."active" AND e."date" <= ${p.today} AND c."type" = ${type}`);
+    }
+    c.add("openingBatches", Prisma.sql`SELECT count(*)::int FROM "OpeningBatch" WHERE "kind" = 'initial' AND "status" = 'posted'`);
+    fill.push((r) => {
+      out.cash = { cash: dec(r, "cash").toFixed(2), bank: dec(r, "bank").toFixed(2), total: dec(r, "cash").plus(dec(r, "bank")).toFixed(2) };
+      out.openingBalancesComplete = n(r, "openingBatches") > 0;
+    });
   }
   if (stock) {
     // Waste value is a cost figure: only with stock.valuation.view, as every stock response (redact.ts).
     const costs = viewer.can("stock.valuation.view");
-    const strip = (x: Awaited<ReturnType<typeof produce>>) => (costs ? x : { ...x, wasteValue: null });
-    tasks.push(Promise.all([produce(p.from, p.to), produce(p.prevFrom, p.prevTo)]).then(([cur, prev]) => { out.produce = { current: strip(cur), previous: strip(prev) }; }));
+    const strip = (x: ReturnType<ReturnType<typeof produce>>) => (costs ? x : { ...x, wasteValue: null });
+    const cur = produce(c, "pro_cur", p.from, p.to), prev = produce(c, "pro_prev", p.prevFrom, p.prevTo);
+    if (costs) c.add("stockValue", Prisma.sql`SELECT sum("value") FROM "StockValuationLayer"`);
+    c.add("lowStock", Prisma.sql`SELECT count(*)::int FROM "StockProduct" p WHERE p."active" AND p."reorderPointQty" IS NOT NULL AND coalesce((SELECT sum(m."quantity") FROM "StockMovement" m JOIN "StorageLocation" l ON l."id" = m."locationId" WHERE m."productId" = p."id" AND l."type" NOT IN ('waste', 'quarantine')), 0) - coalesce((SELECT sum(r."quantity") FROM "StockReservation" r WHERE r."productId" = p."id" AND r."status" = 'active'), 0) <= p."reorderPointQty"`);
     // Expiring = within 3 days of today's business day (Cairo, not the database's UTC date), the day /reports/expiry counts from.
-    tasks.push(Promise.all([
-      viewer.can("stock.valuation.view") ? prisma.stockValuationLayer.aggregate({ _sum: { value: true } }).then((a) => D(a._sum.value).toFixed(2)) : Promise.resolve(null),
-      prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*) n FROM "StockProduct" p WHERE p."active" AND p."reorderPointQty" IS NOT NULL AND coalesce((SELECT sum(m."quantity") FROM "StockMovement" m JOIN "StorageLocation" l ON l."id" = m."locationId" WHERE m."productId" = p."id" AND l."type" NOT IN ('waste', 'quarantine')), 0) - coalesce((SELECT sum(r."quantity") FROM "StockReservation" r WHERE r."productId" = p."id" AND r."status" = 'active'), 0) <= p."reorderPointQty"`,
-      prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*) n FROM (SELECT m."lotId" FROM "StockMovement" m JOIN "StockLot" lt ON lt."id" = m."lotId" JOIN "StorageLocation" l ON l."id" = m."locationId" WHERE l."type" <> 'waste' AND lt."expiryDate" IS NOT NULL AND lt."expiryDate"::date <= ${p.today}::date + 3 GROUP BY m."lotId" HAVING sum(m."quantity") > 0) x`,
-      prisma.stockIssueException.count({ where: { status: "open" } }),
-    ]).then(([value, low, expiring, exceptions]) => { out.inventory = { value, lowStock: Number(low[0]?.n ?? 0), expiringLots: Number(expiring[0]?.n ?? 0), openExceptions: exceptions }; }));
+    c.add("expiringLots", Prisma.sql`SELECT count(*)::int FROM (SELECT m."lotId" FROM "StockMovement" m JOIN "StockLot" lt ON lt."id" = m."lotId" JOIN "StorageLocation" l ON l."id" = m."locationId" WHERE l."type" <> 'waste' AND lt."expiryDate" IS NOT NULL AND lt."expiryDate"::date <= ${p.today}::date + 3 GROUP BY m."lotId" HAVING sum(m."quantity") > 0) x`);
+    c.add("openExceptions", Prisma.sql`SELECT count(*)::int FROM "StockIssueException" WHERE "status" = 'open'`);
+    fill.push((r) => {
+      out.produce = { current: strip(cur(r)), previous: strip(prev(r)) };
+      out.inventory = { value: costs ? dec(r, "stockValue").toFixed(2) : null, lowStock: n(r, "lowStock"), expiringLots: n(r, "expiringLots"), openExceptions: n(r, "openExceptions") };
+    });
   }
   if (ops) {
-    tasks.push(Promise.all([
-      prisma.order.groupBy({ by: ["status"], where: { status: { in: OPEN_STATUSES } }, _count: { _all: true } }),
-      prisma.order.count({ where: { status: { in: OPEN_STATUSES }, deliveryDate: { lt: p.today } } }),
-      prisma.order.count({ where: { status: { in: OPEN_STATUSES }, needsReview: true } }),
-      prisma.inventoryDocument.findMany({ where: { type: "issue", status: "posted", sourceType: "order", businessDate: { gte: p.from, lte: p.to } }, select: { sourceId: true }, distinct: ["sourceId"] }).then((d) => d.length),
-    ]).then(([by, late, review, dispatched]) => { out.orders = { byStatus: Object.fromEntries(by.map((r) => [r.status, r._count._all])), late, needsReview: review, dispatchedInPeriod: dispatched }; }));
+    const open = Prisma.join(OPEN_STATUSES);
+    c.add("byStatus", Prisma.sql`SELECT json_object_agg(g."status", g.n) FROM (SELECT "status", count(*)::int AS n FROM "Order" WHERE "status" IN (${open}) GROUP BY "status") g`);
+    c.add("late", Prisma.sql`SELECT count(*)::int FROM "Order" WHERE "status" IN (${open}) AND "deliveryDate" < ${p.today}`);
+    c.add("needsReview", Prisma.sql`SELECT count(*)::int FROM "Order" WHERE "status" IN (${open}) AND "needsReview" = true`);
+    c.add("dispatched", Prisma.sql`SELECT count(*)::int FROM (SELECT DISTINCT "sourceId" FROM "InventoryDocument" WHERE "type" = 'issue' AND "status" = 'posted' AND "sourceType" = 'order' AND "businessDate" BETWEEN ${p.from} AND ${p.to}) d`);
+    fill.push((r) => { out.orders = { byStatus: (r.byStatus as Record<string, number> | null) ?? {}, late: n(r, "late"), needsReview: n(r, "needsReview"), dispatchedInPeriod: n(r, "dispatched") }; });
   }
-  tasks.push(prisma.approvalRequest.groupBy({ by: ["type"], where: { status: "pending" }, _count: { _all: true } }).then((rows) => { out.approvals = Object.fromEntries(rows.map((r) => [r.type, r._count._all])); }));
+  c.add("approvals", Prisma.sql`SELECT json_object_agg(g."type", g.n) FROM (SELECT "type", count(*)::int AS n FROM "ApprovalRequest" WHERE "status" = 'pending' GROUP BY "type") g`);
+  fill.push((r) => { out.approvals = (r.approvals as Record<string, number> | null) ?? {}; });
+  tasks.push(prisma.$queryRaw<Row[]>`SELECT ${Prisma.join(c.sql)}`.then(([r]) => { for (const f of fill) f(r); }));
   await Promise.all(tasks);
   return out;
 }
