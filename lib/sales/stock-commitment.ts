@@ -139,21 +139,26 @@ type PlanReads = {
 
 /**
  * The two lookups unitPrecision and toBaseQuantity make (a unit by code, a product's packaging),
- * answered from two queries for every line of these orders instead of two or three per line.
+ * answered from two queries read up front instead of two or three per line (PW-2, Nov 2026).
+ * Pass every unit code and product the conversions will touch: anything else reads as missing.
  */
-async function preloadUnits(tx: Pick<Tx, "unitOfMeasure" | "productPackaging">, orders: PlanOrder[]): Promise<PlanReads["units"]> {
-  const products = orders.flatMap((o) => o.items.map((i) => i.stockProduct).filter((p): p is NonNullable<typeof p> => !!p));
-  const codes = [...new Set([...orders.flatMap((o) => o.items.map((i) => i.unit)), ...products.map((p) => p.unit)])];
+export async function unitLookups(db: Pick<Tx, "unitOfMeasure" | "productPackaging">, codes: Iterable<string>, productIds: Iterable<string>): Promise<Pick<Tx, "unitOfMeasure" | "productPackaging">> {
   const [uoms, packs] = await Promise.all([
-    tx.unitOfMeasure.findMany({ where: { code: { in: codes } } }),
-    tx.productPackaging.findMany({ where: { productId: { in: [...new Set(products.map((p) => p.id))] } } }),
+    db.unitOfMeasure.findMany({ where: { code: { in: [...new Set(codes)] } } }),
+    db.productPackaging.findMany({ where: { productId: { in: [...new Set(productIds)] } } }),
   ]);
   const uomBy = new Map(uoms.map((u) => [u.code, u]));
   const packBy = new Map(packs.map((p) => [`${p.productId}|${p.uomCode}`, p]));
   return {
     unitOfMeasure: { findUnique: async ({ where }: { where: { code: string } }) => uomBy.get(where.code) ?? null },
     productPackaging: { findUnique: async ({ where }: { where: { productId_uomCode: { productId: string; uomCode: string } } }) => packBy.get(`${where.productId_uomCode.productId}|${where.productId_uomCode.uomCode}`) ?? null },
-  } as unknown as PlanReads["units"];
+  } as unknown as Pick<Tx, "unitOfMeasure" | "productPackaging">;
+}
+
+/** unitLookups for every line of these orders. */
+function preloadUnits(tx: Pick<Tx, "unitOfMeasure" | "productPackaging">, orders: PlanOrder[]): Promise<PlanReads["units"]> {
+  const products = orders.flatMap((o) => o.items.map((i) => i.stockProduct).filter((p): p is NonNullable<typeof p> => !!p));
+  return unitLookups(tx, [...orders.flatMap((o) => o.items.map((i) => i.unit)), ...products.map((p) => p.unit)], products.map((p) => p.id));
 }
 
 /** The per-(product, warehouse) availability lock — the key lockAvailability (lib/inventory/picking.ts) takes. */

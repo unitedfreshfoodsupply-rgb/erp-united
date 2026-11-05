@@ -14,6 +14,7 @@ import { egpCurrencyCode } from "@/lib/core/currency";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import type { ServiceActor } from "@/lib/core/actor";
 import { amountsJSON, lineAmounts, sumAmounts } from "@/lib/sales/money";
+import { unitLookups } from "@/lib/sales/stock-commitment";
 
 /**
  * Pricing.
@@ -267,6 +268,66 @@ export async function effectivePrice(
   return { item: base, unitPrice: base.unitPrice.times(factor).toDecimalPlaces(4) };
 }
 
+/**
+ * effectivePrice for many lines at once (PW-2, Nov 2026: an order priced one line at a time cost
+ * a query or more per line, inside its creating transaction). One read of every candidate price
+ * row; the same rule per (list, line): the price set for the line's unit, else the base-unit price
+ * × the unit's size, else null. Result `[i][j]` is line i in list j.
+ */
+export async function effectivePrices(
+  db: PriceDb,
+  lists: { id: string }[],
+  lines: { product: { id: string; name: string; unit: string }; lineUom: string }[],
+  date: string
+): Promise<(Awaited<ReturnType<typeof effectivePrice>>)[][]> {
+  if (!lines.length || !lists.length) return lines.map(() => lists.map(() => null));
+  const rows = await db.priceListItem.findMany({
+    where: {
+      priceListId: { in: lists.map((l) => l.id) },
+      productId: { in: [...new Set(lines.map((l) => l.product.id))] },
+      uomCode: { in: [...new Set(lines.flatMap((l) => [l.lineUom, l.product.unit]))] },
+      validFrom: { lte: date },
+      OR: [{ validTo: null }, { validTo: { gte: date } }],
+    },
+    orderBy: { validFrom: "desc" },
+  });
+  // Newest first, as effectivePrice reads them.
+  const latest = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) {
+    const key = `${r.priceListId}|${r.productId}|${r.uomCode}`;
+    if (!latest.has(key)) latest.set(key, r);
+  }
+  // A base-unit price converted to the line's unit needs the units (only then are they read).
+  const converting = lines.filter((l) => l.lineUom !== l.product.unit && lists.some((list) => !latest.has(`${list.id}|${l.product.id}|${l.lineUom}`) && latest.has(`${list.id}|${l.product.id}|${l.product.unit}`)));
+  const units = converting.length ? await unitLookups(db, converting.flatMap((l) => [l.lineUom, l.product.unit]), converting.map((l) => l.product.id)) : null;
+  const out: (Awaited<ReturnType<typeof effectivePrice>>)[][] = [];
+  for (const l of lines) {
+    const perList: (Awaited<ReturnType<typeof effectivePrice>>)[] = [];
+    for (const list of lists) {
+      const exact = latest.get(`${list.id}|${l.product.id}|${l.lineUom}`);
+      if (exact) {
+        perList.push({ item: exact, unitPrice: exact.unitPrice });
+        continue;
+      }
+      const base = latest.get(`${list.id}|${l.product.id}|${l.product.unit}`);
+      if (!base) {
+        perList.push(null);
+        continue;
+      }
+      let factor: Prisma.Decimal;
+      try {
+        factor = await toBaseQuantity(units ?? db, l.product, new Prisma.Decimal(1), l.lineUom);
+      } catch {
+        perList.push(null); // the line's unit does not convert: it stays unpriced for a person
+        continue;
+      }
+      perList.push({ item: base, unitPrice: base.unitPrice.times(factor).toDecimalPlaces(4) });
+    }
+    out.push(perList);
+  }
+  return out;
+}
+
 /** Prices for grade A and grade B products at a given date, from the active default
  * price list. Returns null for unpriced products (caller handles via fallback). */
 export async function gradingPrices(
@@ -301,22 +362,23 @@ export async function applyListPrices(tx: Tx, orderId: string, actor: Actorish, 
   if (await tx.salesInvoice.count({ where: { orderId, status: { in: ["draft", "issued"] } } })) return { priced: 0 };
   const lists = await priceListsFor(tx, order.customerAccountId);
   if (!lists.length) return { priced: 0 };
-  let priced = 0;
-  for (const item of order.items) {
+  // The lines to (re)price, and every price they could take, read at once (PW-2, Nov 2026).
+  const candidates = order.items.filter((item) => {
     const current = item.price;
-    if (current && current.source !== "list") continue;
-    if (current && !opts.refresh) continue;
-    const product = item.stockProduct;
-    if (!product) continue;
-    let found: Awaited<ReturnType<typeof effectivePrice>> = null;
-    let list = lists[0];
-    for (const l of lists) {
-      found = await effectivePrice(tx, { priceListId: l.id, product, lineUom: item.unit, date: order.deliveryDate });
-      if (found) {
-        list = l;
-        break;
-      }
-    }
+    if (current && current.source !== "list") return false;
+    if (current && !opts.refresh) return false;
+    return !!item.stockProduct;
+  });
+  const prices = await effectivePrices(tx, lists, candidates.map((item) => ({ product: item.stockProduct!, lineUom: item.unit })), order.deliveryDate);
+  const creates: Prisma.OrderItemPriceCreateManyInput[] = [];
+  let priced = 0;
+  for (const [idx, item] of candidates.entries()) {
+    const current = item.price;
+    const product = item.stockProduct!;
+    // The customer's own list first, then the default list (priceListsFor's order).
+    const at = prices[idx].findIndex((p) => p !== null);
+    const found = at >= 0 ? prices[idx][at] : null;
+    const list = at >= 0 ? lists[at] : lists[0];
     if (!found) {
       // No price any more (e.g. the customer moved to a list without it): a stale
       // list price must not linger as if it applied.
@@ -340,10 +402,12 @@ export async function applyListPrices(tx: Tx, orderId: string, actor: Actorish, 
       if (current.unitPrice.equals(found.unitPrice) && current.priceListItemId === found.item.id && current.taxCode === product.salesTaxCode) continue;
       await tx.orderItemPrice.update({ where: { orderItemId: item.id }, data: { ...data, version: { increment: 1 } } });
     } else {
-      await tx.orderItemPrice.create({ data: { orderItemId: item.id, ...data } });
+      creates.push({ orderItemId: item.id, ...data });
     }
     priced++;
   }
+  // A new order's lines are priced in one insert.
+  if (creates.length) await tx.orderItemPrice.createMany({ data: creates });
   if (priced) {
     await writeAudit(audit(actor, { action: "order_priced", entityType: "order", entityId: orderId, orderId, fieldChanged: lists.map((l) => l.code).join(" → "), newValue: `${priced} سطر` }), tx);
   }
@@ -470,6 +534,75 @@ export async function setAgreedLinePriceInTx(
     tx
   );
   return row;
+}
+
+/**
+ * setAgreedLinePriceInTx for many lines of one order (the prices typed when it is created): the
+ * same checks in the same order (the first failing line is refused with the same message), the
+ * same rows and audit rows, in a fixed number of statements (PW-2, Nov 2026: ~6 round trips per
+ * typed line before). A line that already has a (list) price is updated in place — every changed
+ * row in one statement — and one without is created.
+ */
+export async function setAgreedLinePricesInTx(
+  tx: Tx,
+  entries: { itemId: string; input: { unitPrice: Prisma.Decimal; discountPct: Prisma.Decimal; reason?: string | null } }[],
+  actor: Actorish
+) {
+  if (!entries.length) return;
+  const items = await tx.orderItem.findMany({ where: { id: { in: entries.map((e) => e.itemId) } }, include: { price: true, stockProduct: { include: { salesTax: true } } } });
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const creates: Prisma.OrderItemPriceCreateManyInput[] = [];
+  const updates: { orderItemId: string; unitPrice: Prisma.Decimal; discountPct: Prisma.Decimal; taxCode: string; taxRate: Prisma.Decimal; reason: string }[] = [];
+  const audits: AuditInput[] = [];
+  for (const { itemId, input } of entries) {
+    const item = byId.get(itemId);
+    if (!item) throw new Prisma.PrismaClientKnownRequestError("No OrderItem found", { code: "P2025", clientVersion: Prisma.prismaVersion.client });
+    if (!item.stockProduct) throw new ApiError(400, "اربط السطر بصنف من دليل الأصناف الأول — الضريبة بتتحدد من الصنف");
+    if (input.unitPrice.lt(0)) throw new ApiError(400, `سعر "${item.productName}" مينفعش يكون سالب`);
+    if (input.discountPct.lt(0) || input.discountPct.gt(100)) throw new ApiError(400, `خصم "${item.productName}" لازم يكون بين 0 و 100`);
+    const cur = item.price;
+    const differs = !!cur && (!cur.unitPrice.equals(input.unitPrice) || !cur.discountPct.equals(input.discountPct));
+    if (cur && !differs) continue; // the list price was typed as-is
+    const reason = input.reason?.trim() || (cur ? "" : "سعر متفق عليه مع العميل عند تسجيل الأوردر");
+    if (!reason) throw new ApiError(400, `سعر "${item.productName}" مختلف عن سعر القائمة (${cur!.unitPrice.toString()}) — اكتب السبب`);
+    const data = {
+      unitPrice: input.unitPrice,
+      discountPct: input.discountPct,
+      taxCode: item.stockProduct.salesTaxCode,
+      taxRate: item.stockProduct.salesTax.rate,
+      reason,
+    };
+    if (cur) updates.push({ orderItemId: itemId, ...data });
+    else creates.push({ orderItemId: itemId, currencyCode: "EGP", ...data, source: "manual", priceListItemId: null, setById: actor.id, setBy: actor.name });
+    audits.push(
+      audit(actor, {
+        action: "order_line_price_overridden",
+        entityType: "order_item",
+        entityId: itemId,
+        orderId: item.orderId,
+        fieldChanged: "price",
+        oldValue: cur ? `${cur.unitPrice.toString()} (خصم ${cur.discountPct.toString()}%) · ${cur.source}` : null,
+        newValue: `${input.unitPrice.toString()} (خصم ${input.discountPct.toString()}%) · عند تسجيل الأوردر`,
+        reason,
+      })
+    );
+  }
+  if (creates.length) await tx.orderItemPrice.createMany({ data: creates });
+  if (updates.length) {
+    // What tx.orderItemPrice.update wrote for each row (source manual, list link cleared, version
+    // + 1, updatedAt now as Prisma stores it: UTC wall time), all rows in one statement.
+    const at = new Date().toISOString().replace("T", " ").replace("Z", "");
+    const values = Prisma.join(updates.map((u) => Prisma.sql`(${u.orderItemId}, ${u.unitPrice.toString()}::numeric, ${u.discountPct.toString()}::numeric, ${u.taxCode}, ${u.taxRate.toString()}::numeric, ${u.reason})`));
+    const n = await tx.$executeRaw`
+      UPDATE "OrderItemPrice" AS p
+      SET "unitPrice" = v.unit_price, "discountPct" = v.discount_pct, "taxCode" = v.tax_code, "taxRate" = v.tax_rate,
+          "source" = 'manual', "priceListItemId" = NULL, "reason" = v.reason, "setById" = ${actor.id}, "setBy" = ${actor.name},
+          "version" = p."version" + 1, "updatedAt" = ${at}::timestamp(3)
+      FROM (VALUES ${values}) AS v(id, unit_price, discount_pct, tax_code, tax_rate, reason)
+      WHERE p."orderItemId" = v.id`;
+    if (n !== updates.length) throw new Prisma.PrismaClientKnownRequestError("An order line price changed while it was being set", { code: "P2025", clientVersion: Prisma.prismaVersion.client });
+  }
+  await writeAuditMany(audits, tx);
 }
 
 /** Reprices an order's list-priced lines (e.g. after a price correction). */

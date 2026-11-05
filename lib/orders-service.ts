@@ -31,7 +31,7 @@ import { notify } from "@/lib/core/notifications";
 import { issueForDispatch, reverseDispatchIssue } from "@/lib/inventory/dispatch";
 import { releaseAllForSource } from "@/lib/inventory/reservations";
 import { resolveCustomer } from "@/lib/sales/customers";
-import { applyListPrices, setAgreedLinePriceInTx } from "@/lib/sales/pricing";
+import { applyListPrices, setAgreedLinePricesInTx } from "@/lib/sales/pricing";
 import { evaluateOrderCredit } from "@/lib/sales/credit";
 import { assertQuantitiesFitUnits, assertQuantityFitsUnit, commitOrderStock } from "@/lib/sales/stock-commitment";
 import { holdable, holdOrderForStockInTx } from "@/lib/sales/stock-hold";
@@ -330,12 +330,15 @@ export async function createOrder(
         if (typedPrices.some(Boolean)) {
           // Lines were created in input order; identical lines are interchangeable.
           const pool = [...created.items];
+          const agreed: Parameters<typeof setAgreedLinePricesInTx>[1] = [];
           for (const [idx, vi] of validatedItems.entries()) {
             const at = pool.findIndex((it) => it.stockProductId === vi.stockProductId && it.unit === vi.unit && it.requiredQuantity === vi.quantity);
             const item = pool.splice(at, 1)[0];
             const tp = typedPrices[idx];
-            if (item && tp) await setAgreedLinePriceInTx(tx, item.id, tp, actor);
+            if (item && tp) agreed.push({ itemId: item.id, input: tp });
           }
+          // Every typed line in one pass (PW-2): same checks, rows and audit rows as line by line.
+          await setAgreedLinePricesInTx(tx, agreed, actor);
         }
         await evaluateOrderPricing(tx, created.id, actor);
         if (opts.afterCreate) await opts.afterCreate(tx, created);
