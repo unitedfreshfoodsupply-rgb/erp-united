@@ -4,8 +4,8 @@ import { ApiError } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
 import { getSetting } from "@/lib/core/settings-service";
 import { cancelPendingApproval, findPending, requestApproval } from "@/lib/core/approvals";
-import { productValuation } from "@/lib/inventory/ledger";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
+import { unitLookups } from "@/lib/sales/stock-commitment";
 
 /**
  * Price exceptions on an order (remediation 2026-11).
@@ -27,6 +27,14 @@ export type PriceException = { itemId: string; productName: string; kind: "disco
 export async function priceExceptions(tx: Tx, orderId: string): Promise<PriceException[]> {
   const maxDiscount = D(await getSetting("sales.max_discount_pct"));
   const items = await tx.orderItem.findMany({ where: { orderId }, include: { price: true, stockProduct: true }, orderBy: { createdAt: "asc" } });
+  // Every priced stock line's average cost (productValuation) and units, read at once (PW-2,
+  // Nov 2026: a valuation read and a unit conversion per line before).
+  const judged = items.filter((i) => i.price && i.stockProduct?.stockTracked);
+  const productIds = [...new Set(judged.map((i) => i.stockProduct!.id))];
+  const valuations = productIds.length ? await tx.stockValuationLayer.groupBy({ by: ["productId"], where: { productId: { in: productIds } }, _sum: { quantity: true, value: true } }) : [];
+  const valuationOf = new Map(valuations.map((v) => [v.productId, { qty: D(v._sum.quantity ?? 0), value: D(v._sum.value ?? 0) }]));
+  const converting = judged.filter((i) => i.unit !== i.stockProduct!.unit);
+  const units = converting.length ? await unitLookups(tx, converting.flatMap((i) => [i.unit, i.stockProduct!.unit]), converting.map((i) => i.stockProduct!.id)) : tx;
   const out: PriceException[] = [];
   for (const i of items) {
     const p = i.price;
@@ -36,12 +44,12 @@ export async function priceExceptions(tx: Tx, orderId: string): Promise<PriceExc
       out.push({ itemId: i.id, productName: name, kind: "discount", detail: `خصم ${D(p.discountPct).toFixed()}% أكبر من الحد ${maxDiscount.toFixed()}%` });
     }
     if (!i.stockProduct || !i.stockProduct.stockTracked) continue;
-    const val = await productValuation(tx, i.stockProduct.id);
+    const val = valuationOf.get(i.stockProduct.id) ?? { qty: D(0), value: D(0) };
     if (!val.qty.gt(0) || !val.value.gt(0)) continue; // no cost on the books yet
     const avgCost = val.value.dividedBy(val.qty);
     let perBase: Prisma.Decimal;
     try {
-      perBase = await toBaseQuantity(tx, i.stockProduct, D(1), i.unit);
+      perBase = await toBaseQuantity(units, i.stockProduct, D(1), i.unit);
     } catch (err) {
       if (err instanceof ApiError) continue; // an unconvertible unit is refused elsewhere
       throw err;
@@ -87,6 +95,12 @@ export async function evaluateOrderPricing(tx: Tx, orderId: string, actor: Actor
 
 /** Approval handler (decided by someone else — engine rule). */
 export async function applyPriceExceptionDecision(tx: Tx, orderId: string, approved: boolean, decider: Actorish, comment?: string) {
+  // A cancelled order's prices are not approved (LOG-10); rejecting just closes the request.
+  const order = await tx.order.findUnique({ where: { id: orderId }, select: { status: true } });
+  if (order?.status === "cancelled") {
+    if (approved) throw new ApiError(409, "الأوردر ملغي");
+    return;
+  }
   await tx.order.update({ where: { id: orderId }, data: { pricingStatus: approved ? "ok" : "rejected" } });
   await writeAudit(
     { userId: decider.id, userName: decider.name, role: decider.role, action: approved ? "order_price_exception_approved" : "order_price_exception_rejected", entityType: "order", entityId: orderId, orderId, reason: comment, source: "user", deviceId: decider.deviceId },

@@ -5,7 +5,7 @@ import { advisoryXactLock } from "@/lib/dbLock";
 import type { Tx } from "@/lib/tx";
 import { notify } from "@/lib/core/notifications";
 import { cancelPendingApproval, findPending, requestApproval } from "@/lib/core/approvals";
-import { orderValue } from "@/lib/sales/pricing";
+import { valueOfItems } from "@/lib/sales/pricing";
 import { customerReceivable } from "@/lib/sales/invoicing";
 
 /**
@@ -29,25 +29,38 @@ export type CreditMode = "off" | "warn" | "block";
 type Actorish = { id: string | null; name: string; role: string; deviceId?: string };
 
 /** Receivable balance: issued invoices − credit notes (payments arrive in Phase 6). */
-async function receivableBalance(tx: Tx, customerId: string): Promise<Prisma.Decimal> {
+async function receivableBalance(tx: Parameters<typeof customerReceivable>[0], customerId: string): Promise<Prisma.Decimal> {
   return customerReceivable(tx, customerId);
 }
 
-export async function customerExposure(tx: Tx, customerId: string) {
+/** What customerExposure reads: a transaction, or the client itself for a read-only screen. */
+type ExposureDb = Pick<Tx, "orderItem"> & Parameters<typeof customerReceivable>[0];
+
+export async function customerExposure(tx: ExposureDb, customerId: string) {
   // Not yet a receivable: orders still in work, and orders that left but have no
-  // issued invoice yet (their value is owed all the same).
-  const open = await tx.order.findMany({
+  // issued invoice yet (their value is owed all the same). Every such order's lines are read
+  // at once and valued per order exactly as orderValue does (PS-3, Nov 2026: it was two
+  // queries per open order, inside the credit check of every create and edit).
+  const lines = await tx.orderItem.findMany({
     where: {
-      customerAccountId: customerId,
-      status: { not: "cancelled" },
-      OR: [{ status: { not: "dispatched" } }, { invoices: { none: { status: "issued" } } }],
+      order: {
+        customerAccountId: customerId,
+        status: { not: "cancelled" },
+        OR: [{ status: { not: "dispatched" } }, { invoices: { none: { status: "issued" } } }],
+      },
     },
-    select: { id: true },
+    select: { orderId: true, requiredQuantity: true, preparedQuantity: true, loadedQuantity: true, price: true },
   });
+  const byOrder = new Map<string, typeof lines>();
+  for (const l of lines) {
+    let items = byOrder.get(l.orderId);
+    if (!items) byOrder.set(l.orderId, (items = []));
+    items.push(l);
+  }
   let openValue = new Prisma.Decimal(0);
   let unpriced = 0;
-  for (const o of open) {
-    const v = await orderValue(tx, o.id);
+  for (const items of byOrder.values()) {
+    const v = valueOfItems(items);
     openValue = openValue.plus(v.total);
     unpriced += v.unpriced;
   }

@@ -2,6 +2,7 @@
 
 import { useLocale } from "@/lib/locale";
 import { toLatinDigits } from "@/lib/numerals";
+import { stepQuantity } from "@/lib/quantity";
 
 export function QuantityInput({
   value,
@@ -21,7 +22,7 @@ export function QuantityInput({
         type="button"
         aria-label={t("ui.qty.decrease")}
         disabled={disabled}
-        onClick={() => onChange(Math.max(0, value - step))}
+        onClick={() => onChange(stepQuantity(value, -step))}
         className="tap-target w-14 rounded-xl bg-united-dark/10 text-2xl font-extrabold disabled:opacity-40"
       >
         −
@@ -43,7 +44,7 @@ export function QuantityInput({
         type="button"
         aria-label={t("ui.qty.increase")}
         disabled={disabled}
-        onClick={() => onChange(value + step)}
+        onClick={() => onChange(stepQuantity(value, step))}
         className="tap-target w-14 rounded-xl bg-united-green/20 text-united-dark text-2xl font-extrabold disabled:opacity-40"
       >
         +

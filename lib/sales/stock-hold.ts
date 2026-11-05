@@ -4,6 +4,7 @@ import { ApiError } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { inTx, type Tx } from "@/lib/tx";
+import { todayLocalISO } from "@/lib/localDate";
 import { assertPermission, actorCan } from "@/lib/authz-core";
 import { notifyMany, usersWithPermission } from "@/lib/core/notifications";
 import type { ServiceActor } from "@/lib/core/actor";
@@ -25,7 +26,7 @@ import { orderSuggestions, settleOrderSuggestions, syncOrderSuggestions } from "
  *  - each short line raises one procurement suggestion (a purchase request linked to the
  *    order and the line), kept in step when the line changes;
  *  - when sellable stock arrives, the order's coverage is re-read and its people are told
- *    once per change — nothing is reserved or moved automatically;
+ *    once per change ("ready" once per day) — nothing is reserved or moved automatically;
  *  - "re-check stock and release" runs the ordinary commitOrderStock: every line reserved in
  *    full and the order continues the normal workflow, or nothing changes and the current
  *    shortages come back.
@@ -55,7 +56,27 @@ function shortfallSummary(shortfalls: StockShortfall[]) {
  */
 export async function holdOrderForStockInTx(tx: Tx, orderId: string, shortfalls: StockShortfall[], actor: HoldActor) {
   await advisoryXactLock(tx, `order-stock:${orderId}`);
-  await tx.order.update({ where: { id: orderId }, data: { stockStatus: "awaiting_stock" } });
+  const order = await tx.order.update({ where: { id: orderId }, data: { stockStatus: "awaiting_stock" } });
+  // A purchase request raised by hand for this customer's short product, for this delivery day,
+  // already exists (LOG-4, Nov 2026; its quantity is not compared): holding the order would raise
+  // a second one for the same line, and fulfilling the first would then create a second order —
+  // double buying and a duplicate delivery. Refused (the order is not saved) with the request named.
+  const short = [...new Set(shortfalls.map((s) => s.productId).filter((x): x is string => !!x))];
+  if (order.customerAccountId && short.length) {
+    const raised = await tx.purchaseRequest.findMany({
+      where: { orderId: null, customerId: order.customerAccountId, neededBy: order.deliveryDate, productId: { in: short }, status: { in: ["pending_approval", "approved", "ordered"] } },
+      select: { number: true, productId: true },
+      orderBy: { createdAt: "asc" },
+    });
+    if (raised.length) {
+      throw new ApiError(
+        409,
+        `مينفعش يتحفظ مستني بضاعة: طلب الشراء ${raised.map((r) => r.number).join("، ")} اتعمل بالفعل للعميل ده لنفس الصنف ويوم التسليم — قلّل السطر للمتاح واحفظ عادي، أو الغي الطلب`,
+        "purchase_request_exists",
+        { requests: raised }
+      );
+    }
+  }
   await writeAudit({
     userId: actor.id, userName: actor.name, role: actor.role,
     action: "order_held_for_stock", entityType: "order", entityId: orderId, orderId,
@@ -137,7 +158,10 @@ export async function releaseHeldOrder(orderId: string, actor: HoldActor & { per
  * released reservation), inside it — and once more after commit when orders were waiting (see
  * availability-changes). Re-reads the coverage of EVERY order waiting for them and
  * tells the order's creator and whoever may release it — once per change: a line newly covered,
- * or the whole order releasable — with what is still missing. Reserves, moves and buys nothing:
+ * or the whole order releasable (once per day) — with what is still missing. The day is part of
+ * the "ready" notice's key (LOG-7, Nov 2026): keyed by the state alone, it could be told once ever — an
+ * order that lost its stock to another order before it was released was never told again when
+ * stock really arrived for it later. Reserves, moves and buys nothing:
  * the release is "re-check and release" (releaseHeldOrder), procurement stays with the suggestions.
  *
  * A fixed number of queries whatever the number of orders (release gate D-3, Nov 2026): it used
@@ -154,6 +178,7 @@ export async function noteStockArrival(tx: Tx, productIds: (string | null | unde
     orderBy: { createdAt: "asc" },
   });
   if (!held.length) return { held: 0, sent: 0 };
+  const today = todayLocalISO();
   const orderIds = held.map((o) => o.id);
   const [assessed, raised, created, editors] = await Promise.all([
     assessOrdersStock(tx, orderIds),
@@ -190,7 +215,9 @@ export async function noteStockArrival(tx: Tx, productIds: (string | null | unde
         entityType: "order",
         entityId: o.id,
         link: `/orders/${o.id}`,
-        dedupeKey: `order-stock:${o.id}:${state}`,
+        // "ready" once per day (LOG-7): it can be lost to another order and come back. A partial
+        // state is told once per set of covered lines, as before.
+        dedupeKey: ready ? `order-stock:${o.id}:${state}:${today}` : `order-stock:${o.id}:${state}`,
       },
     });
   }

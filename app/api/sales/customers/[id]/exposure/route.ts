@@ -12,7 +12,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     await requireAnyPermission(req, ["sales.invoices.view", "sales.credit.manage"]);
     const c = await prisma.customer.findUnique({ where: { id: params.id } });
     if (!c) return NextResponse.json({ error: localizeServerMessage("العميل مش موجود", requestLocale(req)) }, { status: 404 });
-    const e = await prisma.$transaction((tx) => customerExposure(tx, c.id));
+    // A read for a display tile, not a decision: no transaction (PW-6). It used to hold the pool's
+    // only connection on Prisma's default 2 s / 5 s interactive limits.
+    const e = await customerExposure(prisma, c.id);
     return NextResponse.json({
       openOrders: e.openOrders.toFixed(2),
       receivable: e.receivable.toFixed(2),

@@ -1,12 +1,15 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type StockReservation } from "@prisma/client";
 import { ApiError } from "@/lib/rbac";
 import type { Tx } from "@/lib/tx";
 import type { ServiceActor } from "@/lib/core/actor";
+import { writeAuditMany, type AuditInput } from "@/lib/audit";
+import { advisoryXactLocks } from "@/lib/dbLock";
+import { newId } from "@/lib/core/ids";
 import { productAvailability, productsAvailability } from "@/lib/inventory/balances";
-import { lockAvailability } from "@/lib/inventory/picking";
+import { availabilityLockKey } from "@/lib/inventory/picking";
 import { resolveWarehouse } from "@/lib/inventory/context";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
-import { releaseReservationInTx, reserveInTx } from "@/lib/inventory/reservations";
+import { availabilityChanged } from "@/lib/inventory/availability-changes";
 import { D, ZERO, type Dec } from "@/lib/inventory/decimal";
 
 /**
@@ -83,7 +86,17 @@ export async function assertQuantityFitsUnit(db: Pick<Tx, "unitOfMeasure">, unit
   }
 }
 
-type CommitLine = { itemId: string; line: number; productId: string; productName: string; unit: string; baseUnit: string; requested: Dec; base: Dec };
+/** assertQuantityFitsUnit for many lines with the units read once (PW-2, Nov 2026): the same
+ * checks in the same order, so the first line that does not fit is refused with the same message. */
+export async function assertQuantitiesFitUnits(db: Pick<Tx, "unitOfMeasure">, lines: { unit: string; qty: number | Dec; label: string }[]) {
+  if (!lines.length) return;
+  const units = await db.unitOfMeasure.findMany({ where: { code: { in: [...new Set(lines.map((l) => l.unit))] } } });
+  const byCode = new Map(units.map((u) => [u.code, u]));
+  const one = { unitOfMeasure: { findUnique: async ({ where }: { where: { code: string } }) => byCode.get(where.code) ?? null } } as unknown as Pick<Tx, "unitOfMeasure">;
+  for (const l of lines) await assertQuantityFitsUnit(one, l.unit, l.qty, l.label);
+}
+
+type CommitLine = { itemId: string; line: number; productId: string; productName: string; unit: string; baseUnit: string; requested: Dec; base: Dec; /** The product card's canonical name (reservation audit rows). */ stockName: string };
 
 /** One stock-tracked line as the plan sees it: what it asks (base unit) and what is left
  * for it after the order's earlier lines on the same product. */
@@ -121,14 +134,43 @@ type PlanReads = {
   units: Pick<Tx, "unitOfMeasure" | "productPackaging">;
   /** Taken (commit only) before availability is read. */
   lock?: (productIds: string[]) => Promise<void>;
-  /** Free stock of a product (productAvailability.available) and what this order already holds of it. */
-  stock: (productId: string) => Promise<{ available: Dec; own: Dec }>;
+  /** Free stock of each product (productAvailability.available) and what this order already holds of it. */
+  stock: (productIds: string[]) => Promise<Map<string, { available: Dec; own: Dec }>>;
 };
+
+/**
+ * The two lookups unitPrecision and toBaseQuantity make (a unit by code, a product's packaging),
+ * answered from two queries read up front instead of two or three per line (PW-2, Nov 2026).
+ * Pass every unit code and product the conversions will touch: anything else reads as missing.
+ */
+export async function unitLookups(db: Pick<Tx, "unitOfMeasure" | "productPackaging">, codes: Iterable<string>, productIds: Iterable<string>): Promise<Pick<Tx, "unitOfMeasure" | "productPackaging">> {
+  const [uoms, packs] = await Promise.all([
+    db.unitOfMeasure.findMany({ where: { code: { in: [...new Set(codes)] } } }),
+    db.productPackaging.findMany({ where: { productId: { in: [...new Set(productIds)] } } }),
+  ]);
+  const uomBy = new Map(uoms.map((u) => [u.code, u]));
+  const packBy = new Map(packs.map((p) => [`${p.productId}|${p.uomCode}`, p]));
+  return {
+    unitOfMeasure: { findUnique: async ({ where }: { where: { code: string } }) => uomBy.get(where.code) ?? null },
+    productPackaging: { findUnique: async ({ where }: { where: { productId_uomCode: { productId: string; uomCode: string } } }) => packBy.get(`${where.productId_uomCode.productId}|${where.productId_uomCode.uomCode}`) ?? null },
+  } as unknown as Pick<Tx, "unitOfMeasure" | "productPackaging">;
+}
+
+/** unitLookups for every line of these orders. */
+function preloadUnits(tx: Pick<Tx, "unitOfMeasure" | "productPackaging">, orders: PlanOrder[]): Promise<PlanReads["units"]> {
+  const products = orders.flatMap((o) => o.items.map((i) => i.stockProduct).filter((p): p is NonNullable<typeof p> => !!p));
+  return unitLookups(tx, [...orders.flatMap((o) => o.items.map((i) => i.unit)), ...products.map((p) => p.unit)], products.map((p) => p.id));
+}
 
 /**
  * The availability judgement behind commitOrderStock, shared with the read-only
  * assessment of an order waiting for stock. With `lock` (commit) it takes the per-product
  * availability locks first; without it (a read for a screen or a receipt) it takes none.
+ *
+ * A fixed number of queries whatever the number of lines (PW-2, Nov 2026): units and packagings
+ * in two, every lock in one statement (sorted, the global order), availability in four and the
+ * order's own holds in one — the reads assessOrdersStock already made for many orders. It used
+ * to read units per line and lock and read availability per product (~7 round trips per line).
  */
 async function planOrderStock(tx: Tx, orderId: string, only: Set<string> | null, lock: boolean): Promise<StockPlan | null> {
   const order = await tx.order.findUnique({ where: { id: orderId }, include: PLAN_INCLUDE });
@@ -136,15 +178,22 @@ async function planOrderStock(tx: Tx, orderId: string, only: Set<string> | null,
   const warehouse = await resolveWarehouse(tx, undefined);
   return planFor(order, only, {
     warehouseId: warehouse.id,
-    units: tx,
-    lock: lock ? async (ids) => { for (const id of ids) await lockAvailability(tx, id, warehouse.id); } : undefined,
-    stock: async (id) => {
-      const { available } = await productAvailability(tx, id, warehouse.id);
-      const own = await tx.stockReservation.aggregate({
-        where: { productId: id, warehouseId: warehouse.id, sourceType: "order", sourceId: orderId, status: "active", ...(only ? { sourceLineId: { in: [...only] } } : {}) },
-        _sum: { quantity: true },
-      });
-      return { available, own: D(own._sum.quantity) };
+    units: await preloadUnits(tx, [order]),
+    lock: lock ? (ids) => advisoryXactLocks(tx, ids.map((id) => availabilityLockKey(id, warehouse.id))) : undefined,
+    stock: async (ids) => {
+      const out = new Map<string, { available: Dec; own: Dec }>();
+      if (!ids.length) return out;
+      const [free, held] = await Promise.all([
+        productsAvailability(tx, ids, warehouse.id),
+        tx.stockReservation.groupBy({
+          by: ["productId"],
+          where: { productId: { in: ids }, warehouseId: warehouse.id, sourceType: "order", sourceId: orderId, status: "active", ...(only ? { sourceLineId: { in: [...only] } } : {}) },
+          _sum: { quantity: true },
+        }),
+      ]);
+      const ownBy = new Map(held.map((r) => [r.productId, D(r._sum.quantity)]));
+      for (const id of ids) out.set(id, { available: free.get(id)?.available ?? ZERO, own: ownBy.get(id) ?? ZERO });
+      return out;
     },
   });
 }
@@ -177,7 +226,7 @@ async function planFor(order: PlanOrder, only: Set<string> | null, reads: PlanRe
       shortfalls.push({ ...base, productId: p.id, reason: "unit_mismatch" });
       continue;
     }
-    lines.push({ itemId: item.id, line, productId: p.id, productName: base.productName, unit: item.unit, baseUnit: p.unit, requested, base: baseQty });
+    lines.push({ itemId: item.id, line, productId: p.id, productName: base.productName, unit: item.unit, baseUnit: p.unit, requested, base: baseQty, stockName: p.name });
   }
 
   const productIds = [...new Set(lines.map((l) => l.productId))].sort();
@@ -185,8 +234,9 @@ async function planFor(order: PlanOrder, only: Set<string> | null, reads: PlanRe
 
   // What this order may hold of each product: free stock plus what it already holds.
   const free = new Map<string, Dec>();
+  const stock = await reads.stock(productIds);
   for (const id of productIds) {
-    const { available, own } = await reads.stock(id);
+    const { available, own } = stock.get(id) ?? { available: ZERO, own: ZERO };
     const total = available.plus(own);
     free.set(id, total.gt(0) ? total : ZERO);
   }
@@ -212,12 +262,37 @@ async function planFor(order: PlanOrder, only: Set<string> | null, reads: PlanRe
   return { warehouseId: reads.warehouseId, lines, coverage, shortfalls: shortfalls.sort((a, b) => a.line - b.line) };
 }
 
+/** A reservation audit row exactly as lib/inventory/reservations.ts writes it (auditReservation). */
+function reservationAudit(r: Pick<StockReservation, "id" | "productId" | "sourceType" | "sourceId">, actor: ServiceActor, action: string, detail: string, reason?: string): AuditInput {
+  return {
+    userId: actor.id,
+    userName: actor.name,
+    role: actor.role,
+    action,
+    entityType: "stock_reservation",
+    entityId: r.id,
+    orderId: r.sourceType === "order" ? r.sourceId : null,
+    fieldChanged: r.productId,
+    newValue: detail,
+    reason,
+    source: "user",
+    deviceId: actor.deviceId,
+  };
+}
+
 /**
  * Holds stock for every stock-tracked line of an order, exactly at its required
  * quantity. Lines whose reservation already matches are left alone; a changed line
  * has its reservation released and taken again — all under the per-product
  * availability locks, in one global order, so two orders can never both take the
  * same kilo. Throws StockUnavailableError (nothing written) on any shortfall.
+ *
+ * Writes in a fixed number of statements (PW-2, Nov 2026), the rows reserveInTx and
+ * releaseReservationInTx wrote one line at a time (~9 round trips per line): the releases in one
+ * compare-and-swap update per reason, the new reservations in one insert, their audit rows
+ * (one per reservation, as before) in one insert, and one availability report with every delta.
+ * reserveInTx's second availability read is not repeated: the plan above was judged under these
+ * same locks with free = available + what this order holds, so every line it accepts fits.
  */
 export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceActor, opts: { lines?: string[] } = {}): Promise<{ reserved: number }> {
   // `lines` limits the commitment to those lines (a mapping that links them to a product);
@@ -231,18 +306,50 @@ export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceAc
   // Reservations follow the lines exactly: release what changed or vanished, then take.
   const active = (await tx.stockReservation.findMany({ where: { sourceType: "order", sourceId: orderId, status: "active" } })).filter((r) => !only || (r.sourceLineId && only.has(r.sourceLineId)));
   const target = new Map(lines.map((l) => [l.itemId, l]));
+  const releases = new Map<string, StockReservation[]>();
+  const held = new Set<string>();
   for (const r of active) {
     const want = r.sourceLineId ? target.get(r.sourceLineId) : undefined;
     if (!want || !r.quantity.equals(want.base) || r.productId !== want.productId) {
-      await releaseReservationInTx(tx, r, want ? "تعديل كمية السطر" : "السطر اتشال", actor);
+      const reason = want ? "تعديل كمية السطر" : "السطر اتشال";
+      let rows = releases.get(reason);
+      if (!rows) releases.set(reason, (rows = []));
+      rows.push(r);
+    } else if (r.sourceLineId) {
+      held.add(r.sourceLineId); // one reservation per line — this one already matches (idempotent)
     }
   }
-  let reserved = 0;
-  for (const l of lines) {
-    const { created } = await reserveInTx(tx, { productId: l.productId, warehouseId: plan.warehouseId, quantity: l.base, sourceType: "order", sourceId: orderId, sourceLineId: l.itemId }, actor);
-    if (created) reserved++;
+  const audits: AuditInput[] = [];
+  const deltas: { productId: string; delta: Dec }[] = [];
+  for (const [reason, rows] of releases) {
+    // Each row only as it was read (its version) and still active: a concurrent writer that got
+    // there first makes this refuse, as the one-row update did (P2025 → 409).
+    const res = await tx.stockReservation.updateMany({
+      where: { OR: rows.map((r) => ({ id: r.id, version: r.version })), status: "active" },
+      data: { status: "released", closedReason: reason, closedAt: new Date(), version: { increment: 1 } },
+    });
+    if (res.count !== rows.length) {
+      throw new Prisma.PrismaClientKnownRequestError("A reservation changed while it was being released", { code: "P2025", clientVersion: Prisma.prismaVersion.client });
+    }
+    for (const r of rows) {
+      audits.push(reservationAudit(r, actor, "stock_reservation_released", `${D(r.quantity).toFixed()}`, reason));
+      deltas.push({ productId: r.productId, delta: D(r.quantity) });
+    }
   }
-  return { reserved };
+  // createdAt one millisecond apart, in line order, as one-by-one inserts had them.
+  const now = Date.now();
+  const taken = lines.filter((l) => !held.has(l.itemId)).map((l, n) => ({
+    line: l,
+    row: { id: newId(), productId: l.productId, warehouseId: plan.warehouseId, quantity: l.base, sourceType: "order", sourceId: orderId, sourceLineId: l.itemId, createdById: actor.id, createdBy: actor.name, createdAt: new Date(now + n) },
+  }));
+  if (taken.length) await tx.stockReservation.createMany({ data: taken.map((t) => t.row) });
+  for (const { line: l, row } of taken) {
+    audits.push(reservationAudit(row, actor, "stock_reserved", `${l.stockName} · ${l.base.toFixed()} ${l.baseUnit}`));
+    deltas.push({ productId: l.productId, delta: l.base.negated() });
+  }
+  await writeAuditMany(audits, tx);
+  await availabilityChanged(tx, deltas, actor);
+  return { reserved: taken.length };
 }
 
 /**
@@ -267,28 +374,18 @@ export async function assessOrdersStock(tx: Tx, orderIds: string[]): Promise<Map
   const orders = (await tx.order.findMany({ where: { id: { in: orderIds } }, include: PLAN_INCLUDE })).filter((o) => o.status !== "cancelled" && o.status !== "dispatched");
   if (!orders.length) return out;
   const warehouse = await resolveWarehouse(tx, undefined);
-  const products = orders.flatMap((o) => o.items.map((i) => i.stockProduct).filter((p): p is NonNullable<typeof p> => !!p));
-  const productIds = [...new Set(products.map((p) => p.id))];
-  const codes = [...new Set([...orders.flatMap((o) => o.items.map((i) => i.unit)), ...products.map((p) => p.unit)])];
-  const [uoms, packs, held, free] = await Promise.all([
-    tx.unitOfMeasure.findMany({ where: { code: { in: codes } } }),
-    tx.productPackaging.findMany({ where: { productId: { in: productIds } } }),
+  const productIds = [...new Set(orders.flatMap((o) => o.items.map((i) => i.stockProduct?.id).filter((x): x is string => !!x)))];
+  const [units, held, free] = await Promise.all([
+    preloadUnits(tx, orders),
     tx.stockReservation.groupBy({ by: ["sourceId", "productId"], where: { sourceType: "order", sourceId: { in: orders.map((o) => o.id) }, warehouseId: warehouse.id, status: "active" }, _sum: { quantity: true } }),
     productsAvailability(tx, productIds, warehouse.id),
   ]);
-  // The two lookups unitPrecision and toBaseQuantity make, answered from what was just read.
-  const uomBy = new Map(uoms.map((u) => [u.code, u]));
-  const packBy = new Map(packs.map((p) => [`${p.productId}|${p.uomCode}`, p]));
-  const units = {
-    unitOfMeasure: { findUnique: async ({ where }: { where: { code: string } }) => uomBy.get(where.code) ?? null },
-    productPackaging: { findUnique: async ({ where }: { where: { productId_uomCode: { productId: string; uomCode: string } } }) => packBy.get(`${where.productId_uomCode.productId}|${where.productId_uomCode.uomCode}`) ?? null },
-  } as unknown as PlanReads["units"];
   const ownBy = new Map(held.map((r) => [`${r.sourceId}|${r.productId}`, D(r._sum.quantity)]));
   for (const order of orders) {
     const plan = await planFor(order, null, {
       warehouseId: warehouse.id,
       units,
-      stock: async (id) => ({ available: free.get(id)?.available ?? ZERO, own: ownBy.get(`${order.id}|${id}`) ?? ZERO }),
+      stock: async (ids) => new Map(ids.map((id) => [id, { available: free.get(id)?.available ?? ZERO, own: ownBy.get(`${order.id}|${id}`) ?? ZERO }])),
     });
     out.set(order.id, { coverage: plan.coverage, shortfalls: plan.shortfalls });
   }

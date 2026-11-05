@@ -10,7 +10,7 @@ import { canTransition, isStandardTransition } from "@/lib/orderWorkflow";
 import { isShortage, needsSupervisorReview } from "@/lib/config";
 import { getOperationalSettings, getSetting } from "@/lib/core/settings-service";
 import type { OperationalSettings } from "@/lib/core/settings-registry";
-import { cancelPendingApproval, findPending, recordDecision, requestApproval } from "@/lib/core/approvals";
+import { cancelPendingApproval, cancelPendingApprovals, findPending, lockApprovalRequests, recordDecision, requestApproval } from "@/lib/core/approvals";
 import {
   exceptionCategory,
   isOrderOpen,
@@ -31,18 +31,20 @@ import { notify } from "@/lib/core/notifications";
 import { issueForDispatch, reverseDispatchIssue } from "@/lib/inventory/dispatch";
 import { releaseAllForSource } from "@/lib/inventory/reservations";
 import { resolveCustomer } from "@/lib/sales/customers";
-import { applyListPrices, setAgreedLinePriceInTx } from "@/lib/sales/pricing";
+import { applyListPrices, setAgreedLinePricesInTx } from "@/lib/sales/pricing";
 import { evaluateOrderCredit } from "@/lib/sales/credit";
-import { assertQuantityFitsUnit, commitOrderStock } from "@/lib/sales/stock-commitment";
+import { assertQuantitiesFitUnits, assertQuantityFitsUnit, commitOrderStock } from "@/lib/sales/stock-commitment";
 import { holdable, holdOrderForStockInTx } from "@/lib/sales/stock-hold";
 import { settleOrderSuggestions, syncOrderSuggestions } from "@/lib/purchasing/requests";
 import { assertPricingCleared, evaluateOrderPricing } from "@/lib/sales/price-exceptions";
 import { releaseOrderInvoiceForReopen } from "@/lib/sales/invoicing";
 import { searchWhere } from "@/lib/core/search";
 import { storedOrderCustomerName } from "@/lib/locale/names";
+import { fitsDecimals } from "@/lib/quantity";
 
 function assertValidQuantity(quantity: unknown, label: string): asserts quantity is number {
-  if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity < 0 || quantity > 999_999_999_999 || !Number.isInteger(quantity * 1000)) {
+  // At most three decimals as typed (LOG-2): 16.1 is valid, though 16.1 × 1000 is not an integer in floating point.
+  if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity < 0 || quantity > 999_999_999_999 || !fitsDecimals(quantity, 3)) {
     throw new ApiError(400, `${label} لازم يكون من صفر إلى 999,999,999,999 وبحد أقصى 3 خانات عشرية`);
   }
 }
@@ -235,7 +237,7 @@ export async function createOrder(
     throw new ApiError(403, "مالكش صلاحية تحدد سعر السطر — السعر بيتاخد من قائمة الأسعار");
   }
   const validatedItems = await validateProducts(input.items);
-  for (const [idx, i] of validatedItems.entries()) await assertQuantityFitsUnit(prisma, i.unit, i.quantity, `الصنف رقم ${idx + 1} (${i.productName})`);
+  await assertQuantitiesFitUnits(prisma, validatedItems.map((i, idx) => ({ unit: i.unit, qty: i.quantity, label: `الصنف رقم ${idx + 1} (${i.productName})` })));
   // Sales policies, read before the transaction opens.
   const creditMode = await getSetting("sales.credit_check_mode");
   // Exact customer resolution (explicit account → integration id → name/alias);
@@ -263,7 +265,10 @@ export async function createOrder(
   let order;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      order = await prisma.$transaction(async (tx) => {
+      // Through inTx (PM-3, Nov 2026): settings read inside the transaction (price exceptions,
+      // the default warehouse) go through it on a cache miss instead of waiting on a second pool
+      // connection, and the end-of-transaction steps run. Same 15 s / 20 s limits.
+      order = await inTx(async (tx) => {
         // Lock order: external_id first, then the order-number day. Every caller uses
         // this same order, so concurrent creates queue instead of deadlocking.
         if (input.external_id) {
@@ -300,7 +305,8 @@ export async function createOrder(
               })),
             },
           },
-          include: ORDER_INCLUDE,
+          // Only the lines' ids are needed here (typed prices); the order is re-read in full at the end.
+          include: { items: true },
         });
         // The order and the record of its creation commit together: an order that
         // exists with no order_created row would have no origin in its own timeline.
@@ -325,12 +331,15 @@ export async function createOrder(
         if (typedPrices.some(Boolean)) {
           // Lines were created in input order; identical lines are interchangeable.
           const pool = [...created.items];
+          const agreed: Parameters<typeof setAgreedLinePricesInTx>[1] = [];
           for (const [idx, vi] of validatedItems.entries()) {
             const at = pool.findIndex((it) => it.stockProductId === vi.stockProductId && it.unit === vi.unit && it.requiredQuantity === vi.quantity);
             const item = pool.splice(at, 1)[0];
             const tp = typedPrices[idx];
-            if (item && tp) await setAgreedLinePriceInTx(tx, item.id, tp, actor);
+            if (item && tp) agreed.push({ itemId: item.id, input: tp });
           }
+          // Every typed line in one pass (PW-2): same checks, rows and audit rows as line by line.
+          await setAgreedLinePricesInTx(tx, agreed, actor);
         }
         await evaluateOrderPricing(tx, created.id, actor);
         if (opts.afterCreate) await opts.afterCreate(tx, created);
@@ -349,11 +358,6 @@ export async function createOrder(
         await evaluateOrderCredit(tx, created.id, creditMode, actor);
         // Re-read: the steps above set fields (credit status) on the row created above.
         return tx.order.findUniqueOrThrow({ where: { id: created.id }, include: ORDER_INCLUDE });
-      }, {
-        // Concurrent creates for the same day queue on the advisory lock, so allow a
-        // realistic wait before giving up rather than the 2s Prisma default.
-        maxWait: 15_000,
-        timeout: 20_000,
       });
       break;
     } catch (err) {
@@ -978,6 +982,14 @@ export async function editOrder(
   });
 
   return inTx(async (tx) => {
+    if (customerIdentityChanged) {
+      // Lock order: the request locks before the order row, as cancel and the paths that raise
+      // these requests take them; the customer's credit lock first, as evaluateOrderCredit takes
+      // it before the credit request's own lock. The edit used to update the row first and take
+      // both locks afterwards, so a cancel beside it could deadlock.
+      await advisoryXactLock(tx, `sales:credit:${fields.customerAccountId}`);
+      await lockApprovalRequests(tx, [{ type: "sales.credit", entityId: orderId }, { type: "sales.price_exception", entityId: orderId }]);
+    }
     const updated = await casOrderUpdate(orderId, order.version, (where) =>
       tx.order.update({
         where,
@@ -1055,8 +1067,11 @@ export async function editRequiredQuantity(
       // new shortage instead (a line set to 0 closes it).
       await syncOrderSuggestions(tx, orderId, actor);
     } else {
-      // A larger quantity must be reservable now, or the edit is refused (WF-01).
-      await commitOrderStock(tx, orderId, stockActor(actor));
+      // A larger quantity must be reservable now, or the edit is refused (WF-01). Only this line
+      // is re-committed (PW-2): the order's other lines already hold their stock in full and are
+      // left exactly as they are — re-reading and re-locking every line made a one-line
+      // correction cost ~10 round trips per line of the order.
+      await commitOrderStock(tx, orderId, stockActor(actor), { lines: [itemId] });
     }
 
     await writeAudit({
@@ -1135,6 +1150,8 @@ export async function applyShortageApproval(
 ) {
   const current = await tx.order.findUnique({ where: { id: orderId } });
   if (!current) throw new ApiError(404, "الأوردر مش موجود");
+  // A cancelled order has nothing left to release (LOG-10). Its request can still be rejected.
+  if (current.status === "cancelled") throw new ApiError(409, "الأوردر ملغي");
   if (!current.needsReview && !current.shortage) throw new ApiError(409, "الأوردر مبقاش محتاج اعتماد");
   const version = expectedVersion ?? current.version;
   const updated = await casOrderUpdate(orderId, version, (where) =>
@@ -1183,6 +1200,11 @@ export async function cancelOrder(
   if (await liveTripStop(orderId)) throw new ApiError(409, "الأوردر على رحلة — شيله من الرحلة الأول");
 
   return inTx(async (tx) => {
+    // Lock order with the paths that raise these requests: the credit and price-exception checks
+    // take the request's lock before they update the order row, so cancel takes those two first;
+    // the shortage check updates the order row first, so its lock comes after (in the withdrawal
+    // below). Otherwise a cancel beside a price change or a credit check could deadlock.
+    await lockApprovalRequests(tx, [{ type: "sales.credit", entityId: orderId }, { type: "sales.price_exception", entityId: orderId }]);
     const updated = await casOrderUpdate(orderId, order.version, (where) =>
       tx.order.update({
         where,
@@ -1207,9 +1229,10 @@ export async function cancelOrder(
     }, tx);
 
     // Stock promised to a cancelled order is free again, and nobody needs to decide
-    // its credit any more.
+    // anything about it any more: its credit, a quantity variance or its prices (LOG-10 — the
+    // shortage and price-exception requests used to stay in the inbox, on an order that is gone).
     await releaseAllForSource(tx, "order", orderId, `إلغاء الأوردر: ${reason}`, stockActor(actor));
-    await cancelPendingApproval(tx, { type: "sales.credit", entityId: orderId, reason: `الأوردر اتلغى: ${reason}`, actor });
+    await cancelPendingApprovals(tx, (["sales.credit", "orders.shortage", "sales.price_exception"] as const).map((type) => ({ type, entityId: orderId, reason: `الأوردر اتلغى: ${reason}`, actor })));
     // Its procurement suggestions are no longer needed (one already on a supplier PO stays
     // with purchasing, noted on its history).
     await settleOrderSuggestions(tx, orderId, "cancelled", reason, actor);
@@ -1239,6 +1262,22 @@ export async function reopenOrder(
   const order = await getOrder(orderId);
   assertVersion(order.version, expectedVersion, "الأوردر");
   if (order.status === to) throw new ApiError(400, "الأوردر في الحالة دي بالفعل");
+  // Reopen sends a closed or advanced order back; a new order has not started (LOG-10). Moving it
+  // on is the ordinary status change, with its credit, pricing and stock gates.
+  if (order.status === "new") throw new ApiError(409, "الأوردر لسه جديد — مفيش حاجة تتفتح تاني، ابدأ التجهيز من تغيير الحالة العادي");
+  // A cancelled order goes straight back to work, past the gates of leaving "new" — and the cancel
+  // withdrew whatever its prices or credit were waiting for, so nobody could decide them any more
+  // (LOG-10). With prices or credit not cleared it is not reopened: a copy goes through both again.
+  if (order.status === "cancelled") {
+    if (order.pricingStatus !== "ok") {
+      throw new ApiError(409, "مينفعش يتفتح تاني: أسعار الأوردر كانت مستنية موافقة أو اترفضت قبل الإلغاء — اعمل نسخة من الأوردر، النسخة بتعدي على مراجعة الأسعار والائتمان من الأول", "reopen_needs_clone");
+    }
+    // Pending in any mode: the cancel withdrew the request, so nobody could ever decide it (the mode
+    // may have left "block" since). A rejection is a decision that stands; only block mode stops on it.
+    if (order.creditStatus === "pending_approval" || (order.creditStatus === "rejected" && (await getSetting("sales.credit_check_mode")) === "block")) {
+      throw new ApiError(409, "مينفعش يتفتح تاني: ائتمان الأوردر كان مستني موافقة الحسابات أو اترفض قبل الإلغاء — اعمل نسخة من الأوردر، النسخة بتعدي على مراجعة الأسعار والائتمان من الأول", "reopen_needs_clone");
+    }
+  }
   const stop = await liveTripStop(orderId);
   if (stop && ["dispatched", "in_transit", "completed"].includes(stop.trip.status)) {
     throw new ApiError(409, `الأوردر خرج على الرحلة ${stop.trip.number} — التصحيح بنتيجة التسليم (مرتجع/عجز)`);
