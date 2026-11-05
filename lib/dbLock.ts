@@ -21,3 +21,21 @@ export async function advisoryXactLock(tx: LockableTx, key: string) {
   // the IS NULL test turns it into a plain boolean column.
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${key})) IS NULL AS locked`;
 }
+
+/**
+ * Take several transaction-scoped advisory locks in ONE round trip.
+ *
+ * Every lock taken one statement at a time costs a full database round trip (~37 ms in
+ * production), and stock paths lock once per product or bucket — 20 products meant 20 round
+ * trips before any work started. This takes them all in one statement. The keys are
+ * de-duplicated and sorted here, and `unnest … WITH ORDINALITY` + ORDER BY keeps that order
+ * inside the statement, so the global lock order (sorted keys) still holds and two writers can
+ * never deadlock against each other. Locking a key the transaction already holds is a no-op.
+ */
+export async function advisoryXactLocks(tx: LockableTx, keys: Iterable<string>) {
+  const sorted = [...new Set(keys)].sort();
+  if (sorted.length === 0) return;
+  if (sorted.length === 1) return advisoryXactLock(tx, sorted[0]);
+  await tx.$queryRaw`SELECT count(pg_advisory_xact_lock(hashtext(k.key)))::int AS locked
+    FROM (SELECT key FROM unnest(${sorted}::text[]) WITH ORDINALITY AS u(key, ord) ORDER BY ord) k`;
+}
