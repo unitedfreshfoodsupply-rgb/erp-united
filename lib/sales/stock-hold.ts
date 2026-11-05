@@ -4,6 +4,7 @@ import { ApiError } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
 import { advisoryXactLock } from "@/lib/dbLock";
 import { inTx, type Tx } from "@/lib/tx";
+import { todayLocalISO } from "@/lib/localDate";
 import { assertPermission, actorCan } from "@/lib/authz-core";
 import { notifyMany, usersWithPermission } from "@/lib/core/notifications";
 import type { ServiceActor } from "@/lib/core/actor";
@@ -25,7 +26,7 @@ import { orderSuggestions, settleOrderSuggestions, syncOrderSuggestions } from "
  *  - each short line raises one procurement suggestion (a purchase request linked to the
  *    order and the line), kept in step when the line changes;
  *  - when sellable stock arrives, the order's coverage is re-read and its people are told
- *    once per change — nothing is reserved or moved automatically;
+ *    once per change and day — nothing is reserved or moved automatically;
  *  - "re-check stock and release" runs the ordinary commitOrderStock: every line reserved in
  *    full and the order continues the normal workflow, or nothing changes and the current
  *    shortages come back.
@@ -156,8 +157,11 @@ export async function releaseHeldOrder(orderId: string, actor: HoldActor & { per
  * correction, grading after receipt, opening stock, a quarantine or hold release, a return, a
  * released reservation), inside it — and once more after commit when orders were waiting (see
  * availability-changes). Re-reads the coverage of EVERY order waiting for them and
- * tells the order's creator and whoever may release it — once per change: a line newly covered,
- * or the whole order releasable — with what is still missing. Reserves, moves and buys nothing:
+ * tells the order's creator and whoever may release it — once per change and day: a line newly
+ * covered, or the whole order releasable — with what is still missing. The day is part of the
+ * notice's key (LOG-7, Nov 2026): keyed by the state alone, "ready" could be told once ever — an
+ * order that lost its stock to another order before it was released was never told again when
+ * stock really arrived for it later. Reserves, moves and buys nothing:
  * the release is "re-check and release" (releaseHeldOrder), procurement stays with the suggestions.
  *
  * A fixed number of queries whatever the number of orders (release gate D-3, Nov 2026): it used
@@ -174,6 +178,7 @@ export async function noteStockArrival(tx: Tx, productIds: (string | null | unde
     orderBy: { createdAt: "asc" },
   });
   if (!held.length) return { held: 0, sent: 0 };
+  const today = todayLocalISO();
   const orderIds = held.map((o) => o.id);
   const [assessed, raised, created, editors] = await Promise.all([
     assessOrdersStock(tx, orderIds),
@@ -210,7 +215,7 @@ export async function noteStockArrival(tx: Tx, productIds: (string | null | unde
         entityType: "order",
         entityId: o.id,
         link: `/orders/${o.id}`,
-        dedupeKey: `order-stock:${o.id}:${state}`,
+        dedupeKey: `order-stock:${o.id}:${state}:${today}`,
       },
     });
   }

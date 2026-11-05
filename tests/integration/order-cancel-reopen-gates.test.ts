@@ -3,6 +3,8 @@
      prices); a request left from before cannot be approved on a cancelled order, only rejected.
    - Reopen refuses a new order, and a cancelled order whose prices or credit (block mode) were
      not cleared — a copy goes through both again.
+   - "Stock arrived" for a held order is told once per state and DAY (LOG-7): a "ready" told on an
+     earlier day — then lost to another order — does not silence a real arrival later.
    - A short line with a purchase request raised by hand for the same customer and delivery day
      cannot also be saved awaiting stock (it would raise a second one); the same hand request twice
      (a double tap) is refused.
@@ -18,6 +20,7 @@ import { createPurchaseRequest } from "@/lib/purchasing/requests";
 import { requestApproval } from "@/lib/core/approvals";
 import { decideApproval } from "@/lib/core/approval-handlers";
 import { ApiError } from "@/lib/rbac";
+import { todayLocalISO } from "@/lib/localDate";
 
 const TAG = `ZZGATE${Date.now()}`;
 const day = `2097-05-${String(1 + (Date.now() % 28)).padStart(2, "0")}`;
@@ -158,4 +161,18 @@ test("LOG-4: the same hand-raised request twice (a double tap) is refused while 
   // A different quantity is a different request.
   await createPurchaseRequest({ ...input, quantity: 3 }, sales as never);
   assert.equal(await prisma.purchaseRequest.count({ where: { productId: a } }), 2);
+});
+
+test("LOG-7: a held order told 'ready' on an earlier day is told again when stock really arrives later", async () => {
+  const a = await product("كوسة", 1);
+  const held = await order([line(a, 5)], { allow_shortage: true });
+  assert.equal(held.stockStatus, "awaiting_stock");
+  // As if told ready on an earlier day (its stock then went to another order).
+  await prisma.notification.create({ data: { recipientId: ids.mona, type: "order.stock_ready", title: TAG, entityType: "order", entityId: held.id, dedupeKey: `order-stock:${held.id}:ready:2000-01-01` } });
+  await recordIntake({ supplier_id: supplierId, product_id: a, received_kg: 10, unit_cost: "5", location_id: "loc_cold_1" } as never, stock as never);
+  const told = await prisma.notification.findMany({ where: { recipientId: ids.mona, entityType: "order", entityId: held.id, type: "order.stock_ready" } });
+  assert.deepEqual(told.map((n) => n.dedupeKey).sort(), [`order-stock:${held.id}:ready:2000-01-01`, `order-stock:${held.id}:ready:${todayLocalISO()}`]);
+  // The same day, the same state is not told twice.
+  await recordIntake({ supplier_id: supplierId, product_id: a, received_kg: 1, unit_cost: "5", location_id: "loc_cold_1" } as never, stock as never);
+  assert.equal(await prisma.notification.count({ where: { recipientId: ids.mona, entityId: held.id, type: "order.stock_ready" } }), 2);
 });
