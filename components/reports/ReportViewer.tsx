@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, Download, Info, Printer } from "lucide-react";
 import { apiFetch, errorMessage } from "@/lib/api-client";
 import { isValidISODate } from "@/lib/dates";
+import { replaceQuery, withParams } from "@/lib/hooks/urlQuery";
 import { useLocale } from "@/lib/locale";
 import { formatNumber } from "@/lib/format";
 import { localName } from "@/lib/locale/names";
@@ -32,20 +33,13 @@ const FILTER_PARAM: Record<string, string> = { customer: "customer_id", supplier
 export function ReportViewer({ reportKey }: { reportKey: string }) {
   const { t, locale } = useLocale();
   const lang = locale === "en" ? "en" : "ar";
-  const router = useRouter();
-  const pathname = usePathname();
   const sp = useSearchParams();
   const toast = useToast();
   const qs = sp.toString();
   const q = useQuery({ queryKey: ["report", reportKey, qs], queryFn: () => apiFetch<Ran>(`/api/reports/${reportKey}${qs ? `?${qs}` : ""}`), placeholderData: keepPreviousData });
-  const set = (patch: Record<string, string | null>) => {
-    const next = new URLSearchParams(sp.toString());
-    for (const [k, v] of Object.entries(patch)) {
-      if (v) next.set(k, v);
-      else next.delete(k);
-    }
-    router.replace(`${pathname}${next.toString() ? `?${next}` : ""}`, { scroll: false });
-  };
+  // Written in place from the current address (lib/hooks/urlQuery.ts): no server round trip
+  // before the report's own request, and a second quick change does not drop the first.
+  const set = (patch: Record<string, string | null>) => replaceQuery(withParams(window.location.search, patch));
   // The last result that loaded stays on screen when a filter is refused (the error shows above
   // the table, with the filters to correct it), instead of the whole viewer disappearing.
   const [last, setLast] = useState<Ran>();

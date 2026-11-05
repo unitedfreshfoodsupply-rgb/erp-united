@@ -44,6 +44,8 @@ export function LoadBoard() {
         "/api/orders?status=new,preparing,ready_for_loading,loading,loaded&stock=ok"
       ),
     refetchInterval: 3000,
+    // A wall screen that chimes: keeps polling while its tab is hidden (app/providers.tsx).
+    refetchIntervalInBackground: true,
   });
 
   useReadyForLoadingAlert(data?.orders);

@@ -568,7 +568,7 @@ export function SupplierOverview({ id }: { id: string }) {
   const { t, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["purchasing", "supplier", id], queryFn: () => apiFetch<{ supplier: SupplierFull }>(`/api/purchasing/suppliers/${id}`) });
+  const q = useQuery({ queryKey: ["purchasing", "supplier", id], queryFn: () => apiFetch<{ supplier: SupplierFull }>(`/api/purchasing/suppliers/${id}`), staleTime: 15_000 });
   const prices = useQuery({ queryKey: ["purchasing", "supplier", id, "prices"], queryFn: () => apiFetch<{ prices: { id: string; uomCode: string; unitPrice: string; validFrom: string; createdBy: string; product: { id?: string; name: string; nameAr: string | null } }[] }>(`/api/purchasing/suppliers/${id}/prices`), enabled: can("purchasing.prices.view") });
   const catalog = useCatalog();
   const [editing, setEditing] = useState(false);

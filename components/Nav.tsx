@@ -17,6 +17,7 @@ import { ROLE_LABEL, ROLE_LABEL_EN } from "@/lib/types";
 import { visibleNavLinks, homePathFor, NAV_GROUPS, type NavGroup, type NavLink } from "@/lib/nav";
 import { NotificationBell } from "@/components/NotificationBell";
 import { Modal } from "@/components/ui/Dialog";
+import { Menu as AccountMenu } from "@/components/ui/Menu";
 import { useLocale } from "@/lib/locale";
 import { Avatar } from "@/components/ui/Avatar";
 
@@ -149,10 +150,12 @@ function GroupedLinks({ links, activeHref, onNavigate, rail = false }: { links: 
 }
 
 /** The desktop sidebar can fold to an icon rail; remembered in a layout cookie (read by the
- * root layout as data-rail, so the page offset is right before any script runs). */
+ * root layout as data-rail, so the page offset is right before any script runs). Read on the
+ * first render: Nav remounts with every page, and starting unfolded showed the labels inside
+ * the folded rail for a frame each time. The sidebar is never server-rendered (it waits for
+ * the session), so reading the document here cannot mismatch the server HTML. */
 function useRail() {
-  const [rail, setRail] = useState(false);
-  useEffect(() => { setRail(document.documentElement.dataset.rail === "1"); }, []);
+  const [rail, setRail] = useState(() => typeof document !== "undefined" && document.documentElement.dataset.rail === "1");
   const toggle = () => {
     const next = !rail;
     setRail(next);
@@ -172,28 +175,13 @@ export function Nav() {
   const user = data?.user;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [rail, toggleRail] = useRail();
-  const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingLogout, setConfirmingLogout] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const menuBox = useRef<HTMLDivElement>(null);
 
-  // Leaving the page closes the drawer and the account menu.
+  // Leaving the page closes the drawer.
   useEffect(() => {
     setDrawerOpen(false);
-    setMenuOpen(false);
   }, [pathname]);
-
-  // The account menu closes on a click elsewhere or on Esc (focus back on its button).
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (e: MouseEvent) => { if (!menuBox.current?.contains(e.target as Node)) setMenuOpen(false); };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setMenuOpen(false); menuBox.current?.querySelector<HTMLButtonElement>("button")?.focus(); }
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
-  }, [menuOpen]);
 
   async function logout() {
     setLoggingOut(true);
@@ -232,12 +220,16 @@ export function Nav() {
 
   // Hold the bar's height (and, on the desktop, the sidebar's width when this browser's last
   // session had one — the u_shell hint above, read in app/layout.tsx) while the session
-  // loads, so the page does not move once it arrives.
+  // loads, so the page does not move once it arrives. The floor shell's row of tabs is held
+  // too; app/globals.css drops it when the hint says the grouped shell.
   if (!user) {
     return isLoading ? (
       <>
         <span aria-hidden className="u-shell-placeholder hidden" />
-        <div aria-hidden className="sticky top-0 z-20 h-14 box-content border-b border-united-border bg-white/95" />
+        <div aria-hidden className="sticky top-0 z-20 border-b border-united-border bg-white/95">
+          <div className="h-14" />
+          <div className="u-tabs-placeholder h-11" />
+        </div>
       </>
     ) : null;
   }
@@ -298,36 +290,36 @@ export function Nav() {
             <span>{t("ui.lang.switch")}</span>
           </button>
           <NotificationBell />
-          <div className="relative" ref={menuBox}>
-            <button
-              type="button"
-              onClick={() => setMenuOpen((o) => !o)}
-              aria-expanded={menuOpen}
-              aria-haspopup="menu"
-              className="flex h-10 items-center gap-2 rounded-xl ps-1 pe-2 hover:bg-united-subtle"
-            >
-              <Avatar name={user.name} seed={user.id} size="sm" />
-              <span className="hidden sm:flex flex-col items-start leading-tight">
-                <span className="text-sm font-semibold text-united-dark">{user.name}</span>
-                <span className="text-[11px] text-united-muted">{roleLabel}</span>
-              </span>
-              <ChevronDown size={16} className="text-united-muted" aria-hidden />
-            </button>
-            {menuOpen && (
-              <div role="menu" className="absolute end-0 mt-2 w-56 card shadow-pop p-1.5 z-40">
-                <div className="px-3 py-2 sm:hidden">
-                  <div className="text-sm font-semibold">{user.name}</div>
-                  <div className="text-xs text-united-muted">{t("ui.role")} {roleLabel}</div>
-                </div>
-                <Link role="menuitem" href="/profile" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-united-subtle">
-                  <UserRound size={16} aria-hidden /> {t("ui.profile")}
-                </Link>
-                <button role="menuitem" type="button" onClick={() => { setMenuOpen(false); setConfirmingLogout(true); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-united-danger hover:bg-red-50">
-                  <LogOut size={16} aria-hidden /> {t("ui.logout")}
-                </button>
+          {/* The kit's menu button (components/ui/Menu.tsx): focus moves into the menu, arrow
+              keys move between the items, Esc and Tab close it. */}
+          <AccountMenu
+            label={t("ui.account-menu")}
+            triggerClassName="flex h-10 items-center gap-2 rounded-xl ps-1 pe-2 hover:bg-united-subtle"
+            // As wide as the menu it replaced (14rem): the profile label fits on one line.
+            menuClassName="w-56"
+            trigger={
+              <>
+                <Avatar name={user.name} seed={user.id} size="sm" />
+                <span className="hidden sm:flex flex-col items-start leading-tight">
+                  <span className="text-sm font-semibold text-united-dark">{user.name}</span>
+                  <span className="text-[11px] text-united-muted">{roleLabel}</span>
+                </span>
+                {/* On a phone only the avatar shows: the name still names the button. */}
+                <span className="sr-only sm:hidden">{user.name}</span>
+                <ChevronDown size={16} className="text-united-muted" aria-hidden />
+              </>
+            }
+            header={
+              <div className="px-3 py-2 sm:hidden">
+                <div className="text-sm font-semibold">{user.name}</div>
+                <div className="text-xs text-united-muted">{t("ui.role")} {roleLabel}</div>
               </div>
-            )}
-          </div>
+            }
+            items={[
+              { key: "profile", label: t("ui.profile"), href: "/profile", icon: <UserRound size={16} aria-hidden /> },
+              { key: "logout", label: t("ui.logout"), tone: "danger", icon: <LogOut size={16} aria-hidden />, onSelect: () => setConfirmingLogout(true) },
+            ]}
+          />
         </div>
 
         {/* Floor roles: every screen one tap away, on every device. */}

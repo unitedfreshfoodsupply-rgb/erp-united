@@ -30,6 +30,8 @@ export function PrepBoard() {
     queryKey: ["orders", "prep"],
     queryFn: () => apiFetch<{ orders: OrderDTO[] }>("/api/orders?status=new,preparing&stock=ok"),
     refetchInterval: 3000,
+    // A wall screen that chimes: keeps polling while its tab is hidden (app/providers.tsx).
+    refetchIntervalInBackground: true,
   });
 
   useNewOrderAlert(data?.orders);

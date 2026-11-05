@@ -78,6 +78,8 @@ export function SupervisorBoard() {
         "/api/supervisor/intelligence"
       ),
     refetchInterval: 4000,
+    // A wall screen that chimes: keeps polling while its tab is hidden (app/providers.tsx).
+    refetchIntervalInBackground: true,
   });
 
   useNewOrderAlert(data?.orders);

@@ -31,7 +31,9 @@ type Log = { id: string; action: string; userName: string; timestamp: string; fi
 export function SupplierProfile({ supplierId }: { supplierId: string }) {
   const { t, locale } = useLocale();
   const { can } = usePermissions();
-  const head = useQuery({ queryKey: ["purchasing", "supplier", supplierId], queryFn: () => apiFetch<Head>(`/api/purchasing/suppliers/${supplierId}`) });
+  // Same key as the overview tab (SupplierOverview), which mounts once this has loaded: 15 s
+  // fresh, so opening the profile asks for the supplier once, not twice (edits invalidate ["purchasing"]).
+  const head = useQuery({ queryKey: ["purchasing", "supplier", supplierId], queryFn: () => apiFetch<Head>(`/api/purchasing/suppliers/${supplierId}`), staleTime: 15_000 });
   const summary = useSummary<Summary>("supplier", supplierId);
   const sees = (s: string) => maySeeSection("supplier", s, can);
   const items: { key: Tab; label: string }[] = [

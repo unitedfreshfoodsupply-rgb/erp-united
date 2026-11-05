@@ -1,3 +1,5 @@
+import { readLocaleCookie } from "@/lib/locale/cookie";
+
 export class ApiClientError extends Error {
   /** Machine-readable code and structured detail the server attached, when any. `ref` is the
    * server's error reference (lib/rbac.ts handleApiError) — the key to its log line. */
@@ -23,14 +25,19 @@ export function apiErrorFrom(status: number, data: unknown): ApiClientError {
   return new ApiClientError(message, typeof body.code === "string" ? body.code : undefined, body.details, status, ref);
 }
 
-/** The locale the user picked (lib/locale/context.tsx); null when unset or storage is blocked. */
+/**
+ * The locale the user picked (lib/locale/context.tsx); null when unset. The u_locale cookie
+ * answers when storage is blocked, and before LocaleProvider has copied it into storage.
+ */
 function storedLocale(): string | null {
   if (typeof window === "undefined") return null;
   try {
-    return window.localStorage.getItem("united_locale");
+    const stored = window.localStorage.getItem("united_locale");
+    if (stored) return stored;
   } catch {
-    return null;
+    // storage blocked: the cookie below
   }
+  return readLocaleCookie(document.cookie);
 }
 
 /**

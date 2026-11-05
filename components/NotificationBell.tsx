@@ -3,7 +3,7 @@
 import { intlLocale } from "@/lib/format";
 import { Bell } from "lucide-react";
 import { systemText } from "@/lib/locale/system-text";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost } from "@/lib/api-client";
@@ -35,22 +35,35 @@ export function NotificationBell() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const bell = useRef<HTMLButtonElement>(null);
+  const title = useRef<HTMLSpanElement>(null);
+  const panelId = useId();
   const { t, dir, isRTL, locale: curLocale, locale } = useLocale();
 
   const q = useQuery({
     queryKey: ["notifications"],
     queryFn: () => apiFetch<{ items: NotificationDTO[]; unread: number }>("/api/notifications?limit=20"),
     refetchInterval: 20_000,
+    // The bell is part of every page's header and remounts with each page: a list fetched in
+    // the last 15 s is shown as it is instead of being asked for again on every navigation
+    // (the 20 s poll and "mark read" still refresh it).
+    staleTime: 15_000,
   });
 
+  // Opening moves focus to the panel's title (a dialog takes focus; the title names it). The panel
+  // closes on a click elsewhere, or on Esc inside the bell or panel, with focus back on the bell.
   useEffect(() => {
     if (!open) return;
+    title.current?.focus();
     const close = (e: MouseEvent) => {
       if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [open]);
+  const onKey = (e: React.KeyboardEvent) => {
+    if (open && e.key === "Escape") { e.preventDefault(); setOpen(false); bell.current?.focus(); }
+  };
 
   const unread = q.data?.unread ?? 0;
 
@@ -69,10 +82,14 @@ export function NotificationBell() {
   }
 
   return (
-    <div className="relative" ref={box}>
+    <div className="relative" ref={box} onKeyDown={onKey}>
       <button
+        ref={bell}
         type="button"
         onClick={() => setOpen((x) => !x)}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-controls={open ? panelId : undefined}
         aria-label={unread > 0 ? t("ui.notifications.count", { n: unread }) : t("ui.notifications")}
         dir={dir}
         className="relative w-10 h-10 rounded-xl text-united-dark hover:bg-united-subtle grid place-items-center"
@@ -89,9 +106,9 @@ export function NotificationBell() {
           the header the containing block of a fixed child), 1rem from either screen edge.
           Mobile-first on purpose: `max-sm:` emits nothing with this project's custom screens. */}
       {open && (
-        <div className="fixed inset-x-4 top-14 sm:absolute sm:inset-x-auto sm:top-auto sm:end-0 sm:w-[22rem] mt-2 card shadow-pop p-2 z-40">
+        <div id={panelId} role="dialog" aria-labelledby={`${panelId}-title`} className="fixed inset-x-4 top-14 sm:absolute sm:inset-x-auto sm:top-auto sm:end-0 sm:w-[22rem] mt-2 card shadow-pop p-2 z-40">
           <div className="flex items-center justify-between px-2 py-1">
-            <span className="font-extrabold text-united-dark">{t("ui.notifications")}</span>
+            <span ref={title} id={`${panelId}-title`} tabIndex={-1} className="font-extrabold text-united-dark outline-none">{t("ui.notifications")}</span>
             {unread > 0 && (
               <button type="button" onClick={readAll} className="text-xs font-bold text-united-green">
                 {t("ui.notifications.mark-read")}

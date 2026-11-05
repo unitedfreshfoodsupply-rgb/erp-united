@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, Info } from "lucide-react";
 import { apiFetch, errorMessage } from "@/lib/api-client";
+import { replaceQuery } from "@/lib/hooks/urlQuery";
 import { useLocale } from "@/lib/locale";
 import { formatNumber } from "@/lib/format";
 import { todayLocalISO } from "@/lib/localDate";
@@ -41,13 +42,11 @@ const STAGES = ["new", "preparing", "ready_for_loading", "loading", "loaded"] as
 export function CommandCenter() {
   const { t, locale } = useLocale();
   const { can } = usePermissions();
-  const router = useRouter();
-  const pathname = usePathname();
   const sp = useSearchParams();
   const qs = sp.toString();
   const q = useQuery({ queryKey: ["command-center", qs], queryFn: () => apiFetch<CC>(`/api/management/command-center${qs ? `?${qs}` : ""}`), placeholderData: keepPreviousData, refetchInterval: 120_000 });
   const today = todayLocalISO();
-  const setPeriod = (from: string, to: string) => router.replace(`${pathname}?${new URLSearchParams({ from, to })}`, { scroll: false });
+  const setPeriod = (from: string, to: string) => replaceQuery(new URLSearchParams({ from, to }));
   const money = (v: string | number | null | undefined) => `${formatNumber(v ?? 0, { maxDp: 0 })} ${locale === "en" ? "EGP" : "ج.م"}`;
   const d = q.data;
   const per = d ? `from=${d.period.from}&to=${d.period.to}` : "";

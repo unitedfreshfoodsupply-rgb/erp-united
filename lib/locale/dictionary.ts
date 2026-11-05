@@ -104,6 +104,7 @@ const ui = {
   // Layout / header
   "ui.profile": { ar: "الملف الشخصي — بياناتك وصلاحياتك (للاطلاع فقط)", en: "Profile — your data and permissions (read-only)" },
   "ui.logout": { ar: "تسجيل الخروج", en: "Logout" },
+  "ui.account-menu": { ar: "حسابك", en: "Your account" },
   "ui.profile-link": { ar: "الملف الشخصي", en: "Profile" },
   "ui.back-home": { ar: "الرئيسية", en: "Home" },
   "ui.loading": { ar: "جاري التحميل…", en: "Loading…" },
