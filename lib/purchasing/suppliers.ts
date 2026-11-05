@@ -1,4 +1,4 @@
-import { Prisma, type Supplier } from "@prisma/client";
+import { Prisma, type Supplier, type SupplierPrice } from "@prisma/client";
 import { partyCode } from "@/lib/sales/customers";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -374,6 +374,32 @@ export async function effectiveSupplierPrice(db: PriceDb, input: { supplierId: s
   } catch {
     return null;
   }
+}
+
+/**
+ * effectiveSupplierPrice in each product's own unit, for many (product, date) pairs of one
+ * supplier in one read (Nov 2026: a bill of 300 walk-in receipts read them one by one). The
+ * same row: the latest valid on that date.
+ */
+export async function supplierPricesOn(db: Pick<Tx, "supplierPrice">, supplierId: string, wanted: { key: string; product: { id: string; unit: string }; date: string }[]) {
+  const out = new Map<string, { row: SupplierPrice; unitPrice: Prisma.Decimal } | null>();
+  if (!wanted.length) return out;
+  const dates = wanted.map((w) => w.date).sort();
+  const rows = await db.supplierPrice.findMany({
+    where: {
+      supplierId,
+      productId: { in: [...new Set(wanted.map((w) => w.product.id))] },
+      uomCode: { in: [...new Set(wanted.map((w) => w.product.unit))] },
+      validFrom: { lte: dates[dates.length - 1] },
+      OR: [{ validTo: null }, { validTo: { gte: dates[0] } }],
+    },
+    orderBy: { validFrom: "desc" },
+  });
+  for (const w of wanted) {
+    const row = rows.find((r) => r.productId === w.product.id && r.uomCode === w.product.unit && r.validFrom <= w.date && (r.validTo === null || r.validTo >= w.date));
+    out.set(w.key, row ? { row, unitPrice: row.unitPrice } : null);
+  }
+  return out;
 }
 
 /** Every supplier's current price for a product (per base unit), cheapest first —

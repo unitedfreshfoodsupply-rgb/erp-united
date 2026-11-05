@@ -19,7 +19,7 @@ import { cancelPendingApproval, findPending, requestApproval } from "@/lib/core/
 import { optText, parse, text, version } from "@/lib/core/validation";
 import type { ServiceActor } from "@/lib/core/actor";
 import { lineAmounts, sumAmounts, type LineAmounts } from "@/lib/sales/money";
-import { effectiveSupplierPrice } from "@/lib/purchasing/suppliers";
+import { effectiveSupplierPrice, supplierPricesOn } from "@/lib/purchasing/suppliers";
 import { poLineUnitCost } from "@/lib/purchasing/receiving";
 import { isoDate, money, qty } from "@/lib/purchasing/orders";
 import { matchBill, type MatchLine } from "@/lib/purchasing/match";
@@ -83,7 +83,13 @@ async function agreedPrice(db: Tx | typeof prisma, r: ReceiptRow): Promise<{ pri
   // WS3 (ACC-E1): a provisional receipt cost is never an agreed price — nothing to match
   // against (the bill waits for approval), and posting revalues the receipt instead.
   if (r.costProvisional) return { price: null, source: null };
-  const sp = await effectiveSupplierPrice(db, { supplierId: r.supplierId, product: r.product, uom: r.product.unit, date: r.receivedDate });
+  return agreedFromSupplierPrice(r, await effectiveSupplierPrice(db, { supplierId: r.supplierId, product: r.product, uom: r.product.unit, date: r.receivedDate }));
+}
+
+/** agreedPrice of a receipt with no PO line, given its dated supplier price (read beforehand). */
+function agreedFromSupplierPrice(r: ReceiptRow, sp: { unitPrice: Prisma.Decimal } | null): { price: Prisma.Decimal | null; source: "po" | "receipt" | "supplier_price" | null } {
+  if (r.purchaseOrderLine) return { price: poLineUnitCost(r.purchaseOrderLine), source: "po" };
+  if (r.costProvisional) return { price: null, source: null };
   // A walk-in receipt now takes its cost from the dated supplier price when nothing else is
   // given (WS3): it is still the price list that was agreed.
   if (r.unitCost != null) return { price: D(r.unitCost), source: sp && D(sp.unitPrice).equals(r.unitCost) ? "supplier_price" : "receipt" };
@@ -174,6 +180,11 @@ async function buildLines(tx: Tx, supplierId: string, v: z.infer<typeof billInpu
   const byId = new Map(receipts.map((r) => [r.id, r]));
   const taxCodes = [...new Set(v.lines.map((l) => l.tax_code).filter((c): c is string => !!c))];
   const taxes = new Map((await tx.taxRate.findMany({ where: { code: { in: taxCodes }, active: true } })).map((t) => [t.code, D(t.rate)]));
+  // Read once for all lines (Nov 2026: one live-bill check and one supplier price per line).
+  const [liveLines, prices] = await Promise.all([
+    tx.supplierBillLine.findMany({ where: { intakeId: { in: ids }, released: false, ...(excludeBillId ? { billId: { not: excludeBillId } } : {}) }, include: { bill: { select: { number: true } } } }),
+    supplierPricesOn(tx, supplierId, receipts.filter((r) => !r.purchaseOrderLine && !r.costProvisional && r.supplierId === supplierId).map((r) => ({ key: r.id, product: r.product, date: r.receivedDate }))),
+  ]);
   const out: Prisma.SupplierBillLineCreateManyBillInput[] = [];
   const amounts: LineAmounts[] = [];
   const match: MatchLine[] = [];
@@ -184,7 +195,7 @@ async function buildLines(tx: Tx, supplierId: string, v: z.infer<typeof billInpu
     if (r.status !== "posted") throw new ApiError(409, `الاستلام ${r.receiptNumber} ملغي`);
     const accepted = billableQty(r);
     if (!accepted.gt(0)) throw new ApiError(400, `الاستلام ${r.receiptNumber} مفيهوش كمية مقبولة`);
-    const live = await tx.supplierBillLine.findFirst({ where: { intakeId: r.id, released: false, ...(excludeBillId ? { billId: { not: excludeBillId } } : {}) }, include: { bill: { select: { number: true } } } });
+    const live = liveLines.find((x) => x.intakeId === r.id);
     if (live) throw new ApiError(409, `الاستلام ${r.receiptNumber} عليه فاتورة ${live.bill.number} بالفعل`);
     let tax = defaultTax(r);
     if (l.tax_code) {
@@ -193,7 +204,7 @@ async function buildLines(tx: Tx, supplierId: string, v: z.infer<typeof billInpu
       tax = { code: l.tax_code, rate };
     }
     const quantity = l.quantity ?? accepted;
-    const agreed = await agreedPrice(tx, r);
+    const agreed = agreedFromSupplierPrice(r, prices.get(r.id) ?? null);
     const a = lineAmounts({ quantity, unitPrice: l.unit_price, discountPct: 0, taxRate: tax.rate });
     // What the receipt put into GRNI: the accepted quantity at the agreed price.
     const expectedNet = agreed.price ? r2(accepted.times(agreed.price)) : null;
