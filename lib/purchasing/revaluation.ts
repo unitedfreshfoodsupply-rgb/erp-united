@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/rbac";
-import { writeAudit } from "@/lib/audit";
+import { writeAuditMany, type AuditInput } from "@/lib/audit";
+import { newId } from "@/lib/core/ids";
 import type { Tx } from "@/lib/tx";
 import { lockProductValuations, postMovements, type MoveInput } from "@/lib/inventory/ledger";
 
@@ -62,38 +63,45 @@ const acceptedQty = (r: { receivedQty: Prisma.Decimal.Value; rejectedQty: Prisma
  * Call after the products' valuation locks are held.
  */
 export async function receiptUnits(tx: Tx, intakeId: string): Promise<ReceiptUnits[]> {
-  const lotRows = await tx.stockMovement.findMany({ where: { intakeId, lotId: { not: null } }, distinct: ["productId", "lotId"], select: { productId: true, lotId: true } });
-  if (!lotRows.length) return [];
-  const lotIds = [...new Set(lotRows.map((l) => l.lotId!))];
-  const [buckets, gone] = await Promise.all([
-    tx.stockMovement.groupBy({ by: ["productId", "warehouseId", "locationId", "lotId"], where: { lotId: { in: lotIds } }, _sum: { quantity: true } }),
-    tx.stockMovement.groupBy({ by: ["productId", "kind"], where: { lotId: { in: lotIds }, kind: { in: [...GONE_COGS, ...GONE_ADJ, ...GONE_RET] } }, _sum: { quantity: true } }),
-  ]);
-  const products = [...new Set(lotRows.map((l) => l.productId))].sort();
-  return products.map((productId) => {
-    const own = buckets.filter((b) => b.productId === productId && D(b._sum.quantity ?? 0).gt(0)).map((b) => ({ productId, warehouseId: b.warehouseId, locationId: b.locationId, lotId: b.lotId!, qty: D(b._sum.quantity ?? 0) }));
-    own.sort((a, b) => `${a.locationId}|${a.lotId}`.localeCompare(`${b.locationId}|${b.lotId}`));
-    const out = (kinds: string[]) => {
-      const net = gone.filter((g) => g.productId === productId && kinds.includes(g.kind)).reduce((s, g) => s.plus(g._sum.quantity ?? 0), ZERO).negated();
-      return net.gt(0) ? net : ZERO;
-    };
-    const onHand = own.reduce((s, b) => s.plus(b.qty), ZERO);
-    const cogsQty = out(GONE_COGS), adjQty = out(GONE_ADJ), retQty = out(GONE_RET);
-    return { productId, lotIds: [...new Set(lotRows.filter((l) => l.productId === productId).map((l) => l.lotId!))], onHand, cogsQty, adjQty, retQty, basis: onHand.plus(cogsQty).plus(adjQty).plus(retQty), buckets: own };
-  }).filter((u) => u.basis.gt(0));
+  return (await receiptUnitsOf(tx, [intakeId])).get(intakeId) ?? [];
 }
 
-/** The products a receipt's units are in (its own, and a Grade-B SKU sorted out of it). */
-async function receiptProductIds(tx: Tx, intakeId: string) {
-  const rows = await tx.stockMovement.findMany({ where: { intakeId, lotId: { not: null } }, distinct: ["productId"], select: { productId: true } });
-  return rows.map((r) => r.productId);
+/** receiptUnits for several receipts in three reads, whatever their number (Nov 2026). */
+export async function receiptUnitsOf(tx: Tx, intakeIds: string[]): Promise<Map<string, ReceiptUnits[]>> {
+  const out = new Map<string, ReceiptUnits[]>();
+  const allLots = await tx.stockMovement.findMany({ where: { intakeId: { in: intakeIds }, lotId: { not: null } }, distinct: ["intakeId", "productId", "lotId"], select: { intakeId: true, productId: true, lotId: true } });
+  if (!allLots.length) return out;
+  const lotIds = [...new Set(allLots.map((l) => l.lotId!))];
+  const [allBuckets, allGone] = await Promise.all([
+    tx.stockMovement.groupBy({ by: ["productId", "warehouseId", "locationId", "lotId"], where: { lotId: { in: lotIds } }, _sum: { quantity: true } }),
+    tx.stockMovement.groupBy({ by: ["lotId", "productId", "kind"], where: { lotId: { in: lotIds }, kind: { in: [...GONE_COGS, ...GONE_ADJ, ...GONE_RET] } }, _sum: { quantity: true } }),
+  ]);
+  for (const intakeId of new Set(intakeIds)) {
+    const lotRows = allLots.filter((l) => l.intakeId === intakeId);
+    if (!lotRows.length) continue;
+    const mine = new Set(lotRows.map((l) => l.lotId!));
+    const buckets = allBuckets.filter((b) => mine.has(b.lotId!));
+    const gone = allGone.filter((g) => mine.has(g.lotId!));
+    const products = [...new Set(lotRows.map((l) => l.productId))].sort();
+    out.set(intakeId, products.map((productId) => {
+      const own = buckets.filter((b) => b.productId === productId && D(b._sum.quantity ?? 0).gt(0)).map((b) => ({ productId, warehouseId: b.warehouseId, locationId: b.locationId, lotId: b.lotId!, qty: D(b._sum.quantity ?? 0) }));
+      own.sort((a, b) => `${a.locationId}|${a.lotId}`.localeCompare(`${b.locationId}|${b.lotId}`));
+      const left = (kinds: string[]) => {
+        const net = gone.filter((g) => g.productId === productId && kinds.includes(g.kind)).reduce((s, g) => s.plus(g._sum.quantity ?? 0), ZERO).negated();
+        return net.gt(0) ? net : ZERO;
+      };
+      const onHand = own.reduce((s, b) => s.plus(b.qty), ZERO);
+      const cogsQty = left(GONE_COGS), adjQty = left(GONE_ADJ), retQty = left(GONE_RET);
+      return { productId, lotIds: [...new Set(lotRows.filter((l) => l.productId === productId).map((l) => l.lotId!))], onHand, cogsQty, adjQty, retQty, basis: onHand.plus(cogsQty).plus(adjQty).plus(retQty), buckets: own };
+    }).filter((u) => u.basis.gt(0)));
+  }
+  return out;
 }
 
 /** Valuation locks for every product the receipts touch, taken once in the global (sorted) order. */
 async function lockReceipts(tx: Tx, intakeIds: string[]) {
-  const ids = new Set<string>();
-  for (const id of intakeIds) for (const p of await receiptProductIds(tx, id)) ids.add(p);
-  await lockProductValuations(tx, [...ids]);
+  const rows = await tx.stockMovement.findMany({ where: { intakeId: { in: intakeIds }, lotId: { not: null } }, distinct: ["productId"], select: { productId: true } });
+  await lockProductValuations(tx, rows.map((r) => r.productId));
 }
 
 /** Splits an amount (signed) between where the units are: on hand, sold, written off, returned. */
@@ -133,11 +141,11 @@ function shareByProduct(amount: Dec, units: ReceiptUnits[]) {
 
 /**
  * Moves the on-hand units of one product of a receipt by `amount` (signed): an out/in pair
- * per bucket, the in priced at the out's own cost plus the change per unit. Returns what
- * actually reached the GL (the two valuation entries, each rounded to the piastre).
+ * per bucket, the in priced at the out's own cost plus the change per unit. Returns the
+ * movements it posted (out, in); what reached the GL is read from their layers afterwards.
  */
 async function revalueOnHand(tx: Tx, u: ReceiptUnits, amount: Dec, ctx: { intakeId: string; revaluationId: string; reason: string; date: string; actor: Actorish }) {
-  if (amount.isZero() || u.onHand.isZero() || !u.buckets.length) return ZERO;
+  if (amount.isZero() || u.onHand.isZero() || !u.buckets.length) return null;
   const perUnit = amount.dividedBy(u.onHand);
   const mctx = { actorId: ctx.actor.id, actorName: ctx.actor.name, effectiveDate: ctx.date };
   const base = (b: Bucket) => ({ productId: b.productId, warehouseId: b.warehouseId, locationId: b.locationId, lotId: b.lotId, intakeId: ctx.intakeId, revaluationId: ctx.revaluationId, reason: ctx.reason });
@@ -149,23 +157,89 @@ async function revalueOnHand(tx: Tx, u: ReceiptUnits, amount: Dec, ctx: { intake
     return { ...base(u.buckets[i]), quantity: u.buckets[i].qty, kind: "revaluation_in", unitCost: q4(unit), costSource: "revaluation" };
   });
   const inRows = await postMovements(tx, ins, mctx);
-  const layers = await tx.stockValuationLayer.findMany({ where: { movementId: { in: [...outRows, ...inRows].map((m) => m.id) } }, select: { movementId: true, value: true } });
-  const outIds = new Set(outRows.map((m) => m.id));
-  const sum = (pick: (id: string) => boolean) => layers.filter((l) => pick(l.movementId)).reduce((s, l) => s.plus(l.value), ZERO);
-  // postMovementValuation posts one entry per call: Inventory ± r2(Σ values) ↔ GRNI.
-  return r2(sum((id) => outIds.has(id))).plus(r2(sum((id) => !outIds.has(id))));
+  return { outIds: outRows.map((m) => m.id), inIds: inRows.map((m) => m.id) };
 }
 
-/** The lots of a product of the receipt move to the new unit cost (what a return to the supplier leaves at). */
-async function shiftLotCost(tx: Tx, u: ReceiptUnits, perUnit: Dec, actor: Actorish, why: string) {
-  if (perUnit.isZero()) return;
-  const lots = await tx.stockLot.findMany({ where: { id: { in: u.lotIds }, unitCost: { not: null } } });
-  for (const lot of lots) {
-    const next = q4(D(lot.unitCost!).plus(perUnit));
-    if (next.lt(0)) throw new ApiError(409, `تكلفة الدفعة ${lot.lotNumber} هتبقى بالسالب — راجع سعر الفاتورة أو الإشعار`);
-    await tx.stockLot.update({ where: { id: lot.id }, data: { unitCost: next } });
-    await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "stock_lot_cost_revalued", entityType: "stock_lot", entityId: lot.id, fieldChanged: "unitCost", oldValue: D(lot.unitCost!).toFixed(4), newValue: next.toFixed(4), reason: why, source: "user", deviceId: actor.deviceId }, tx);
+type Plan = ReturnType<typeof planFor>;
+/** One StockRevaluation row to write: a product of a receipt line. */
+type UnitJob = {
+  u: ReceiptUnits;
+  amount: Dec;
+  plan: Plan;
+  data: Omit<Prisma.StockRevaluationCreateManyInput, "id">;
+  audit: (rowId: string, inventory: Dec, cogs: Dec) => AuditInput;
+};
+type LineJob = { intakeId: string; reason: string; date: string; units: UnitJob[] };
+
+/**
+ * Writes the revaluation of every line, in line order, with the same rows, movements, lot
+ * costs and audit rows as one line at a time (Nov 2026: ~60 statements per line with stock
+ * on hand, so a bill of ~8 provisional receipts ran past the 20 s limit). The rows are
+ * created first (the movements point at them), each line's on-hand units are moved by their
+ * own pair of postMovements calls as before — one stock-valuation entry each — and the lot
+ * costs, corrections and audit rows are written once at the end. Refusals are raised at the
+ * same point as before.
+ */
+async function applyRevaluations(tx: Tx, jobs: LineJob[], actor: Actorish, totals: RevaluationTotals) {
+  const units = jobs.flatMap((j) => j.units.map((x) => ({ ...x, job: j, id: newId() })));
+  if (!units.length) return;
+  const lotIds = [...new Set(units.flatMap((x) => x.u.lotIds))];
+  const [, lots] = await Promise.all([
+    tx.stockRevaluation.createMany({ data: units.map((x) => ({ id: x.id, ...x.data })) }),
+    lotIds.length ? tx.stockLot.findMany({ where: { id: { in: lotIds }, unitCost: { not: null } } }) : [],
+  ]);
+  const lotCost = new Map(lots.map((l) => [l.id, D(l.unitCost!)]));
+  const moved: ({ outIds: string[]; inIds: string[] } | null)[] = [];
+  const lotAudits: AuditInput[][] = [];
+  const changedLots = new Set<string>();
+  for (const x of units) {
+    moved.push(await revalueOnHand(tx, x.u, x.plan.inventory, { intakeId: x.job.intakeId, revaluationId: x.id, reason: x.job.reason, date: x.job.date, actor }));
+    // The lots of the product move to the new unit cost (what a return to the supplier leaves at).
+    const perUnit = x.amount.dividedBy(x.u.basis);
+    const audits: AuditInput[] = [];
+    if (!perUnit.isZero()) {
+      const mine = new Set(x.u.lotIds);
+      for (const lot of lots.filter((l) => mine.has(l.id))) {
+        const before = lotCost.get(lot.id)!;
+        const next = q4(before.plus(perUnit));
+        if (next.lt(0)) throw new ApiError(409, `تكلفة الدفعة ${lot.lotNumber} هتبقى بالسالب — راجع سعر الفاتورة أو الإشعار`);
+        lotCost.set(lot.id, next);
+        changedLots.add(lot.id);
+        audits.push({ userId: actor.id, userName: actor.name, role: actor.role, action: "stock_lot_cost_revalued", entityType: "stock_lot", entityId: lot.id, fieldChanged: "unitCost", oldValue: before.toFixed(4), newValue: next.toFixed(4), reason: x.job.reason, source: "user", deviceId: actor.deviceId });
+      }
+    }
+    lotAudits.push(audits);
   }
+  const movementIds = moved.flatMap((m) => (m ? [...m.outIds, ...m.inIds] : []));
+  const layers = movementIds.length ? await tx.stockValuationLayer.findMany({ where: { movementId: { in: movementIds } }, select: { movementId: true, value: true } }) : [];
+  const valueOf = new Map<string, Dec>();
+  for (const l of layers) valueOf.set(l.movementId, (valueOf.get(l.movementId) ?? ZERO).plus(l.value));
+  const sum = (ids: string[]) => ids.reduce((s, id) => s.plus(valueOf.get(id) ?? ZERO), ZERO);
+  const corrections: Prisma.Sql[] = [];
+  const audits: AuditInput[] = [];
+  for (const [i, x] of units.entries()) {
+    const m = moved[i];
+    // postMovementValuation posts one entry per call: Inventory ± r2(Σ values) ↔ GRNI.
+    const inventory = m ? r2(sum(m.outIds)).plus(r2(sum(m.inIds))) : ZERO;
+    // What reached the GL is the inventory part; the cost of the sold units absorbs the piastre.
+    const cogs = x.amount.minus(inventory).minus(x.plan.adjustment).minus(x.plan.ppv);
+    if (!inventory.equals(x.plan.inventory)) corrections.push(Prisma.sql`(${x.id}::text, ${inventory.toString()}::numeric, ${cogs.toString()}::numeric)`);
+    totals.grni = totals.grni.plus(inventory);
+    totals.inventory = totals.inventory.plus(inventory);
+    totals.cogs = totals.cogs.plus(cogs);
+    totals.adjustment = totals.adjustment.plus(x.plan.adjustment);
+    totals.ppv = totals.ppv.plus(x.plan.ppv);
+    audits.push(...lotAudits[i], x.audit(x.id, inventory, cogs));
+  }
+  if (corrections.length) {
+    await tx.$executeRaw`UPDATE "StockRevaluation" AS r SET "inventoryDelta" = v.inventory, "cogsDelta" = v.cogs
+      FROM (VALUES ${Prisma.join(corrections)}) AS v(id, inventory, cogs) WHERE r."id" = v.id`;
+  }
+  if (changedLots.size) {
+    const values = [...changedLots].map((id) => Prisma.sql`(${id}::text, ${lotCost.get(id)!.toString()}::numeric)`);
+    await tx.$executeRaw`UPDATE "StockLot" AS l SET "unitCost" = v.unit_cost FROM (VALUES ${Prisma.join(values)}) AS v(id, unit_cost) WHERE l."id" = v.id`;
+  }
+  await writeAuditMany(audits, tx);
 }
 
 export type RevaluationTotals = { grni: Dec; inventory: Dec; cogs: Dec; adjustment: Dec; ppv: Dec; lines: number };
@@ -182,42 +256,42 @@ export async function revalueOnBill(tx: Tx, billId: string, actor: Actorish): Pr
   if (!lines.length) return totals;
   if (await tx.stockRevaluation.findFirst({ where: { billId, sourceType: "supplier_bill" }, select: { id: true } })) throw new ApiError(409, `الفاتورة ${bill.number} اتعمل لها إعادة تقييم قبل كده`);
   await lockReceipts(tx, lines.map((l) => l.intakeId));
+  const unitsBy = await receiptUnitsOf(tx, lines.map((l) => l.intakeId));
+  const standard = await standardCostProducts(tx, [...unitsBy.values()].flat());
+  const jobs: LineJob[] = [];
+  let refusal: ApiError | null = null;
   for (const l of lines) {
     const r = l.intake;
     const provisional = D(r.unitCost!);
     const provisionalValue = r2(acceptedQty(r).times(provisional));
     const delta = D(l.net).minus(provisionalValue);
-    const units = await receiptUnits(tx, r.id);
-    if (!units.length) throw new ApiError(409, `الاستلام ${r.receiptNumber}: مش لاقي كمياته في دفتر المخزون — مينفعش يتعاد تقييمه`);
-    const standard = await standardCostProducts(tx, units);
+    const units = unitsBy.get(r.id) ?? [];
+    // Raised once the lines before it are written, as when they were written one by one.
+    if (!units.length) { refusal = new ApiError(409, `الاستلام ${r.receiptNumber}: مش لاقي كمياته في دفتر المخزون — مينفعش يتعاد تقييمه`); break; }
     const shares = shareByProduct(delta, units);
     const reason = `إعادة تقييم الاستلام ${r.receiptNumber} (سعر مؤقت ${provisional.toFixed(4)}) بفاتورة ${bill.number}`;
     totals.grni = totals.grni.plus(provisionalValue);
-    for (const [i, u] of units.entries()) {
-      const amount = shares[i];
-      const plan = planFor(amount, u, standard);
-      const row = await tx.stockRevaluation.create({
-        data: {
-          sourceType: "supplier_bill", billId, billLineId: l.id, intakeId: r.id, productId: u.productId, date: bill.billDate,
-          basisQty: u.basis, onHandQty: u.onHand, provisionalUnitCost: provisional, unitDelta: q6(amount.dividedBy(u.basis)),
-          delta: amount, inventoryDelta: plan.inventory, cogsDelta: plan.cogs, adjustmentDelta: plan.adjustment, ppvDelta: plan.ppv,
-          createdById: actor.id, createdBy: actor.name,
-        },
-      });
-      const inventory = await revalueOnHand(tx, u, plan.inventory, { intakeId: r.id, revaluationId: row.id, reason, date: bill.billDate, actor });
-      // What reached the GL is the inventory part; the cost of the sold units absorbs the piastre.
-      const cogs = amount.minus(inventory).minus(plan.adjustment).minus(plan.ppv);
-      if (!inventory.equals(plan.inventory)) await tx.stockRevaluation.update({ where: { id: row.id }, data: { inventoryDelta: inventory, cogsDelta: cogs } });
-      await shiftLotCost(tx, u, amount.dividedBy(u.basis), actor, reason);
-      totals.grni = totals.grni.plus(inventory);
-      totals.inventory = totals.inventory.plus(inventory);
-      totals.cogs = totals.cogs.plus(cogs);
-      totals.adjustment = totals.adjustment.plus(plan.adjustment);
-      totals.ppv = totals.ppv.plus(plan.ppv);
-      await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "stock_revaluation_posted", entityType: "stock_revaluation", entityId: row.id, fieldChanged: r.receiptNumber, oldValue: provisionalValue.toFixed(2), newValue: `فرق ${amount.toFixed(2)} · مخزون ${inventory.toFixed(2)} · تكلفة مبيعات ${cogs.toFixed(2)} · تسويات ${plan.adjustment.toFixed(2)} · فروق أسعار ${plan.ppv.toFixed(2)}`, reason, source: "user", deviceId: actor.deviceId }, tx);
-    }
+    jobs.push({
+      intakeId: r.id, reason, date: bill.billDate,
+      units: units.map((u, i) => {
+        const amount = shares[i];
+        const plan = planFor(amount, u, standard);
+        return {
+          u, amount, plan,
+          data: {
+            sourceType: "supplier_bill", billId, billLineId: l.id, intakeId: r.id, productId: u.productId, date: bill.billDate,
+            basisQty: u.basis, onHandQty: u.onHand, provisionalUnitCost: provisional, unitDelta: q6(amount.dividedBy(u.basis)),
+            delta: amount, inventoryDelta: plan.inventory, cogsDelta: plan.cogs, adjustmentDelta: plan.adjustment, ppvDelta: plan.ppv,
+            createdById: actor.id, createdBy: actor.name,
+          },
+          audit: (rowId, inventory, cogs) => ({ userId: actor.id, userName: actor.name, role: actor.role, action: "stock_revaluation_posted", entityType: "stock_revaluation", entityId: rowId, fieldChanged: r.receiptNumber, oldValue: provisionalValue.toFixed(2), newValue: `فرق ${amount.toFixed(2)} · مخزون ${inventory.toFixed(2)} · تكلفة مبيعات ${cogs.toFixed(2)} · تسويات ${plan.adjustment.toFixed(2)} · فروق أسعار ${plan.ppv.toFixed(2)}`, reason, source: "user", deviceId: actor.deviceId }),
+        };
+      }),
+    });
     totals.lines++;
   }
+  await applyRevaluations(tx, jobs, actor, totals);
+  if (refusal) throw refusal;
   return totals;
 }
 
@@ -233,47 +307,51 @@ export async function revalueOnDebitNote(tx: Tx, debitNoteId: string, actor: Act
   const lines = dn.lines.filter((l) => l.billLine.intake.costProvisional);
   if (!lines.length) return totals;
   await lockReceipts(tx, lines.map((l) => l.billLine.intakeId));
+  const [allOriginals, unitsBy] = await Promise.all([
+    tx.stockRevaluation.findMany({ where: { billLineId: { in: lines.map((l) => l.billLineId) }, sourceType: "supplier_bill" } }),
+    receiptUnitsOf(tx, lines.map((l) => l.billLine.intakeId)),
+  ]);
+  const standard = await standardCostProducts(tx, [...unitsBy.values()].flat());
+  const jobs: LineJob[] = [];
+  let refusal: ApiError | null = null;
   for (const l of lines) {
     const r = l.billLine.intake;
-    const originals = await tx.stockRevaluation.findMany({ where: { billLineId: l.billLineId, sourceType: "supplier_bill" } });
-    if (!originals.length) throw new ApiError(409, `سطر الفاتورة ${dn.bill.number} على الاستلام ${r.receiptNumber} مالوش إعادة تقييم — مينفعش إشعار مدين بتخفيض تكلفته`);
-    const units = await receiptUnits(tx, r.id);
-    if (!units.length) throw new ApiError(409, `الاستلام ${r.receiptNumber}: مش لاقي كمياته في دفتر المخزون`);
-    const standard = await standardCostProducts(tx, units);
+    const originals = allOriginals.filter((o) => o.billLineId === l.billLineId);
+    if (!originals.length) { refusal = new ApiError(409, `سطر الفاتورة ${dn.bill.number} على الاستلام ${r.receiptNumber} مالوش إعادة تقييم — مينفعش إشعار مدين بتخفيض تكلفته`); break; }
+    const units = unitsBy.get(r.id) ?? [];
+    if (!units.length) { refusal = new ApiError(409, `الاستلام ${r.receiptNumber}: مش لاقي كمياته في دفتر المخزون`); break; }
     const credited = D(l.net).negated();
     const shares = shareByProduct(credited, units);
     const reason = `تخفيض تكلفة الاستلام ${r.receiptNumber} بإشعار مدين ${dn.number} على ${dn.bill.number}`;
-    for (const [i, u] of units.entries()) {
-      const amount = shares[i];
-      const of = originals.find((o) => o.productId === u.productId) ?? originals[0];
-      const plan = planFor(amount, u, standard);
-      const row = await tx.stockRevaluation.create({
-        data: {
-          sourceType: "debit_note", billId: dn.billId, billLineId: l.billLineId, debitNoteId: dn.id, reversalOfId: of.id, intakeId: r.id, productId: u.productId, date: dn.issueDate,
-          basisQty: u.basis, onHandQty: u.onHand, provisionalUnitCost: of.provisionalUnitCost, unitDelta: q6(amount.dividedBy(u.basis)),
-          delta: amount, inventoryDelta: plan.inventory, cogsDelta: plan.cogs, adjustmentDelta: plan.adjustment, ppvDelta: plan.ppv,
-          createdById: actor.id, createdBy: actor.name,
-        },
-      });
-      const inventory = await revalueOnHand(tx, u, plan.inventory, { intakeId: r.id, revaluationId: row.id, reason, date: dn.issueDate, actor });
-      const cogs = amount.minus(inventory).minus(plan.adjustment).minus(plan.ppv);
-      if (!inventory.equals(plan.inventory)) await tx.stockRevaluation.update({ where: { id: row.id }, data: { inventoryDelta: inventory, cogsDelta: cogs } });
-      await shiftLotCost(tx, u, amount.dividedBy(u.basis), actor, reason);
-      totals.grni = totals.grni.plus(inventory);
-      totals.inventory = totals.inventory.plus(inventory);
-      totals.cogs = totals.cogs.plus(cogs);
-      totals.adjustment = totals.adjustment.plus(plan.adjustment);
-      totals.ppv = totals.ppv.plus(plan.ppv);
-      await writeAudit({ userId: actor.id, userName: actor.name, role: actor.role, action: "stock_revaluation_reversed", entityType: "stock_revaluation", entityId: row.id, fieldChanged: r.receiptNumber, oldValue: of.id, newValue: `${amount.toFixed(2)} · مخزون ${inventory.toFixed(2)} · تكلفة مبيعات ${cogs.toFixed(2)} · تسويات ${plan.adjustment.toFixed(2)} · فروق أسعار ${plan.ppv.toFixed(2)}`, reason, source: "user", deviceId: actor.deviceId }, tx);
-    }
+    jobs.push({
+      intakeId: r.id, reason, date: dn.issueDate,
+      units: units.map((u, i) => {
+        const amount = shares[i];
+        const of = originals.find((o) => o.productId === u.productId) ?? originals[0];
+        const plan = planFor(amount, u, standard);
+        return {
+          u, amount, plan,
+          data: {
+            sourceType: "debit_note", billId: dn.billId, billLineId: l.billLineId, debitNoteId: dn.id, reversalOfId: of.id, intakeId: r.id, productId: u.productId, date: dn.issueDate,
+            basisQty: u.basis, onHandQty: u.onHand, provisionalUnitCost: of.provisionalUnitCost, unitDelta: q6(amount.dividedBy(u.basis)),
+            delta: amount, inventoryDelta: plan.inventory, cogsDelta: plan.cogs, adjustmentDelta: plan.adjustment, ppvDelta: plan.ppv,
+            createdById: actor.id, createdBy: actor.name,
+          },
+          audit: (rowId, inventory, cogs) => ({ userId: actor.id, userName: actor.name, role: actor.role, action: "stock_revaluation_reversed", entityType: "stock_revaluation", entityId: rowId, fieldChanged: r.receiptNumber, oldValue: of.id, newValue: `${amount.toFixed(2)} · مخزون ${inventory.toFixed(2)} · تكلفة مبيعات ${cogs.toFixed(2)} · تسويات ${plan.adjustment.toFixed(2)} · فروق أسعار ${plan.ppv.toFixed(2)}`, reason, source: "user", deviceId: actor.deviceId }),
+        };
+      }),
+    });
     totals.lines++;
   }
+  await applyRevaluations(tx, jobs, actor, totals);
+  if (refusal) throw refusal;
   return totals;
 }
 
 /** A receipt's revaluation history (bill and debit notes), for the receipt and bill screens. */
 export async function revaluationsOf(db: Pick<Tx, "stockRevaluation">, where: { intakeId?: string; billId?: string }) {
-  const rows = await db.stockRevaluation.findMany({ where, orderBy: { createdAt: "asc" }, include: { debitNote: { select: { number: true } }, bill: { select: { number: true } } } });
+  // Rows written together share a creation time; their ids are made in writing order.
+  const rows = await db.stockRevaluation.findMany({ where, orderBy: [{ createdAt: "asc" }, { id: "asc" }], include: { debitNote: { select: { number: true } }, bill: { select: { number: true } } } });
   return rows.map((r) => ({
     id: r.id, sourceType: r.sourceType, bill: r.bill.number, debitNote: r.debitNote?.number ?? null, reversalOfId: r.reversalOfId, intakeId: r.intakeId, productId: r.productId, date: r.date,
     basisQty: r.basisQty.toString(), onHandQty: r.onHandQty.toString(), provisionalUnitCost: r.provisionalUnitCost.toFixed(4), unitDelta: r.unitDelta.toString(),
