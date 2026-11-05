@@ -3,6 +3,7 @@
 import { ErrorState } from "@/components/States";
 import { unitLabel } from "@/lib/format";
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { useToast } from "@/components/ui/Toast";
@@ -114,9 +115,11 @@ export function GradingForm({
     queryFn: () => apiFetch<{ products: StockProductDTO[] }>("/api/stock/products"),
     staleTime: 60_000,
   });
+  // Only this receipt's movements are needed: with_stock=0 skips the all-product balance the
+  // ledger screen lists (ARC-5). Its own key, so it never stands in for the ledger screen's.
   const ledgerQ = useQuery({
-    queryKey: ["stock", "ledger", intake.productId],
-    queryFn: () => apiFetch<{ movements: LedgerMove[] }>(`/api/stock/ledger?product_id=${intake.productId}&limit=500`),
+    queryKey: ["stock", "ledger", "grading", intake.productId],
+    queryFn: () => apiFetch<{ movements: LedgerMove[] }>(`/api/stock/ledger?product_id=${intake.productId}&limit=500&with_stock=0`),
     staleTime: 15_000,
   });
 
@@ -136,6 +139,10 @@ export function GradingForm({
     }, [ledgerQ.data, intake.id, intake.location?.id, intake.goodKg]);
 
   const gbProducts = (productsQ.data?.products ?? []).filter((p) => p.stockTracked && p.unit === "KG");
+  const gbChoices = gbProducts.filter((p) => p.id !== intake.productId);
+  // What is left to sort is known only once this receipt's movements are in (UXO-11): until
+  // then it is not shown as 0 and typing a weight raises no "more than what is left".
+  const remainingKnown = ledgerQ.isSuccess;
 
   const i = Number(inputKg) || 0;
   const g = Number(goodKg) || 0;
@@ -146,6 +153,7 @@ export function GradingForm({
   const conservationOk = Math.abs(residual) < 0.0006;
   const remainingOk = i > 0 && i <= remaining + 0.0006;
   const reasonOk = reason.trim().length > 0;
+  const gradeBProductMissing = b > 0 && !gradeBProductId;
   const valid =
     conservationOk &&
     remainingOk &&
@@ -198,7 +206,7 @@ export function GradingForm({
               {t("grading.title", { number: intake.receiptNumber, product: localName(intake.product, locale) })}
             </div>
             <span dir="ltr" className="text-xs font-bold text-united-muted">
-              {t("grading.remaining", { qty: fmtKg(remaining) })}
+              {remainingKnown ? t("grading.remaining", { qty: fmtKg(remaining) }) : t("ui.loading")}
             </span>
           </div>
 
@@ -208,7 +216,7 @@ export function GradingForm({
           )}
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <QtyField label={t("stock.grading.total-input")} value={inputKg} onChange={setInputKg} hint={t("stock.grading.total-input-hint")} tone={remainingOk || !inputKg ? "" : "danger"} />
+            <QtyField label={t("stock.grading.total-input")} value={inputKg} onChange={setInputKg} hint={t("stock.grading.total-input-hint")} tone={!remainingKnown || remainingOk || !inputKg ? "" : "danger"} />
             <QtyField label={t("stock.grading.good")} value={goodKg} onChange={setGoodKg} hint={t("stock.grading.good-hint")} tone="good" />
             <QtyField label={t("stock.grading.grade-b")} value={gradeBKg} onChange={setGradeBKg} hint={t("stock.grading.grade-b-hint")} />
             <QtyField label={t("stock.waste")} value={wasteKg} onChange={setWasteKg} hint={t("stock.grading.waste-hint")} tone={Number(wasteKg) > 0 ? "warn" : ""} />
@@ -220,14 +228,18 @@ export function GradingForm({
               <select className="field" value={gradeBProductId} onChange={(e) => setGradeBProductId(e.target.value)} aria-label={t("stock.grade-b-choose")} required={Number(gradeBKg) > 0}>
                 {/* Grade B is its own product with its own price: it is never kept on the first-grade product. */}
                 <option value="" disabled>{t("stock.grade-b-choose")}</option>
-                {gbProducts
-                  .filter((p) => p.id !== intake.productId)
-                  .map((p) => (
+                {gbChoices.map((p) => (
                     <option key={p.id} value={p.id}>
                       {localName(p, locale)}
                     </option>
                   ))}
               </select>
+              {productsQ.isSuccess && gbChoices.length === 0 && (
+                <span className="text-[11px] font-bold text-united-muted">
+                  {t("grading.no-grade-b-products")}{" "}
+                  <Link href="/stock/setup" className="font-extrabold text-united-green underline">{t("stock.setup-link")}</Link>
+                </span>
+              )}
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-[11px] font-extrabold text-united-muted">{t("stock.date")}</span>
@@ -235,12 +247,13 @@ export function GradingForm({
             </label>
           </div>
 
-          <Field label={t("stock.grading.reason-placeholder")}>
+          <Field label={t("stock.grading.reason-placeholder")} required>
             <input
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               className="field"
               disabled={busy}
+              required
             />
           </Field>
 
@@ -263,7 +276,7 @@ export function GradingForm({
               {t("grading.must-balance")}
             </p>
           )}
-          {i > remaining && (
+          {remainingKnown && i > remaining && (
             <p className="text-[11px] font-bold text-united-danger">
               {t("grading.over-remaining", { qty: fmtKg(remaining) })}
             </p>
@@ -272,13 +285,20 @@ export function GradingForm({
           {error && <p className="text-united-danger font-bold text-sm">{error}</p>}
 
           <div className="flex gap-2">
-            <button onClick={submit} disabled={busy || !valid || (Number(gradeBKg) > 0 && !gradeBProductId)} className="btn-primary flex-1 text-sm" data-testid="grading-submit">
+            <button onClick={submit} disabled={busy || !valid || gradeBProductMissing} className="btn-primary flex-1 text-sm" data-testid="grading-submit">
               {busy ? t("stock.submit.saving") : t("stock.submit.label")}
             </button>
             <button onClick={onClose} disabled={busy} className="btn-secondary text-sm">
               {t("grading.back")}
             </button>
           </div>
+          {/* Why the button is still grey once the weights are in (UXO-11). */}
+          {!busy && (i > 0 || g > 0 || b > 0 || w > 0) && (!reasonOk || gradeBProductMissing) && (
+            <ul className="text-[11px] font-bold text-united-muted">
+              {!reasonOk && <li>{t("grading.needs-reason")}</li>}
+              {gradeBProductMissing && <li>{t("grading.needs-grade-b-product")}</li>}
+            </ul>
+          )}
         </>
       ) : (
         <SortResult doc={result} canSeeCosts={canSeeCosts} yieldPct={yieldPct} onClose={onClose} />
@@ -390,8 +410,8 @@ function QtyField({
         min={0}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`tap-target w-full text-center text-lg font-extrabold border-2 rounded-xl focus:border-united-green outline-none bg-white ${
-          tone === "danger" ? "border-united-danger/50" : tone === "good" ? "border-united-green/30" : tone === "warn" ? "border-united-warn/50" : "border-united-dark/10"
+        className={`tap-target w-full text-center text-lg font-extrabold border-2 rounded-xl focus:border-united-green focus:ring-2 focus:ring-united-green/25 outline-none bg-white ${
+          tone === "danger" ? "border-united-danger" : tone === "good" ? "border-united-green" : tone === "warn" ? "border-united-warn" : "border-united-field"
         }`}
       />
       {hint && <span className="text-[10px] font-bold text-united-muted">{hint}</span>}

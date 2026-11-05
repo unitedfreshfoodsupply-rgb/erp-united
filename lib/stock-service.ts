@@ -12,6 +12,7 @@ import { nextDocumentNumber } from "@/lib/core/sequences";
 import { D, num, parseMoney, parseQty, type Dec } from "@/lib/inventory/decimal";
 import { bucketBalance, lockForMoves, postMovements, productValuation, type MoveInput } from "@/lib/inventory/ledger";
 import { receivingLocation, resolveLocation, resolveWarehouse } from "@/lib/inventory/context";
+import { productsAvailability } from "@/lib/inventory/balances";
 import { cancelPendingApproval, requestApproval } from "@/lib/core/approvals";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { createAdjustment as createAdjustmentDocument } from "@/lib/inventory/documents";
@@ -1058,37 +1059,97 @@ export async function currentStock() {
 // Aggregation
 // ---------------------------------------------------------------------------
 
+/** One base unit's share of a window's receipts (UXO-10: kg and pieces are never added up). */
+export type UnitTotals = { unit: string; received: number; good: number; rejected: number; intakeCount: number };
+
 export type PeriodTotals = {
   from: string;
   to: string;
+  /** Sums over every receipt whatever its unit (the figures existing readers use; a screen
+   * shows `byUnit`). */
   receivedKg: number;
   rejectedKg: number;
   goodKg: number;
   crates: number;
   yieldPct: number | null;
   intakeCount: number;
+  /** The same sums per base unit, kg first. */
+  byUnit: UnitTotals[];
 };
 
-/** Totals are summed by the database over posted receipts only — a voided receipt
- * never happened as far as the day's production numbers are concerned. */
-async function totalsBetween(from: string, to: string): Promise<PeriodTotals> {
-  const agg = await prisma.stockIntake.aggregate({
-    where: { status: "posted", receivedDate: { gte: from, lte: to } },
-    _sum: { receivedQty: true, rejectedQty: true, goodQty: true, crateCount: true },
-    _count: { _all: true },
-  });
-  const receivedKg = num(agg._sum.receivedQty);
-  const goodKg = num(agg._sum.goodQty);
+type IntakeDayUnitSums = { day: string; unit: string; received: Prisma.Decimal | null; good: Prisma.Decimal | null; rejected: Prisma.Decimal | null; crates: bigint | null; count: number };
+
+/** Posted receipts summed per receiving day and base unit — one statement for a whole window,
+ * so the dashboard's today, 7-day and month figures come from a single read. Totals are summed
+ * by the database over posted receipts only — a voided receipt never happened as far as the
+ * day's production numbers are concerned. */
+async function intakeSumsByDayAndUnit(from: string, to: string) {
+  return prisma.$queryRaw<IntakeDayUnitSums[]>`
+    SELECT i."receivedDate" AS day, p."unit" AS unit,
+           SUM(i."receivedQty") AS received, SUM(i."goodQty") AS good, SUM(i."rejectedQty") AS rejected,
+           SUM(i."crateCount") AS crates, COUNT(*)::int AS count
+      FROM "StockIntake" i JOIN "StockProduct" p ON p."id" = i."productId"
+     WHERE i."status" = 'posted' AND i."receivedDate" >= ${from} AND i."receivedDate" <= ${to}
+     GROUP BY i."receivedDate", p."unit"`;
+}
+
+const byUnitOrder = (a: { unit: string }, b: { unit: string }) => (a.unit === "KG" ? -1 : b.unit === "KG" ? 1 : a.unit.localeCompare(b.unit));
+
+/** A window's totals from the per-day sums (rows outside the window are ignored). */
+function periodTotals(rows: readonly IntakeDayUnitSums[], from: string, to: string): PeriodTotals {
+  let received = D(0), good = D(0), rejected = D(0), crates = 0, count = 0;
+  const units = new Map<string, { received: Dec; good: Dec; rejected: Dec; count: number }>();
+  for (const r of rows) {
+    if (r.day < from || r.day > to) continue;
+    received = received.plus(D(r.received));
+    good = good.plus(D(r.good));
+    rejected = rejected.plus(D(r.rejected));
+    crates += Number(r.crates ?? 0);
+    count += r.count;
+    const u = units.get(r.unit) ?? { received: D(0), good: D(0), rejected: D(0), count: 0 };
+    units.set(r.unit, { received: u.received.plus(D(r.received)), good: u.good.plus(D(r.good)), rejected: u.rejected.plus(D(r.rejected)), count: u.count + r.count });
+  }
+  const receivedKg = num(received);
+  const goodKg = num(good);
   return {
     from,
     to,
     receivedKg,
-    rejectedKg: num(agg._sum.rejectedQty),
+    rejectedKg: num(rejected),
     goodKg,
-    crates: agg._sum.crateCount ?? 0,
+    crates,
     yieldPct: yieldPct(receivedKg, goodKg),
-    intakeCount: agg._count._all,
+    intakeCount: count,
+    byUnit: [...units].map(([unit, u]) => ({ unit, received: num(u.received), good: num(u.good), rejected: num(u.rejected), intakeCount: u.count })).sort(byUnitOrder),
   };
+}
+
+/** The current balance summed per base unit, kg first (UXO-10). */
+function stockTotalsByUnit(stock: readonly { unit: string; balance: string }[]) {
+  const units = new Map<string, Dec>();
+  for (const p of stock) units.set(p.unit, (units.get(p.unit) ?? D(0)).plus(D(p.balance)));
+  return [...units].map(([unit, balance]) => ({ unit, balance: num(balance) })).sort(byUnitOrder);
+}
+
+/**
+ * What can be sold of each product (ARC-5), by the inventory module's one rule (isSellableStock,
+ * through productsAvailability): in the default warehouse, available = sellable on hand minus
+ * reserved; `unsellable` is what sits in waste awaiting write-off, quarantine, the legacy second
+ * grade or expired lots. Four statements whatever the number of products. null when the
+ * default warehouse is not set up — the balance from the ledger still shows.
+ */
+async function sellableByProduct(productIds: string[]) {
+  let warehouseId: string;
+  try {
+    warehouseId = (await resolveWarehouse(prisma, null)).id;
+  } catch (err) {
+    if (err instanceof ApiError) return null;
+    throw err;
+  }
+  const availability = await productsAvailability(prisma, productIds, warehouseId);
+  return Object.fromEntries(
+    [...availability].map(([id, a]) => [id, { available: num(a.available), reserved: num(a.reserved), unsellable: num(a.onHand.minus(a.sellableOnHand)) }])
+  );
 }
 
 /** Calendar-day arithmetic on the YYYY-MM-DD strings the receipts are keyed by. Done
@@ -1190,11 +1251,13 @@ export async function productTotals(from: string, to: string) {
 export async function stockDashboard(todayISO = todayLocalISO()) {
   const weekFrom = shiftDate(todayISO, -6); // rolling 7 days, today inclusive
   const monthFrom = startOfMonth(todayISO);
+  // One read of the receipts for all three windows (was one aggregate per window).
+  const intakeSums = intakeSumsByDayAndUnit(weekFrom < monthFrom ? weekFrom : monthFrom, todayISO);
 
   const [today, week, month, stock, movements, suppliers, todayByProduct, todayIntakes] = await Promise.all([
-    totalsBetween(todayISO, todayISO),
-    totalsBetween(weekFrom, todayISO),
-    totalsBetween(monthFrom, todayISO),
+    intakeSums.then((rows) => periodTotals(rows, todayISO, todayISO)),
+    intakeSums.then((rows) => periodTotals(rows, weekFrom, todayISO)),
+    intakeSums.then((rows) => periodTotals(rows, monthFrom, todayISO)),
     currentStock(),
     listMovements({ limit: 20 }),
     supplierPerformance(monthFrom, todayISO),
@@ -1210,6 +1273,8 @@ export async function stockDashboard(todayISO = todayLocalISO()) {
     month,
     currentStock: stock,
     totalStockKg: num(stock.reduce((sum, p) => sum.plus(D(p.balance)), D(0))),
+    stockTotalsByUnit: stockTotalsByUnit(stock),
+    sellable: await sellableByProduct(stock.map((p) => p.productId)),
     recentMovements: movements,
     supplierPerformance: suppliers,
     todayByProduct,
