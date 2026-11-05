@@ -81,9 +81,12 @@ This branch is a release candidate. It has not been deployed. Applying it to pro
 | Two-step verification | The only production user is enrolled | New finance users must enroll at first sign-in (enforced) |
 | Credential rotation | **Unknown** | The database password rotation was not confirmed. The VPS root password was exposed in an earlier chat and must be rotated. A plan for this needs its own approval |
 | Health checks | `/api/health`, `/api/health/deep` | — |
-| Migration ordering | Guarded by `migrations-sql.ts` (refuses out of order or twice) | Rehearsed (§2) |
+| Migration ordering | Guarded by `migrations-sql.ts` (refuses out of order or twice) | Rehearsed (§2); re-checked 4 Nov after the gate fixes (same SHA-256), with the supplier backfill matched exactly and its rollback tested (`RELEASE_GATE_REVIEW_2026-11-04.md` §5) |
+| Database connection limit | **Not verified** | `lib/prisma.ts` describes the Supavisor pooler with `connection_limit=1`. The D-3 load test showed receipts queuing behind each other at that limit: at 50 ms round trip, the fourth of four simultaneous receipts waited past the pool timeout. With 5 connections every measured case passed. Changing it is an infrastructure change and needs its own approval (gate review §3.4) |
 
-## 5. Tests on this commit (local test databases only)
+## 5. Tests (local test databases only)
+
+After the release-gate fixes (`e5f70b2`, gate review §3): unit 245/245; integration 218/218 on a fresh seeded database (21 new tests, 17 of which fail on the code before the fix); full e2e chain in gate review §4. The table below is the run on `5bfc42b`.
 
 | Suite | Result |
 |---|---|

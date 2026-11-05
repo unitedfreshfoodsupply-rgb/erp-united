@@ -30,9 +30,9 @@ Branch `feature/eta-customer-master-data`, based on `main` @ `04be32a` (producti
 | 1e | Shortage → saved as awaiting stock, nothing reserved | DEFECTIVE (409, nothing saved) | COMPLETE (`allow_shortage`, `stockStatus = awaiting_stock`) |
 | 1f | Not prepared while awaiting; resumable | MISSING | COMPLETE (gate `stock_awaiting`; release resumes from the saved order) |
 | 2a–2e | One linked procurement suggestion per short line, deduplicated, sized to the shortage | MISSING / PARTIAL | COMPLETE (purchase requests linked to the order line; a unique index) |
-| 2f | Suggestion updated or closed on receipt, change or cancel | DEFECTIVE (a cancelled PO left a dead end) | COMPLETE |
+| 2f | Suggestion updated or closed on receipt, change or cancel | DEFECTIVE (a cancelled PO left a dead end) | COMPLETE. Since the release gate (D-1), a line is netted only against what a live PO still has to deliver, plus what it delivered that is held in quarantine. Closing a PO releases what it will not bring, as cancelling does, and receipts, grading and quarantine exits re-size the suggestion (`stillOnOrder`, `releasePoCoverage`) |
 | 2g–2h | Audit; recommendation only | PARTIAL | COMPLETE (existing four-eyes request → PO) |
-| 3a–3d | Recheck on receipt, notify, covered vs outstanding, resume without re-entry | MISSING | COMPLETE, except the hook does not run on the sorting path (PARTIAL there) |
+| 3a–3d | Recheck on receipt, notify, covered vs outstanding, resume without re-entry | MISSING | COMPLETE. Since the release gate (D-2, D-3), every stock movement and reservation change reports to one place (`lib/inventory/availability-changes.ts`). Held orders are re-checked once at commit, in a fixed number of queries, with no 200-order cap, and the notice says what is still missing |
 | 3e | No automatic dispatch or reservation | PARTIAL | COMPLETE (release runs the normal reservation) |
 | 4a, 4f, 4g | PO reference, no duplicate receipt, stock ledger | COMPLETE | unchanged |
 | 4d | Over-receipt measured on the accepted quantity | DEFECTIVE (Grade B and waste escaped the tolerance) | COMPLETE |
@@ -81,4 +81,3 @@ Branch `feature/eta-customer-master-data`, based on `main` @ `04be32a` (producti
 | 6c, 6d, 6h issue quantity per line, issuer, issue ↔ delivery link | Traceability enhancements; no stock or money is wrong |
 | 6i a supervisor override can dispatch past the shortage gate | Existing authorised override, audited; tightening it is a policy decision |
 | 6l delivery confirmation for orders dispatched without a trip | Workflow decision (require trips, or a delivery note step) |
-| 3 receipt hook on the sorting path | Known limitation of the new flow; the order can still be rechecked by hand |
