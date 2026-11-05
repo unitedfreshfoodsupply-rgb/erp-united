@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleApiError, ApiError } from "@/lib/rbac";
 import { requireOrderActor, requireOrderCreateActor } from "@/lib/api-auth";
-import { createOrder, listOrders } from "@/lib/orders-service";
+import { createOrder, listOrdersPolled } from "@/lib/orders-service";
 import { ORDER_STATUSES, type OrderStatus } from "@/lib/types";
 import { readJson } from "@/lib/http";
 import { loggedIntegrationCall } from "@/lib/integrations/service";
@@ -33,7 +33,8 @@ export async function GET(req: NextRequest) {
     const stockParam = searchParams.get("stock");
     if (stockParam && stockParam !== "ok" && stockParam !== "awaiting_stock") throw new ApiError(400, "فلتر المخزون غير معروف");
     const stockStatus = stockParam === "ok" || stockParam === "awaiting_stock" ? stockParam : undefined;
-    const orders = await listOrders({ status, date, assignedToId, scope, stockStatus, q: searchText(searchParams.get("q")) || undefined });
+    // Polled every few seconds by the boards: the full list runs only when it changed (PM-6).
+    const orders = await listOrdersPolled({ status, date, assignedToId, scope, stockStatus, q: searchText(searchParams.get("q")) || undefined });
     return jsonResponse(req, { orders });
   } catch (err) {
     return handleApiError(err, req);
