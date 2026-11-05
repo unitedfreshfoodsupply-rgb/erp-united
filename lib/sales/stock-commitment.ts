@@ -6,6 +6,7 @@ import { writeAuditMany, type AuditInput } from "@/lib/audit";
 import { advisoryXactLocks } from "@/lib/dbLock";
 import { newId } from "@/lib/core/ids";
 import { productAvailability, productsAvailability } from "@/lib/inventory/balances";
+import { availabilityLockKey } from "@/lib/inventory/picking";
 import { resolveWarehouse } from "@/lib/inventory/context";
 import { toBaseQuantity } from "@/lib/inventory/packaging";
 import { availabilityChanged } from "@/lib/inventory/availability-changes";
@@ -161,9 +162,6 @@ function preloadUnits(tx: Pick<Tx, "unitOfMeasure" | "productPackaging">, orders
   return unitLookups(tx, [...orders.flatMap((o) => o.items.map((i) => i.unit)), ...products.map((p) => p.unit)], products.map((p) => p.id));
 }
 
-/** The per-(product, warehouse) availability lock — the key lockAvailability (lib/inventory/picking.ts) takes. */
-const availabilityLockKey = (productId: string, warehouseId: string) => `stock-avail:${productId}:${warehouseId}`;
-
 /**
  * The availability judgement behind commitOrderStock, shared with the read-only
  * assessment of an order waiting for stock. With `lock` (commit) it takes the per-product
@@ -314,7 +312,9 @@ export async function commitOrderStock(tx: Tx, orderId: string, actor: ServiceAc
     const want = r.sourceLineId ? target.get(r.sourceLineId) : undefined;
     if (!want || !r.quantity.equals(want.base) || r.productId !== want.productId) {
       const reason = want ? "تعديل كمية السطر" : "السطر اتشال";
-      releases.set(reason, [...(releases.get(reason) ?? []), r]);
+      let rows = releases.get(reason);
+      if (!rows) releases.set(reason, (rows = []));
+      rows.push(r);
     } else if (r.sourceLineId) {
       held.add(r.sourceLineId); // one reservation per line — this one already matches (idempotent)
     }

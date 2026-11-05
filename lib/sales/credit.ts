@@ -52,7 +52,11 @@ export async function customerExposure(tx: ExposureDb, customerId: string) {
     select: { orderId: true, requiredQuantity: true, preparedQuantity: true, loadedQuantity: true, price: true },
   });
   const byOrder = new Map<string, typeof lines>();
-  for (const l of lines) byOrder.set(l.orderId, [...(byOrder.get(l.orderId) ?? []), l]);
+  for (const l of lines) {
+    let items = byOrder.get(l.orderId);
+    if (!items) byOrder.set(l.orderId, (items = []));
+    items.push(l);
+  }
   let openValue = new Prisma.Decimal(0);
   let unpriced = 0;
   for (const items of byOrder.values()) {

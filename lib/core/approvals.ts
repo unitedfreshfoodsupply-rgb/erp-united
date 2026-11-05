@@ -302,7 +302,13 @@ export async function requestApprovals(tx: Tx, inputs: Parameters<typeof request
   const pending = await tx.approvalRequest.findMany({ where: { status: "pending", OR: inputs.map((i) => ({ type: i.type, entityId: i.entityId })) } });
   const open = new Map(pending.map((r) => [key(r.type, r.entityId), r]));
   // The first input of a (type, entity) opens it; any later one gets it back, as it would in turn.
-  const fresh = inputs.filter((i, at) => !open.has(key(i.type, i.entityId)) && inputs.findIndex((j) => key(j.type, j.entityId) === key(i.type, i.entityId)) === at);
+  const asked = new Set<string>();
+  const fresh = inputs.filter((i) => {
+    const k = key(i.type, i.entityId);
+    if (open.has(k) || asked.has(k)) return false;
+    asked.add(k);
+    return true;
+  });
   const numbers = fresh.length ? await nextDocumentNumbers(tx, "core.approval", todayLocalISO(), fresh.length) : [];
   const now = Date.now();
   const data = fresh.map((input, n) => {
@@ -407,7 +413,11 @@ export async function cancelPendingApprovals(tx: Tx, inputs: Parameters<typeof c
     if (request && !closing.has(request.id)) closing.set(request.id, { input, request });
   }
   const byReason = new Map<string, (typeof pending)[number][]>();
-  for (const { input, request } of closing.values()) byReason.set(input.reason, [...(byReason.get(input.reason) ?? []), request]);
+  for (const { input, request } of closing.values()) {
+    let rows = byReason.get(input.reason);
+    if (!rows) byReason.set(input.reason, (rows = []));
+    rows.push(request);
+  }
   for (const [reason, rows] of byReason) {
     const res = await tx.approvalRequest.updateMany({
       where: { OR: rows.map((r) => ({ id: r.id, version: r.version })) },

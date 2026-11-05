@@ -17,8 +17,10 @@ import { productBuckets, reservedQty, type Bucket } from "@/lib/inventory/balanc
  * one warehouse: reserving, and removals that must leave reserved stock alone. Taken
  * BEFORE any valuation or bucket lock (global order: availability → valuation → bucket). */
 export function lockAvailability(tx: Tx, productId: string, warehouseId: string) {
-  return advisoryXactLock(tx, `stock-avail:${productId}:${warehouseId}`);
+  return advisoryXactLock(tx, availabilityLockKey(productId, warehouseId));
 }
+/** lockAvailability's key, for a caller that takes several of these locks in one statement. */
+export const availabilityLockKey = (productId: string, warehouseId: string) => `stock-avail:${productId}:${warehouseId}`;
 /**
  * `expiredLastOn` (a business date): lots already past their expiry on that date go
  * after every sellable lot. Used for sales issues, so FEFO never hands a customer an

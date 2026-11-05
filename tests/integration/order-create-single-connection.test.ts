@@ -53,3 +53,23 @@ test("same on the awaiting-stock path (its suggestions read the default warehous
   assert.equal(o.stockStatus, "awaiting_stock");
   assert.equal(await prisma.purchaseRequest.count({ where: { orderId: o.id, orderItemId: { not: null } } }), 1);
 });
+
+test("a cache that is stale at every read, pricing included (typed price, price exceptions, credit): the order is saved", async (t) => {
+  // The clock moves past the cache's lifetime at every reading, so each settings read inside the
+  // transaction misses: the price-exception check's own (approval on, the discount limit), the
+  // default warehouse, the credit mode — all read through the transaction on its one connection.
+  const real = Date.now.bind(Date);
+  let skew = 0;
+  t.mock.method(Date, "now", () => real() + (skew += 11_000));
+  try {
+    const o = await createOrder(
+      { customer_account_id: customerId, customer_name: "", delivery_date: day, items: [{ stock_product_id: productId, product_name: "", quantity: 1, unit: "KG", unit_price: "9", price_reason: `${TAG} متفق عليه` }] } as never,
+      sales as never
+    );
+    assert.equal(o.stockStatus, "ok");
+    assert.equal((await prisma.orderItemPrice.findUniqueOrThrow({ where: { orderItemId: o.items[0].id } })).unitPrice.toFixed(), "9");
+    assert.ok(skew >= 5 * 11_000, `the cache was consulted ${skew / 11_000} times`);
+  } finally {
+    t.mock.restoreAll();
+  }
+});
