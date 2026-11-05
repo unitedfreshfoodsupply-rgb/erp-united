@@ -194,7 +194,7 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
         {draft && (
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-primary" disabled={v.problems.length > 0 || !!busy} aria-busy={busy === "submit"} onClick={async () => {
-              if (!(await dialogs.confirm({ title: t("opening.confirm-submit", { number: b.number }), body: t("opening.confirm-submit-body"), confirmLabel: t("opening.submit") }))) return;
+              if (!(await dialogs.confirm({ title: t("opening.confirm-submit", { number: b.number }), body: t("opening.confirm-submit-body"), confirmLabel: t("opening.submit"), cancelLabel: t("ui.back") }))) return;
               await run("submit", async () => { try { await apiPost(`/api/accounting/opening-batches/${id}/submit`, {}); toast.show(t("opening.toast-submitted"), "success"); refresh(); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); } });
             }}>{busy === "submit" ? t("ui.working") : t("opening.submit")}</button>
           </div>

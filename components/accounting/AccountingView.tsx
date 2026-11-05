@@ -487,10 +487,10 @@ function Journals() {
                 <button type="button" className="btn-ghost text-united-danger" disabled={m.lines.length <= 2} aria-label={t("accounting.journal.remove-line", { n: String(i + 1) })} onClick={() => setM({ ...m, lines: m.lines.filter((_, j) => j !== i) })}>✕</button>
               </div>
             ))}
-            <dl className="grid grid-cols-3 gap-2 border-t border-united-border pt-2 text-sm" aria-live="polite">
+            <dl className="grid grid-cols-3 gap-2 border-t border-united-border pt-2 text-sm">
               <div><dt className="font-bold text-united-muted">{t("accounting.journal.total-debit")}</dt><dd className="font-extrabold tabular-nums" dir="ltr">{fmtMoney(drTotal / 100)}</dd></div>
               <div><dt className="font-bold text-united-muted">{t("accounting.journal.total-credit")}</dt><dd className="font-extrabold tabular-nums" dir="ltr">{fmtMoney(crTotal / 100)}</dd></div>
-              <div><dt className="font-bold text-united-muted">{t("accounting.detail.difference")}</dt><dd className={`font-extrabold tabular-nums ${drTotal === crTotal ? "text-united-green" : "text-united-danger"}`} dir="ltr">{drTotal === crTotal ? t("accounting.journal.balanced") : fmtMoney((drTotal - crTotal) / 100)}</dd></div>
+              <div><dt className="font-bold text-united-muted">{t("accounting.detail.difference")}</dt><dd className={`font-extrabold tabular-nums ${drTotal === crTotal ? "text-united-green" : "text-united-danger"}`} dir="ltr" aria-live="polite" aria-atomic="true">{drTotal === crTotal ? t("accounting.journal.balanced") : fmtMoney((drTotal - crTotal) / 100)}</dd></div>
             </dl>
             {!linesOk && used.length > 0 && <p className="text-xs font-bold text-united-muted">{t("accounting.journal.need-lines")}</p>}
             <div className="flex gap-2">

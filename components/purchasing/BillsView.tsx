@@ -390,7 +390,7 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const supplierName = localName(b.supplier, locale);
   // Each irreversible step says what it will do — to whom, for how much — before it runs.
   const post = async () => {
-    if (!(await dialogs.confirm({ title: t("purchasing.bill.confirm_post", { number: b.number }), body: t("purchasing.bill.confirm_post_body", { supplier: supplierName, amount: fmtMoney(b.total) }), confirmLabel: t("purchasing.bill.post_action") }))) return;
+    if (!(await dialogs.confirm({ title: t("purchasing.bill.confirm_post", { number: b.number }), body: t("purchasing.bill.confirm_post_body", { supplier: supplierName, amount: fmtMoney(b.total) }), confirmLabel: t("purchasing.bill.post_action"), cancelLabel: t("ui.back") }))) return;
     await act("post", "post");
   };
   const cancel = async () => {
@@ -473,12 +473,12 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <Field label={b.status === "posted" ? t("purchasing.bill.debit_reason_placeholder") : t("purchasing.bill.cancel_reason_placeholder")} className="flex-1 min-w-48"><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
           {b.status !== "posted" && <button type="button" className="btn-danger" disabled={!!busy || !reason.trim()} aria-busy={busy === "cancel"} onClick={cancel}>{busy === "cancel" ? t("ui.working") : t("purchasing.bill.cancel_bill_btn")}</button>}
           {b.status === "posted" && debitable && service && (
-            <button type="button" className="btn-secondary" disabled={allowanceLines.length === 0 || !!busy} aria-busy={busy === "debit"} onClick={() => act("debit", "debit-notes", { reason, lines: allowanceLines })}>{busy === "debit" ? t("ui.saving") : t("purchasing.bill.allowance_btn")}</button>
+            <button type="button" className="btn-secondary" disabled={allowanceLines.length === 0 || !!busy || !reason.trim()} aria-busy={busy === "debit"} onClick={() => act("debit", "debit-notes", { reason, lines: allowanceLines })}>{busy === "debit" ? t("ui.saving") : t("purchasing.bill.allowance_btn")}</button>
           )}
           {b.status === "posted" && debitable && !service && (
             <>
               <label className="flex items-center gap-2 text-sm font-bold w-full"><input type="checkbox" className="w-5 h-5" checked={returnGoods} onChange={(e) => setReturnGoods(e.target.checked)} />{t("purchasing.bill.return_goods_checkbox")}</label>
-              <button type="button" className="btn-secondary" disabled={debitLines.length === 0 || !!busy} aria-busy={busy === "debit"} onClick={() => act("debit", "debit-notes", { reason, lines: debitLines, return_goods: returnGoods })}>{busy === "debit" ? t("ui.saving") : t("purchasing.bill.debit_qty_btn")}</button>
+              <button type="button" className="btn-secondary" disabled={debitLines.length === 0 || !!busy || !reason.trim()} aria-busy={busy === "debit"} onClick={() => act("debit", "debit-notes", { reason, lines: debitLines, return_goods: returnGoods })}>{busy === "debit" ? t("ui.saving") : t("purchasing.bill.debit_qty_btn")}</button>
               <button type="button" className="btn-danger" disabled={!!busy || !reason.trim()} aria-busy={busy === "debit-full"} onClick={debitFull}>{busy === "debit-full" ? t("ui.saving") : t("purchasing.bill.debit_full_btn")}</button>
             </>
           )}

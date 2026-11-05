@@ -1654,7 +1654,7 @@ const accounting = {
   "accounting-toast-stock-saved": { ar: "المخزون الافتتاحي اتسجل", en: "Opening stock recorded" },
   "accounting-toast-docs-synced": { ar: "اترحّلت المستندات الناقصة", en: "Missing documents synced" },
   "accounting-toast-stock-valued": { ar: "اترحّل تقييم المخزون", en: "Stock valuation posted" },
-  "accounting.sync.none": { ar: "مفيش حاجة ناقصة — كل المستندات مترحّلة", en: "Nothing was missing — every document is already posted" },
+  "accounting.sync.none": { ar: "الترحيل مالقاش حاجة يقدر يرحّلها", en: "The sync found nothing it can post" },
   "accounting.sync.done": { ar: "اترحّل: {list}", en: "Posted: {list}" },
   "accounting.sync.separator": { ar: "، ", en: ", " },
   "accounting.sync.invoices": { ar: "{n} فاتورة مبيعات", en: "{n} sales invoice(s)" },

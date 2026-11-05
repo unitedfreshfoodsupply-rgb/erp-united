@@ -190,7 +190,7 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const party = inv.buyerName ?? localName(inv.customer, locale);
   // Each irreversible step says what it will do — to whom, for how much — before it runs.
   const issue = async () => {
-    if (!(await dialogs.confirm({ title: t("sales.invoice.confirm_issue", { customer: party }), body: t("sales.invoice.confirm_issue_body", { amount: fmtMoney(inv.total), date: issueDate }), confirmLabel: t("sales.invoice.issue_now") }))) return;
+    if (!(await dialogs.confirm({ title: t("sales.invoice.confirm_issue", { customer: party }), body: t("sales.invoice.confirm_issue_body", { amount: fmtMoney(inv.total), date: issueDate }), confirmLabel: t("sales.invoice.issue_now"), cancelLabel: t("ui.back") }))) return;
     await run("issue", async () => {
       try { await apiPost(`/api/sales/invoices/${id}/issue`, { issue_date: issueDate, expected_version: inv.version }); refresh(); toast.show(t("sales.invoice.toast_issued"), "success"); } catch (err) { fail(err); }
     });
@@ -234,7 +234,7 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
       )}
       {inv.status === "draft" && inv.current && <DraftMasterData parties={inv.current} customerId={inv.customer.id} />}
       {manage && inv.status === "draft" && <DraftNotes id={inv.id} notes={inv.notes} version={inv.version} onSaved={refresh} />}
-      <span className="self-start"><StatusPill tone={docTone(inv.status)} size="md">{statusLabels[inv.status] ?? inv.status}{inv.issueDate ? ` ${t("sales.invoice.due_date_text")}${inv.dueDate}` : ""}</StatusPill></span>
+      <span className="self-start"><StatusPill tone={inv.status === "void" ? "neutral" : docTone(inv.status)} size="md">{statusLabels[inv.status] ?? inv.status}{inv.issueDate ? ` ${t("sales.invoice.due_date_text")}${inv.dueDate}` : ""}</StatusPill></span>
       <section className="card p-4 flex flex-col divide-y divide-united-dark/5">
         {inv.lines.map((l) => (
           <div key={l.id} className="py-2 flex flex-col gap-1">
@@ -294,7 +294,7 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <Field label={t("sales.invoice.reason_label")}><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
           <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" className="w-5 h-5" checked={restock} onChange={(e) => setRestock(e.target.checked)} />{t("sales.invoice.restock_checkbox")}</label>
           <div className="flex gap-2 flex-wrap">
-            <button type="button" className="btn-primary" disabled={!!busy} aria-busy={busy === "credit"} onClick={creditByQty}>{busy === "credit" ? t("ui.saving") : t("sales.invoice.to_credit_by_qty")}</button>
+            <button type="button" className="btn-primary" disabled={!!busy || !reason.trim()} aria-busy={busy === "credit"} onClick={creditByQty}>{busy === "credit" ? t("ui.saving") : t("sales.invoice.to_credit_by_qty")}</button>
             <button type="button" className="btn-danger" disabled={!!busy || !reason.trim()} aria-busy={busy === "credit-full"} onClick={creditFull}>{busy === "credit-full" ? t("ui.saving") : t("sales.invoice.deduct_full")}</button>
           </div>
         </section>
