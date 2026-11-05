@@ -1,0 +1,2476 @@
+{
+  "recv-A": {
+    "moves": [
+      {
+        "label": "recv-A#0",
+        "product": "A-avco",
+        "location": "COLD-1",
+        "lot": "LA1",
+        "kind": "intake",
+        "qty": "10",
+        "unitCost": "10",
+        "reason": "TAG recv-A",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "10",
+          "unitCost": "10",
+          "value": "100",
+          "remainingQty": "10",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "recv-A#1",
+        "product": "A-avco",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "intake",
+        "qty": "20",
+        "unitCost": "13",
+        "reason": "TAG recv-A",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "20",
+          "unitCost": "13",
+          "value": "260",
+          "remainingQty": "20",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      }
+    ],
+    "seqOrder": [
+      "recv-A#0",
+      "recv-A#1"
+    ],
+    "postings": {
+      "movements": 2,
+      "entries": 1,
+      "unposted": 0
+    },
+    "journal": [
+      {
+        "description": "قيمة مخزون — استلام TAG-RC1-0",
+        "sourceType": "stock_valuation",
+        "sourceIsFirstMovement": true,
+        "date": "today",
+        "total": "360",
+        "lines": [
+          {
+            "account": "1400",
+            "debit": "360",
+            "credit": "0",
+            "description": "استلامات ومرتجعات موردين"
+          },
+          {
+            "account": "2150",
+            "debit": "0",
+            "credit": "360",
+            "description": "استلامات ومرتجعات موردين"
+          }
+        ]
+      }
+    ],
+    "remaining": [
+      "recv-A#0=10",
+      "recv-A#1=20"
+    ],
+    "totals": {
+      "A-avco": {
+        "qty": "30",
+        "value": "360"
+      }
+    },
+    "buckets": [
+      "A-avco@COLD-1/LA1=10",
+      "A-avco@COLD-2/-=20"
+    ]
+  },
+  "recv-F": {
+    "moves": [
+      {
+        "label": "recv-F#0",
+        "product": "F-fifo",
+        "location": "COLD-1",
+        "lot": "LF1",
+        "kind": "intake",
+        "qty": "10",
+        "unitCost": "5",
+        "reason": "TAG recv-F",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "10",
+          "unitCost": "5",
+          "value": "50",
+          "remainingQty": "10",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "recv-F#1",
+        "product": "F-fifo",
+        "location": "COLD-1",
+        "lot": "LF2",
+        "kind": "intake",
+        "qty": "10",
+        "unitCost": "8",
+        "reason": "TAG recv-F",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "10",
+          "unitCost": "8",
+          "value": "80",
+          "remainingQty": "10",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "recv-F#2",
+        "product": "F-fifo",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "intake",
+        "qty": "5",
+        "unitCost": "6",
+        "reason": "TAG recv-F",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "5",
+          "unitCost": "6",
+          "value": "30",
+          "remainingQty": "5",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      }
+    ],
+    "seqOrder": [
+      "recv-F#0",
+      "recv-F#1",
+      "recv-F#2"
+    ],
+    "postings": {
+      "movements": 3,
+      "entries": 1,
+      "unposted": 0
+    },
+    "journal": [
+      {
+        "description": "قيمة مخزون — استلام TAG-RC1-1",
+        "sourceType": "stock_valuation",
+        "sourceIsFirstMovement": true,
+        "date": "today",
+        "total": "160",
+        "lines": [
+          {
+            "account": "1400",
+            "debit": "160",
+            "credit": "0",
+            "description": "استلامات ومرتجعات موردين"
+          },
+          {
+            "account": "2150",
+            "debit": "0",
+            "credit": "160",
+            "description": "استلامات ومرتجعات موردين"
+          }
+        ]
+      }
+    ],
+    "remaining": [
+      "recv-F#0=10",
+      "recv-F#1=10",
+      "recv-F#2=5"
+    ],
+    "totals": {
+      "F-fifo": {
+        "qty": "25",
+        "value": "160"
+      }
+    },
+    "buckets": [
+      "F-fifo@COLD-1/LF1=10",
+      "F-fifo@COLD-1/LF2=10",
+      "F-fifo@COLD-2/-=5"
+    ]
+  },
+  "mixed-A": {
+    "moves": [
+      {
+        "label": "mixed-A#0",
+        "product": "A-avco",
+        "location": "COLD-1",
+        "lot": "LA1",
+        "kind": "issue",
+        "qty": "-5",
+        "unitCost": "12",
+        "reason": "TAG mixed-A",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-5",
+          "unitCost": "12",
+          "value": "-60",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "mixed-A#1",
+        "product": "A-avco",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "adjustment",
+        "qty": "3",
+        "unitCost": "12",
+        "reason": "TAG mixed-A",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "3",
+          "unitCost": "12",
+          "value": "36",
+          "remainingQty": "3",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "mixed-A#2",
+        "product": "A-avco",
+        "location": "COLD-1",
+        "lot": "LA1",
+        "kind": "scrap",
+        "qty": "-4",
+        "unitCost": "12",
+        "reason": "TAG mixed-A",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-4",
+          "unitCost": "12",
+          "value": "-48",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "mixed-A#3",
+        "product": "A-avco",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "issue",
+        "qty": "-12.345",
+        "unitCost": "12",
+        "reason": "TAG mixed-A",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-12.345",
+          "unitCost": "12",
+          "value": "-148.14",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "mixed-A#4",
+        "product": "A-avco",
+        "location": "COLD-1",
+        "lot": "LA1",
+        "kind": "issue",
+        "qty": "-1",
+        "unitCost": "12",
+        "reason": "TAG mixed-A",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-1",
+          "unitCost": "12",
+          "value": "-12",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "mixed-A#5",
+        "product": "A-avco",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "customer_return",
+        "qty": "2.5",
+        "unitCost": "11.1111",
+        "reason": "TAG mixed-A",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "2.5",
+          "unitCost": "11.1111",
+          "value": "27.7778",
+          "remainingQty": "2.5",
+          "costSource": "lot",
+          "priceVariance": "0"
+        }
+      }
+    ],
+    "seqOrder": [
+      "mixed-A#0",
+      "mixed-A#1",
+      "mixed-A#2",
+      "mixed-A#3",
+      "mixed-A#4",
+      "mixed-A#5"
+    ],
+    "postings": {
+      "movements": 6,
+      "entries": 1,
+      "unposted": 0
+    },
+    "journal": [
+      {
+        "description": "قيمة مخزون — صرف لعميل، تسوية، scrap، مرتجع عميل TAG-DOC1",
+        "sourceType": "stock_valuation",
+        "sourceIsFirstMovement": true,
+        "date": "today",
+        "total": "204.36",
+        "lines": [
+          {
+            "account": "1400",
+            "debit": "0",
+            "credit": "12",
+            "description": "تسويات وهالك وتحويلات"
+          },
+          {
+            "account": "1400",
+            "debit": "0",
+            "credit": "192.36",
+            "description": "صرف ومرتجعات عملاء"
+          },
+          {
+            "account": "5100",
+            "debit": "192.36",
+            "credit": "0",
+            "description": "صرف ومرتجعات عملاء"
+          },
+          {
+            "account": "5200",
+            "debit": "12",
+            "credit": "0",
+            "description": "تسويات وهالك وتحويلات"
+          }
+        ]
+      }
+    ],
+    "remaining": [
+      "recv-A#0=10",
+      "recv-A#1=20",
+      "mixed-A#0=0",
+      "mixed-A#1=3",
+      "mixed-A#2=0",
+      "mixed-A#3=0",
+      "mixed-A#4=0",
+      "mixed-A#5=2.5"
+    ],
+    "totals": {
+      "A-avco": {
+        "qty": "13.155",
+        "value": "155.6378"
+      }
+    },
+    "buckets": [
+      "A-avco@COLD-1/LA1=0",
+      "A-avco@COLD-2/-=13.155"
+    ]
+  },
+  "fifo-multi": {
+    "moves": [
+      {
+        "label": "fifo-multi#0",
+        "product": "F-fifo",
+        "location": "COLD-1",
+        "lot": "LF1",
+        "kind": "issue",
+        "qty": "-7",
+        "unitCost": "5",
+        "reason": "TAG fifo-multi",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-7",
+          "unitCost": "5",
+          "value": "-35",
+          "remainingQty": "0",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "fifo-multi#1",
+        "product": "F-fifo",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "issue",
+        "qty": "-5",
+        "unitCost": "6.2",
+        "reason": "TAG fifo-multi",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-5",
+          "unitCost": "6.2",
+          "value": "-31",
+          "remainingQty": "0",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "fifo-multi#2",
+        "product": "F-fifo",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "intake",
+        "qty": "7",
+        "unitCost": "9",
+        "reason": "TAG fifo-multi",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "7",
+          "unitCost": "9",
+          "value": "63",
+          "remainingQty": "5",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "fifo-multi#3",
+        "product": "F-fifo",
+        "location": "COLD-1",
+        "lot": "LF2",
+        "kind": "issue",
+        "qty": "-9",
+        "unitCost": "7.7778",
+        "reason": "TAG fifo-multi",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-9",
+          "unitCost": "7.7778",
+          "value": "-70",
+          "remainingQty": "0",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "fifo-multi#4",
+        "product": "F-fifo",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "issue",
+        "qty": "-4",
+        "unitCost": "6",
+        "reason": "TAG fifo-multi",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-4",
+          "unitCost": "6",
+          "value": "-24",
+          "remainingQty": "0",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "fifo-multi#5",
+        "product": "F-fifo",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "issue",
+        "qty": "-2",
+        "unitCost": "9",
+        "reason": "TAG fifo-multi",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-2",
+          "unitCost": "9",
+          "value": "-18",
+          "remainingQty": "0",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      }
+    ],
+    "seqOrder": [
+      "fifo-multi#0",
+      "fifo-multi#1",
+      "fifo-multi#2",
+      "fifo-multi#3",
+      "fifo-multi#4",
+      "fifo-multi#5"
+    ],
+    "postings": {
+      "movements": 6,
+      "entries": 1,
+      "unposted": 0
+    },
+    "journal": [
+      {
+        "description": "قيمة مخزون — صرف لعميل، استلام TAG-DOC1، TAG-RC1-1",
+        "sourceType": "stock_valuation",
+        "sourceIsFirstMovement": true,
+        "date": "today",
+        "total": "241",
+        "lines": [
+          {
+            "account": "1400",
+            "debit": "0",
+            "credit": "178",
+            "description": "صرف ومرتجعات عملاء"
+          },
+          {
+            "account": "1400",
+            "debit": "63",
+            "credit": "0",
+            "description": "استلامات ومرتجعات موردين"
+          },
+          {
+            "account": "2150",
+            "debit": "0",
+            "credit": "63",
+            "description": "استلامات ومرتجعات موردين"
+          },
+          {
+            "account": "5100",
+            "debit": "178",
+            "credit": "0",
+            "description": "صرف ومرتجعات عملاء"
+          }
+        ]
+      }
+    ],
+    "remaining": [
+      "recv-F#0=0",
+      "recv-F#1=0",
+      "recv-F#2=0",
+      "fifo-multi#0=0",
+      "fifo-multi#1=0",
+      "fifo-multi#2=5",
+      "fifo-multi#3=0",
+      "fifo-multi#4=0",
+      "fifo-multi#5=0"
+    ],
+    "totals": {
+      "F-fifo": {
+        "qty": "5",
+        "value": "45"
+      }
+    },
+    "buckets": [
+      "F-fifo@COLD-1/LF1=3",
+      "F-fifo@COLD-1/LF2=1",
+      "F-fifo@COLD-2/-=1"
+    ]
+  },
+  "fifo-given-cost": {
+    "moves": [
+      {
+        "label": "fifo-given-cost#0",
+        "product": "F-fifo",
+        "location": "COLD-1",
+        "lot": "LF1",
+        "kind": "adjustment",
+        "qty": "-1",
+        "unitCost": "9",
+        "reason": "TAG fifo-given-cost",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-1",
+          "unitCost": "9",
+          "value": "-9",
+          "remainingQty": "0",
+          "costSource": "lot",
+          "priceVariance": "0"
+        }
+      }
+    ],
+    "seqOrder": [
+      "fifo-given-cost#0"
+    ],
+    "postings": {
+      "movements": 1,
+      "entries": 1,
+      "unposted": 0
+    },
+    "journal": [
+      {
+        "description": "قيمة مخزون — تسوية TAG-DOC1",
+        "sourceType": "stock_valuation",
+        "sourceIsFirstMovement": true,
+        "date": "today",
+        "total": "9",
+        "lines": [
+          {
+            "account": "1400",
+            "debit": "0",
+            "credit": "9",
+            "description": "تسويات وهالك وتحويلات"
+          },
+          {
+            "account": "5200",
+            "debit": "9",
+            "credit": "0",
+            "description": "تسويات وهالك وتحويلات"
+          }
+        ]
+      }
+    ],
+    "remaining": [
+      "recv-F#0=0",
+      "recv-F#1=0",
+      "recv-F#2=0",
+      "fifo-multi#0=0",
+      "fifo-multi#1=0",
+      "fifo-multi#2=4",
+      "fifo-multi#3=0",
+      "fifo-multi#4=0",
+      "fifo-multi#5=0",
+      "fifo-given-cost#0=0"
+    ],
+    "totals": {
+      "F-fifo": {
+        "qty": "4",
+        "value": "36"
+      }
+    },
+    "buckets": [
+      "F-fifo@COLD-1/LF1=2",
+      "F-fifo@COLD-1/LF2=1",
+      "F-fifo@COLD-2/-=1"
+    ]
+  },
+  "standard": {
+    "moves": [
+      {
+        "label": "standard#0",
+        "product": "S-standard",
+        "location": "COLD-1",
+        "lot": null,
+        "kind": "intake",
+        "qty": "10",
+        "unitCost": "7",
+        "reason": "TAG standard",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "10",
+          "unitCost": "7",
+          "value": "70",
+          "remainingQty": "10",
+          "costSource": "standard",
+          "priceVariance": "20"
+        }
+      },
+      {
+        "label": "standard#1",
+        "product": "S-standard",
+        "location": "COLD-1",
+        "lot": null,
+        "kind": "issue",
+        "qty": "-4",
+        "unitCost": "7",
+        "reason": "TAG standard",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-4",
+          "unitCost": "7",
+          "value": "-28",
+          "remainingQty": "0",
+          "costSource": "standard",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "standard#2",
+        "product": "S-standard",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "transfer_in",
+        "qty": "2",
+        "unitCost": "7",
+        "reason": "TAG standard",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "2",
+          "unitCost": "7",
+          "value": "14",
+          "remainingQty": "2",
+          "costSource": "standard",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "standard#3",
+        "product": "S-standard",
+        "location": "COLD-1",
+        "lot": null,
+        "kind": "supplier_return",
+        "qty": "-1",
+        "unitCost": "7",
+        "reason": "TAG standard",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-1",
+          "unitCost": "7",
+          "value": "-7",
+          "remainingQty": "0",
+          "costSource": "standard",
+          "priceVariance": "-2.5"
+        }
+      }
+    ],
+    "seqOrder": [
+      "standard#0",
+      "standard#1",
+      "standard#2",
+      "standard#3"
+    ],
+    "postings": {
+      "movements": 4,
+      "entries": 1,
+      "unposted": 0
+    },
+    "journal": [
+      {
+        "description": "قيمة مخزون — استلام، صرف لعميل، تحويل، مرتجع مورد TAG-DOC1، TAG-RC1-2",
+        "sourceType": "stock_valuation",
+        "sourceIsFirstMovement": true,
+        "date": "today",
+        "total": "122.5",
+        "lines": [
+          {
+            "account": "1400",
+            "debit": "0",
+            "credit": "28",
+            "description": "صرف ومرتجعات عملاء"
+          },
+          {
+            "account": "1400",
+            "debit": "14",
+            "credit": "0",
+            "description": "تسويات وهالك وتحويلات"
+          },
+          {
+            "account": "1400",
+            "debit": "63",
+            "credit": "0",
+            "description": "استلامات ومرتجعات موردين"
+          },
+          {
+            "account": "2150",
+            "debit": "0",
+            "credit": "80.5",
+            "description": "استلامات ومرتجعات موردين"
+          },
+          {
+            "account": "5100",
+            "debit": "28",
+            "credit": "0",
+            "description": "صرف ومرتجعات عملاء"
+          },
+          {
+            "account": "5200",
+            "debit": "0",
+            "credit": "14",
+            "description": "تسويات وهالك وتحويلات"
+          },
+          {
+            "account": "5300",
+            "debit": "17.5",
+            "credit": "0",
+            "description": "فرق السعر عن التكلفة المعيارية"
+          }
+        ]
+      }
+    ],
+    "remaining": [
+      "standard#0=10",
+      "standard#1=0",
+      "standard#2=2",
+      "standard#3=0"
+    ],
+    "totals": {
+      "S-standard": {
+        "qty": "7",
+        "value": "49"
+      }
+    },
+    "buckets": [
+      "S-standard@COLD-1/-=5",
+      "S-standard@COLD-2/-=2"
+    ]
+  },
+  "zero-cost": {
+    "moves": [
+      {
+        "label": "zero-cost#0",
+        "product": "Z-zero-cost",
+        "location": "COLD-1",
+        "lot": null,
+        "kind": "adjustment",
+        "qty": "5",
+        "unitCost": "0",
+        "reason": "TAG zero-cost",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "5",
+          "unitCost": "0",
+          "value": "0",
+          "remainingQty": "5",
+          "costSource": "unknown",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "zero-cost#1",
+        "product": "Z-zero-cost",
+        "location": "COLD-1",
+        "lot": null,
+        "kind": "issue",
+        "qty": "-2",
+        "unitCost": "0",
+        "reason": "TAG zero-cost",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-2",
+          "unitCost": "0",
+          "value": "0",
+          "remainingQty": "0",
+          "costSource": "unknown",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "zero-cost#2",
+        "product": "Z-zero-cost",
+        "location": "COLD-1",
+        "lot": null,
+        "kind": "intake",
+        "qty": "3",
+        "unitCost": "4",
+        "reason": "TAG zero-cost",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "3",
+          "unitCost": "4",
+          "value": "12",
+          "remainingQty": "3",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "zero-cost#3",
+        "product": "Z-zero-cost",
+        "location": "COLD-1",
+        "lot": null,
+        "kind": "issue",
+        "qty": "-6",
+        "unitCost": "2",
+        "reason": "TAG zero-cost",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-6",
+          "unitCost": "2",
+          "value": "-12",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "zero-cost#4",
+        "product": "Z-zero-cost",
+        "location": "COLD-1",
+        "lot": null,
+        "kind": "adjustment",
+        "qty": "1",
+        "unitCost": "0",
+        "reason": "TAG zero-cost",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "1",
+          "unitCost": "0",
+          "value": "0",
+          "remainingQty": "1",
+          "costSource": "unknown",
+          "priceVariance": "0"
+        }
+      }
+    ],
+    "seqOrder": [
+      "zero-cost#0",
+      "zero-cost#1",
+      "zero-cost#2",
+      "zero-cost#3",
+      "zero-cost#4"
+    ],
+    "postings": {
+      "movements": 5,
+      "entries": 1,
+      "unposted": 0
+    },
+    "journal": [
+      {
+        "description": "قيمة مخزون — تسوية، صرف لعميل، استلام TAG-DOC1، TAG-RC1-4",
+        "sourceType": "stock_valuation",
+        "sourceIsFirstMovement": true,
+        "date": "today",
+        "total": "24",
+        "lines": [
+          {
+            "account": "1400",
+            "debit": "0",
+            "credit": "12",
+            "description": "صرف ومرتجعات عملاء"
+          },
+          {
+            "account": "1400",
+            "debit": "12",
+            "credit": "0",
+            "description": "استلامات ومرتجعات موردين"
+          },
+          {
+            "account": "2150",
+            "debit": "0",
+            "credit": "12",
+            "description": "استلامات ومرتجعات موردين"
+          },
+          {
+            "account": "5100",
+            "debit": "12",
+            "credit": "0",
+            "description": "صرف ومرتجعات عملاء"
+          }
+        ]
+      }
+    ],
+    "remaining": [
+      "zero-cost#0=5",
+      "zero-cost#1=0",
+      "zero-cost#2=3",
+      "zero-cost#3=0",
+      "zero-cost#4=1"
+    ],
+    "totals": {
+      "Z-zero-cost": {
+        "qty": "1",
+        "value": "0"
+      }
+    },
+    "buckets": [
+      "Z-zero-cost@COLD-1/-=1"
+    ]
+  },
+  "reversal": {
+    "moves": [
+      {
+        "label": "reversal#0",
+        "product": "F-fifo",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "customer_return",
+        "qty": "2",
+        "unitCost": "9",
+        "reason": "TAG reversal 0",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "2",
+          "unitCost": "9",
+          "value": "18",
+          "remainingQty": "0",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "reversal#1",
+        "product": "F-fifo",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "customer_return",
+        "qty": "4",
+        "unitCost": "6",
+        "reason": "TAG reversal 1",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "4",
+          "unitCost": "6",
+          "value": "24",
+          "remainingQty": "3",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "reversal#2",
+        "product": "F-fifo",
+        "location": "COLD-1",
+        "lot": "LF2",
+        "kind": "customer_return",
+        "qty": "9",
+        "unitCost": "7.7778",
+        "reason": "TAG reversal 2",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "9",
+          "unitCost": "7.7778",
+          "value": "70",
+          "remainingQty": "9",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "reversal#3",
+        "product": "F-fifo",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "adjustment",
+        "qty": "-7",
+        "unitCost": "9",
+        "reason": "TAG reversal 3",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-7",
+          "unitCost": "9",
+          "value": "-63",
+          "remainingQty": "0",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "reversal#4",
+        "product": "F-fifo",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "customer_return",
+        "qty": "5",
+        "unitCost": "6.2",
+        "reason": "TAG reversal 4",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "5",
+          "unitCost": "6.2",
+          "value": "31",
+          "remainingQty": "5",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "reversal#5",
+        "product": "F-fifo",
+        "location": "COLD-1",
+        "lot": "LF1",
+        "kind": "customer_return",
+        "qty": "7",
+        "unitCost": "5",
+        "reason": "TAG reversal 5",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "7",
+          "unitCost": "5",
+          "value": "35",
+          "remainingQty": "7",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      }
+    ],
+    "seqOrder": [
+      "reversal#0",
+      "reversal#1",
+      "reversal#2",
+      "reversal#3",
+      "reversal#4",
+      "reversal#5"
+    ],
+    "postings": {
+      "movements": 6,
+      "entries": 1,
+      "unposted": 0
+    },
+    "journal": [
+      {
+        "description": "قيمة مخزون — مرتجع عميل، تسوية TAG-DOC1",
+        "sourceType": "stock_valuation",
+        "sourceIsFirstMovement": true,
+        "date": "today",
+        "total": "241",
+        "lines": [
+          {
+            "account": "1400",
+            "debit": "0",
+            "credit": "63",
+            "description": "استلامات ومرتجعات موردين"
+          },
+          {
+            "account": "1400",
+            "debit": "178",
+            "credit": "0",
+            "description": "صرف ومرتجعات عملاء"
+          },
+          {
+            "account": "2150",
+            "debit": "63",
+            "credit": "0",
+            "description": "استلامات ومرتجعات موردين"
+          },
+          {
+            "account": "5100",
+            "debit": "0",
+            "credit": "178",
+            "description": "صرف ومرتجعات عملاء"
+          }
+        ]
+      }
+    ],
+    "remaining": [
+      "recv-F#0=0",
+      "recv-F#1=0",
+      "recv-F#2=0",
+      "fifo-multi#0=0",
+      "fifo-multi#1=0",
+      "fifo-multi#2=0",
+      "fifo-multi#3=0",
+      "fifo-multi#4=0",
+      "fifo-multi#5=0",
+      "fifo-given-cost#0=0",
+      "reversal#0=0",
+      "reversal#1=3",
+      "reversal#2=9",
+      "reversal#3=0",
+      "reversal#4=5",
+      "reversal#5=7"
+    ],
+    "totals": {
+      "F-fifo": {
+        "qty": "24",
+        "value": "151"
+      }
+    },
+    "buckets": [
+      "F-fifo@COLD-1/LF1=9",
+      "F-fifo@COLD-1/LF2=10",
+      "F-fifo@COLD-2/-=5"
+    ]
+  },
+  "multi-product": {
+    "moves": [
+      {
+        "label": "multi-product#0",
+        "product": "A-avco",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "issue",
+        "qty": "-3",
+        "unitCost": "11.8311",
+        "reason": "TAG multi-product",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-3",
+          "unitCost": "11.8311",
+          "value": "-35.4933",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "multi-product#1",
+        "product": "F-fifo",
+        "location": "COLD-1",
+        "lot": "LF1",
+        "kind": "customer_return",
+        "qty": "4",
+        "unitCost": "5",
+        "reason": "TAG multi-product",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "4",
+          "unitCost": "5",
+          "value": "20",
+          "remainingQty": "4",
+          "costSource": "lot",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "multi-product#2",
+        "product": "S-standard",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "scrap",
+        "qty": "-2",
+        "unitCost": "7",
+        "reason": "TAG multi-product",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-2",
+          "unitCost": "7",
+          "value": "-14",
+          "remainingQty": "0",
+          "costSource": "standard",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "multi-product#3",
+        "product": "A-avco",
+        "location": "COLD-1",
+        "lot": "LA1",
+        "kind": "intake",
+        "qty": "6",
+        "unitCost": "12.75",
+        "reason": "TAG multi-product",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "6",
+          "unitCost": "12.75",
+          "value": "76.5",
+          "remainingQty": "6",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "multi-product#4",
+        "product": "F-fifo",
+        "location": "COLD-1",
+        "lot": "LF1",
+        "kind": "transfer_out",
+        "qty": "-5",
+        "unitCost": "5",
+        "reason": "TAG multi-product",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-5",
+          "unitCost": "5",
+          "value": "-25",
+          "remainingQty": "0",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "multi-product#5",
+        "product": "A-avco",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "adjustment",
+        "qty": "-0.001",
+        "unitCost": "12.1724",
+        "reason": "TAG multi-product",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-0.001",
+          "unitCost": "12.1724",
+          "value": "-0.0122",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "multi-product#6",
+        "product": "Z-zero-cost",
+        "location": "COLD-1",
+        "lot": null,
+        "kind": "scrap",
+        "qty": "-1",
+        "unitCost": "0",
+        "reason": "TAG multi-product",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-1",
+          "unitCost": "0",
+          "value": "0",
+          "remainingQty": "0",
+          "costSource": "unknown",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "multi-product#7",
+        "product": "A-avco",
+        "location": "QUAR",
+        "lot": "LA1",
+        "kind": "customer_return",
+        "qty": "2",
+        "unitCost": "12",
+        "reason": "TAG multi-product",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "2",
+          "unitCost": "12",
+          "value": "24",
+          "remainingQty": "2",
+          "costSource": "lot",
+          "priceVariance": "0"
+        }
+      }
+    ],
+    "seqOrder": [
+      "multi-product#0",
+      "multi-product#1",
+      "multi-product#2",
+      "multi-product#3",
+      "multi-product#4",
+      "multi-product#5",
+      "multi-product#6",
+      "multi-product#7"
+    ],
+    "postings": {
+      "movements": 8,
+      "entries": 1,
+      "unposted": 0
+    },
+    "journal": [
+      {
+        "description": "قيمة مخزون — صرف لعميل، مرتجع عميل، scrap، استلام، تحويل، تسوية TAG-DOC1، TAG-RC1-0",
+        "sourceType": "stock_valuation",
+        "sourceIsFirstMovement": true,
+        "date": "today",
+        "total": "124.02",
+        "lines": [
+          {
+            "account": "1400",
+            "debit": "0",
+            "credit": "39.01",
+            "description": "تسويات وهالك وتحويلات"
+          },
+          {
+            "account": "1400",
+            "debit": "76.5",
+            "credit": "0",
+            "description": "استلامات ومرتجعات موردين"
+          },
+          {
+            "account": "1400",
+            "debit": "8.51",
+            "credit": "0",
+            "description": "صرف ومرتجعات عملاء"
+          },
+          {
+            "account": "2150",
+            "debit": "0",
+            "credit": "76.5",
+            "description": "استلامات ومرتجعات موردين"
+          },
+          {
+            "account": "5100",
+            "debit": "0",
+            "credit": "8.51",
+            "description": "صرف ومرتجعات عملاء"
+          },
+          {
+            "account": "5200",
+            "debit": "39.01",
+            "credit": "0",
+            "description": "تسويات وهالك وتحويلات"
+          }
+        ]
+      }
+    ],
+    "remaining": [
+      "recv-A#0=10",
+      "recv-A#1=20",
+      "recv-F#0=0",
+      "recv-F#1=0",
+      "recv-F#2=0",
+      "mixed-A#0=0",
+      "mixed-A#1=3",
+      "mixed-A#2=0",
+      "mixed-A#3=0",
+      "mixed-A#4=0",
+      "mixed-A#5=2.5",
+      "fifo-multi#0=0",
+      "fifo-multi#1=0",
+      "fifo-multi#2=0",
+      "fifo-multi#3=0",
+      "fifo-multi#4=0",
+      "fifo-multi#5=0",
+      "fifo-given-cost#0=0",
+      "standard#0=10",
+      "standard#1=0",
+      "standard#2=2",
+      "standard#3=0",
+      "zero-cost#0=5",
+      "zero-cost#1=0",
+      "zero-cost#2=3",
+      "zero-cost#3=0",
+      "zero-cost#4=1",
+      "reversal#0=0",
+      "reversal#1=3",
+      "reversal#2=9",
+      "reversal#3=0",
+      "reversal#4=5",
+      "reversal#5=2",
+      "multi-product#0=0",
+      "multi-product#1=4",
+      "multi-product#2=0",
+      "multi-product#3=6",
+      "multi-product#4=0",
+      "multi-product#5=0",
+      "multi-product#6=0",
+      "multi-product#7=2"
+    ],
+    "totals": {
+      "A-avco": {
+        "qty": "18.154",
+        "value": "220.6323"
+      },
+      "F-fifo": {
+        "qty": "23",
+        "value": "146"
+      },
+      "S-standard": {
+        "qty": "5",
+        "value": "35"
+      },
+      "Z-zero-cost": {
+        "qty": "0",
+        "value": "0"
+      }
+    },
+    "buckets": [
+      "A-avco@COLD-1/LA1=6",
+      "A-avco@COLD-2/-=10.154",
+      "A-avco@QUAR/LA1=2",
+      "F-fifo@COLD-1/LF1=8",
+      "F-fifo@COLD-1/LF2=10",
+      "F-fifo@COLD-2/-=5",
+      "S-standard@COLD-1/-=5",
+      "S-standard@COLD-2/-=0",
+      "Z-zero-cost@COLD-1/-=0"
+    ]
+  },
+  "neg-bucket": {
+    "status": 400,
+    "message": "الرصيد مش كفاية: \"TAG A-avco\" في COLD-1 (TAG-LA1) فيه 6 بس، والمطلوب 1000",
+    "rowsLeft": 0
+  },
+  "neg-running-in-then-out": {
+    "status": 400,
+    "message": "الرصيد مش كفاية: \"TAG A-avco\" في COLD-1 فيه 1 بس، والمطلوب 1.001",
+    "rowsLeft": 0
+  },
+  "neg-running-out-then-out": {
+    "status": 400,
+    "message": "الرصيد مش كفاية: \"TAG F-fifo\" في COLD-1 (TAG-LF1) فيه 0 بس، والمطلوب 0.001",
+    "rowsLeft": 0
+  },
+  "zero-qty": {
+    "status": 400,
+    "message": "حركة بكمية صفر مش مسموحة",
+    "rowsLeft": 0
+  },
+  "too-precise": {
+    "status": 400,
+    "message": "الكمية فيها خانات عشرية أكتر من المسموح",
+    "rowsLeft": 0
+  },
+  "standard-no-cost": {
+    "status": 409,
+    "message": "\"TAG S0-standard-zero\" طريقة تكلفته معيارية ومالوش تكلفة معيارية — حددها الأول",
+    "rowsLeft": 0
+  },
+  "not-tracked": {
+    "status": 400,
+    "message": "\"TAG N-not-tracked\" مش صنف بيتتبع مخزونه",
+    "rowsLeft": 0
+  },
+  "wrong-location": {
+    "status": 400,
+    "message": "مكان التخزين مش تابع للمخزن ده",
+    "rowsLeft": 0
+  },
+  "reverses-mismatch": {
+    "status": 409,
+    "message": "الحركة اللي بتتلغي مش مطابقة للإلغاء (صنف أو كمية مختلفة)",
+    "rowsLeft": 0
+  },
+  "bad-reason-before-negative": {
+    "status": 400,
+    "message": "reason: لازم يكون نص",
+    "rowsLeft": 0
+  },
+  "negative-before-bad-reason": {
+    "status": 400,
+    "message": "الرصيد مش كفاية: \"TAG A-avco\" في COLD-2 فيه 10.154 بس، والمطلوب 1000",
+    "rowsLeft": 0
+  },
+  "std-cost-after-negative": {
+    "status": 400,
+    "message": "الرصيد مش كفاية: \"TAG A-avco\" في COLD-2 فيه 10.154 بس، والمطلوب 1000",
+    "rowsLeft": 0
+  },
+  "dispatch-setup": {
+    "moves": [
+      {
+        "label": "dispatch-setup#0",
+        "product": "D1-avco-fefo",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "intake",
+        "qty": "3",
+        "unitCost": "10",
+        "reason": "TAG setup",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "3",
+          "unitCost": "10",
+          "value": "30",
+          "remainingQty": "3",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "dispatch-setup#1",
+        "product": "D1-avco-fefo",
+        "location": "COLD-1",
+        "lot": "D1-L1",
+        "kind": "intake",
+        "qty": "10",
+        "unitCost": "12",
+        "reason": "TAG setup",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "10",
+          "unitCost": "12",
+          "value": "120",
+          "remainingQty": "10",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "dispatch-setup#2",
+        "product": "D1-avco-fefo",
+        "location": "COLD-2",
+        "lot": "D1-L2",
+        "kind": "intake",
+        "qty": "10",
+        "unitCost": "11",
+        "reason": "TAG setup",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "10",
+          "unitCost": "11",
+          "value": "110",
+          "remainingQty": "10",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "dispatch-setup#3",
+        "product": "D1-avco-fefo",
+        "location": "COLD-1",
+        "lot": "D1-LX-expired",
+        "kind": "intake",
+        "qty": "5",
+        "unitCost": "9",
+        "reason": "TAG setup",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "5",
+          "unitCost": "9",
+          "value": "45",
+          "remainingQty": "5",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "dispatch-setup#4",
+        "product": "D1-avco-fefo",
+        "location": "QUAR",
+        "lot": "D1-LQ-quarantine",
+        "kind": "intake",
+        "qty": "4",
+        "unitCost": "10",
+        "reason": "TAG setup",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "4",
+          "unitCost": "10",
+          "value": "40",
+          "remainingQty": "4",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "dispatch-setup#5",
+        "product": "D2-fifo",
+        "location": "COLD-1",
+        "lot": "D2-M1",
+        "kind": "intake",
+        "qty": "8",
+        "unitCost": "5",
+        "reason": "TAG setup",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "8",
+          "unitCost": "5",
+          "value": "40",
+          "remainingQty": "8",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "dispatch-setup#6",
+        "product": "D2-fifo",
+        "location": "COLD-2",
+        "lot": "D2-M2",
+        "kind": "intake",
+        "qty": "6",
+        "unitCost": "7",
+        "reason": "TAG setup",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "6",
+          "unitCost": "7",
+          "value": "42",
+          "remainingQty": "6",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "dispatch-setup#7",
+        "product": "D3-pieces",
+        "location": "COLD-1",
+        "lot": "D3-P1",
+        "kind": "intake",
+        "qty": "60",
+        "unitCost": "2",
+        "reason": "TAG setup",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "60",
+          "unitCost": "2",
+          "value": "120",
+          "remainingQty": "60",
+          "costSource": "purchase",
+          "priceVariance": "0"
+        }
+      }
+    ],
+    "seqOrder": [
+      "dispatch-setup#0",
+      "dispatch-setup#1",
+      "dispatch-setup#2",
+      "dispatch-setup#3",
+      "dispatch-setup#4",
+      "dispatch-setup#5",
+      "dispatch-setup#6",
+      "dispatch-setup#7"
+    ],
+    "postings": {
+      "movements": 8,
+      "entries": 1,
+      "unposted": 0
+    },
+    "journal": [
+      {
+        "description": "قيمة مخزون — استلام TAG-RC2-0، TAG-RC2-1، TAG-RC2-2",
+        "sourceType": "stock_valuation",
+        "sourceIsFirstMovement": true,
+        "date": "today",
+        "total": "547",
+        "lines": [
+          {
+            "account": "1400",
+            "debit": "547",
+            "credit": "0",
+            "description": "استلامات ومرتجعات موردين"
+          },
+          {
+            "account": "2150",
+            "debit": "0",
+            "credit": "547",
+            "description": "استلامات ومرتجعات موردين"
+          }
+        ]
+      }
+    ],
+    "remaining": [
+      "dispatch-setup#0=3",
+      "dispatch-setup#1=10",
+      "dispatch-setup#2=10",
+      "dispatch-setup#3=5",
+      "dispatch-setup#4=4",
+      "dispatch-setup#5=8",
+      "dispatch-setup#6=6",
+      "dispatch-setup#7=60"
+    ],
+    "totals": {
+      "D1-avco-fefo": {
+        "qty": "32",
+        "value": "345"
+      },
+      "D2-fifo": {
+        "qty": "14",
+        "value": "82"
+      },
+      "D3-pieces": {
+        "qty": "60",
+        "value": "120"
+      }
+    },
+    "buckets": [
+      "D1-avco-fefo@COLD-1/D1-L1=10",
+      "D1-avco-fefo@COLD-1/D1-LX-expired=5",
+      "D1-avco-fefo@COLD-2/-=3",
+      "D1-avco-fefo@COLD-2/D1-L2=10",
+      "D1-avco-fefo@QUAR/D1-LQ-quarantine=4",
+      "D2-fifo@COLD-1/D2-M1=8",
+      "D2-fifo@COLD-2/D2-M2=6",
+      "D3-pieces@COLD-1/D3-P1=60"
+    ]
+  },
+  "order-reserved": [
+    "D1-avco-fefo:12KG=12:active:null",
+    "D1-avco-fefo:6KG=6:active:null",
+    "D2-fifo:10KG=10:active:null",
+    "D3-pieces:2CRATE=24:active:null"
+  ],
+  "dispatch": {
+    "doc": {
+      "status": "posted",
+      "reason": "أوردر UN-# · TAG فندق"
+    },
+    "moves": [
+      {
+        "label": "dispatch#0",
+        "product": "D1-avco-fefo",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "issue",
+        "qty": "-3",
+        "unitCost": "10.7813",
+        "reason": null,
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-3",
+          "unitCost": "10.7813",
+          "value": "-32.3439",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "dispatch#1",
+        "product": "D1-avco-fefo",
+        "location": "COLD-2",
+        "lot": "D1-L2",
+        "kind": "issue",
+        "qty": "-9",
+        "unitCost": "10.7812",
+        "reason": null,
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-9",
+          "unitCost": "10.7812",
+          "value": "-97.0308",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "dispatch#2",
+        "product": "D2-fifo",
+        "location": "COLD-1",
+        "lot": "D2-M1",
+        "kind": "issue",
+        "qty": "-8",
+        "unitCost": "5",
+        "reason": null,
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-8",
+          "unitCost": "5",
+          "value": "-40",
+          "remainingQty": "0",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "dispatch#3",
+        "product": "D2-fifo",
+        "location": "COLD-2",
+        "lot": "D2-M2",
+        "kind": "issue",
+        "qty": "-2",
+        "unitCost": "7",
+        "reason": null,
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-2",
+          "unitCost": "7",
+          "value": "-14",
+          "remainingQty": "0",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "dispatch#4",
+        "product": "D3-pieces",
+        "location": "COLD-1",
+        "lot": "D3-P1",
+        "kind": "issue",
+        "qty": "-24",
+        "unitCost": "2",
+        "reason": null,
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-24",
+          "unitCost": "2",
+          "value": "-48",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "dispatch#5",
+        "product": "D1-avco-fefo",
+        "location": "COLD-2",
+        "lot": "D1-L2",
+        "kind": "issue",
+        "qty": "-1",
+        "unitCost": "10.7813",
+        "reason": null,
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-1",
+          "unitCost": "10.7813",
+          "value": "-10.7813",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "dispatch#6",
+        "product": "D1-avco-fefo",
+        "location": "COLD-1",
+        "lot": "D1-L1",
+        "kind": "issue",
+        "qty": "-5",
+        "unitCost": "10.7813",
+        "reason": null,
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-5",
+          "unitCost": "10.7813",
+          "value": "-53.9065",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      }
+    ],
+    "seqOrder": [
+      "dispatch#0",
+      "dispatch#1",
+      "dispatch#2",
+      "dispatch#3",
+      "dispatch#4",
+      "dispatch#5",
+      "dispatch#6"
+    ],
+    "postings": {
+      "movements": 7,
+      "entries": 1,
+      "unposted": 0
+    },
+    "journal": [
+      {
+        "description": "قيمة مخزون — صرف لعميل ISS-#",
+        "sourceType": "stock_valuation",
+        "sourceIsFirstMovement": true,
+        "date": "today",
+        "total": "296.06",
+        "lines": [
+          {
+            "account": "1400",
+            "debit": "0",
+            "credit": "296.06",
+            "description": "صرف ومرتجعات عملاء"
+          },
+          {
+            "account": "5100",
+            "debit": "296.06",
+            "credit": "0",
+            "description": "صرف ومرتجعات عملاء"
+          }
+        ]
+      }
+    ],
+    "remaining": [
+      "dispatch-setup#0=3",
+      "dispatch-setup#1=10",
+      "dispatch-setup#2=10",
+      "dispatch-setup#3=5",
+      "dispatch-setup#4=4",
+      "dispatch-setup#5=0",
+      "dispatch-setup#6=4",
+      "dispatch-setup#7=60",
+      "dispatch#0=0",
+      "dispatch#1=0",
+      "dispatch#2=0",
+      "dispatch#3=0",
+      "dispatch#4=0",
+      "dispatch#5=0",
+      "dispatch#6=0"
+    ],
+    "totals": {
+      "D1-avco-fefo": {
+        "qty": "14",
+        "value": "150.9375"
+      },
+      "D2-fifo": {
+        "qty": "4",
+        "value": "28"
+      },
+      "D3-pieces": {
+        "qty": "36",
+        "value": "72"
+      }
+    },
+    "buckets": [
+      "D1-avco-fefo@COLD-1/D1-L1=5",
+      "D1-avco-fefo@COLD-1/D1-LX-expired=5",
+      "D1-avco-fefo@COLD-2/-=0",
+      "D1-avco-fefo@COLD-2/D1-L2=0",
+      "D1-avco-fefo@QUAR/D1-LQ-quarantine=4",
+      "D2-fifo@COLD-1/D2-M1=0",
+      "D2-fifo@COLD-2/D2-M2=4",
+      "D3-pieces@COLD-1/D3-P1=36"
+    ],
+    "reservations": [
+      "D1-avco-fefo:12KG=12:consumed:ISS-#",
+      "D1-avco-fefo:6KG=6:consumed:ISS-#",
+      "D2-fifo:10KG=10:consumed:ISS-#",
+      "D3-pieces:2CRATE=24:consumed:ISS-#"
+    ]
+  },
+  "reopen": {
+    "doc": {
+      "type": "issue",
+      "status": "posted",
+      "reason": "إلغاء ISS-#: الأوردر اتفتح تاني: golden reopen",
+      "original": "reversed"
+    },
+    "moves": [
+      {
+        "label": "reopen#0",
+        "product": "D1-avco-fefo",
+        "location": "COLD-1",
+        "lot": "D1-L1",
+        "kind": "customer_return",
+        "qty": "5",
+        "unitCost": "10.7813",
+        "reason": "إلغاء ISS-#",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "5",
+          "unitCost": "10.7813",
+          "value": "53.9065",
+          "remainingQty": "5",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "reopen#1",
+        "product": "D1-avco-fefo",
+        "location": "COLD-2",
+        "lot": "D1-L2",
+        "kind": "customer_return",
+        "qty": "1",
+        "unitCost": "10.7813",
+        "reason": "إلغاء ISS-#",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "1",
+          "unitCost": "10.7813",
+          "value": "10.7813",
+          "remainingQty": "1",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "reopen#2",
+        "product": "D3-pieces",
+        "location": "COLD-1",
+        "lot": "D3-P1",
+        "kind": "customer_return",
+        "qty": "24",
+        "unitCost": "2",
+        "reason": "إلغاء ISS-#",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "24",
+          "unitCost": "2",
+          "value": "48",
+          "remainingQty": "24",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "reopen#3",
+        "product": "D2-fifo",
+        "location": "COLD-2",
+        "lot": "D2-M2",
+        "kind": "customer_return",
+        "qty": "2",
+        "unitCost": "7",
+        "reason": "إلغاء ISS-#",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "2",
+          "unitCost": "7",
+          "value": "14",
+          "remainingQty": "2",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "reopen#4",
+        "product": "D2-fifo",
+        "location": "COLD-1",
+        "lot": "D2-M1",
+        "kind": "customer_return",
+        "qty": "8",
+        "unitCost": "5",
+        "reason": "إلغاء ISS-#",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "8",
+          "unitCost": "5",
+          "value": "40",
+          "remainingQty": "8",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "reopen#5",
+        "product": "D1-avco-fefo",
+        "location": "COLD-2",
+        "lot": "D1-L2",
+        "kind": "customer_return",
+        "qty": "9",
+        "unitCost": "10.7812",
+        "reason": "إلغاء ISS-#",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "9",
+          "unitCost": "10.7812",
+          "value": "97.0308",
+          "remainingQty": "9",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "reopen#6",
+        "product": "D1-avco-fefo",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "customer_return",
+        "qty": "3",
+        "unitCost": "10.7813",
+        "reason": "إلغاء ISS-#",
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "3",
+          "unitCost": "10.7813",
+          "value": "32.3439",
+          "remainingQty": "3",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      }
+    ],
+    "seqOrder": [
+      "reopen#0",
+      "reopen#1",
+      "reopen#2",
+      "reopen#3",
+      "reopen#4",
+      "reopen#5",
+      "reopen#6"
+    ],
+    "postings": {
+      "movements": 7,
+      "entries": 1,
+      "unposted": 0
+    },
+    "journal": [
+      {
+        "description": "قيمة مخزون — مرتجع عميل ISS-#",
+        "sourceType": "stock_valuation",
+        "sourceIsFirstMovement": true,
+        "date": "today",
+        "total": "296.06",
+        "lines": [
+          {
+            "account": "1400",
+            "debit": "296.06",
+            "credit": "0",
+            "description": "صرف ومرتجعات عملاء"
+          },
+          {
+            "account": "5100",
+            "debit": "0",
+            "credit": "296.06",
+            "description": "صرف ومرتجعات عملاء"
+          }
+        ]
+      }
+    ],
+    "remaining": [
+      "dispatch-setup#0=3",
+      "dispatch-setup#1=10",
+      "dispatch-setup#2=10",
+      "dispatch-setup#3=5",
+      "dispatch-setup#4=4",
+      "dispatch-setup#5=0",
+      "dispatch-setup#6=4",
+      "dispatch-setup#7=60",
+      "dispatch#0=0",
+      "dispatch#1=0",
+      "dispatch#2=0",
+      "dispatch#3=0",
+      "dispatch#4=0",
+      "dispatch#5=0",
+      "dispatch#6=0",
+      "reopen#0=5",
+      "reopen#1=1",
+      "reopen#2=24",
+      "reopen#3=2",
+      "reopen#4=8",
+      "reopen#5=9",
+      "reopen#6=3"
+    ],
+    "totals": {
+      "D1-avco-fefo": {
+        "qty": "32",
+        "value": "345"
+      },
+      "D2-fifo": {
+        "qty": "14",
+        "value": "82"
+      },
+      "D3-pieces": {
+        "qty": "60",
+        "value": "120"
+      }
+    },
+    "buckets": [
+      "D1-avco-fefo@COLD-1/D1-L1=10",
+      "D1-avco-fefo@COLD-1/D1-LX-expired=5",
+      "D1-avco-fefo@COLD-2/-=3",
+      "D1-avco-fefo@COLD-2/D1-L2=10",
+      "D1-avco-fefo@QUAR/D1-LQ-quarantine=4",
+      "D2-fifo@COLD-1/D2-M1=8",
+      "D2-fifo@COLD-2/D2-M2=6",
+      "D3-pieces@COLD-1/D3-P1=60"
+    ],
+    "reservations": [
+      "D1-avco-fefo:12KG=12:active:null",
+      "D1-avco-fefo:12KG=12:consumed:ISS-#",
+      "D1-avco-fefo:6KG=6:active:null",
+      "D1-avco-fefo:6KG=6:consumed:ISS-#",
+      "D2-fifo:10KG=10:active:null",
+      "D2-fifo:10KG=10:consumed:ISS-#",
+      "D3-pieces:2CRATE=24:active:null",
+      "D3-pieces:2CRATE=24:consumed:ISS-#"
+    ]
+  },
+  "redispatch": {
+    "moves": [
+      {
+        "label": "redispatch#0",
+        "product": "D1-avco-fefo",
+        "location": "COLD-2",
+        "lot": null,
+        "kind": "issue",
+        "qty": "-3",
+        "unitCost": "10.7813",
+        "reason": null,
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-3",
+          "unitCost": "10.7813",
+          "value": "-32.3439",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "redispatch#1",
+        "product": "D1-avco-fefo",
+        "location": "COLD-2",
+        "lot": "D1-L2",
+        "kind": "issue",
+        "qty": "-9",
+        "unitCost": "10.7812",
+        "reason": null,
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-9",
+          "unitCost": "10.7812",
+          "value": "-97.0308",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "redispatch#2",
+        "product": "D2-fifo",
+        "location": "COLD-1",
+        "lot": "D2-M1",
+        "kind": "issue",
+        "qty": "-8",
+        "unitCost": "5",
+        "reason": null,
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-8",
+          "unitCost": "5",
+          "value": "-40",
+          "remainingQty": "0",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "redispatch#3",
+        "product": "D2-fifo",
+        "location": "COLD-2",
+        "lot": "D2-M2",
+        "kind": "issue",
+        "qty": "-2",
+        "unitCost": "7",
+        "reason": null,
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-2",
+          "unitCost": "7",
+          "value": "-14",
+          "remainingQty": "0",
+          "costSource": "fifo",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "redispatch#4",
+        "product": "D3-pieces",
+        "location": "COLD-1",
+        "lot": "D3-P1",
+        "kind": "issue",
+        "qty": "-24",
+        "unitCost": "2",
+        "reason": null,
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-24",
+          "unitCost": "2",
+          "value": "-48",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "redispatch#5",
+        "product": "D1-avco-fefo",
+        "location": "COLD-2",
+        "lot": "D1-L2",
+        "kind": "issue",
+        "qty": "-1",
+        "unitCost": "10.7813",
+        "reason": null,
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-1",
+          "unitCost": "10.7813",
+          "value": "-10.7813",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      },
+      {
+        "label": "redispatch#6",
+        "product": "D1-avco-fefo",
+        "location": "COLD-1",
+        "lot": "D1-L1",
+        "kind": "issue",
+        "qty": "-5",
+        "unitCost": "10.7813",
+        "reason": null,
+        "effectiveDate": "today",
+        "layer": {
+          "qty": "-5",
+          "unitCost": "10.7813",
+          "value": "-53.9065",
+          "remainingQty": "0",
+          "costSource": "average",
+          "priceVariance": "0"
+        }
+      }
+    ],
+    "seqOrder": [
+      "redispatch#0",
+      "redispatch#1",
+      "redispatch#2",
+      "redispatch#3",
+      "redispatch#4",
+      "redispatch#5",
+      "redispatch#6"
+    ],
+    "postings": {
+      "movements": 7,
+      "entries": 1,
+      "unposted": 0
+    },
+    "journal": [
+      {
+        "description": "قيمة مخزون — صرف لعميل ISS-#",
+        "sourceType": "stock_valuation",
+        "sourceIsFirstMovement": true,
+        "date": "today",
+        "total": "296.06",
+        "lines": [
+          {
+            "account": "1400",
+            "debit": "0",
+            "credit": "296.06",
+            "description": "صرف ومرتجعات عملاء"
+          },
+          {
+            "account": "5100",
+            "debit": "296.06",
+            "credit": "0",
+            "description": "صرف ومرتجعات عملاء"
+          }
+        ]
+      }
+    ],
+    "remaining": [
+      "dispatch-setup#0=3",
+      "dispatch-setup#1=10",
+      "dispatch-setup#2=10",
+      "dispatch-setup#3=5",
+      "dispatch-setup#4=4",
+      "dispatch-setup#5=0",
+      "dispatch-setup#6=2",
+      "dispatch-setup#7=60",
+      "dispatch#0=0",
+      "dispatch#1=0",
+      "dispatch#2=0",
+      "dispatch#3=0",
+      "dispatch#4=0",
+      "dispatch#5=0",
+      "dispatch#6=0",
+      "reopen#0=5",
+      "reopen#1=1",
+      "reopen#2=24",
+      "reopen#3=2",
+      "reopen#4=0",
+      "reopen#5=9",
+      "reopen#6=3",
+      "redispatch#0=0",
+      "redispatch#1=0",
+      "redispatch#2=0",
+      "redispatch#3=0",
+      "redispatch#4=0",
+      "redispatch#5=0",
+      "redispatch#6=0"
+    ],
+    "totals": {
+      "D1-avco-fefo": {
+        "qty": "14",
+        "value": "150.9375"
+      },
+      "D2-fifo": {
+        "qty": "4",
+        "value": "28"
+      },
+      "D3-pieces": {
+        "qty": "36",
+        "value": "72"
+      }
+    },
+    "buckets": [
+      "D1-avco-fefo@COLD-1/D1-L1=5",
+      "D1-avco-fefo@COLD-1/D1-LX-expired=5",
+      "D1-avco-fefo@COLD-2/-=0",
+      "D1-avco-fefo@COLD-2/D1-L2=0",
+      "D1-avco-fefo@QUAR/D1-LQ-quarantine=4",
+      "D2-fifo@COLD-1/D2-M1=0",
+      "D2-fifo@COLD-2/D2-M2=4",
+      "D3-pieces@COLD-1/D3-P1=36"
+    ],
+    "reservations": [
+      "D1-avco-fefo:12KG=12:consumed:ISS-#",
+      "D1-avco-fefo:12KG=12:consumed:ISS-#",
+      "D1-avco-fefo:6KG=6:consumed:ISS-#",
+      "D1-avco-fefo:6KG=6:consumed:ISS-#",
+      "D2-fifo:10KG=10:consumed:ISS-#",
+      "D2-fifo:10KG=10:consumed:ISS-#",
+      "D3-pieces:2CRATE=24:consumed:ISS-#",
+      "D3-pieces:2CRATE=24:consumed:ISS-#"
+    ]
+  },
+  "dispatch-shortfall": {
+    "status": 409,
+    "code": "dispatch_stock_shortfall",
+    "message": "مينفعش خروج الأوردر — TAG D1-avco-fefo (موجود 5 من 40 KG)، TAG D2-fifo (موجود 4 من 40 KG)",
+    "shortfalls": [
+      {
+        "product": "D1-avco-fefo",
+        "name": "TAG D1-avco-fefo",
+        "requested": "40",
+        "available": "5",
+        "reason": "insufficient"
+      },
+      {
+        "product": "D2-fifo",
+        "name": "TAG D2-fifo",
+        "requested": "40",
+        "available": "4",
+        "reason": "insufficient"
+      }
+    ],
+    "status_after": "loaded"
+  }
+}
