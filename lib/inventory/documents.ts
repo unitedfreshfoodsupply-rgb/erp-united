@@ -19,7 +19,7 @@ import { assertGradeBProduct, computeGradingCosts, type GradingCostPolicy, type 
 import { gradingPrices } from "@/lib/sales/pricing";
 import { allocate, lockAvailability, PickClaims } from "@/lib/inventory/picking";
 import { resolveLocation, resolveWarehouse, receivingLocation } from "@/lib/inventory/context";
-import { toBaseQuantity } from "@/lib/inventory/packaging";
+import { preloadedUnits, toBaseQuantity } from "@/lib/inventory/packaging";
 import { requestFingerprint } from "@/lib/core/idempotency";
 import { requiresAdjustmentApproval } from "@/lib/inventory/adjustment-rules";
 import { searchWhere } from "@/lib/core/search";
@@ -87,12 +87,17 @@ export function assertOpeningCostIsStandard(product: { name: string; costingMeth
 async function loadProduct(db: Tx, id: unknown): Promise<Product> {
   if (typeof id !== "string" || !id) throw new ApiError(400, "اختار الصنف");
   const p = await db.stockProduct.findUnique({ where: { id } });
+  return checkedProduct(p, id);
+}
+
+function checkedProduct<P extends Product>(p: P | null | undefined, id: unknown): P {
+  if (typeof id !== "string" || !id) throw new ApiError(400, "اختار الصنف");
   if (!p) throw new ApiError(404, "الصنف مش موجود");
   if (!p.stockTracked) throw new ApiError(400, `"${p.name}" مش صنف بيتتبع مخزونه`);
   return p;
 }
 
-async function lineQty(db: Tx, product: Product, raw: RawLine, opts: { allowNegative?: boolean } = {}) {
+async function lineQty(db: Pick<Tx, "unitOfMeasure" | "productPackaging">, product: Product, raw: RawLine, opts: { allowNegative?: boolean } = {}) {
   const qty = parseQty(raw.quantity, `كمية "${product.name}"`, { allowNegative: opts.allowNegative });
   if (typeof raw.uom === "string" && raw.uom && raw.uom !== product.unit) {
     const sign = qty.lt(0) ? -1 : 1;
@@ -929,7 +934,8 @@ export async function postCustomerReturnInTx(tx: Tx, input: Record<string, unkno
   // Serialise customer returns for the same order so no two requests both see
   // room to return the same goods. After the lock, enforce that cumulative
   // returned goods never exceed what was dispatched for the order — a customer
-  // can only send back what actually left.
+  // can only send back what actually left. Only the live issue counts: one taken back
+  // by a reopen (status reversed) shipped nothing (LOG-6).
   let issuedPerProduct: Map<string, Prisma.Decimal> | null = null;
   let issuedCost: Map<string, Prisma.Decimal> | null = null;
   let alreadyReturned: Map<string, Prisma.Decimal> | null = null;
@@ -939,7 +945,7 @@ export async function postCustomerReturnInTx(tx: Tx, input: Record<string, unkno
       SELECT m."productId", -sum(m."quantity") AS qty, -sum(v."value") AS value
       FROM "StockMovement" m JOIN "InventoryDocument" d ON d."id" = m."documentId"
       LEFT JOIN "StockValuationLayer" v ON v."movementId" = m."id"
-      WHERE d."type" = 'issue' AND d."reversalOfId" IS NULL
+      WHERE d."type" = 'issue' AND d."status" = 'posted' AND d."reversalOfId" IS NULL
         AND d."sourceType" = 'order' AND d."sourceId" = ${orderId}
         AND m."kind" = 'issue'
       GROUP BY m."productId"`;
@@ -972,11 +978,26 @@ export async function postCustomerReturnInTx(tx: Tx, input: Record<string, unkno
     },
     actor
   );
+  // Products, their units and packagings, and named locations read once for every line (PW-7:
+  // a full credit with restock of a 60-line invoice went line by line); each line is then
+  // checked and converted as loadProduct, toBaseQuantity and resolveLocation do.
+  const productIds = [...new Set(raw.map((l) => l.product_id).filter((x): x is string => typeof x === "string" && !!x))];
+  const locationIds = [...new Set(raw.map((l) => l.location_id).filter((x): x is string => typeof x === "string" && !!x))];
+  const [products, namedLocations] = await Promise.all([
+    productIds.length ? tx.stockProduct.findMany({ where: { id: { in: productIds } } }) : [],
+    locationIds.length ? tx.storageLocation.findMany({ where: { id: { in: locationIds } } }) : [],
+  ]);
+  const productById = new Map(products.map((p) => [p.id, p]));
+  const converted = raw.filter((l) => typeof l.uom === "string" && l.uom && productById.has(l.product_id as string) && l.uom !== productById.get(l.product_id as string)!.unit);
+  const units = converted.length ? await preloadedUnits(tx, converted.map((l) => ({ productId: l.product_id as string, units: [l.uom as string, productById.get(l.product_id as string)!.unit] }))) : tx;
+  const locationById = new Map(namedLocations.map((l) => [l.id, l]));
+  const locations = { storageLocation: { findUnique: async ({ where }: { where: { id: string } }) => locationById.get(where.id) ?? null } } as unknown as Tx;
+  let fallback: Awaited<ReturnType<typeof receivingLocation>> | null = null;
   const moves: MoveInput[] = [];
   for (const l of raw) {
-    const product = await loadProduct(tx, l.product_id);
-    const qty = await lineQty(tx, product, l);
-    const loc = l.location_id ? await resolveLocation(tx, wh.id, l.location_id as string) : quarantine ?? (await receivingLocation(tx, wh.id));
+    const product = checkedProduct(typeof l.product_id === "string" ? productById.get(l.product_id) : null, l.product_id);
+    const qty = await lineQty(units, product, l);
+    const loc = l.location_id ? await resolveLocation(typeof l.location_id === "string" ? locations : tx, wh.id, l.location_id as string) : quarantine ?? (fallback ??= await receivingLocation(tx, wh.id));
     const cost = issuedCost?.get(product.id);
     moves.push({ productId: product.id, warehouseId: wh.id, locationId: loc.id, lotId: typeof l.lot_id === "string" && l.lot_id ? l.lot_id : null, quantity: qty, kind: "customer_return", documentId: doc.id, ...(cost ? { unitCost: cost, costSource: "lot" as const } : {}) });
   }

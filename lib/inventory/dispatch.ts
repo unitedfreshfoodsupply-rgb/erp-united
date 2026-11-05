@@ -2,7 +2,7 @@ import type { StockIssueException } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
-import { writeAudit } from "@/lib/audit";
+import { writeAudit, writeAuditMany } from "@/lib/audit";
 import { assertPermission } from "@/lib/authz-core";
 import { inTx, type Tx } from "@/lib/tx";
 import { advisoryXactLock } from "@/lib/dbLock";
@@ -170,26 +170,33 @@ export async function issueForDispatch(tx: Tx, orderId: string, actor: ServiceAc
  */
 export async function reverseDispatchIssue(tx: Tx, orderId: string, reason: string, actor: ServiceActor) {
   const docs = await tx.inventoryDocument.findMany({ where: { type: "issue", status: "posted", reversalOfId: null, sourceType: "order", sourceId: orderId } });
+  // Goods the customer already sent back against this order are on the books once, through
+  // their return (LOG-6). Reversing the whole issue as well would put them back a second time.
+  if (docs.length) {
+    const returned = await tx.inventoryDocument.findFirst({ where: { type: "customer_return", sourceType: "order", sourceId: orderId, status: "posted", reversalOfId: null }, select: { number: true } });
+    if (returned) throw new ApiError(409, `اتسجل مرتجع ${returned.number} على الأوردر ده — اعكس المرتجع الأول، أو كمّل بالمرتجع بدل إعادة الفتح`);
+  }
   for (const d of docs) await reverseDocumentInTx(tx, d.id, `الأوردر اتفتح تاني: ${reason}`, actor);
   const open = await tx.stockIssueException.findMany({ where: { orderId, status: "open" } });
-  for (const ex of open) {
-    await tx.stockIssueException.update({
-      where: { id: ex.id, version: ex.version },
+  if (open.length) {
+    const { count } = await tx.stockIssueException.updateMany({
+      where: { OR: open.map((ex) => ({ id: ex.id, version: ex.version })) },
       data: { status: "voided", resolution: `الأوردر اتفتح تاني: ${reason}`, resolvedById: actor.id, resolvedBy: actor.name, resolvedAt: new Date(), version: { increment: 1 } },
     });
-    await writeAudit(
-      {
+    if (count !== open.length) throw new Prisma.PrismaClientKnownRequestError("Record to update not found.", { code: "P2025", clientVersion: Prisma.prismaVersion.client });
+    await writeAuditMany(
+      open.map((ex) => ({
         userId: actor.id,
         userName: actor.name,
         role: actor.role,
         action: "stock_issue_exception_voided",
-        entityType: "stock_issue_exception",
+        entityType: "stock_issue_exception" as const,
         entityId: ex.id,
         orderId,
         reason,
-        source: "system",
+        source: "system" as const,
         deviceId: actor.deviceId,
-      },
+      })),
       tx
     );
   }

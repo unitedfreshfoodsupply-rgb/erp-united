@@ -2,10 +2,11 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/rbac";
-import { writeAudit } from "@/lib/audit";
+import { writeAudit, writeAuditMany } from "@/lib/audit";
 import { actorCan, assertPermission } from "@/lib/authz-core";
 import { inTx, type Tx } from "@/lib/tx";
-import { notify } from "@/lib/core/notifications";
+import { notify, notifyMany, usersWithPermission } from "@/lib/core/notifications";
+import { newId } from "@/lib/core/ids";
 import { optText, parse, text, version } from "@/lib/core/validation";
 import type { ServiceActor } from "@/lib/core/actor";
 
@@ -32,18 +33,40 @@ export const TYPE_LABEL: Record<ExceptionType, string> = {
   loading_discrepancy: "فرق تحميل",
 };
 
+type ExceptionInput = { type: ExceptionType; sourceType: "order" | "trip_stop" | "trip"; sourceId: string; orderId?: string | null; tripId?: string | null; orderItemId?: string | null; productName?: string | null; quantity?: Prisma.Decimal | null; description: string };
+
+const raisedNotice = (e: ExceptionInput, id: string) => ({ type: "operations.exception", severity: "warning" as const, title: `${TYPE_LABEL[e.type]}: ${e.productName ?? e.description}`, body: e.description, entityType: "operational_exception", entityId: id, link: "/operations?tab=exceptions" });
+
 /** Inside the caller's transaction: records it, audits it, tells the supervisors. */
 export async function raiseException(
   tx: Tx,
-  e: { type: ExceptionType; sourceType: "order" | "trip_stop" | "trip"; sourceId: string; orderId?: string | null; tripId?: string | null; orderItemId?: string | null; productName?: string | null; quantity?: Prisma.Decimal | null; description: string },
+  e: ExceptionInput,
   actor: Actorish
 ) {
   const row = await tx.operationalException.create({
     data: { ...e, orderId: e.orderId ?? null, tripId: e.tripId ?? null, orderItemId: e.orderItemId ?? null, productName: e.productName ?? null, quantity: e.quantity ?? null, createdById: actor.id, createdBy: actor.name },
   });
   await audit(tx, actor, row.id, "exception_raised", `${TYPE_LABEL[e.type]} · ${e.description}`, e.orderId);
-  await notify(tx, { permission: "orders.approve", exclude: [actor.id] }, { type: "operations.exception", severity: "warning", title: `${TYPE_LABEL[e.type]}: ${e.productName ?? e.description}`, body: e.description, entityType: "operational_exception", entityId: row.id, link: "/operations?tab=exceptions" });
+  await notify(tx, { permission: "orders.approve", exclude: [actor.id] }, raisedNotice(e, row.id));
   return row;
+}
+
+/**
+ * raiseException for everything one action found wrong (a delivery result, a loading check), in
+ * a fixed number of statements: the same rows, audit entries and notifications, in the same
+ * order, with the supervisors resolved once (PW-7: six round trips per exception before).
+ */
+export async function raiseExceptions(tx: Tx, list: ExceptionInput[], actor: Actorish) {
+  if (!list.length) return [];
+  const rows = list.map((e) => ({ id: newId(), ...e, orderId: e.orderId ?? null, tripId: e.tripId ?? null, orderItemId: e.orderItemId ?? null, productName: e.productName ?? null, quantity: e.quantity ?? null, createdById: actor.id, createdBy: actor.name }));
+  await tx.operationalException.createMany({ data: rows });
+  await writeAuditMany(
+    rows.map((r, i) => ({ userId: actor.id, userName: actor.name, role: actor.role, action: "exception_raised", entityType: "operational_exception" as const, entityId: r.id, orderId: list[i].orderId ?? null, newValue: `${TYPE_LABEL[list[i].type]} · ${list[i].description}`, source: "user" as const, deviceId: actor.deviceId })),
+    tx
+  );
+  const supervisors = (await usersWithPermission(tx, "orders.approve")).filter((u) => u !== actor.id);
+  await notifyMany(tx, rows.map((r, i) => ({ userIds: supervisors, n: raisedNotice(list[i], r.id) })));
+  return rows.map((r) => r.id);
 }
 
 const createInput = z.object({
@@ -73,7 +96,8 @@ export async function createException(input: unknown, actor: ServiceActor) {
 export async function listExceptions(filters: { status?: string; type?: string; orderId?: string; tripId?: string }) {
   const rows = await prisma.operationalException.findMany({
     where: { ...(filters.status ? { status: filters.status } : {}), ...(filters.type ? { type: filters.type } : {}), ...(filters.orderId ? { orderId: filters.orderId } : {}), ...(filters.tripId ? { tripId: filters.tripId } : {}) },
-    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    // Exceptions raised together share a timestamp: the newest id first breaks the tie.
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }, { id: "desc" }],
     take: 300,
   });
   const orderIds = [...new Set(rows.map((r) => r.orderId).filter((x): x is string => !!x))];

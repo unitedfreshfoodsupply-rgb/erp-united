@@ -990,6 +990,7 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["لازم تكتب سبب إعادة الفتح", "Enter the reopen reason"],
   ["إعادة الفتح تقدر ترجع الأوردر بس لمرحلة التجهيز أو التحميل", "Reopening can only return the order to preparation or loading"],
   ["الأوردر خرج على الرحلة {} — التصحيح بنتيجة التسليم (مرتجع/عجز)", "The order left on trip {0} — correct it through the delivery result (return/shortage)"],
+  ["اتسجل مرتجع {} على الأوردر ده — اعكس المرتجع الأول، أو كمّل بالمرتجع بدل إعادة الفتح", "Customer return {0} is recorded against this order — reverse the return first, or settle the order through the return instead of reopening it"],
   ["\"{}\" مش اسم صالح", "\"{0}\" is not a valid name"],
   ["\"{}\" مستخدم بالفعل لصنف تاني — الاسم لازم يكون مميز", "\"{0}\" is already used by another product — the name must be unique"],
   ["\"{}\" موجود بالفعل", "\"{0}\" already exists"],

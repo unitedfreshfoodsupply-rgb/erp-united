@@ -12,7 +12,8 @@ import { active, optText, parse, text, version } from "@/lib/core/validation";
 import type { ServiceActor } from "@/lib/core/actor";
 import { moveOrderStatus } from "@/lib/orders-service";
 import { postCustomerReturnInTx } from "@/lib/inventory/documents";
-import { raiseException } from "@/lib/operations/exceptions";
+import { preloadedUnits, toBaseQuantity } from "@/lib/inventory/packaging";
+import { raiseException, raiseExceptions } from "@/lib/operations/exceptions";
 import { isoDate } from "@/lib/purchasing/orders";
 import { isValidISODate } from "@/lib/dates";
 import { searchWhere } from "@/lib/core/search";
@@ -127,7 +128,7 @@ async function transition(tx: Tx, trip: Trip, data: Prisma.TripUpdateInput) {
   }
 }
 
-/** Orders may be planned onto a trip at any stage before they leave; capacity is checked on KG lines. */
+/** Orders may be planned onto a trip at any stage before they leave; capacity is checked on their weight in KG. */
 async function placeOrders(tx: Tx, tripId: string, orderIds: string[], vehicle: { capacityKg: Prisma.Decimal | null; code: string }) {
   if (new Set(orderIds).size !== orderIds.length) throw new ApiError(400, "نفس الأوردر متكرر في الرحلة");
   const orders = await tx.order.findMany({ where: { id: { in: orderIds } }, include: { items: true } });
@@ -138,7 +139,21 @@ async function placeOrders(tx: Tx, tripId: string, orderIds: string[], vehicle: 
     if (other) throw new ApiError(409, `الأوردر ${o.orderNumber} على الرحلة ${other.trip.number} بالفعل`);
   }
   if (vehicle.capacityKg) {
-    const kg = orders.flatMap((o) => o.items).filter((i) => i.unit.toUpperCase() === "KG").reduce((a, i) => a.plus(shippedQty(i)), D(0));
+    const lines = orders.flatMap((o) => o.items);
+    let kg = lines.filter((i) => i.unit.toUpperCase() === "KG").reduce((a, i) => a.plus(shippedQty(i)), D(0));
+    // A line in another unit of a product kept in KG (a crate of 18 kg, a ton) weighs what it
+    // converts to (LOG-8). Lines whose weight is not known (pieces, unmapped) stay out, as before.
+    const other = lines.filter((i) => i.unit.toUpperCase() !== "KG" && i.stockProductId);
+    const weighed = other.length ? new Map((await tx.stockProduct.findMany({ where: { id: { in: [...new Set(other.map((i) => i.stockProductId!))] }, unit: "KG" }, select: { id: true, name: true, unit: true } })).map((p) => [p.id, p])) : new Map<string, { id: string; name: string; unit: string }>();
+    const inKg = other.filter((i) => weighed.has(i.stockProductId!));
+    const units = inKg.length ? await preloadedUnits(tx, inKg.map((i) => ({ productId: i.stockProductId!, units: [i.unit, "KG"] }))) : tx;
+    for (const i of inKg) {
+      try {
+        kg = kg.plus(await toBaseQuantity(units, weighed.get(i.stockProductId!)!, shippedQty(i), i.unit));
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err; // a unit that does not convert: weight unknown
+      }
+    }
     if (kg.greaterThan(vehicle.capacityKg)) throw new ApiError(409, `الحمولة ${kg.toFixed()} كجم أكبر من سعة العربية ${vehicle.code} (${vehicle.capacityKg.toFixed()} كجم)`);
   }
   await tx.tripStop.deleteMany({ where: { tripId, status: "pending" } });
@@ -247,15 +262,18 @@ export async function confirmLoaded(id: string, actor: ServiceActor) {
     if (t.status === "loaded") return t;
     const notLoaded = t.stops.filter((s) => s.order.status !== "loaded");
     if (notLoaded.length) throw new ApiError(409, `أوردرات لسه متحملتش: ${notLoaded.map((s) => s.order.orderNumber).join("، ")}`);
+    // Raised once per line: those this trip already has are read once, the new ones raised together.
+    const already = new Set((await tx.operationalException.findMany({ where: { type: "loading_discrepancy", tripId: id }, select: { orderItemId: true } })).map((x) => x.orderItemId));
+    const raised: Parameters<typeof raiseExceptions>[1] = [];
     for (const s of t.stops) {
       for (const i of s.order.items) {
         if (i.preparedQuantity == null || i.loadedQuantity == null || i.loadedQuantity === i.preparedQuantity) continue;
-        const already = await tx.operationalException.findFirst({ where: { type: "loading_discrepancy", tripId: id, orderItemId: i.id } });
-        if (already) continue;
+        if (already.has(i.id)) continue;
         const diff = D(String(i.loadedQuantity)).minus(String(i.preparedQuantity));
-        await raiseException(tx, { type: "loading_discrepancy", sourceType: "trip", sourceId: id, tripId: id, orderId: s.orderId, orderItemId: i.id, productName: i.productName, quantity: diff.abs(), description: `${s.order.orderNumber}: اتجهز ${i.preparedQuantity} واتحمل ${i.loadedQuantity} ${i.unit}` }, actor);
+        raised.push({ type: "loading_discrepancy", sourceType: "trip", sourceId: id, tripId: id, orderId: s.orderId, orderItemId: i.id, productName: i.productName, quantity: diff.abs(), description: `${s.order.orderNumber}: اتجهز ${i.preparedQuantity} واتحمل ${i.loadedQuantity} ${i.unit}` });
       }
     }
+    await raiseExceptions(tx, raised, actor);
     const updated = await transition(tx, t, { status: "loaded", loadedAt: new Date() });
     await auditTrip(tx, actor, "trip", id, "trip_loaded", `${t.stops.length} أوردر`);
     return updated;
@@ -387,7 +405,9 @@ export async function recordDelivery(stopId: string, input: unknown, actor: Serv
     if (returnable.length) {
       const doc = await postCustomerReturnInTx(
         tx,
-        { order_id: order.id, reason: v.result === "failed" ? `فشل تسليم ${trip.number}: ${v.failure_reason}` : `رفض العميل — ${trip.number}`, lines: returnable.map((w) => ({ product_id: items.get(w.itemId)!.stockProductId, quantity: w.rejected.toString() })) },
+        // In the order line's own unit (a crate, a box): the return converts it to the base unit,
+        // as the dispatch issue did (PW-10).
+        { order_id: order.id, reason: v.result === "failed" ? `فشل تسليم ${trip.number}: ${v.failure_reason}` : `رفض العميل — ${trip.number}`, lines: returnable.map((w) => ({ product_id: items.get(w.itemId)!.stockProductId, quantity: w.rejected.toString(), uom: items.get(w.itemId)!.unit })) },
         actor
       );
       returnDocumentId = doc.id;
@@ -399,12 +419,14 @@ export async function recordDelivery(stopId: string, input: unknown, actor: Serv
     if (v.result === "failed") {
       await raiseException(tx, { type: "delivery_failure", sourceType: "trip_stop", sourceId: stopId, tripId: trip.id, orderId: order.id, description: `${order.orderNumber} · ${order.customerName}: ${v.failure_reason}${back.some((w) => !items.get(w.itemId)!.stockProductId) ? " — فيه أصناف مش مربوطة بالمخزون رجعت" : ""}` }, actor);
     } else {
+      const raised: Parameters<typeof raiseExceptions>[1] = [];
       for (const w of wanted) {
         const base = { sourceType: "trip_stop" as const, sourceId: stopId, tripId: trip.id, orderId: order.id, orderItemId: w.itemId, productName: items.get(w.itemId)!.productName };
-        if (w.shortage.gt(0)) await raiseException(tx, { ...base, type: "shortage", quantity: w.shortage, description: `${label(w)}: عجز ${w.shortage.toFixed()} عند العميل${w.reason ? ` — ${w.reason}` : ""}` }, actor);
-        if (w.damaged.gt(0)) await raiseException(tx, { ...base, type: "damage", quantity: w.damaged, description: `${label(w)}: تالف ${w.damaged.toFixed()}${w.reason ? ` — ${w.reason}` : ""}` }, actor);
-        if (w.rejected.gt(0)) await raiseException(tx, { ...base, type: "rejection", quantity: w.rejected, description: `${label(w)}: العميل رفض ${w.rejected.toFixed()} (رجعت المخزن)${w.reason ? ` — ${w.reason}` : ""}${unmapped(w)}` }, actor);
+        if (w.shortage.gt(0)) raised.push({ ...base, type: "shortage", quantity: w.shortage, description: `${label(w)}: عجز ${w.shortage.toFixed()} عند العميل${w.reason ? ` — ${w.reason}` : ""}` });
+        if (w.damaged.gt(0)) raised.push({ ...base, type: "damage", quantity: w.damaged, description: `${label(w)}: تالف ${w.damaged.toFixed()}${w.reason ? ` — ${w.reason}` : ""}` });
+        if (w.rejected.gt(0)) raised.push({ ...base, type: "rejection", quantity: w.rejected, description: `${label(w)}: العميل رفض ${w.rejected.toFixed()} (رجعت المخزن)${w.reason ? ` — ${w.reason}` : ""}${unmapped(w)}` });
       }
+      await raiseExceptions(tx, raised, actor);
     }
 
     const status = v.result === "failed" ? "failed" : wanted.every((w) => w.delivered.equals(w.shipped)) ? "delivered" : "partial";

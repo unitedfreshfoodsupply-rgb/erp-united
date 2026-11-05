@@ -416,8 +416,10 @@ export async function createCreditNote(invoiceId: string, input: unknown, actor:
       });
       returnedByProduct = new Map(returned.map((r) => [r.productId, D(r._sum.quantity ?? 0)]));
     }
-    const credited = await tx.creditNoteLine.groupBy({ by: ["invoiceLineId"], where: { invoiceLineId: { in: inv.lines.map((l) => l.id) } }, _sum: { quantity: true } });
+    // What each line was already credited — its quantity, and the amounts a full credit of the rest needs.
+    const credited = await tx.creditNoteLine.groupBy({ by: ["invoiceLineId"], where: { invoiceLineId: { in: inv.lines.map((l) => l.id) } }, _sum: { quantity: true, gross: true, discount: true, net: true, tax: true, total: true } });
     const already = new Map(credited.map((c) => [c.invoiceLineId, D(c._sum.quantity ?? 0)]));
+    const priorBy = new Map(credited.map((c) => [c.invoiceLineId, c._sum]));
     const wanted = v.full
       ? inv.lines.map((l) => ({ line: l, qty: D(l.quantity).minus(already.get(l.id) ?? 0) })).filter((x) => x.qty.gt(0))
       : v.lines!.map((x) => {
@@ -465,13 +467,13 @@ export async function createCreditNote(invoiceId: string, input: unknown, actor:
       const left = D(line.quantity).minus(already.get(lineId) ?? 0);
       let a: LineAmounts;
       if (qty.equals(left)) {
-        const prior = await tx.creditNoteLine.aggregate({ where: { invoiceLineId: lineId }, _sum: { gross: true, discount: true, net: true, tax: true, total: true } });
+        const prior = priorBy.get(lineId);
         a = {
-          gross: D(line.gross).minus(prior._sum.gross ?? 0),
-          discount: D(line.discount).minus(prior._sum.discount ?? 0),
-          net: D(line.net).minus(prior._sum.net ?? 0),
-          tax: D(line.tax).minus(prior._sum.tax ?? 0),
-          total: D(line.total).minus(prior._sum.total ?? 0),
+          gross: D(line.gross).minus(prior?.gross ?? 0),
+          discount: D(line.discount).minus(prior?.discount ?? 0),
+          net: D(line.net).minus(prior?.net ?? 0),
+          tax: D(line.tax).minus(prior?.tax ?? 0),
+          total: D(line.total).minus(prior?.total ?? 0),
         };
       } else {
         a = lineAmounts({ quantity: qty, unitPrice: line.unitPrice, discountPct: line.discountPct, taxRate: line.taxRate });
