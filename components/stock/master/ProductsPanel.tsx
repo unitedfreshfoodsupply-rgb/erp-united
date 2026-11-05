@@ -197,7 +197,7 @@ function ProductCard({ product, canManage }: { product: StockProductDTO; canMana
             {product._count && <span>{product._count.orderItems} {t("stock.label-order-lines")}</span>}
           </div>
         </div>
-        <button onClick={() => setOpen(!open)} className="btn-secondary text-xs px-3">
+        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="btn-secondary text-xs px-3">
           {open ? t("stock.action-hide") : t("stock.action-toggle-aliases", { n: manualAliases.length })}
         </button>
       </div>

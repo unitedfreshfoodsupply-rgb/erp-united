@@ -227,6 +227,7 @@ function BucketRow({ b, unit, today, canEditLot, productId }: { b: Bucket; unit:
   const [editing, setEditing] = useState(false);
   const [expiry, setExpiry] = useState(b.expiryDate ?? "");
   const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
   const expired = b.expiryDate && b.expiryDate < today;
   return (
     <li className="py-2 flex flex-col gap-2">
@@ -247,7 +248,7 @@ function BucketRow({ b, unit, today, canEditLot, productId }: { b: Bucket; unit:
         <div className="flex items-center gap-2">
           <span dir="ltr" className="font-extrabold">{fmtQty(b.quantity, unit)}</span>
           {canEditLot && b.lotId && (
-            <button type="button" className="text-xs font-extrabold text-united-green underline" onClick={() => setEditing(!editing)}>{t("stock.lot-expiry-label")}</button>
+            <button type="button" className="text-xs font-extrabold text-united-green underline" aria-expanded={editing} onClick={() => setEditing(!editing)}>{t("stock.lot-expiry-label")}</button>
           )}
           {b.locationType === "quarantine" && <ReleaseButton productId={productId} bucket={b} />}
         </div>
@@ -257,6 +258,9 @@ function BucketRow({ b, unit, today, canEditLot, productId }: { b: Bucket; unit:
           className="flex flex-wrap items-end gap-2"
           onSubmit={async (e) => {
             e.preventDefault();
+            // One request at a time (UXO-7): a double tap no longer sends the change twice.
+            if (busy) return;
+            setBusy(true);
             try {
               await apiPatch(`/api/inventory/lots/${b.lotId}`, { expiry_date: expiry || null, reason });
               invalidateStockData(qc);
@@ -264,12 +268,14 @@ function BucketRow({ b, unit, today, canEditLot, productId }: { b: Bucket; unit:
               setEditing(false);
             } catch (err) {
               toast.show(err instanceof ApiClientError ? err.message : t("stock.toast-error"), "error");
+            } finally {
+              setBusy(false);
             }
           }}
         >
           <Field label={t("stock.lot-expiry-label")} className="flex-1"><input type="date" className="field" value={expiry} onChange={(e) => setExpiry(e.target.value)} /></Field>
           <Field label={t("stock.form-required-reason")} className="flex-[2]"><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
-          <button className="btn-primary">{t("stock.form-lot-expiry-save")}</button>
+          <button className="btn-primary" disabled={busy}>{t("stock.form-lot-expiry-save")}</button>
         </form>
       )}
     </li>
@@ -282,13 +288,14 @@ function ReservationRow({ r, unit, canRelease }: { r: ProductDetail["reservation
   const { t } = useLocale();
   const [reason, setReason] = useState("");
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   return (
     <div className="flex flex-col gap-2 border-b border-united-dark/5 pb-2">
       <div className="flex items-center justify-between text-sm">
         <span className="font-bold">{r.sourceType === "order" ? t("stock.exception-ordered") : t("stock.form-release")} · {r.createdBy}</span>
         <span className="flex items-center gap-2">
           <span dir="ltr" className="font-extrabold">{fmtQty(r.quantity, unit)}</span>
-          {canRelease && <button type="button" className="text-xs font-extrabold text-united-danger underline" onClick={() => setOpen(!open)}>{t("stock.form-release")}</button>}
+          {canRelease && <button type="button" className="text-xs font-extrabold text-united-danger underline" aria-expanded={open} onClick={() => setOpen(!open)}>{t("stock.form-release")}</button>}
         </span>
       </div>
       {open && (
@@ -296,17 +303,21 @@ function ReservationRow({ r, unit, canRelease }: { r: ProductDetail["reservation
           className="flex gap-2"
           onSubmit={async (e) => {
             e.preventDefault();
+            if (busy) return;
+            setBusy(true);
             try {
               await apiPost(`/api/inventory/reservations/${r.id}/release`, { reason });
               invalidateStockData(qc);
               toast.show(t("stock.toast-reservation-released"), "success");
             } catch (err) {
               toast.show(err instanceof ApiClientError ? err.message : t("stock.toast-error"), "error");
+            } finally {
+              setBusy(false);
             }
           }}
         >
           <Field label={t("stock.form-required-reason")}><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
-          <button className="btn-danger">{t("stock.form-release")}</button>
+          <button className="btn-danger" disabled={busy}>{t("stock.form-release")}</button>
         </form>
       )}
     </div>
@@ -612,11 +623,12 @@ function DocumentCard({ d, highlight, canReverse }: { d: DocumentDTO; highlight:
   const { t, locale } = useLocale();
   const [open, setOpen] = useState(highlight);
   const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
   const dtm = locale === "en" ? DOC_TYPE_MAP_EN : DOC_TYPE_MAP;
   const st = (locale === "en" ? DOC_STATUS_MAP_EN : DOC_STATUS_MAP)[d.status] ?? { label: d.status, cls: "" };
   return (
     <li className={`card p-4 flex flex-col gap-2 ${highlight ? "border-2 border-united-green" : ""}`}>
-      <button type="button" className="flex items-center justify-between gap-2 text-start" onClick={() => setOpen(!open)}>
+      <button type="button" className="flex items-center justify-between gap-2 text-start" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="font-extrabold" dir="ltr">{d.number}</span>
         <span className="flex items-center gap-2">
           <span className="text-xs font-bold text-united-muted">{dtm[d.type] ?? d.type} · {d.businessDate}</span>
@@ -640,17 +652,23 @@ function DocumentCard({ d, highlight, canReverse }: { d: DocumentDTO; highlight:
               className="flex gap-2"
               onSubmit={async (e) => {
                 e.preventDefault();
+                // One request at a time (UXO-7): a double tap used to show an error toast right
+                // after the success toast.
+                if (busy) return;
+                setBusy(true);
                 try {
                   const res = await apiPost<{ document: { number: string } }>(`/api/inventory/documents/${d.id}/reverse`, { reason });
                   invalidateStockData(qc);
                   toast.show(`${t("stock.toast-document-reversed")} ${res.document.number}`, "success");
                 } catch (err) {
                   toast.show(err instanceof ApiClientError ? err.message : t("stock.toast-error"), "error");
+                } finally {
+                  setBusy(false);
                 }
               }}
             >
               <Field label={t("stock.reverse-reason-placeholder")}><input className="field" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
-              <button className="btn-danger shrink-0">{t("stock.btn-reverse-doc")}</button>
+              <button className="btn-danger shrink-0" disabled={busy}>{t("stock.btn-reverse-doc")}</button>
             </form>
           )}
         </>

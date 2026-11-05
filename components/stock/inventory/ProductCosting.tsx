@@ -79,14 +79,14 @@ export function ProductCosting({ p, onHand, canEdit = true }: { p: { id: string;
         <button className="btn-primary col-span-full" disabled={busy}>{t("stock.costing-save")}</button>
       </form>}
       <h4 className="font-extrabold text-united-dark text-sm">{t("stock.costing-history")}</h4>
-      {history.data && history.data.changes.length === 0 && <p className="text-sm text-united-dark/60">{t("stock.costing-history-empty")}</p>}
+      {history.data && history.data.changes.length === 0 && <p className="text-sm text-united-muted">{t("stock.costing-history-empty")}</p>}
       <ul className="flex flex-col divide-y divide-united-dark/5 text-sm">
         {(history.data?.changes ?? []).map((c) => (
           <li key={c.id} className="py-2 flex flex-wrap items-baseline justify-between gap-2">
             <span className="font-bold tabular-nums">
               {t("stock.costing-history-row", { from: c.oldStandardCost ? fmtMoney(c.oldStandardCost) : "—", to: fmtMoney(c.newStandardCost), qty: c.onHandQty, value: fmtMoney(c.revaluation) })}
             </span>
-            <span className="text-united-dark/60">{c.effectiveDate} · {c.createdBy} · {c.reason}</span>
+            <span className="text-united-muted">{c.effectiveDate} · {c.createdBy} · {c.reason}</span>
           </li>
         ))}
       </ul>

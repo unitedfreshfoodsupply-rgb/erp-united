@@ -91,26 +91,26 @@ export function EtaIdentityCard({ customerId }: { customerId: string }) {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="text-base font-bold">{t("customer.eta.title")}</h2>
-          <p className="text-xs text-united-dark/60 max-w-2xl">{t("customer.eta.hint")}</p>
+          <p className="text-xs text-united-muted max-w-2xl">{t("customer.eta.hint")}</p>
         </div>
         {d.canEdit && !editing && <button type="button" className="btn-secondary" onClick={start}>{le ? t("customer.eta.edit") : t("customer.eta.create")}</button>}
       </div>
       <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm">
-        <div><dt className="text-xs text-united-dark/60">{t("customer.eta.legal-entity")}</dt><dd>{le ? <><span dir="ltr">{le.code}</span> · {le.name}</> : t("customer.eta.no-legal-entity")}</dd></div>
-        <div><dt className="text-xs text-united-dark/60">{t("eta.receiver-tax-reg-number")}</dt><dd dir="ltr">{d.taxId ?? "—"}</dd></div>
-        <div><dt className="text-xs text-united-dark/60">{t("eta.receiver-type")}</dt><dd>{t(TYPE_LABEL[d.effectiveType])}{d.receiver.type ? "" : ` · ${t("eta.receiver-auto", { derived: d.effectiveType })}`}</dd></div>
-        <div><dt className="text-xs text-united-dark/60">{t("eta.receiver-national-id")}</dt><dd dir="ltr">{d.receiver.personalId ?? "—"}</dd></div>
-        {FIELDS.map(([k, , label]) => <div key={k}><dt className="text-xs text-united-dark/60">{t(label)}</dt><dd>{(shown as Address)[k] ?? "—"}</dd></div>)}
+        <div><dt className="text-xs text-united-muted">{t("customer.eta.legal-entity")}</dt><dd>{le ? <><span dir="ltr">{le.code}</span> · {le.name}</> : t("customer.eta.no-legal-entity")}</dd></div>
+        <div><dt className="text-xs text-united-muted">{t("eta.receiver-tax-reg-number")}</dt><dd dir="ltr">{d.taxId ?? "—"}</dd></div>
+        <div><dt className="text-xs text-united-muted">{t("eta.receiver-type")}</dt><dd>{t(TYPE_LABEL[d.effectiveType])}{d.receiver.type ? "" : ` · ${t("eta.receiver-auto", { derived: d.effectiveType })}`}</dd></div>
+        <div><dt className="text-xs text-united-muted">{t("eta.receiver-national-id")}</dt><dd dir="ltr">{d.receiver.personalId ?? "—"}</dd></div>
+        {FIELDS.map(([k, , label]) => <div key={k}><dt className="text-xs text-united-muted">{t(label)}</dt><dd>{(shown as Address)[k] ?? "—"}</dd></div>)}
       </dl>
       {d.gaps.length > 0
         ? <p className="text-sm text-united-danger" role="status">{t("eta.receiver-missing", { fields: d.gaps.map((g) => t(GAP_LABEL[g] ?? ("eta.receiver-type" as TranslationKey))).join("، ") })}</p>
         : <p className="text-sm text-united-green" role="status">✓ {t("eta.receiver-complete")}</p>}
-      {d.personIdOnlyAbove && <p className="text-xs text-united-dark/60">{t("eta.receiver-person-id-above")}</p>}
+      {d.personIdOnlyAbove && <p className="text-xs text-united-muted">{t("eta.receiver-person-id-above")}</p>}
       {d.receiver.origin === "eta_profile_legacy" && <p className="text-xs text-united-warn">{t("eta.receiver-source.eta_profile_legacy")}</p>}
-      {!d.canEdit && d.gaps.length > 0 && <p className="text-xs text-united-dark/60">{t("eta.receiver-ask-sales")}</p>}
+      {!d.canEdit && d.gaps.length > 0 && <p className="text-xs text-united-muted">{t("eta.receiver-ask-sales")}</p>}
       {editing && (
         <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); submit(); }}>
-          {!le && <p className="text-xs text-united-dark/60">{t("customer.eta.create-hint")}</p>}
+          {!le && <p className="text-xs text-united-muted">{t("customer.eta.create-hint")}</p>}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <Field label={t("eta.receiver-type")}>
               <select className="field" value={form.receiver_type} onChange={(e) => setForm({ ...form, receiver_type: e.target.value })}>

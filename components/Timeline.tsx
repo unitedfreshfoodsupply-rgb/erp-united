@@ -45,7 +45,7 @@ export function Timeline({ orderId }: { orderId: string }) {
     );
 
   const allEvents = buildTimeline(data?.logs ?? [], locale);
-  if (!allEvents.length) return <p className="text-united-dark/50">{t("ui.timeline.empty")}</p>;
+  if (!allEvents.length) return <p className="text-united-muted">{t("ui.timeline.empty")}</p>;
   // UX-01: a busy order has dozens of entries; the page shows the latest few and the rest
   // on request, so the timeline supports the order instead of burying it.
   const hidden = showAll ? 0 : Math.max(0, allEvents.length - RECENT);
