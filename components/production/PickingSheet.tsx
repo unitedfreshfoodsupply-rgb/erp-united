@@ -158,14 +158,16 @@ export function PickingSheet() {
                   (line.totalPrepared / line.totalRequired) * 100
                 )
               : 0;
-          const isExpanded = expandedProduct === line.productKey;
+          // Product and unit: the same product ordered in kg and in crates is two cards (UXO-13).
+          const cardKey = `${line.productKey}__${line.unit}`;
+          const isExpanded = expandedProduct === cardKey;
           const allocationSet = new Set(
             line.allocations.map((a) => a.orderId)
           );
 
           return (
             <div
-              key={`${line.productKey}__${line.unit}`}
+              key={cardKey}
               className={`card p-4 border-2 ${
                 line.totalRemaining > 0
                   ? "border-[#F3D9AE]"
@@ -179,7 +181,7 @@ export function PickingSheet() {
                 className="w-full text-start flex items-center justify-between gap-2"
                 onClick={() =>
                   setExpandedProduct(
-                    isExpanded ? null : line.productKey
+                    isExpanded ? null : cardKey
                   )
                 }
               >
