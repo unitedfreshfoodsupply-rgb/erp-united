@@ -37,7 +37,7 @@ export function DailyReportView() {
         description={data ? <span dir="ltr">{data.date}</span> : undefined}
         actions={
           <>
-            <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
+            <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} stale={isError && !!data} />
             {data && (
               <a href={`/supervisor/report/print${locale === "en" ? "?lang=en" : ""}`} target="_blank" rel="noopener noreferrer" className="btn-secondary btn-sm no-print gap-1.5">
                 <Printer size={16} aria-hidden />{t("supervisor.print-report")}
@@ -48,7 +48,7 @@ export function DailyReportView() {
       />
 
       {isLoading && <LoadingState />}
-      {isError && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
+      {isError && !data && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
 
       {data && (
         <>

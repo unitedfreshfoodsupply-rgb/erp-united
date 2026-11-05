@@ -43,10 +43,10 @@ export function PrepBoard() {
     <div className="page-floor">
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-2xl font-extrabold text-united-dark">{t("orders.board-title")}</h1>
-        <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
+        <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} stale={isError && !!data} />
       </div>
 
-      {!isLoading && !isError && orders.length > 0 && (
+      {data && orders.length > 0 && (
         <p className="text-sm font-bold text-united-muted mt-1 mb-4">
           {notStarted.length} {t("orders.status.new")} · {inProgress.length} {t("orders.status.preparing")}
           {late > 0 && <span className="text-united-danger"> · {late} {t("orders.overdue")}</span>}
@@ -54,8 +54,10 @@ export function PrepBoard() {
       )}
 
       {isLoading && <BoardSkeleton />}
-      {isError && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
-      {!isLoading && !isError && orders.length === 0 && (
+      {/* A failed background poll keeps the list it had (PM-4); the error shows only when
+          there is nothing to show. */}
+      {isError && !data && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
+      {data && orders.length === 0 && (
         <EmptyState icon="👍" title={t("orders.empty-state")} />
       )}
 

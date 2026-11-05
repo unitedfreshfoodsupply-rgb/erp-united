@@ -43,7 +43,7 @@ export function IntakeList() {
 
   return (
     <div className="page-narrow">
-      <PageHeader title={t("intake.title")} actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />} />
+      <PageHeader title={t("intake.title")} actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} stale={isError && !!data} />} />
 
       <FilterBar list={search} searchLabel={t("intake.search")} searchHint={t("intake.search-hint")} />
       <div className="flex flex-wrap items-center gap-2">
@@ -71,8 +71,8 @@ export function IntakeList() {
       </div>
 
       {isLoading && <LoadingState />}
-      {isError && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
-      {!isLoading && !isError && intakes.length === 0 && (
+      {isError && !data && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
+      {data && intakes.length === 0 && (
         <EmptyState icon="📋" title={t("intake.empty")} />
       )}
 

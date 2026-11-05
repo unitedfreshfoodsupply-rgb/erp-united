@@ -40,6 +40,7 @@ import { assertPricingCleared, evaluateOrderPricing } from "@/lib/sales/price-ex
 import { releaseOrderInvoiceForReopen } from "@/lib/sales/invoicing";
 import { searchWhere } from "@/lib/core/search";
 import { storedOrderCustomerName } from "@/lib/locale/names";
+import { aggregateProduction } from "@/lib/production";
 
 function assertValidQuantity(quantity: unknown, label: string): asserts quantity is number {
   if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity < 0 || quantity > 999_999_999_999 || !Number.isInteger(quantity * 1000)) {
@@ -1381,48 +1382,10 @@ export async function dailyProduction() {
     where: productionScope(),
     include: ORDER_INCLUDE,
   });
-
-  const byProduct = new Map<
-    string,
-    { productName: string; productId: string | null; unit: string; required: number; prepared: number; orders: Set<string> }
-  >();
-
-  for (const order of orders) {
-    for (const item of order.items) {
-      const key = `${item.productName}__${item.unit}`;
-      if (!byProduct.has(key)) {
-        byProduct.set(key, {
-          productName: item.productName,
-          productId: item.stockProductId ?? null,
-          unit: item.unit,
-          required: 0,
-          prepared: 0,
-          orders: new Set(),
-        });
-      }
-      const agg = byProduct.get(key)!;
-      agg.productId ??= item.stockProductId ?? null; // any linked line names the product
-      agg.required += item.requiredQuantity;
-      agg.prepared += item.preparedQuantity ?? 0;
-      agg.orders.add(order.id);
-    }
-  }
-
-  // The catalogue names, so the board can show each product in the UI language
-  // (`productName` stays the name as ordered — it is also the drill-down key).
-  const ids = [...new Set([...byProduct.values()].map((v) => v.productId).filter((x): x is string => !!x))];
-  const names = new Map((ids.length ? await prisma.stockProduct.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, nameAr: true } }) : []).map((p) => [p.id, p]));
-  return Array.from(byProduct.values())
-    .map((v) => ({
-      productName: v.productName,
-      productNameEn: (v.productId && names.get(v.productId)?.name) || null,
-      productNameAr: (v.productId && names.get(v.productId)?.nameAr) || null,
-      unit: v.unit,
-      required: v.required,
-      prepared: v.prepared,
-      orderCount: v.orders.size,
-    }))
-    .sort((a, b) => b.required - a.required);
+  // The board computes the same totals from /api/orders?scope=production with the same helper
+  // (PC-5), so the two cannot drift. Each line carries its catalogue names (ORDER_INCLUDE), so
+  // the row names need no second query.
+  return aggregateProduction(orders);
 }
 
 // ---------------------------------------------------------------------------

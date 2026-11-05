@@ -4862,6 +4862,7 @@ export const DICTIONARY = {
   "ui.live.seconds": { ar: "من {n} ثانية", en: "{n}s ago" },
   "ui.live.minutes": { ar: "من {n} دقيقة", en: "{n} min ago" },
   "ui.live.label": { ar: "تحديث لحظي · آخر تحديث {when}", en: "Live · last updated {when}" },
+  "ui.live.stale": { ar: "التحديث اتأخر وبنحاول تاني · آخر تحديث {when}", en: "Update delayed, retrying · last updated {when}" },
   "ui.qty.decrease": { ar: "نقّص الكمية", en: "Decrease quantity" },
   "ui.qty.value": { ar: "الكمية", en: "Quantity" },
   "ui.qty.increase": { ar: "زوّد الكمية", en: "Increase quantity" },

@@ -40,16 +40,16 @@ export function ExceptionsView() {
         back={{ href: "/supervisor", label: t("audit.back-dashboard") }}
         title={t("exceptions.page-title")}
         description={t("exceptions.subtitle")}
-        actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />}
+        actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} stale={isError && !!data} />}
       />
 
       {isLoading && !data && <BoardSkeleton />}
-      {isError && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
+      {isError && !data && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
 
-      {/* Stale-but-valid data stays visible under the error banner above, same as
-       * every other board — only claim "nothing to show" when we actually know
-       * that, and only replace this with the skeleton when there's no data yet. */}
-      {!isLoading && !isError && totalExceptions === 0 && (
+      {/* Stale-but-valid data stays visible, same as every other board (PM-4): a failed
+       * background poll shows in the live cue above, the error only when there is no data;
+       * only claim "nothing to show" when we actually know that. */}
+      {data && totalExceptions === 0 && (
         <EmptyState icon="👍" title={t("exceptions.empty")} />
       )}
 

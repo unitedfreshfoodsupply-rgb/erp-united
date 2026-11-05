@@ -107,13 +107,14 @@ export function LoadBoard() {
     <div className="page-floor">
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-2xl font-extrabold text-united-dark">{t("orders.load-board-title")}</h1>
-        <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
+        <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} stale={isError && !!data} />
       </div>
 
       {isLoading && <BoardSkeleton />}
-      {isError && <ErrorState message={errorMessage(queryError)} onRetry={() => refetch()} />}
-      {!isLoading &&
-        !isError &&
+      {/* A failed background poll keeps the list it had (PM-4); the error shows only when
+          there is nothing to show. */}
+      {isError && !data && <ErrorState message={errorMessage(queryError)} onRetry={() => refetch()} />}
+      {data &&
         active.length === 0 &&
         readyToDispatch.length === 0 &&
         upcoming.length === 0 && <EmptyState icon="👍" title={t("orders.load-board.empty")} />}

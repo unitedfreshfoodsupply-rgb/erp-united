@@ -34,7 +34,7 @@ export function LedgerView() {
 
   return (
     <div className="page-narrow">
-      <PageHeader title={t("ledger.title")} description={t("ledger.note")} actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />} />
+      <PageHeader title={t("ledger.title")} description={t("ledger.note")} actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} stale={isError && !!data} />} />
 
       {/* One labelled picker instead of a chip per product: the list grows with the catalogue. */}
       {stock.length > 0 && (
@@ -66,8 +66,8 @@ export function LedgerView() {
 
       <section className="card px-4 py-1">
         {isLoading && <LoadingState />}
-        {isError && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
-        {!isLoading && !isError && (data?.movements.length ?? 0) === 0 && (
+        {isError && !data && <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />}
+        {data && data.movements.length === 0 && (
           <EmptyState icon="🧾" title={t("ledger.empty")} />
         )}
         <ul className="flex flex-col divide-y divide-united-border">

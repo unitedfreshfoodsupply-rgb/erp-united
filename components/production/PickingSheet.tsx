@@ -83,7 +83,7 @@ export function PickingSheet() {
         <h2 className="hidden print:block text-xl font-bold text-center">
           {t("picking.print-title", { date })}
         </h2>
-        <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />
+        <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} stale={isError && !!data} />
       </div>
 
       {/* Date picker row */}
@@ -124,10 +124,10 @@ export function PickingSheet() {
       </div>
 
       {isLoading && <LoadingState />}
-      {isError && (
+      {isError && !data && (
         <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />
       )}
-      {!isLoading && !isError && lines.length === 0 && (
+      {data && lines.length === 0 && (
         <EmptyState icon="📦" title={t("picking.empty")} />
       )}
 
