@@ -150,7 +150,9 @@ export async function issueForDispatch(tx: Tx, orderId: string, actor: ServiceAc
           reference: `أوردر ${order.orderNumber ?? order.id} · ${order.customerName}`,
           lines: toIssue.map((l) => ({ productId: l.productId, quantity: l.issue, sourceLineId: l.itemId })),
         },
-        actor
+        actor,
+        // Locked and read above, and nothing has moved since: issueStock picks from these.
+        { buckets: new Map(productIds.map((id) => [id, availability.get(id)!.buckets])), reserved: new Map(productIds.map((id) => [id, availability.get(id)!.reserved])) }
       )
     : null;
 

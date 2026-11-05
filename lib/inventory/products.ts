@@ -201,7 +201,8 @@ export async function productStockDetail(productId: string, warehouseId: string 
     prisma.stockReservation.findMany({ where: { productId, warehouseId: wh.id, status: "active" }, orderBy: { createdAt: "asc" } }),
     prisma.stockMovement.findMany({
       where: { productId, warehouseId: wh.id },
-      orderBy: { occurredAt: "desc" },
+      // A document's movements share one timestamp (written in one insert): ledger order breaks the tie.
+      orderBy: [{ occurredAt: "desc" }, { seq: "desc" }],
       take: 30,
       include: { location: { select: { code: true, name: true, nameAr: true } }, lot: { select: { lotNumber: true } }, document: { select: { number: true, type: true } }, intake: { select: { receiptNumber: true } } },
     }),

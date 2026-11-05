@@ -1,6 +1,6 @@
 import { postMovementValuation } from "@/lib/accounting/ledger";
 import { asText } from "@/lib/http";
-import type { StockMovement } from "@prisma/client";
+import type { Prisma, StockMovement } from "@prisma/client";
 import { ApiError } from "@/lib/rbac";
 import { advisoryXactLocks } from "@/lib/dbLock";
 import type { Tx } from "@/lib/tx";
@@ -8,6 +8,7 @@ import { D, ZERO, q3, q4, type Dec } from "@/lib/inventory/decimal";
 import { isSellableStock } from "@/lib/inventory/balances";
 import { availabilityChanged } from "@/lib/inventory/availability-changes";
 import { todayLocalISO } from "@/lib/localDate";
+import { newId } from "@/lib/core/ids";
 
 /**
  * THE stock ledger write path. Every receipt, correction, void, adjustment, transfer,
@@ -171,26 +172,63 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
   // ---- 2. locks, in one global order --------------------------------------------
   await lockForMoves(tx, moves);
 
-  // ---- 3. post, one move at a time (each sees the ones before it) ----------------
-  const created: StockMovement[] = [];
-  const valued: { movementId: string; kind: string; documentId: string | null; intakeId: string | null; value: Dec; priceVariance: Dec; counterKind?: string }[] = [];
-  // The layers being undone (ACC-03), read once.
+  // ---- 3. read once, then value each move in order (each sees the ones before it) --
+  // What the per-move checks and costing read — a bucket's balance, a product's valuation, its
+  // FIFO layers with stock left — is read ONCE here, under the locks just taken, and then kept
+  // current in memory as each move is applied in input order. The arithmetic is the one each
+  // move did reading the database after the moves before it were written, so every movement,
+  // layer and FIFO consumption is the same; only the round trips are gone (PW-1, Nov 2026:
+  // one statement per move and per layer took 20+ line documents past the 20 s limit).
   const reversedIds = moves.map((m) => m.reverses).filter((x): x is string => !!x);
-  const reversed = new Map(
-    (reversedIds.length ? await tx.stockValuationLayer.findMany({ where: { movementId: { in: reversedIds } }, include: { movement: { select: { kind: true, quantity: true, productId: true } } } }) : []).map((l) => [l.movementId, l])
-  );
+  const methodOf = (m: MoveInput) => productById.get(m.productId)!.costingMethod;
+  const outflow = (m: MoveInput) => q3(m.quantity).lt(0);
+  // Buckets a removal checks; products whose average cost a move reads; FIFO products a removal consumes.
+  const outBuckets = new Map(moves.filter(outflow).map((m) => [bucketKey(m.productId, m.locationId, m.lotId), m]));
+  const averaged = [...new Set(moves.filter((m) => !m.reverses && methodOf(m) !== "standard" && m.unitCost == null && (!outflow(m) || methodOf(m) !== "fifo")).map((m) => m.productId))];
+  const fifoOut = [...new Set(moves.filter((m) => outflow(m) && methodOf(m) === "fifo").map((m) => m.productId))];
+  type Undone = { movementId: string; unitCost: Prisma.Decimal; costSource: string; value: Prisma.Decimal; priceVariance: Prisma.Decimal; kind: string; quantity: Prisma.Decimal; productId: string };
+  type Incoming = { id: string; productId: string; unitCost: Prisma.Decimal; remainingQty: Prisma.Decimal; lotId: string | null };
+  const [reversedLayers, bucketSums, valuationSums, fifoRows] = await Promise.all([
+    // The layers being undone (ACC-03), with the movement each belongs to.
+    reversedIds.length
+      ? tx.$queryRaw<Undone[]>`SELECT l."movementId", l."unitCost", l."costSource", l."value", l."priceVariance", m."kind", m."quantity", m."productId"
+          FROM "StockValuationLayer" l JOIN "StockMovement" m ON m."id" = l."movementId" WHERE l."movementId" = ANY(${reversedIds}::text[])`
+      : [],
+    outBuckets.size ? tx.stockMovement.groupBy({ by: ["productId", "locationId", "lotId"], where: { OR: [...outBuckets.values()].map((m) => ({ productId: m.productId, locationId: m.locationId, lotId: m.lotId })) }, _sum: { quantity: true } }) : [],
+    averaged.length ? tx.stockValuationLayer.groupBy({ by: ["productId"], where: { productId: { in: averaged } }, _sum: { quantity: true, value: true } }) : [],
+    // Incoming layers with stock left, in ledger posting order (not timestamps: two receipts in
+    // one millisecond must still have a definite "first").
+    fifoOut.length
+      ? tx.$queryRaw<Incoming[]>`SELECT l."id", l."productId", l."unitCost", l."remainingQty", m."lotId"
+          FROM "StockValuationLayer" l JOIN "StockMovement" m ON m."id" = l."movementId"
+          WHERE l."productId" = ANY(${fifoOut}::text[]) AND l."remainingQty" > 0 ORDER BY m."seq" ASC`
+      : [],
+  ]);
+  const reversed = new Map(reversedLayers.map((l) => [l.movementId, { ...l, movement: { kind: l.kind, quantity: l.quantity, productId: l.productId } }]));
+  const balance = new Map<string, Dec>([...outBuckets.keys()].map((k) => [k, ZERO]));
+  for (const b of bucketSums) balance.set(bucketKey(b.productId, b.locationId, b.lotId), D(b._sum.quantity));
+  const valuation = new Map<string, { qty: Dec; value: Dec }>(averaged.map((p) => [p, { qty: ZERO, value: ZERO }]));
+  for (const v of valuationSums) valuation.set(v.productId, { qty: D(v._sum.quantity), value: D(v._sum.value) });
+  const fifoLayers = new Map<string, FifoLayer[]>(fifoOut.map((p) => [p, []]));
+  for (const l of fifoRows) fifoLayers.get(l.productId)!.push({ id: l.id, lotId: l.lotId, unitCost: D(l.unitCost), remaining: D(l.remainingQty) });
+
+  const rows: Prisma.StockMovementCreateManyInput[] = [];
+  const layers: Prisma.StockValuationLayerCreateManyInput[] = [];
+  const consumedBy = new Map<string, Dec>();
+  const valued: { movementId: string; kind: string; documentId: string | null; intakeId: string | null; value: Dec; priceVariance: Dec; counterKind?: string }[] = [];
   for (const m of moves) {
     const product = productById.get(m.productId)!;
     const qty = q3(m.quantity);
+    const key = bucketKey(m.productId, m.locationId, m.lotId);
 
     if (qty.lt(0)) {
-      const balance = await bucketBalance(tx, m.productId, m.locationId, m.lotId);
-      if (balance.plus(qty).lt(0)) {
+      const before = balance.get(key)!;
+      if (before.plus(qty).lt(0)) {
         const location = locationById.get(m.locationId)!;
         const lot = m.lotId ? lotById.get(m.lotId) : null;
         throw new ApiError(
           400,
-          `الرصيد مش كفاية: "${product.name}" في ${location.code}${lot ? ` (${lot.lotNumber})` : ""} فيه ${balance.toFixed()} بس، والمطلوب ${qty.abs().toFixed()}`
+          `الرصيد مش كفاية: "${product.name}" في ${location.code}${lot ? ` (${lot.lotNumber})` : ""} فيه ${before.toFixed()} بس، والمطلوب ${qty.abs().toFixed()}`
         );
       }
     }
@@ -202,6 +240,8 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
     let value: Dec;
     let priceVariance = ZERO;
     const fifoConsumptions: { id: string; take: Dec }[] = [];
+    const productValuationNow = () => ({ ...valuation.get(m.productId)! });
+    const planFifoNow = (out: Dec) => planFifo(fifoLayers.get(m.productId)!, m, out, fifoConsumptions);
 
     const undo = m.reverses ? reversed.get(m.reverses) : undefined;
     if (m.reverses && (!undo || undo.movement.productId !== m.productId || !D(undo.movement.quantity).negated().equals(qty))) {
@@ -213,7 +253,7 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
       costSource = undo.costSource as NonNullable<MoveInput["costSource"]>;
       value = q4(D(undo.value).negated());
       priceVariance = q4(D(undo.priceVariance).negated());
-      if (qty.lt(0) && method === "fifo") await planFifo(tx, m, qty.abs(), fifoConsumptions);
+      if (qty.lt(0) && method === "fifo") planFifoNow(qty.abs());
     } else if (method === "standard") {
       // DEFECT-SC-01: a standard-cost product is carried at its standard, whatever the
       // movement. A purchase-linked movement priced by its caller moves GRNI at that price;
@@ -232,7 +272,7 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
         unitCost = q4(m.unitCost);
         costSource = m.costSource ?? "purchase";
       } else {
-        const val = await productValuation(tx, m.productId);
+        const val = productValuationNow();
         if (val.qty.gt(0) && val.value.gt(0)) {
           unitCost = q4(val.value.dividedBy(val.qty));
           costSource = "average";
@@ -250,14 +290,14 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
         unitCost = q4(m.unitCost);
         costSource = m.costSource ?? "lot";
         value = q4(qty.times(unitCost));
-        if (method === "fifo") await planFifo(tx, m, out, fifoConsumptions);
+        if (method === "fifo") planFifoNow(out);
       } else if (method === "fifo") {
-        const consumedValue = await planFifo(tx, m, out, fifoConsumptions);
+        const consumedValue = planFifoNow(out);
         unitCost = out.isZero() ? ZERO : q4(consumedValue.dividedBy(out));
         costSource = consumedValue.isZero() ? "unknown" : "fifo";
         value = q4(consumedValue.negated());
       } else {
-        const val = await productValuation(tx, m.productId);
+        const val = productValuationNow();
         if (val.qty.lessThanOrEqualTo(out)) {
           // Taking everything that is valued: take all of its value too, so no
           // rounding crumbs are left behind on a product with nothing in stock.
@@ -271,45 +311,55 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
       }
     }
 
-    const row = await tx.stockMovement.create({
-      data: {
-        productId: m.productId,
-        warehouseId: m.warehouseId,
-        locationId: m.locationId,
-        lotId: m.lotId,
-        effectiveDate: ctx.effectiveDate,
-        kind: m.kind,
-        quantity: qty,
-        intakeId: m.intakeId ?? null,
-        documentId: m.documentId ?? null,
-        revaluationId: m.revaluationId ?? null,
-        standardCostChangeId: m.standardCostChangeId ?? null,
-        unitCost,
-        reason: asText(m.reason, "reason")?.trim() || null,
-        actorId: ctx.actorId,
-        actorName: ctx.actorName,
-      },
+    // Ids made here, so each layer, FIFO consumption and GL posting names its movement
+    // without relying on the order rows come back from a bulk insert.
+    const movementId = newId();
+    const layerId = newId();
+    rows.push({
+      id: movementId,
+      productId: m.productId,
+      warehouseId: m.warehouseId,
+      locationId: m.locationId,
+      lotId: m.lotId,
+      effectiveDate: ctx.effectiveDate,
+      kind: m.kind,
+      quantity: qty,
+      intakeId: m.intakeId ?? null,
+      documentId: m.documentId ?? null,
+      revaluationId: m.revaluationId ?? null,
+      standardCostChangeId: m.standardCostChangeId ?? null,
+      unitCost,
+      reason: asText(m.reason, "reason")?.trim() || null,
+      actorId: ctx.actorId,
+      actorName: ctx.actorName,
     });
-    await tx.stockValuationLayer.create({
-      data: {
-        movementId: row.id,
-        productId: m.productId,
-        quantity: qty,
-        unitCost,
-        value,
-        remainingQty: qty.gt(0) ? qty : ZERO,
-        costSource,
-        priceVariance,
-      },
-    });
+    layers.push({ id: layerId, movementId, productId: m.productId, quantity: qty, unitCost, value, remainingQty: qty.gt(0) ? qty : ZERO, costSource, priceVariance });
+
+    // What the next move reads: this one applied.
+    if (balance.has(key)) balance.set(key, balance.get(key)!.plus(qty));
+    const running = valuation.get(m.productId);
+    if (running) valuation.set(m.productId, { qty: running.qty.plus(qty), value: running.value.plus(value) });
+    const fifo = fifoLayers.get(m.productId);
     for (const c of fifoConsumptions) {
-      await tx.stockValuationLayer.update({
-        where: { id: c.id },
-        data: { remainingQty: { decrement: c.take } },
-      });
+      const layer = fifo!.find((l) => l.id === c.id)!;
+      layer.remaining = layer.remaining.minus(c.take);
+      consumedBy.set(c.id, (consumedBy.get(c.id) ?? ZERO).plus(c.take));
     }
-    created.push(row);
-    valued.push({ movementId: row.id, kind: m.kind, documentId: m.documentId ?? null, intakeId: m.intakeId ?? null, value, priceVariance, counterKind: undo?.movement.kind });
+    if (fifo && qty.gt(0)) fifo.push({ id: layerId, lotId: m.lotId, unitCost, remaining: qty });
+    valued.push({ movementId, kind: m.kind, documentId: m.documentId ?? null, intakeId: m.intakeId ?? null, value, priceVariance, counterKind: undo?.movement.kind });
+  }
+
+  // ---- written in bulk: movements (posting order = input order), layers, FIFO consumption --
+  // One multi-row INSERT numbers seq in the order of its rows; the bucket trigger still checks
+  // every row (after the statement, so against the final balance the checks above kept).
+  const inserted = new Map((await tx.stockMovement.createManyAndReturn({ data: rows })).map((r) => [r.id, r]));
+  const created = rows.map((r) => inserted.get(r.id!)!);
+  await tx.stockValuationLayer.createMany({ data: layers });
+  if (consumedBy.size) {
+    const ids = [...consumedBy.keys()];
+    const takes = ids.map((id) => consumedBy.get(id)!.toFixed());
+    await tx.$executeRaw`UPDATE "StockValuationLayer" AS l SET "remainingQty" = l."remainingQty" - c.take
+      FROM unnest(${ids}::text[], ${takes}::numeric[]) AS c(id, take) WHERE l."id" = c.id`;
   }
   // ---- 4. the value of these movements reaches the GL in this same transaction ---
   await postMovementValuation(tx, valued, { id: ctx.actorId, name: ctx.actorName, effectiveDate: ctx.effectiveDate });
@@ -326,31 +376,27 @@ export async function postMovements(tx: Tx, moves: MoveInput[], ctx: Ctx): Promi
   return created;
 }
 
+type FifoLayer = { id: string; lotId: string | null; unitCost: Dec; remaining: Dec };
+
 /**
- * FIFO cost of taking `out` from a product: incoming layers with stock left, the
- * removed lot's own layers first (so a perishable lot leaves at its own price), then
- * oldest first. Returns the consumed value and records what each layer gives up.
+ * FIFO cost of taking `out` from a product: incoming layers with stock left (`layers`, in ledger
+ * posting order), the removed lot's own layers first (so a perishable lot leaves at its own
+ * price), then oldest first. Returns the consumed value and records what each layer gives up.
  * Quantity with no layer behind it (stock from before costs were recorded) leaves at
  * zero cost — it is reported as unvalued, never invented.
  */
-async function planFifo(tx: Tx, m: MoveInput, out: Dec, plan: { id: string; take: Dec }[]): Promise<Dec> {
-  const layers = await tx.stockValuationLayer.findMany({
-    where: { productId: m.productId, remainingQty: { gt: 0 } },
-    include: { movement: { select: { lotId: true } } },
-    // Ledger posting order, not timestamps — two receipts in one millisecond must
-    // still have a definite "first".
-    orderBy: { movement: { seq: "asc" } },
-  });
+function planFifo(layers: FifoLayer[], m: MoveInput, out: Dec, plan: { id: string; take: Dec }[]): Dec {
+  const live = layers.filter((l) => l.remaining.gt(0));
   const ordered = [
-    ...layers.filter((l) => m.lotId && l.movement.lotId === m.lotId),
-    ...layers.filter((l) => !(m.lotId && l.movement.lotId === m.lotId)),
+    ...live.filter((l) => m.lotId && l.lotId === m.lotId),
+    ...live.filter((l) => !(m.lotId && l.lotId === m.lotId)),
   ];
   let left = out;
   let consumed = ZERO;
   for (const l of ordered) {
     if (left.isZero()) break;
-    const take = minDec(left, D(l.remainingQty));
-    consumed = consumed.plus(take.times(D(l.unitCost)));
+    const take = minDec(left, l.remaining);
+    consumed = consumed.plus(take.times(l.unitCost));
     plan.push({ id: l.id, take });
     left = left.minus(take);
   }

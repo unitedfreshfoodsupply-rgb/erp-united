@@ -1024,7 +1024,8 @@ export async function listMovements(filters: { productId?: string; from?: string
   const rows = await prisma.stockMovement.findMany({
     where,
     include: MOVEMENT_INCLUDE,
-    orderBy: { occurredAt: "desc" },
+    // A document's movements share one timestamp (written in one insert): ledger order breaks the tie.
+    orderBy: [{ occurredAt: "desc" }, { seq: "desc" }],
     take: Math.min(filters.limit ?? 50, 500),
   });
   return rows.map(serializeMovement);

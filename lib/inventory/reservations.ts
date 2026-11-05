@@ -8,7 +8,7 @@ import { todayLocalISO } from "@/lib/localDate";
 import { nextDocumentNumber } from "@/lib/core/sequences";
 import type { ServiceActor } from "@/lib/core/actor";
 import { D, ZERO, parseQty, type Dec } from "@/lib/inventory/decimal";
-import { productAvailability, productsBuckets } from "@/lib/inventory/balances";
+import { productAvailability, productsBuckets, type Bucket } from "@/lib/inventory/balances";
 import { lockAvailability, lockAvailabilities, allocateFrom, PickClaims } from "@/lib/inventory/picking";
 import { postMovements, type MoveInput } from "@/lib/inventory/ledger";
 import { resolveWarehouse } from "@/lib/inventory/context";
@@ -192,7 +192,13 @@ export async function issueStock(
     reference: string;
     lines: { productId: string; quantity: Dec; sourceLineId: string }[];
   },
-  actor: ServiceActor
+  actor: ServiceActor,
+  /**
+   * For a caller that already holds every line's availability lock and has just read, under
+   * it, the products' buckets and active reservations (dispatch): they are used as read
+   * instead of being locked and read a second time. Nothing may have moved in between.
+   */
+  held?: { buckets: Map<string, Bucket[]>; reserved: Map<string, Dec> }
 ) {
   const date = todayLocalISO();
   const doc = await tx.inventoryDocument.create({
@@ -215,7 +221,7 @@ export async function issueStock(
   const expiredPicks: string[] = [];
   // Every product's availability lock first, in one global order (availability →
   // valuation → bucket), so two issues sharing products cannot deadlock.
-  await lockAvailabilities(tx, new Set(input.lines.map((l) => l.productId)), input.warehouseId);
+  if (!held) await lockAvailabilities(tx, new Set(input.lines.map((l) => l.productId)), input.warehouseId);
   const lines = input.lines.filter((l) => l.quantity.gt(0));
   if (lines.length) {
     // Read once for the whole document, under those locks: the products, each line's own
@@ -225,11 +231,11 @@ export async function issueStock(
     const [products, ownRows, buckets, reservedRows] = await Promise.all([
       tx.stockProduct.findMany({ where: { id: { in: productIds } } }),
       tx.stockReservation.findMany({ where: { sourceType: input.sourceType, sourceId: input.sourceId, sourceLineId: { in: [...new Set(lines.map((l) => l.sourceLineId))] }, status: "active" } }),
-      productsBuckets(tx, productIds, input.warehouseId),
-      tx.stockReservation.groupBy({ by: ["productId"], where: { productId: { in: productIds }, warehouseId: input.warehouseId, status: "active" }, _sum: { quantity: true } }),
+      held ? held.buckets : productsBuckets(tx, productIds, input.warehouseId),
+      held ? [] : tx.stockReservation.groupBy({ by: ["productId"], where: { productId: { in: productIds }, warehouseId: input.warehouseId, status: "active" }, _sum: { quantity: true } }),
     ]);
     const productById = new Map(products.map((p) => [p.id, p]));
-    const reserved = new Map(reservedRows.map((r) => [r.productId, D(r._sum.quantity)]));
+    const reserved = held ? new Map(held.reserved) : new Map(reservedRows.map((r) => [r.productId, D(r._sum.quantity)]));
     const consumed: StockReservation[] = [];
     for (const line of lines) {
       const product = productById.get(line.productId);
