@@ -1,16 +1,23 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
 
-export type MenuItem = { key: string; label: string; onSelect: () => void; tone?: "danger"; disabled?: boolean; hint?: string };
+/** An action (`onSelect`) or a page to open (`href`). */
+export type MenuItem = { key: string; label: string; onSelect?: () => void; href?: string; icon?: ReactNode; tone?: "danger"; disabled?: boolean; hint?: string };
 
 /**
  * A row's secondary actions behind one "more" button (menu button pattern): opens below at the
- * inline end, arrow keys move between items, Esc or a click elsewhere closes and returns focus.
- * Items that do not apply are left out by the caller; `disabled` keeps one visible with a reason.
+ * inline end, arrow keys move between items, Esc or a click elsewhere closes and returns focus,
+ * Tab closes and moves on. Items that do not apply are left out by the caller; `disabled` keeps
+ * one visible with a reason.
+ *
+ * `trigger` gives the button its own visible content (the account button: avatar, name, role);
+ * that content then names the button, and `label` names the menu. `header` is shown above the
+ * items and is not one of them.
  */
-export function Menu({ label, items, icon }: { label: string; items: MenuItem[]; icon?: ReactNode }) {
+export function Menu({ label, items, icon, trigger, triggerClassName, header }: { label: string; items: MenuItem[]; icon?: ReactNode; trigger?: ReactNode; triggerClassName?: string; header?: ReactNode }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -19,32 +26,41 @@ export function Menu({ label, items, icon }: { label: string; items: MenuItem[];
     if (!open) return;
     const onDown = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("mousedown", onDown);
-    box.current?.querySelector<HTMLButtonElement>("[role=menuitem]:not([disabled])")?.focus();
+    box.current?.querySelector<HTMLElement>("[role=menuitem]:not([disabled])")?.focus();
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
   if (!items.length) return null;
   const onKey = (e: React.KeyboardEvent) => {
-    const all = [...(box.current?.querySelectorAll<HTMLButtonElement>("[role=menuitem]:not([disabled])") ?? [])];
-    const i = all.indexOf(document.activeElement as HTMLButtonElement);
+    const all = [...(box.current?.querySelectorAll<HTMLElement>("[role=menuitem]:not([disabled])") ?? [])];
+    const i = all.indexOf(document.activeElement as HTMLElement);
     if (e.key === "Escape") { e.preventDefault(); setOpen(false); button.current?.focus(); }
     if (e.key === "ArrowDown") { e.preventDefault(); all[(i + 1) % all.length]?.focus(); }
     if (e.key === "ArrowUp") { e.preventDefault(); all[(i - 1 + all.length) % all.length]?.focus(); }
     if (e.key === "Tab") setOpen(false);
   };
+  const itemClass = (it: MenuItem) =>
+    `flex w-full min-h-[40px] items-center ${it.icon ? "gap-2" : ""} px-3 text-start text-sm hover:bg-united-subtle focus-visible:bg-united-subtle disabled:cursor-not-allowed disabled:opacity-40 ${it.tone === "danger" ? "text-united-danger" : "text-united-dark"}`;
   return (
     <div ref={box} className="relative" onKeyDown={onKey}>
-      <button ref={button} type="button" className="btn-ghost btn-sm coarse:min-h-[44px] coarse:min-w-[44px]" aria-haspopup="menu" aria-expanded={open} aria-controls={id} aria-label={label} title={label} onClick={() => setOpen((v) => !v)}>
-        {icon ?? <MoreHorizontal size={18} aria-hidden />}
+      <button ref={button} type="button" className={trigger ? triggerClassName : "btn-ghost btn-sm coarse:min-h-[44px] coarse:min-w-[44px]"} aria-haspopup="menu" aria-expanded={open} aria-controls={id}
+        {...(trigger ? {} : { "aria-label": label, title: label })} onClick={() => setOpen((v) => !v)}>
+        {trigger ?? icon ?? <MoreHorizontal size={18} aria-hidden />}
       </button>
       {open && (
         <div id={id} role="menu" aria-label={label} className="absolute end-0 top-full z-30 mt-1 min-w-[12rem] rounded-xl border border-united-border bg-white py-1 shadow-pop">
-          {items.map((it) => (
-            <button key={it.key} type="button" role="menuitem" disabled={it.disabled} title={it.hint}
-              className={`flex w-full min-h-[40px] items-center px-3 text-start text-sm hover:bg-united-subtle focus-visible:bg-united-subtle disabled:cursor-not-allowed disabled:opacity-40 ${it.tone === "danger" ? "text-united-danger" : "text-united-dark"}`}
-              onClick={() => { setOpen(false); button.current?.focus(); it.onSelect(); }}>
-              {it.label}
-            </button>
-          ))}
+          {header}
+          {items.map((it) =>
+            it.href && !it.disabled ? (
+              <Link key={it.key} href={it.href} role="menuitem" title={it.hint} className={itemClass(it)} onClick={() => setOpen(false)}>
+                {it.icon}{it.label}
+              </Link>
+            ) : (
+              <button key={it.key} type="button" role="menuitem" disabled={it.disabled} title={it.hint} className={itemClass(it)}
+                onClick={() => { setOpen(false); button.current?.focus(); it.onSelect?.(); }}>
+                {it.icon}{it.label}
+              </button>
+            )
+          )}
         </div>
       )}
     </div>

@@ -110,6 +110,12 @@ body {
   min-height: 44px;
 }
 
+/* While the session loads, Nav's placeholder also holds the floor shell's row of tabs; the
+   grouped shell (any width) has none, so the hint drops it and nothing moves either way. */
+html[data-shell="grouped"] .u-tabs-placeholder {
+  display: none;
+}
+
 /* Desktop shell: the grouped sidebar (components/Nav.tsx) is fixed at the inline start;
    the page it sits in makes room for it. Pure CSS, so nothing shifts after hydration. */
 @media (min-width: 1024px) {
