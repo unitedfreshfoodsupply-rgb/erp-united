@@ -115,9 +115,10 @@ export function DecideControls({ a, onDone }: { a: ApprovalDTO; onDone?: () => v
     if (decision === "approve" && (CONFIRM_TYPES.has(a.type) || approvalAmount(a))) {
       const amount = approvalAmount(a);
       const ok = await dialogs.confirm({
-        title: t("approvals.confirm.title", { label: typeLabel(a), number: a.number }),
+        title: t("approvals.confirm.title", { number: a.number }),
         body: (
           <div className="flex flex-col gap-1">
+            <p className="text-xs font-medium">{typeLabel(a)}</p>
             <p className="font-semibold text-united-dark">{systemText(a.title, locale)}</p>
             {a.summary && <p>{systemText(a.summary, locale)}</p>}
             {amount && <p className="font-bold text-united-dark">{t("approvals.amount", { amount })}</p>}

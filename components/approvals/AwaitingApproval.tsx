@@ -53,7 +53,7 @@ export function AwaitingApproval({ type, entityId, compact = false }: { type: st
     <section aria-labelledby={headingId} className="flex flex-col gap-2 rounded-xl border border-united-warn/40 bg-united-warn/10 p-3 text-sm">
       <p id={headingId} className="font-bold text-united-warn">
         {t("approvals.notice.title")} · {typeLabel(a)} · <bdi dir="ltr">{a.number}</bdi>
-        {amount && <> · <bdi dir="ltr">{amount}</bdi></>}
+        {amount && <> · <bdi>{amount}</bdi></>}
       </p>
       <p className="text-united-dark">{t("approvals.requested-by", { name: a.requestedBy })}</p>
       {(!a.canDecide || a.emergency || !!a.approvers?.length) && <WhoDecides a={a} />}

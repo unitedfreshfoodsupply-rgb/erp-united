@@ -4777,7 +4777,7 @@ export const DICTIONARY = {
   "approvals.emergency.label": { ar: "سبب الموافقة الطارئة (10 حروف على الأقل)", en: "Emergency approval reason (at least 10 characters)" },
   "approvals.busy.approve": { ar: "جاري الموافقة…", en: "Approving…" },
   "approvals.busy.reject": { ar: "جاري الرفض…", en: "Rejecting…" },
-  "approvals.confirm.title": { ar: "موافقة على {label} {number}؟", en: "Approve {label} {number}?" },
+  "approvals.confirm.title": { ar: "تأكيد الموافقة — {number}", en: "Confirm approval — {number}" },
   "approvals.confirm.body": { ar: "الموافقة بتنفّذ العملية فورًا (ترحيل أو صرف أو قفل)، والرجوع فيها بيكون بمستند عكسي بس.", en: "Approving carries it out at once (posting, payment or closing); undoing it takes a reversing document." },
   "approvals.filter.type": { ar: "النوع", en: "Type" },
   "approvals.filter.all-types": { ar: "كل الأنواع", en: "All types" },
