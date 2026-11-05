@@ -10,7 +10,7 @@ import { canTransition, isStandardTransition } from "@/lib/orderWorkflow";
 import { isShortage, needsSupervisorReview } from "@/lib/config";
 import { getOperationalSettings, getSetting } from "@/lib/core/settings-service";
 import type { OperationalSettings } from "@/lib/core/settings-registry";
-import { cancelPendingApproval, cancelPendingApprovals, findPending, recordDecision, requestApproval } from "@/lib/core/approvals";
+import { cancelPendingApproval, cancelPendingApprovals, findPending, lockApprovalRequests, recordDecision, requestApproval } from "@/lib/core/approvals";
 import {
   exceptionCategory,
   isOrderOpen,
@@ -1192,6 +1192,11 @@ export async function cancelOrder(
   if (await liveTripStop(orderId)) throw new ApiError(409, "الأوردر على رحلة — شيله من الرحلة الأول");
 
   return inTx(async (tx) => {
+    // Lock order with the paths that raise these requests: the credit and price-exception checks
+    // take the request's lock before they update the order row, so cancel takes those two first;
+    // the shortage check updates the order row first, so its lock comes after (in the withdrawal
+    // below). Otherwise a cancel beside a price change or a credit check could deadlock.
+    await lockApprovalRequests(tx, [{ type: "sales.credit", entityId: orderId }, { type: "sales.price_exception", entityId: orderId }]);
     const updated = await casOrderUpdate(orderId, order.version, (where) =>
       tx.order.update({
         where,

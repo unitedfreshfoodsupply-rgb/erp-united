@@ -384,6 +384,12 @@ export async function requestApprovals(tx: Tx, inputs: Parameters<typeof request
   });
 }
 
+/** Takes these (type, entity) pairs' request locks in one statement, for a caller that must hold
+ * them before it touches the entity itself (a consistent lock order with the paths that raise them). */
+export async function lockApprovalRequests(tx: Tx, pairs: { type: ApprovalType; entityId: string }[]) {
+  await advisoryXactLocks(tx, pairs.map((p) => lockKey(p.type, p.entityId)));
+}
+
 /**
  * cancelPendingApproval for many (type, entity) pairs at once (PW-2, Nov 2026): the same closed
  * rows and approval_cancelled audit rows in a fixed number of statements. A pair with nothing
