@@ -20,6 +20,13 @@ export function JournalRequests() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["acc", "journal-requests"], queryFn: () => apiFetch<{ requests: Req[] }>("/api/accounting/journal-requests").then((r) => r.requests) });
   const rows = (q.data ?? []).filter((r) => r.status === "pending_approval" || Date.now() - Date.parse(`${r.date}T00:00:00Z`) < 30 * 86_400_000);
+  // A failed load must not look like "nothing waiting": say so, with a retry.
+  if (q.isError) return (
+    <section className="card p-3 flex flex-wrap items-center justify-between gap-2" role="alert">
+      <span className="text-sm font-semibold text-united-danger">{t("journal.requests-load-error")}{errorMessage(q.error) ? ` — ${errorMessage(q.error)}` : ""}</span>
+      <button type="button" className="btn-secondary btn-sm" onClick={() => q.refetch()}>{t("ui.retry")}</button>
+    </section>
+  );
   if (!rows.length) return null;
   const cancel = async (r: Req) => {
     const reason = await dialogs.prompt({ title: t("journal.prompt-cancel", { number: r.number }), label: t("ui.reason-label"), required: true, tone: "danger", confirmLabel: t("journal.cancel") });

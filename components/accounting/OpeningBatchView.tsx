@@ -8,6 +8,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { useDialogs } from "@/components/ui/Dialog";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { useBusy } from "@/components/ui/useBusy";
 import { usePermissions } from "@/lib/use-session";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
@@ -139,6 +140,8 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const [kind, setKind] = useState<Kind | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [paste, setPaste] = useState("");
+  // Submit and cancel: one at a time, and the pressed button says it is working.
+  const { busy, run } = useBusy();
   const accounts = useQuery({ queryKey: ["acc", "accounts"], queryFn: () => apiFetch<{ accounts: { id: string; code: string; name: string; nameAr: string; postable: boolean; active: boolean; systemKey: string | null; controlledBy: string | null }[] }>("/api/accounting/accounts").then((r) => r.accounts) });
   const customers = useQuery({ queryKey: ["acc", "parties", "receipts"], queryFn: () => apiFetch<{ customers: { id: string; code: string; name: string; nameAr?: string | null }[] }>("/api/sales/customers").then((r) => r.customers), enabled: kind === "customer" });
   const suppliers = useQuery({ queryKey: ["acc", "parties", "payments"], queryFn: () => apiFetch<{ suppliers: { id: string; code: string; name: string; nameAr?: string | null }[] }>("/api/purchasing/suppliers").then((r) => r.suppliers), enabled: kind === "supplier" });
@@ -173,7 +176,7 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
   return (
     <section className="card overflow-hidden" aria-labelledby="batch-detail">
       <div className="card-header">
-        <h3 id="batch-detail" className="section-title"><bdi dir="ltr">{b.number}</bdi> · {t(`opening.kind.${b.kind}`)} · <bdi dir="ltr">{b.cutoverDate}</bdi> · {t(`opening.status.${b.status}`)}</h3>
+        <h3 id="batch-detail" className="section-title flex flex-wrap items-center gap-2"><span><bdi dir="ltr">{b.number}</bdi> · {t(`opening.kind.${b.kind}`)} · <bdi dir="ltr">{b.cutoverDate}</bdi></span> <StatusPill tone={b.status === "posted" ? "success" : b.status === "pending_approval" ? "warn" : b.status === "cancelled" ? "neutral" : "info"}>{t(`opening.status.${b.status}`)}</StatusPill></h3>
         <button type="button" className="btn-secondary btn-sm" onClick={onClose}>{t("accounting.button.close")}</button>
       </div>
       <div className="p-4 flex flex-col gap-3">
@@ -190,18 +193,18 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
         {v.lineProblems.length > 0 && <ul className="text-sm text-united-danger">{v.lineProblems.map((p) => <li key={p.lineNo}>{t("opening.line-n", { n: String(p.lineNo) })}: {p.message}</li>)}</ul>}
         {draft && (
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-primary" disabled={v.problems.length > 0} onClick={async () => {
+            <button type="button" className="btn-primary" disabled={v.problems.length > 0 || !!busy} aria-busy={busy === "submit"} onClick={async () => {
               if (!(await dialogs.confirm({ title: t("opening.confirm-submit", { number: b.number }), body: t("opening.confirm-submit-body"), confirmLabel: t("opening.submit") }))) return;
-              try { await apiPost(`/api/accounting/opening-batches/${id}/submit`, {}); toast.show(t("opening.toast-submitted"), "success"); refresh(); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
-            }}>{t("opening.submit")}</button>
+              await run("submit", async () => { try { await apiPost(`/api/accounting/opening-batches/${id}/submit`, {}); toast.show(t("opening.toast-submitted"), "success"); refresh(); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); } });
+            }}>{busy === "submit" ? t("ui.working") : t("opening.submit")}</button>
           </div>
         )}
         {(b.status === "draft" || b.status === "pending_approval") && can("accounting.manage") && (
-          <div><button type="button" className="btn-danger btn-sm" onClick={async () => {
-            const reason = await dialogs.prompt({ title: t("opening.prompt-cancel", { number: b.number }), label: t("ui.reason-label"), required: true, tone: "danger", confirmLabel: t("opening.cancel") });
+          <div><button type="button" className="btn-danger btn-sm" disabled={!!busy} aria-busy={busy === "cancel"} onClick={async () => {
+            const reason = await dialogs.prompt({ title: t("opening.prompt-cancel", { number: b.number }), label: t("ui.reason-label"), required: true, tone: "danger", confirmLabel: t("opening.cancel"), cancelLabel: t("ui.back") });
             if (!reason) return;
-            try { await apiPost(`/api/accounting/opening-batches/${id}/cancel`, { reason }); refresh(); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); }
-          }}>{t("opening.cancel")}</button></div>
+            await run("cancel", async () => { try { await apiPost(`/api/accounting/opening-batches/${id}/cancel`, { reason }); toast.show(t("opening.toast-cancelled"), "success"); refresh(); } catch (err) { toast.show(errorMessage(err) ?? t("ui.error.generic"), "error"); } });
+          }}>{busy === "cancel" ? t("ui.working") : t("opening.cancel")}</button></div>
         )}
         {draft && (
           <div className="border border-united-border rounded-xl p-3 flex flex-col gap-2">
