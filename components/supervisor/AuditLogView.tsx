@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
 import type { AuditLogDTO } from "@/lib/client-types";
 import { EmptyState, ErrorState } from "@/components/States";
@@ -14,6 +14,7 @@ import { ROLE_LABEL, ROLE_LABEL_EN, isRole } from "@/lib/types";
 import { CardSkeleton } from "@/components/Skeleton";
 import { useLocale } from "@/lib/locale";
 import { usePermissions } from "@/lib/use-session";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 import { DICTIONARY } from "@/lib/locale/dictionary";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Pagination } from "@/components/ui/Pagination";
@@ -41,17 +42,26 @@ export function AuditLogView() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [page, setPage] = useState(1);
+  // The search goes to the server once typing pauses — each request scans the whole log
+  // (every word against eight fields) — not once per letter.
+  const q = useDebouncedValue(search.trim(), 400);
   // Server-side filtering and paging; any filter change goes back to the first page.
   const qs = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String((page - 1) * PAGE_SIZE) });
-  if (search.trim()) qs.set("q", search.trim());
+  if (q) qs.set("q", q);
   if (entityFilter !== "all") qs.set("entity", entityFilter);
   if (from) qs.set("from", from);
   if (to) qs.set("to", to);
-  const queryStr = qs.toString() ? "?" + qs.toString() : "";
-  const { data, isLoading, isError, error, refetch, dataUpdatedAt } = useQuery({
-    queryKey: ["audit", queryStr || "all"],
+  const queryStr = "?" + qs.toString();
+  // Live (every 5 s) only on the newest page of the whole log, where new rows appear; a search,
+  // a filter or an older page is a look-up and is not re-run on a timer.
+  const live = !q && page === 1 && !from && !to && entityFilter === "all";
+  const { data, isLoading, isError, error, refetch, dataUpdatedAt, isPlaceholderData } = useQuery({
+    // Under ["audit", "all"], which lib/queryInvalidation.ts refreshes after an order change.
+    queryKey: ["audit", "all", queryStr],
     queryFn: () => apiFetch<{ logs: AuditLogDTO[]; total: number }>("/api/audit" + queryStr),
-    refetchInterval: 5000,
+    // The rows already on screen stay while the next search, filter or page loads (no skeleton).
+    placeholderData: keepPreviousData,
+    refetchInterval: live ? 5000 : false,
   });
 
   const activeFilter = DECISION_FILTER_KEYS.find((f) => f.key === decisionFilter)!;
@@ -67,7 +77,7 @@ export function AuditLogView() {
         back={can("reports.view") ? { href: "/supervisor", label: t("audit.back-supervisor") } : undefined}
         title={t("audit.page-title")}
         description={t("audit.subtitle")}
-        actions={<LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} />}
+        actions={live ? <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} /> : undefined}
       />
 
       <input
@@ -129,7 +139,7 @@ export function AuditLogView() {
         />
       )}
 
-      <div className="flex flex-col gap-2">
+      <div className={`flex flex-col gap-2 ${isPlaceholderData ? "opacity-60 transition-opacity" : ""}`} aria-busy={isPlaceholderData || undefined}>
         {logs.map((l) => {
           const { icon, headline, detail } = describeOne(l, locale);
           return (

@@ -8,6 +8,7 @@ import { visibleAuditRows } from "@/lib/security/audit-visibility";
 import { isValidISODate } from "@/lib/dates";
 import { localizeServerMessage, requestLocale } from "@/lib/locale/server-messages";
 import { jsonResponse } from "@/lib/http-response";
+import { auditPage } from "./query";
 
 const MAX_PAGE = 200;
 const KNOWN_ENTITY_TYPES = new Set([
@@ -74,16 +75,7 @@ export async function GET(req: NextRequest) {
       }));
     }
 
-    const [total, rows] = await Promise.all([
-      prisma.auditLog.count({ where }),
-      prisma.auditLog.findMany({
-        where,
-        orderBy: orderId ? { timestamp: "desc" } : { timestamp: "desc" },
-        skip: offset,
-        take: limit,
-        include: { order: { select: { orderNumber: true, customerName: true } } },
-      }),
-    ]);
+    const { total, rows } = await auditPage(where, limit, offset);
 
     const logs = visibleAuditRows(rows, can);
 
