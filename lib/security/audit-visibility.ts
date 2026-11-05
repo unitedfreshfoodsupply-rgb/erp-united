@@ -42,3 +42,16 @@ const RULES: { applies: (r: Row) => boolean; anyOf: Permission[] }[] = [
 export function visibleAuditRows<T extends Row>(rows: T[], can: (p: Permission) => boolean): T[] {
   return rows.filter((r) => RULES.every((rule) => !rule.applies(r) || rule.anyOf.some((p) => can(p))));
 }
+
+/**
+ * A receipt's audit line ends with its provisional unit cost ("… · سعر مؤقت 7.5000", written
+ * by lib/stock-service.ts). What stock cost is stock.valuation.view's; jsonFor blanks cost
+ * fields by name, which a sentence is not, so without that permission the line keeps the
+ * marker and loses the amount.
+ */
+const PROVISIONAL_COST = / · سعر مؤقت -?[\d.]+$/;
+
+export function withoutProvisionalCost<T extends { action: string; newValue: string | null }>(rows: T[], can: (p: Permission) => boolean): T[] {
+  if (can("stock.valuation.view")) return rows;
+  return rows.map((r) => (r.action === "stock_intake_created" && r.newValue && PROVISIONAL_COST.test(r.newValue) ? { ...r, newValue: r.newValue.replace(PROVISIONAL_COST, " · سعر مؤقت") } : r));
+}
