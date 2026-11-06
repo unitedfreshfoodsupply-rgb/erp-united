@@ -95,7 +95,10 @@ export async function POST(req: NextRequest) {
       );
       if (!method) {
         await recordLoginFailure(user.username, ip);
-        throw new ApiError(401, loc === "en" ? "Wrong verification code" : "كود التحقق غلط");
+        // A code is refused both when it is wrong and when its 30-second step was already used
+        // (replay protection: e.g. signing in again right after enrolling). Saying which would
+        // tell the caller the code was right, so the one message covers both and says what to do.
+        throw new ApiError(401, loc === "en" ? "Wrong or already used verification code — wait for the next code in the app" : "كود التحقق غلط أو اتستخدم قبل كده — استنى الكود الجاي في التطبيق");
       }
       await recordLoginSuccess(user.username, ip);
       return signIn(user, true);

@@ -79,7 +79,9 @@ export function OrderCard({ order }: { order: OrderDTO }) {
       </div>
       {stage !== "done" && stage !== "cancelled" && remaining > 0 && roll.singleUnit && (
         <div className="mt-1 text-xs text-united-muted">
-          {t("order.remaining")} <span dir="ltr" className="font-semibold text-united-dark">{qty(remaining)} {unitLabel(roll.singleUnit)}</span>{" "}
+          {/* Only the number is a left-to-right run: the unit follows it in the line's own direction
+              (Arabic: "فاضل 21 كجم", not "كجم 21"). */}
+          {t("order.remaining")} <span className="font-semibold text-united-dark"><bdi dir="ltr">{qty(remaining)}</bdi> {unitLabel(roll.singleUnit)}</span>{" "}
           {isLoadingStage ? t("order.loading") : t("order.prep")}
         </div>
       )}

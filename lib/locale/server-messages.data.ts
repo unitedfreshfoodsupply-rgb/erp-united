@@ -1670,6 +1670,7 @@ export const SERVER_MESSAGES: readonly (readonly [ar: string, en: string])[] = [
   ["التحقق بخطوتين مش مفعّل على الحساب ده", "Two-step sign-in is not on for this account"],
   ["خطوة الدخول انتهت — دخّل كلمة السر تاني", "The sign-in step expired — enter your password again"],
   ["كود التحقق غلط", "Wrong verification code"],
+  ["كود التحقق غلط أو اتستخدم قبل كده — استنى الكود الجاي في التطبيق", "Wrong or already used verification code — wait for the next code in the app"],
   ["كلمة السر لازم تكون {} خانة بالكتير", "The password must be at most {0} characters"],
   ["كلمة السر مينفعش تكون نفس اسم المستخدم", "The password cannot be the same as the username"],
   ["كلمة السر دي مشهورة وسهل تتخمن — اختار كلمة سر تانية", "This password is well known and easy to guess — choose another"],

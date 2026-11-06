@@ -161,7 +161,7 @@ export function LoadBoard() {
       {upcoming.length > 0 && (
         <div className="mt-6">
           <h2 className="text-sm font-extrabold text-united-muted mb-2">{t("orders.load-board.upcoming-header")}</h2>
-          <div className="flex flex-col gap-3 opacity-80">
+          <div className="flex flex-col gap-3">
             {upcoming.map((o) => (
               <OrderCard key={o.id} order={o} />
             ))}

@@ -9,6 +9,7 @@ import { fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { Field } from "@/components/ui/Field";
+import { CardSkeleton } from "@/components/Skeleton";
 
 type Amounts = { gross: string; discount: string; net: string; tax: string; total: string };
 type Pricing = {
@@ -47,12 +48,15 @@ export function OrderPricingPanel({ orderId }: { orderId: string }) {
     enabled: can("sales.pricing.view"),
     refetchInterval: 30_000,
   });
-  if (!can("sales.pricing.view") || !q.data) return null;
+  if (!can("sales.pricing.view")) return null;
+  // Below the attachments (components/order/OrderDetail.tsx), with a placeholder while the
+  // first answer loads: nothing above it, and nothing the user may be about to click, moves.
+  if (!q.data) return q.isPending ? <div className="mt-4"><CardSkeleton lines={3} /></div> : null;
   const p = q.data;
   const canOverride = can("sales.price_override");
   const refresh = () => void qc.invalidateQueries({ queryKey: ["orders", orderId, "pricing"] });
   return (
-    <section className="card p-4 flex flex-col gap-3">
+    <section className="card p-4 mt-4 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <h3 className="font-extrabold text-united-dark">{t("pricing.title")}</h3>
         <span className="text-xs font-bold text-united-muted">{p.customer ? `${localName(p.customer, locale)} · ` : t("pricing.unlinked-customer")}{p.priceList ? p.priceList.name : t("pricing.no-price-list")}</span>

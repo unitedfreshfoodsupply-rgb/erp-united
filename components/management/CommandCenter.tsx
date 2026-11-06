@@ -124,7 +124,7 @@ export function CommandCenter() {
                 <section className="viz card flex flex-col gap-3 p-4" aria-labelledby="cc-produce">
                   <Head id="cc-produce" title={t("cc.produce")} href={`/reports/waste-trend?${per}&group_by=week`} />
                   <p className="text-sm text-united-muted">{t("cc.received-kg", { kg: formatNumber(c.receivedKg, { maxDp: 0 }) })}</p>
-                  {total > 0 && <div className="flex h-3 overflow-hidden rounded-full bg-united-subtle" role="img" aria-label={parts.map((p) => `${t(`home.produce.${p.k}`)} ${formatNumber(p.v, { maxDp: 1 })}`).join("، ")}>{parts.map((p) => p.v > 0 && <span key={p.k} className={p.cls} style={{ width: `${(p.v / total) * 100}%` }} />)}</div>}
+                  {total > 0 && <div className="flex h-3 overflow-hidden rounded-full bg-united-subtle" role="img" aria-label={parts.map((p) => `${t(`home.produce.${p.k}`)} ${formatNumber(p.v, { maxDp: 1 })}`).join(locale === "en" ? ", " : "، ")}>{parts.map((p) => p.v > 0 && <span key={p.k} className={p.cls} style={{ width: `${(p.v / total) * 100}%` }} />)}</div>}
                   <ul className="flex flex-col divide-y divide-united-border text-sm">
                     <Row label={t("cc.waste-rate")} value={c.wastePct === null ? "—" : `${c.wastePct}%`} hot={n(c.wastePct) > 5} sub={d.produce!.previous.wastePct ? t("cc.prev", { v: `${d.produce!.previous.wastePct}%` }) : undefined} href={`/reports/goods-received?${per}`} />
                     {c.wasteValue !== null && <Row label={t("cc.waste-value")} value={money(c.wasteValue)} href={`/reports/supplier-performance?${per}`} />}

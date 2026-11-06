@@ -76,15 +76,15 @@ export default async function PickingSheetPage({ params, searchParams }: { param
         <div className="grid grid-cols-2 gap-6 mt-10 text-sm print-break-inside-avoid">
           <div>
             <div className="border-b border-united-dark h-14" />
-            <div className="text-united-dark/60 mt-1">{t("printdoc.prepared-by")}</div>
+            <div className="text-united-muted mt-1">{t("printdoc.prepared-by")}</div>
           </div>
           <div>
             <div className="border-b border-united-dark h-14" />
-            <div className="text-united-dark/60 mt-1">{t("printdoc.date-time")}</div>
+            <div className="text-united-muted mt-1">{t("printdoc.date-time")}</div>
           </div>
         </div>
 
-        <p className="text-[10px] text-united-dark/30 mt-8">
+        <p className="text-[10px] text-united-muted mt-8">
           {t("printdoc.printed-at", { when: new Date().toLocaleString(printIntl(locale)), id: order.id })}
         </p>
       </div>

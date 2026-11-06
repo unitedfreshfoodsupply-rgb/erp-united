@@ -168,17 +168,17 @@ export default async function DeliverySheetPage({ params, searchParams }: { para
         <div className="grid grid-cols-2 gap-6 mt-10 text-sm print-break-inside-avoid">
           <div>
             <div className="border-b border-united-dark h-14" />
-            <div className="text-united-dark/60 mt-1">{t("printdoc.receiver-sign")}</div>
+            <div className="text-united-muted mt-1">{t("printdoc.receiver-sign")}</div>
             <div className="text-united-dark/40 text-xs">{t("printdoc.name-date")}</div>
           </div>
           <div>
             <div className="border-b border-united-dark h-14" />
-            <div className="text-united-dark/60 mt-1">{t("printdoc.driver-sign")}</div>
+            <div className="text-united-muted mt-1">{t("printdoc.driver-sign")}</div>
             <div className="text-united-dark/40 text-xs">{t("printdoc.name-date")}</div>
           </div>
         </div>
 
-        <p className="text-[10px] text-united-dark/30 mt-8">
+        <p className="text-[10px] text-united-muted mt-8">
           {t("printdoc.printed-at", { when: new Date().toLocaleString(printIntl(locale)), id: order.id })}
         </p>
       </div>

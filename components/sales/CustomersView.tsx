@@ -134,7 +134,7 @@ function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
     { key: "area", label: t("sales.col.area"), sortValue: (c) => [c.area, c.city].filter(Boolean).join(" "), render: (c) => [c.area, c.city].filter(Boolean).join(locale === "en" ? ", " : "، ") || "—", secondary: true },
     { key: "phone", label: t("sales.col.phone"), render: (c) => <span dir="ltr">{c.phone ?? "—"}</span>, secondary: true },
     { key: "terms", label: t("sales.col.terms"), sortValue: (c) => c.paymentTermsDays, render: (c) => (c.paymentTermsDays ? `${c.paymentTermsDays} ${t("sales.label.day")}` : t("sales.label.payment-cash")) },
-    { key: "orders", label: t("sales.label.orders"), numeric: true, sortValue: (c) => c._count.orders, render: (c) => c._count.orders.toLocaleString("en-US") },
+    { key: "orders", label: t("orders.title"), numeric: true, sortValue: (c) => c._count.orders, render: (c) => c._count.orders.toLocaleString("en-US") },
     { key: "status", label: t("list.status"), render: (c) => (!c.active ? <span className="pill-neutral">{t("sales.label.inactive")}</span> : c.creditHold ? <span className="pill-danger"><span className="pill-dot" />{t("sales.label.on-hold")}</span> : <span className="pill-success"><span className="pill-dot" />{t("sales.col.active")}</span>) },
   ];
   return (
