@@ -128,3 +128,27 @@ export const ORDER_ACTION_SAMPLE_TEXTS: readonly string[] = [
   T.restocked,
   T.notRestocked,
 ];
+
+/**
+ * Why the prices on an order can no longer be changed, or null when they can (ORD-06).
+ * The rule lib/sales/pricing.ts refuses with: overrideLinePrice and repriceOrder refuse a
+ * cancelled order, and assertNotInvoiced an order with an issued invoice or a draft one
+ * (void the draft first). The order screen hides the price actions and says which one.
+ */
+export type OrderPriceLock = "cancelled" | "issued" | "draft" | null;
+export function orderPriceLock(orderStatus: string | null | undefined, invoiceStatus: string | null | undefined): OrderPriceLock {
+  if (orderStatus === "cancelled") return "cancelled";
+  if (invoiceStatus === "issued") return "issued";
+  if (invoiceStatus === "draft") return "draft";
+  return null;
+}
+
+/**
+ * How an order's trip stop reads (ORD-08). A stop is "pending" from the moment the order is
+ * put on the trip, but the order is on the way only once it has left with it (dispatched);
+ * before that it is "on-trip". Other stop states read as they are. Used by the customer's
+ * orders list and the order's pricing panel.
+ */
+export function orderStopShownAs(stopStatus: string, orderStatus: string | null | undefined): string {
+  return stopStatus === "pending" && orderStatus !== "dispatched" ? "on-trip" : stopStatus;
+}

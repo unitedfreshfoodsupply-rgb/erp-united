@@ -11,6 +11,7 @@ import { StatusPill, type Tone } from "@/components/ui/StatusPill";
 import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { DocLink, PartyLink } from "./EntityLink";
 import type { ProfileGroup, ProfileRow } from "@/lib/profiles/service";
+import { orderStopShownAs } from "@/lib/orderActions";
 
 /**
  * The parts every profile shares (customer, supplier, product): tabs kept in the address
@@ -104,9 +105,8 @@ function Detail({ r, movement }: { r: ProfileRow; movement: boolean }) {
   switch (r.kind) {
     case "order": {
       const [lines, prepared, loaded, trip, stop] = p;
-      // A stop is "pending" from the moment the order is put on the trip: it is on the way only
-      // once the order has left with it (dispatched). Before that it is just on the trip (ORD-08).
-      const stopKey = stop === "pending" && r.status !== "dispatched" ? "on-trip" : stop;
+      // A pending stop is on the way only once the order has left with it (ORD-08).
+      const stopKey = orderStopShownAs(stop, r.status);
       return <span>{t(lines === "1" ? "profile.detail.order_one" : "profile.detail.order", { lines, prepared, loaded })}{trip ? <> · {ltr(trip)}{stop ? ` · ${t(`profile.stop.${stopKey}`)}` : ""}</> : null}</span>;
     }
     case "invoice": case "opening_balance": return <span>{t("profile.detail.due", { date: "" })}{ltr(p[0])}</span>;

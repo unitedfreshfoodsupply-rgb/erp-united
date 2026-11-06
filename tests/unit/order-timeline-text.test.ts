@@ -23,3 +23,12 @@ test("a return reason on the timeline reads in English", () => {
   assert.equal(systemText("مرتجع على INV-2026-00002: كسر", "en"), "Return on INV-2026-00002: كسر");
   assert.equal(systemText("اتحفظ مستني بضاعة — مفيش أي كمية محجوزة لحد الإفراج", "en"), "Saved awaiting stock — nothing is reserved until it is released");
 });
+
+test("the reasons the system writes when it releases a held order or prices a line at entry read in English", () => {
+  // lib/sales/stock-hold.ts releaseHeldOrder, when no reason was typed.
+  assert.equal(systemText("البضاعة اتوفرت — كل السطور اتحجزت", "en"), "Stock arrived — every line is reserved");
+  // lib/sales/pricing.ts, a line priced at order entry with no list price.
+  assert.equal(systemText("سعر متفق عليه مع العميل عند تسجيل الأوردر", "en"), "Price agreed with the customer at order entry");
+  // Arabic readers get them as stored.
+  assert.equal(systemText("سعر متفق عليه مع العميل عند تسجيل الأوردر", "ar"), "سعر متفق عليه مع العميل عند تسجيل الأوردر");
+});

@@ -260,6 +260,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   // A refusal of a panel action is shown in the panel; anything else in the banner at the top.
   const panelError = error && errorId && PANEL_ACTIONS.has(errorId) ? error : null;
   const bannerError = error && !panelError ? error : null;
+  const editReasonMissing = errorId === "edit" && error === t("orders.edit.required_reason");
 
   function startEditing() {
     if (can("sales.customers.view")) void qc.prefetchQuery(customerCardsQuery);
@@ -280,8 +281,11 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editForm.reason.trim()) {
-      setError(t("orders.edit.required_reason"));
+      // Shown in the panel next to the form and announced by the error toast, like a refusal.
+      const msg = t("orders.edit.required_reason");
+      setError(msg);
       setErrorId("edit");
+      toast.show(msg, "error");
       return;
     }
     const changed = (["customer_account_id", "customer_name", "delivery_date", "delivery_time", "notes", "customer_po_ref"] as const).filter((k) => editForm[k] !== editBase[k]);
@@ -631,7 +635,8 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         </p>
       )}
 
-      {/* No role here: the error toast already announces it (role=alert), once. */}
+      {/* No role here: every error set on this screen is also shown as an error toast
+          (role=alert), which announces it once. */}
       {bannerError && <p className="bg-red-50 text-united-danger font-bold rounded-xl p-3 mt-3">{bannerError}</p>}
 
       <StockHoldPanel order={order} />
@@ -750,6 +755,8 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                   value={editForm.reason}
                   onChange={(e) => setEditForm((f) => ({ ...f, reason: e.target.value }))}
                   className="field"
+                  aria-invalid={editReasonMissing || undefined}
+                  aria-describedby={editReasonMissing ? `order-${orderId}-panel-error` : undefined}
                 />
               </Field>
               <div className="flex gap-2">
@@ -767,7 +774,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
               when needed) — this row only holds the less urgent supervisor actions.
               Cancel and reopen follow the server's answer (lib/orderActions.ts): when one
               is not possible it stays visible, disabled, with the reason and the way out. */}
-          {panelError && <p className="bg-red-50 text-united-danger font-bold rounded-xl p-3">{panelError}</p>}
+          {panelError && <p id={`order-${orderId}-panel-error`} className="bg-red-50 text-united-danger font-bold rounded-xl p-3">{panelError}</p>}
           <div className="flex flex-wrap items-start gap-2">
             {cancelOffered && (
               <ReasonAction
@@ -834,7 +841,8 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                 value={overrideTo}
                 onChange={(e) => setOverrideTo(e.target.value as OrderStatus)}
                 className="field"
-               aria-label={t("orders.override_choose_status")}>
+               aria-label={t("orders.override_choose_status")}
+                aria-describedby={order.status !== "dispatched" ? `order-${orderId}-override-hint` : undefined}>
                 <option value="">{t("orders.override_choose_status")}</option>
                 {/* Not "dispatched" either: it needs the vehicle, driver and crates, which only the
                     dispatch button and the loading board record (the line below says so). */}
@@ -844,7 +852,10 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-united-muted">{t("orders.override_no_dispatch")}</p>
+              {/* Only where dispatch is still ahead; a dispatched order never had it to choose. */}
+              {order.status !== "dispatched" && (
+                <p id={`order-${orderId}-override-hint`} className="text-xs text-united-muted">{t("orders.override_no_dispatch")}</p>
+              )}
               <Field label={t("orders.override_reason_placeholder")}>
                 <input value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} className="field" />
               </Field>

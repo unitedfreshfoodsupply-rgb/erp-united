@@ -11,6 +11,8 @@ import { localName } from "@/lib/locale/names";
 import { Field } from "@/components/ui/Field";
 import { StatusPill, docTone } from "@/components/ui/StatusPill";
 import { useBusy } from "@/components/ui/useBusy";
+import { orderPriceLock, orderStopShownAs } from "@/lib/orderActions";
+import { systemText } from "@/lib/locale/system-text";
 
 type Amounts = { gross: string; discount: string; net: string; tax: string; total: string };
 type Pricing = {
@@ -54,15 +56,16 @@ export function OrderPricingPanel({ orderId, orderStatus }: { orderId: string; o
   if (!can("sales.pricing.view") || !q.data) return null;
   const p = q.data;
   // Prices change on the order only while no invoice holds them and the order is live — the
-  // same rule the server refuses with (lib/sales/pricing.ts assertNotInvoiced, overrideLinePrice,
-  // repriceOrder). Then the actions are not offered and one line says why (ORD-06).
+  // same rule the server refuses with (lib/orderActions.ts orderPriceLock). Then the actions
+  // are not offered and one line says why (ORD-06).
   const inv = p.commercial?.invoice ?? null;
+  const lock = orderPriceLock(orderStatus, inv?.status);
   const locked =
-    orderStatus === "cancelled"
+    lock === "cancelled"
       ? t("pricing.locked.cancelled")
-      : inv?.status === "issued"
-        ? t("pricing.locked.issued", { number: inv.number ?? "" })
-        : inv?.status === "draft"
+      : lock === "issued"
+        ? t("pricing.locked.issued", { number: inv?.number ?? "" })
+        : lock === "draft"
           ? t("pricing.locked.draft")
           : null;
   const canOverride = can("sales.price_override") && !locked;
@@ -83,10 +86,11 @@ export function OrderPricingPanel({ orderId, orderStatus }: { orderId: string; o
           {p.commercial.delivery && (
             // A stop is "pending" from the moment the order is put on the trip; it is on the way
             // only once the order has left with it (dispatched) — before that, it is on the trip.
-            p.commercial.delivery.status === "pending" && orderStatus && orderStatus !== "dispatched" ? (
+            orderStatus && orderStopShownAs(p.commercial.delivery.status, orderStatus) === "on-trip" ? (
               <StatusPill tone="info" size="md">{t("pricing.delivery.on-trip")} · <span dir="ltr">{p.commercial.delivery.trip}</span></StatusPill>
             ) : (
-              <StatusPill tone={docTone(p.commercial.delivery.status)} size="md">{DELIVERY[p.commercial.delivery.status] ? t(DELIVERY[p.commercial.delivery.status]) : p.commercial.delivery.status} · <span dir="ltr">{p.commercial.delivery.trip}</span></StatusPill>
+              // On the way is a normal state (info, as before), not a warning.
+              <StatusPill tone={p.commercial.delivery.status === "pending" ? "info" : docTone(p.commercial.delivery.status)} size="md">{DELIVERY[p.commercial.delivery.status] ? t(DELIVERY[p.commercial.delivery.status]) : p.commercial.delivery.status} · <span dir="ltr">{p.commercial.delivery.trip}</span></StatusPill>
             )
           )}
           {p.commercial.invoice ? (
@@ -109,7 +113,7 @@ export function OrderPricingPanel({ orderId, orderStatus }: { orderId: string; o
             <div className="flex justify-between gap-2 text-xs font-bold text-united-muted">
               <span>
                 <span dir="ltr">{fmtQty(l.quantity, l.unit)}</span> ({BASIS[l.quantityBasis] ? t(BASIS[l.quantityBasis]) : l.quantityBasis})
-                {l.price && <> × <span dir="ltr">{l.price.unitPrice}</span>{Number(l.price.discountPct) > 0 ? ` − ${l.price.discountPct}%` : ""}{Number(l.price.taxRate) > 0 ? ` + ${t("pricing.tax-short")} ${l.price.taxRate}%` : ""} · {SOURCE[l.price.source] ? t(SOURCE[l.price.source]) : l.price.source}{l.price.reason ? ` (${l.price.reason})` : ""}</>}
+                {l.price && <> × <span dir="ltr">{l.price.unitPrice}</span>{Number(l.price.discountPct) > 0 ? ` − ${l.price.discountPct}%` : ""}{Number(l.price.taxRate) > 0 ? ` + ${t("pricing.tax-short")} ${l.price.taxRate}%` : ""} · {SOURCE[l.price.source] ? t(SOURCE[l.price.source]) : l.price.source}{l.price.reason ? ` (${systemText(l.price.reason, locale)})` : ""}</>}
               </span>
               {canOverride && l.mapped && (
                 <button type="button" className="text-united-green underline font-extrabold" onClick={() => { setEditing(editing === l.itemId ? null : l.itemId); setForm({ price: l.price?.unitPrice ?? "", discount: l.price?.discountPct ?? "0", reason: "" }); }}>
