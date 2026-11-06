@@ -49,7 +49,8 @@ export function PickingSheet() {
   const lines = data?.lines ?? [];
   const summary = data?.summary;
 
-  // Filter by preparation status
+  // Filter by what is left to pick (FLOOR-1): the same figure as the card header, the rows and
+  // the summary, so "Done" lists exactly the products whose header says nothing is left.
   const filteredLines = lines
     .map((line) => {
       const isRelevant =
@@ -65,9 +66,9 @@ export function PickingSheet() {
           if (filterPrepStatus === "all") return true;
           if (filterPrepStatus === "rejected") return a.rejected;
           if (filterPrepStatus === "pending")
-            return a.preparationStatus !== "done";
+            return a.remainingQuantity > 0;
           if (filterPrepStatus === "done")
-            return a.preparationStatus === "done";
+            return a.remainingQuantity === 0;
           return true;
         }),
       };
@@ -84,7 +85,10 @@ export function PickingSheet() {
         <h2 className="hidden print:block text-xl font-bold text-center">
           {t("picking.print-title", { date })}
         </h2>
-        <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} stale={isError && !!data} />
+        {/* A screen cue, not part of the printed sheet (FLOOR-6). */}
+        <div className="print:hidden">
+          <LiveIndicator dataUpdatedAt={dataUpdatedAt} isLoading={isLoading} stale={isError && !!data} />
+        </div>
       </div>
 
       {/* Date picker row */}
@@ -151,7 +155,8 @@ export function PickingSheet() {
       {/* Product cards */}
       <div className="flex flex-col gap-3">
         {filteredLines.map((line) => {
-          const remaining = line.totalRequired - line.totalLoaded;
+          // Left to pick: the server's one figure, the sum of the rows below (FLOOR-1).
+          const remaining = line.totalRemaining;
           const prepPct =
             line.totalRequired > 0
               ? Math.round(
@@ -161,9 +166,10 @@ export function PickingSheet() {
           // Product and unit: the same product ordered in kg and in crates is two cards (UXO-13).
           const cardKey = `${line.productKey}__${line.unit}`;
           const isExpanded = expandedProduct === cardKey;
-          const allocationSet = new Set(
-            line.allocations.map((a) => a.orderId)
-          );
+          // Customers, not orders (FLOOR-11): two orders of one customer are one customer.
+          const customerCount = new Set(
+            line.allocations.map((a) => a.customerAccountId ?? `n:${a.customerName}`)
+          ).size;
 
           return (
             <div
@@ -178,7 +184,7 @@ export function PickingSheet() {
               <button
                 type="button"
                 aria-expanded={isExpanded}
-                className="w-full text-start flex items-center justify-between gap-2"
+                className="w-full min-h-11 text-start flex items-center justify-between gap-2"
                 onClick={() =>
                   setExpandedProduct(
                     isExpanded ? null : cardKey
@@ -215,7 +221,7 @@ export function PickingSheet() {
                     </span>
                   </div>
                   <span className="text-sm font-bold text-united-muted">
-                    {t("picking.customers-count", { count: allocationSet.size })}
+                    {customerCount === 1 ? t("picking.customers-count-one") : t("picking.customers-count", { count: customerCount })}
                   </span>
                   <ChevronDown size={18} aria-hidden className={`shrink-0 text-united-muted transition-transform print:hidden ${isExpanded ? "rotate-180" : ""}`} />
                 </div>
@@ -258,14 +264,10 @@ export function PickingSheet() {
                       </div>
 
                       {line.allocations.map((a) => {
-                        const allocatedRemaining = Math.max(
-                          0,
-                          a.requiredQuantity -
-                            (a.loadedQuantity ?? a.preparedQuantity ?? 0)
-                        );
+                        const allocatedRemaining = a.remainingQuantity;
                         return (
                           <div
-                            key={`${a.orderId}-${line.productKey}`}
+                            key={a.itemId}
                             className={`rounded-xl p-2 ${
                               a.rejected
                                 ? "bg-[#FDECEA] border border-[#F5C6C1]"
@@ -278,7 +280,7 @@ export function PickingSheet() {
                             <div className="grid grid-cols-7 gap-1 text-sm items-center">
                               <Link
                                 href={`/orders/${a.orderId}`}
-                                className="col-span-2 font-bold text-united-dark truncate hover:underline"
+                                className="col-span-2 font-bold text-united-dark truncate hover:underline print:whitespace-normal print:break-words"
                               >
                                 {orderCustomerName(a, locale)}
                               </Link>

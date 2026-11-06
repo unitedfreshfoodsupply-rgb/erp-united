@@ -65,9 +65,46 @@ test("the daily totals are the helper's totals over the production order list", 
   const board = aggregateProduction((await listOrders({ scope: "production" })).filter((o) => o.status !== "cancelled"));
   assert.deepEqual(byKey(daily), byKey(board));
 
+  // Grouped like the picking sheet (FLOOR-5): the linked lines under their product, the
+  // unlinked ones under their text, each per unit.
   const rows = byKey(daily);
-  assert.deepEqual(rows.get(`${name}__KG`), { key: `${name}__KG`, productName: name, productNameEn: `${TAG} Tomatoes`, productNameAr: `${TAG} طماطم`, unit: "KG", required: 25.5, prepared: 12, orderCount: 2 });
-  assert.deepEqual(rows.get(`${name}__CRATE`), { key: `${name}__CRATE`, productName: name, productNameEn: `${TAG} Tomatoes`, productNameAr: `${TAG} طماطم`, unit: "CRATE", required: 5, prepared: 2, orderCount: 2 });
+  assert.deepEqual(rows.get(`n:${name}__KG`), { key: `n:${name}__KG`, productName: name, productNameEn: null, productNameAr: null, unit: "KG", required: 20, prepared: 12, orderCount: 1 });
+  assert.deepEqual(rows.get(`n:${name}__CRATE`), { key: `n:${name}__CRATE`, productName: name, productNameEn: null, productNameAr: null, unit: "CRATE", required: 3, prepared: 0, orderCount: 1 });
+  assert.deepEqual(rows.get(`p:${productId}__KG`), { key: `p:${productId}__KG`, productName: name, productNameEn: `${TAG} Tomatoes`, productNameAr: `${TAG} طماطم`, unit: "KG", required: 5.5, prepared: 0, orderCount: 1 });
+  assert.deepEqual(rows.get(`p:${productId}__CRATE`), { key: `p:${productId}__CRATE`, productName: name, productNameEn: `${TAG} Tomatoes`, productNameAr: `${TAG} طماطم`, unit: "CRATE", required: 2, prepared: 2, orderCount: 1 });
+});
+
+test("the production board and the picking sheet show the same product with the same totals (FLOOR-5)", async () => {
+  const day = "2099-01-02";
+  const mk = async (lines: { name: string; qty: number; prepared?: number; linked?: boolean }[]) => {
+    const o = await prisma.order.create({
+      data: {
+        orderNumber: `${TAG}-${++seq}`,
+        customerName: `${TAG} customer`,
+        deliveryDate: day,
+        status: "preparing",
+        items: { create: lines.map((l) => ({ productName: l.name, unit: "KG", requiredQuantity: l.qty, preparedQuantity: l.prepared ?? null, stockProductId: l.linked ? productId : null })) },
+      },
+    });
+    orderIds.push(o.id);
+  };
+  // One order links two lines of the product under another text; the others leave the same text unlinked.
+  await mk([{ name: `${TAG} صنف 2`, qty: 10, prepared: 10, linked: true }, { name: `${TAG} صنف 2`, qty: 11, linked: true }]);
+  await mk([{ name: `${TAG} صنف 2`, qty: 11 }]);
+  await mk([{ name: `${TAG} صنف 2`, qty: 11, prepared: 3 }]);
+
+  const ours = new Set(orderIds);
+  const list = (await listOrders({ scope: "production" })).filter((o) => ours.has(o.id) && o.deliveryDate === day);
+  const board = byKey(aggregateProduction(list));
+  const sheet = await dailyConsolidatedSheet(day);
+  for (const line of sheet.lines.filter((l) => l.allocations.some((a) => ours.has(a.orderId)))) {
+    const row = board.get(`${line.productKey}__${line.unit}`) as ReturnType<typeof aggregateProduction>[number] | undefined;
+    assert.ok(row, `no board row for ${line.productKey}__${line.unit}`);
+    assert.equal(row.required, line.totalRequired, line.productKey);
+    assert.equal(row.prepared, line.totalPrepared, line.productKey);
+  }
+  assert.equal((board.get(`p:${productId}__KG`) as { required: number } | undefined)?.required, 21);
+  assert.equal((board.get(`n:${TAG} صنف 2__KG`) as { required: number } | undefined)?.required, 22);
 });
 
 test("the daily totals read in a constant number of statements (5 lines or 50), with no name lookup", async () => {
@@ -105,4 +142,44 @@ test("the picking sheet totals per unit; the all-unit sums stay as they were", a
   assert.ok(units.has("KG") && units.has("PIECE"), [...units.keys()].join(","));
   assert.equal(sheet.summary.byUnit.reduce((s, u) => s + u.totalRequired, 0), sheet.summary.totalRequired);
   assert.equal(sheet.summary.byUnit.reduce((s, u) => s + u.totalPrepared, 0), sheet.summary.totalPrepared);
+});
+
+test("the picking sheet has one 'left to pick': the card total is the sum of its rows (FLOOR-1)", async () => {
+  const day = "2099-01-03";
+  const name = `${TAG} جوافة`;
+  const lines = [
+    // Fully prepared, not loaded yet: nothing left to pick.
+    { requiredQuantity: 100, preparedQuantity: 100, preparationStatus: "done" },
+    // Partly prepared.
+    { requiredQuantity: 15, preparedQuantity: 8, preparationStatus: "pending" },
+    // Loaded short of what was prepared: the loaded figure is what left.
+    { requiredQuantity: 10, preparedQuantity: 10, loadedQuantity: 6, preparationStatus: "done", loadingStatus: "done" },
+    // Preparation rejected by the supervisor: all of it is still to pick.
+    { requiredQuantity: 7, preparedQuantity: 7, preparationStatus: "pending", notes: "[رفض: وزن ناقص]" },
+    // Not started.
+    { requiredQuantity: 4, preparedQuantity: null, preparationStatus: "pending" },
+  ];
+  for (const l of lines) {
+    const o = await prisma.order.create({
+      data: {
+        orderNumber: `${TAG}-${++seq}`,
+        customerName: `${TAG} customer`,
+        deliveryDate: day,
+        status: "preparing",
+        items: { create: [{ productName: name, unit: "KG", ...l }] },
+      },
+    });
+    orderIds.push(o.id);
+  }
+  const sheet = await dailyConsolidatedSheet(day);
+  const line = sheet.lines.find((l) => l.productKey === `n:${name}` && l.unit === "KG");
+  assert.ok(line);
+  const left = new Map(line.allocations.map((a) => [a.requiredQuantity, a.remainingQuantity]));
+  assert.deepEqual(Object.fromEntries(left), { 100: 0, 15: 7, 10: 4, 7: 7, 4: 4 });
+  assert.equal(line.totalRemaining, 22);
+  assert.equal(line.totalRemaining, line.allocations.reduce((s, a) => s + a.remainingQuantity, 0));
+  const kg = sheet.summary.byUnit.find((u) => u.unit === "KG");
+  assert.equal(kg?.totalRemaining, sheet.lines.filter((l) => l.unit === "KG").reduce((s, l) => s + l.totalRemaining, 0));
+  // Each row is one order line, with its own id.
+  assert.equal(new Set(line.allocations.map((a) => a.itemId)).size, line.allocations.length);
 });

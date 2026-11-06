@@ -260,10 +260,10 @@ export function Nav() {
         </aside>
       )}
 
-      <header className="sticky top-0 z-20 border-b border-united-border bg-white/95 backdrop-blur-sm">
+      <header className="sticky top-0 z-20 border-b border-united-border bg-white/95 backdrop-blur-sm print:hidden">
         <div className="flex h-14 items-center gap-2 px-3 sm:px-4">
           {grouped && (
-            <button type="button" onClick={() => setDrawerOpen(true)} className="lg:hidden grid h-10 w-10 place-items-center rounded-xl hover:bg-united-subtle" aria-label={t("ui.nav.open-menu")}>
+            <button type="button" onClick={() => setDrawerOpen(true)} className="lg:hidden grid h-11 w-11 place-items-center rounded-xl hover:bg-united-subtle" aria-label={t("ui.nav.open-menu")}>
               <Menu size={20} aria-hidden />
             </button>
           )}
@@ -282,7 +282,7 @@ export function Nav() {
           <button
             type="button"
             onClick={toggleLocale}
-            className="inline-flex h-10 items-center gap-1.5 rounded-xl px-2.5 text-sm font-medium text-united-dark hover:bg-united-subtle"
+            className="inline-flex h-11 items-center gap-1.5 rounded-xl px-2.5 text-sm font-medium text-united-dark hover:bg-united-subtle"
             title={t("ui.lang.switch")}
             lang={locale === "ar" ? "en" : "ar"}
           >
@@ -294,7 +294,7 @@ export function Nav() {
               keys move between the items, Esc and Tab close it. */}
           <AccountMenu
             label={t("ui.account-menu")}
-            triggerClassName="flex h-10 items-center gap-2 rounded-xl ps-1 pe-2 hover:bg-united-subtle"
+            triggerClassName="flex h-11 items-center gap-2 rounded-xl ps-1 pe-2 hover:bg-united-subtle"
             // As wide as the menu it replaced (14rem): the profile label fits on one line.
             menuClassName="w-56"
             trigger={
