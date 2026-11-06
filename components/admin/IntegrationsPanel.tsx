@@ -14,6 +14,13 @@ import { Field } from "@/components/ui/Field";
 type Row = { id: string; code: string; name: string; keyPrefix: string; scopes: string[]; active: boolean; lastUsedAt: string | null; createdBy: string; revokedAt: string | null };
 type Log = { id: string; caller: string; method: string; path: string; status: number; externalId: string | null; result: string | null; error: string | null; durationMs: number; createdAt: string };
 
+/** A key's scopes in words: the same labels as the checkboxes that granted them. */
+const SCOPE_LABEL: Record<string, string> = {
+  "orders.create": "admin.integrations.create-orders",
+  "orders.status": "admin.integrations.track-status",
+  "attendance.ingest": "admin.integrations.attendance-ingest",
+};
+
 export function IntegrationsPanel() {
   const toast = useToast();
   const qc = useQueryClient();
@@ -60,7 +67,7 @@ export function IntegrationsPanel() {
       <ul className="flex flex-col gap-2">
         {q.data?.integrations.map((i) => (
           <li key={i.id} className={`card p-3 flex justify-between items-center gap-2 text-sm font-bold ${i.active ? "" : "opacity-60"}`}>
-            <span><span dir="ltr">{i.code}</span> · {i.name} · <span dir="ltr">{i.keyPrefix}…</span> · {i.scopes.join(t("admin.integrations.sep-scope"))}{i.lastUsedAt ? ` · ${t("admin.integrations.last-used")} ${new Date(i.lastUsedAt).toLocaleString(intlLocale(locale))}` : ""}{i.active ? "" : ` · ${t("admin.integrations.revoked")}`}</span>
+            <span><span dir="ltr">{i.code}</span> · {i.name} · <span dir="ltr">{i.keyPrefix}…</span> · {i.scopes.map((s) => (SCOPE_LABEL[s] ? t(SCOPE_LABEL[s]) : s)).join(t("admin.integrations.sep-scope"))}{i.lastUsedAt ? ` · ${t("admin.integrations.last-used")} ${new Date(i.lastUsedAt).toLocaleString(intlLocale(locale))}` : ""}{i.active ? "" : ` · ${t("admin.integrations.revoked")}`}</span>
             {i.active && <button type="button" className="btn-danger" onClick={async () => {
               if (!(await dialogs.confirm({ title: t("admin.integrations.revoke-confirm", { name: i.name }), body: t("admin.integrations.revoke-confirm-body"), confirmLabel: t("admin.integrations.revoke-key"), tone: "danger" }))) return;
               try { await apiPost(`/api/admin/integrations/${i.id}/revoke`, {}); void qc.invalidateQueries({ queryKey: ["admin", "integrations"] }); } catch (err) { fail(err); }

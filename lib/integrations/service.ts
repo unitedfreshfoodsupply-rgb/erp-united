@@ -8,6 +8,7 @@ import { inTx } from "@/lib/tx";
 import { assertPermission } from "@/lib/authz-core";
 import { parse, text } from "@/lib/core/validation";
 import type { ServiceActor } from "@/lib/core/actor";
+import { localizeServerMessage, type MessageLocale } from "@/lib/locale/server-messages";
 
 /**
  * Integrations (n8n, Hermes, …) are input channels, not sources of truth: they submit
@@ -114,12 +115,14 @@ const present = (r: { id: string; code: string; name: string; keyPrefix: string;
   id: r.id, code: r.code, name: r.name, keyPrefix: r.keyPrefix, scopes: r.scopes, active: r.active, lastUsedAt: r.lastUsedAt, createdBy: r.createdBy, createdAt: r.createdAt, revokedAt: r.revokedAt,
 });
 
-export async function listIntegrations() {
+/** Keys and the recent call log. A logged refusal is stored as the caller saw it (Arabic); the
+ *  admin screen reads it in its own language (`locale`), the stored text stays unchanged. */
+export async function listIntegrations(locale: MessageLocale = "ar") {
   const [rows, logs] = await Promise.all([
     prisma.integration.findMany({ orderBy: { createdAt: "desc" } }),
     prisma.integrationLog.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),
   ]);
-  return { integrations: rows.map(present), logs };
+  return { integrations: rows.map(present), logs: logs.map((l) => (l.error ? { ...l, error: localizeServerMessage(l.error, locale) } : l)) };
 }
 
 // ---------------------------------------------------------------------------
