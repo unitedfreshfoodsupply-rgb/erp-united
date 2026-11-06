@@ -6,6 +6,7 @@ import { localName } from "@/lib/locale/names";
 import { apiPostForm } from "@/lib/api-client";
 import { isValidISODate } from "@/lib/dates";
 import { Field } from "@/components/ui/Field";
+import { DownloadButton } from "@/components/ui/DownloadButton";
 
 type Kind = "customers" | "customer_groups" | "customer_legal_entities" | "suppliers" | "products" | "product_settings" | "product_packaging" | "opening_stock" | "opening_balances" | "sales_prices" | "supplier_prices";
 type Preview = { rows: { rowNumber: number; label: string; labelAr?: string; code?: string; errors: string[] }[]; rowCount: number; errorCount: number };
@@ -103,7 +104,7 @@ export function DataImportPanel({ allowed }: { allowed: Partial<Record<Kind, boo
           </select>
         </Field>
         <div className="flex flex-wrap items-center gap-2">
-          <a className="btn-secondary" href={`/api/admin/data-import?template=${kind}`}>{t("admin.data-import.download-template")}</a>
+          <DownloadButton className="btn-secondary" href={`/api/admin/data-import?template=${kind}`} fileName={`united-${kind}.csv`}>{t("admin.data-import.download-template")}</DownloadButton>
           <label className="btn-secondary cursor-pointer">{t("admin.data-import.choose-file")}<input className="sr-only" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => chooseFile(e.target.files?.[0] ?? null)} /></label>
           <span className="text-xs font-bold text-united-muted">{file?.name ?? t("admin.data-import.no-file")}</span>
         </div>

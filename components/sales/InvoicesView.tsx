@@ -23,6 +23,7 @@ import { href as profileHref } from "@/lib/profiles/links";
 import { DocLink, PartyLink } from "@/components/profiles/EntityLink";
 import { AttachmentsPanel } from "@/components/AttachmentsPanel";
 import { DraftMasterData, type DraftParties } from "@/components/sales/DraftMasterData";
+import { DownloadButton } from "@/components/ui/DownloadButton";
 
 /**
  * Invoicing for the accountant: orders that left and are not invoiced yet, drafts to
@@ -348,7 +349,7 @@ export function CustomerStatement({ customerId }: { customerId: string }) {
     <section className="card p-4 flex flex-col gap-2">
       <div className="flex flex-wrap justify-between items-center gap-2">
         <h3 className="font-extrabold">{t("sales.invoice.statement_title")}</h3>
-        <a className="btn-secondary text-sm" href={`/api/sales/customers/${customerId}/statement/export?from=${from}&to=${to}&lang=${locale}`} download>{t("profile.export-csv")}</a>
+        <DownloadButton className="btn-secondary text-sm" href={`/api/sales/customers/${customerId}/statement/export?from=${from}&to=${to}&lang=${locale}`} fileName="customer-statement.csv">{t("profile.export-csv")}</DownloadButton>
       </div>
       <div className="grid grid-cols-2 gap-2">
         <input type="date" className="field" aria-label={t("accounting.date-from")} value={from} onChange={(e) => setFrom(e.target.value)} />

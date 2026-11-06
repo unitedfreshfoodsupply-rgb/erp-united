@@ -24,6 +24,7 @@ import { href as profileHref } from "@/lib/profiles/links";
 import { DocLink, PartyLink } from "@/components/profiles/EntityLink";
 import { AttachmentsPanel } from "@/components/AttachmentsPanel";
 import { formatNumber } from "@/lib/format";
+import { DownloadButton } from "@/components/ui/DownloadButton";
 
 /**
  * Supplier bills and payables (finance). A bill is booked from the supplier's invoice
@@ -546,7 +547,7 @@ export function Statement({ supplier, onClose }: { supplier: { id: string; name:
       <div className="flex flex-wrap justify-between items-center gap-2">
         <h2 className="text-xl font-extrabold">{t("purchasing.bill.statement_title", { name: localName(supplier, locale) })}</h2>
         <div className="flex gap-2">
-          <a className="btn-secondary text-sm" href={`/api/purchasing/suppliers/${supplier.id}/statement/export?from=${from}&to=${to}&lang=${locale}`} download>{t("profile.export-csv")}</a>
+          <DownloadButton className="btn-secondary text-sm" href={`/api/purchasing/suppliers/${supplier.id}/statement/export?from=${from}&to=${to}&lang=${locale}`} fileName="supplier-statement.csv">{t("profile.export-csv")}</DownloadButton>
           {onClose && <button type="button" className="btn-secondary" onClick={onClose}>{t("ui.back")}</button>}
         </div>
       </div>

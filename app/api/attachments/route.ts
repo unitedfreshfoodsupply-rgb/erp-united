@@ -9,7 +9,8 @@ import { readFormLimited } from "@/lib/http";
 /** Room for the form's other fields and the multipart framing around the file. */
 const FORM_OVERHEAD_BYTES = 64 * 1024;
 
-/** GET ?entity_type=order&entity_id=… — the record's attachments. */
+/** GET ?entity_type=order&entity_id=… — the record's attachments, and the upload size limit
+ * (documents.max_upload_mb) so the screen refuses a larger file before sending it. */
 export async function GET(req: NextRequest) {
   try {
     const actor = serviceActorFromContext(await requireAuth(req));
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
     const attachments = await listAttachments(sp.get("entity_type"), sp.get("entity_id"), actor, {
       includeDeleted: sp.get("include_deleted") === "1",
     });
-    return NextResponse.json({ attachments });
+    return NextResponse.json({ attachments, maxUploadMb: await getSetting("documents.max_upload_mb") });
   } catch (err) {
     return handleApiError(err, req);
   }

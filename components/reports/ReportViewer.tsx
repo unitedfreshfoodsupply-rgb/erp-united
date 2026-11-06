@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, Download, Info, Printer } from "lucide-react";
-import { apiFetch, errorMessage } from "@/lib/api-client";
+import { apiDownload, apiFetch, errorMessage } from "@/lib/api-client";
 import { isValidISODate } from "@/lib/dates";
 import { replaceQuery, withParams } from "@/lib/hooks/urlQuery";
 import { useLocale } from "@/lib/locale";
@@ -86,17 +86,11 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
 
   async function download(format: "csv" | "xls", l: "ar" | "en") {
     try {
-      const token = window.sessionStorage.getItem("united_token");
-      const res = await fetch(`/api/reports/${reportKey}/export?${new URLSearchParams({ ...Object.fromEntries(sp), format, lang: l })}`, { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), "Accept-Language": lang } });
-      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? res.statusText);
-      const blob = await res.blob();
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? `${reportKey}.${format}`;
-      a.click();
-      URL.revokeObjectURL(a.href);
+      // apiDownload: the tab's token and language like every call, and a refusal or a server
+      // fault reads as the server's message (with its reference), never a bare status text.
+      await apiDownload(`/api/reports/${reportKey}/export?${new URLSearchParams({ ...Object.fromEntries(sp), format, lang: l })}`, `${reportKey}.${format}`);
     } catch (err) {
-      toast.show(err instanceof Error ? err.message : t("ui.error.generic"), "error");
+      toast.show(errorMessage(err) ?? t("ui.error.generic"), "error");
     }
   }
 

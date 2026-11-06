@@ -48,12 +48,20 @@ export function AttachmentsPanel({ entityType, entityId, canManage }: { entityTy
   const q = useQuery({
     queryKey: key,
     queryFn: () =>
-      apiFetch<{ attachments: AttachmentDTO[] }>(
+      apiFetch<{ attachments: AttachmentDTO[]; maxUploadMb?: number }>(
         `/api/attachments?entity_type=${encodeURIComponent(entityType)}&entity_id=${encodeURIComponent(entityId)}`
       ),
   });
 
   async function upload(file: File) {
+    // The server's limit (documents.max_upload_mb), checked before anything is sent: a large
+    // file would otherwise upload in full on a slow line only to be refused.
+    const maxMb = q.data?.maxUploadMb;
+    if (maxMb && file.size > maxMb * 1024 * 1024) {
+      toast.show(t("ui.attachment-too-large", { mb: maxMb }), "error");
+      if (input.current) input.current.value = "";
+      return;
+    }
     setBusy(true);
     try {
       const form = new FormData();

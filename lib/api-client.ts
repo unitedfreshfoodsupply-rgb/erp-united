@@ -48,12 +48,17 @@ function storedLocale(): string | null {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Untyped = any;
 
-export async function apiFetch<T = Untyped>(path: string, init?: RequestInit): Promise<T> {
+/**
+ * One request with the client's shared contract: the tab's token and language, "no internet"
+ * for a network failure, the sign-in redirect on 401 and the two-step-enrolment redirect.
+ * Returns the response (ok or not) and its JSON body when it has one.
+ */
+async function send(path: string, init: RequestInit | undefined, accept: "json" | "file"): Promise<{ res: Response; data: unknown }> {
   let res: Response;
   try {
     const headers = new Headers(init?.headers);
     const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
-    if (!isFormData && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+    if (accept === "json" && !isFormData && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
     // Attach the tab-scoped Bearer token from sessionStorage, if the client
     // has one. This enables independent sessions across browser tabs without
     // relying on the shared httpOnly cookie.
@@ -81,13 +86,48 @@ export async function apiFetch<T = Untyped>(path: string, init?: RequestInit): P
     throw new ApiClientError(loc === "en" ? "Please sign in again" : "لازم تسجل دخول تاني");
   }
 
-  const data = await res.json().catch(() => ({}));
+  // A file answer's body is the file: read JSON only from a JSON answer or a failure.
+  const data = accept === "json" || !res.ok ? await res.json().catch(() => ({})) : null;
   // WS6: the session is held until two-step sign-in is set up — go there, not to /login.
-  if (res.status === 403 && data?.code === "auth.mfa-enroll-required" && typeof window !== "undefined" && !window.location.pathname.startsWith("/mfa/")) {
+  if (res.status === 403 && (data as { code?: unknown } | null)?.code === "auth.mfa-enroll-required" && typeof window !== "undefined" && !window.location.pathname.startsWith("/mfa/")) {
     window.location.href = "/mfa/setup";
   }
   if (!res.ok) throw apiErrorFrom(res.status, data);
+  return { res, data };
+}
+
+export async function apiFetch<T = Untyped>(path: string, init?: RequestInit): Promise<T> {
+  const { data } = await send(path, init, "json");
   return data as T;
+}
+
+/**
+ * Downloads a file (a report export, a CSV) and hands it to the browser to save, under the
+ * name the server gave (Content-Disposition) or `fallbackName`. A refusal or a server fault
+ * throws the same ApiClientError as apiFetch — the server's own message, and its reference
+ * for a 5xx — so the screen shows why, not a generic "download failed".
+ */
+export async function apiDownload(path: string, fallbackName: string, init?: RequestInit): Promise<void> {
+  const { res } = await send(path, init, "file");
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+  let name = /filename="([^"]+)"/.exec(disposition)?.[1] ?? fallbackName;
+  if (encoded) {
+    try {
+      name = decodeURIComponent(encoded);
+    } catch {
+      // a malformed encoded name: keep the plain one
+    }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoked after the click has been handled: some browsers read the URL asynchronously.
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 export const apiPost = <T = Untyped>(path: string, body?: unknown) =>

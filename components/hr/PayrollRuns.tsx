@@ -14,6 +14,7 @@ import { Field, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
 import { PaymentsPanel, PostingPanel } from "@/components/hr/PayrollPosting";
 import { localName } from "@/lib/locale/names";
+import { DownloadButton } from "@/components/ui/DownloadButton";
 
 /**
  * The payroll run workspace (docs/erp/DESIGN_SYSTEM.md §8.4): one month's run, its blocking
@@ -154,7 +155,7 @@ function RunDetail({ id, onBack }: { id: string; onBack: () => void }) {
               <button type="button" className="btn-danger btn-sm" disabled={busy} onClick={() => withReason(t("pay.return"), (comment) => apiPost(`/api/approvals/${run.approvalRequestId}/decide`, { decision: "reject", comment }), t("pay.returned"))}>{t("pay.return")}</button>
             </>}
             {run.can.reopen && <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={() => withReason(t("pay.reopen"), (reason) => apiPost(`/api/hr/payroll/runs/${id}/reopen`, { reason }), t("pay.saved"))}>{t("pay.reopen")}</button>}
-            {run.status !== "draft" && run.status !== "cancelled" && <a className="btn-ghost btn-sm gap-1.5" href={`/api/hr/payroll/runs/${id}/register?lang=${locale}`}><FileSpreadsheet size={16} aria-hidden />{t("pay.register")}</a>}
+            {run.status !== "draft" && run.status !== "cancelled" && <DownloadButton className="btn-ghost btn-sm gap-1.5" href={`/api/hr/payroll/runs/${id}/register?lang=${locale}`} fileName="payroll-register.csv"><FileSpreadsheet size={16} aria-hidden />{t("pay.register")}</DownloadButton>}
             {run.can.cancel && <button type="button" className="btn-ghost btn-sm text-united-danger" disabled={busy} onClick={() => withReason(t("pay.cancel_run"), (reason) => apiPost(`/api/hr/payroll/runs/${id}/cancel`, { reason }), t("pay.saved"))}>{t("pay.cancel_run")}</button>}
           </div>
         </div>

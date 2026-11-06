@@ -15,6 +15,7 @@ import { Field, fmtMoney } from "@/components/stock/inventory/shared";
 import Link from "next/link";
 import { AwaitingApproval } from "@/components/approvals/AwaitingApproval";
 import { APPROVAL_TYPE } from "@/lib/core/approval-presentation";
+import { DownloadButton } from "@/components/ui/DownloadButton";
 
 /**
  * The opening migration control center (phased opening balances, Nov 2026). Suppliers first,
@@ -107,13 +108,13 @@ export function OpeningMigrationView({ onOpenBatch }: { onOpenBatch: (id: string
         </div>
         <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
           <div><dt className="font-bold text-united-muted">{t("openmig.cutoff")}</dt><dd className="font-extrabold"><bdi dir="ltr">{m.cutoverDate}</bdi></dd></div>
-          <div><dt className="font-bold text-united-muted">{t("openmig.clearing")}</dt><dd className={`font-extrabold ${Number(o.clearing?.balance) ? "text-united-warn" : "text-united-green"}`} dir="ltr">{signed(o.clearing?.balance)}</dd></div>
-          <div><dt className="font-bold text-united-muted">{t("openmig.opening-equity")}</dt><dd className={`font-extrabold ${Number(o.openingEquity) ? "text-united-warn" : "text-united-green"}`} dir="ltr">{signed(o.openingEquity)}</dd></div>
+          <div><dt className="font-bold text-united-muted">{t("openmig.clearing")}</dt><dd className={`font-extrabold ${Number(o.clearing?.balance) ? "text-united-warn" : "text-united-green"}`}><bdi dir="ltr">{signed(o.clearing?.balance)}</bdi></dd></div>
+          <div><dt className="font-bold text-united-muted">{t("openmig.opening-equity")}</dt><dd className={`font-extrabold ${Number(o.openingEquity) ? "text-united-warn" : "text-united-green"}`}><bdi dir="ltr">{signed(o.openingEquity)}</bdi></dd></div>
           <div><dt className="font-bold text-united-muted">{t("openmig.open-exceptions")}</dt><dd className={`font-extrabold ${o.exceptions?.open ? "text-united-danger" : "text-united-green"}`}>{o.exceptions?.open ?? 0} · <span dir="ltr">{fmtMoney(o.exceptions?.openAmount ?? "0")}</span></dd></div>
-          <div><dt className="font-bold text-united-muted">{t("openmig.posted-debit")}</dt><dd className="font-extrabold" dir="ltr">{fmtMoney(o.totals?.debit ?? "0")}</dd></div>
-          <div><dt className="font-bold text-united-muted">{t("openmig.posted-credit")}</dt><dd className="font-extrabold" dir="ltr">{fmtMoney(o.totals?.credit ?? "0")}</dd></div>
+          <div><dt className="font-bold text-united-muted">{t("openmig.posted-debit")}</dt><dd className="font-extrabold"><bdi dir="ltr">{fmtMoney(o.totals?.debit ?? "0")}</bdi></dd></div>
+          <div><dt className="font-bold text-united-muted">{t("openmig.posted-credit")}</dt><dd className="font-extrabold"><bdi dir="ltr">{fmtMoney(o.totals?.credit ?? "0")}</bdi></dd></div>
           <div><dt className="font-bold text-united-muted">{t("openmig.pending-approvals")}</dt><dd className="font-extrabold">{pendingApprovals > 0 ? <Link href="/approvals" className="underline">{pendingApprovals}</Link> : 0}</dd></div>
-          <div><dt className="font-bold text-united-muted">{t("openmig.export")}</dt><dd className="flex flex-col gap-1 text-sm font-bold"><a className="underline" href="/api/accounting/opening-migration/export?part=accounts">{t("openmig.export-accounts")}</a><a className="underline" href="/api/accounting/opening-migration/export?part=parties">{t("openmig.export-parties")}</a></dd></div>
+          <div><dt className="font-bold text-united-muted">{t("openmig.export")}</dt><dd className="flex flex-col gap-1 text-sm font-bold"><DownloadButton className="underline text-start" href="/api/accounting/opening-migration/export?part=accounts" fileName="opening-accounts.csv">{t("openmig.export-accounts")}</DownloadButton><DownloadButton className="underline text-start" href="/api/accounting/opening-migration/export?part=parties" fileName="opening-parties.csv">{t("openmig.export-parties")}</DownloadButton></dd></div>
         </dl>
         {!closed && <p role="note" className="rounded-xl border border-united-warn/40 bg-united-warn/10 p-3 text-sm font-bold text-united-warn">{t("openmig.provisional-banner", { amount: signed(o.clearing?.balance) })}</p>}
         {closed && <p className="text-sm font-bold text-united-green">{t("openmig.closed-note", { by: m.closedBy ?? "", at: (m.closedAt ?? "").slice(0, 10) })}</p>}

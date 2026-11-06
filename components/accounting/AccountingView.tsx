@@ -33,6 +33,7 @@ import { href as docHref } from "@/lib/profiles/links";
 import { AttachmentsPanel } from "@/components/AttachmentsPanel";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { useBusy } from "@/components/ui/useBusy";
+import { DownloadButton } from "@/components/ui/DownloadButton";
 
 /**
  * Finance: cash position, customer receipts, supplier payments, journals, trial
@@ -344,7 +345,7 @@ function Withholding({ side }: { side: "receivable" | "payable" }) {
         <div className="flex flex-wrap gap-2 items-center">
           <label className="text-xs">{t("accounting.date-from")} <input type="date" className="field ms-1" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
           <label className="text-xs">{t("accounting.date-to")} <input type="date" className="field ms-1" value={to} onChange={(e) => setTo(e.target.value)} /></label>
-          <a className="btn-secondary text-xs" href={`/api/accounting/withholding/export?side=${side}&from=${from}&to=${to}&lang=${locale}`} download>{t("accounting.withholding.export")}</a>
+          <DownloadButton className="btn-secondary text-xs" href={`/api/accounting/withholding/export?side=${side}&from=${from}&to=${to}&lang=${locale}`} fileName={`withholding-${side}.csv`}>{t("accounting.withholding.export")}</DownloadButton>
         </div>
       </div>
       <ul className="divide-y divide-united-dark/5">
