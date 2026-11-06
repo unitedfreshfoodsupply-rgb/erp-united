@@ -14,9 +14,14 @@ import { unitLabel } from "@/lib/format";
  * " · "-joined summaries — part by part, and a slot that is itself a known phrase is
  * translated too. Anything that matches nothing (user-typed text, names) is shown as stored.
  * Server error messages are a different path: lib/locale/server-messages.ts.
+ *
+ * A pair marked TO_EN is read one way only, Arabic → English: the system writes it only in
+ * Arabic, so its English side is never stored — and read backwards it would rewrite English
+ * that someone typed ("by mistake" → "بواسطة mistake").
  */
 
-const PAIRS: readonly (readonly [ar: string, en: string])[] = [
+const TO_EN = "to-en";
+const PAIRS: readonly (readonly [ar: string, en: string, oneWay?: typeof TO_EN])[] = [
   // Journal entries
   // Trip delivery results as audited ("<order>: <result> · استلم <name>"; the result is stored
   // as its code, so the code is the English side and the Arabic side reads the same template).
@@ -141,53 +146,69 @@ const PAIRS: readonly (readonly [ar: string, en: string])[] = [
   ["وحدة السطر مش بتتحول لوحدة الصنف", "Line unit does not convert to the product unit"],
   ["الرصيد المسجل أقل من اللي خرج", "Recorded stock is less than what went out"],
   // Approval requests as the modules raise them (title · summary), and the decision notices.
-  ["قيد يدوي {}: {}", "Manual journal {}: {}"],
+  // All one way (TO_EN): requests are raised in Arabic only.
+  ["قيد يدوي {}: {}", "Manual journal {}: {}", TO_EN],
   // Each account name isolated (FSI…PDI): two Arabic names around "→" on an English line would
   // otherwise form one right-to-left run and read backwards.
-  ["تحويل {}: {} ← {}", "Transfer {}: \u2068{}\u2069 → \u2068{}\u2069"],
-  ["سداد {} لـ {} من {}", "Payment {} to {} from {}"],
-  ["عهدة شراء {} لـ {} من {}", "Purchasing custody {} for {} from {}"],
-  ["أرصدة افتتاحية {} — {} ({})", "Opening balances {} — {} ({})"],
-  ["أرصدة افتتاحية {} ({})", "Opening balances {} ({})"],
-  ["موردين", "suppliers"],
-  ["عملاء", "customers"],
-  ["أرصدة أخرى", "other balances"],
-  ["مدين {} = دائن {}", "debit {} = credit {}"],
-  ["منها على الحساب الوسيط (مؤقت) {}", "of which on the clearing account (provisional) {}"],
-  ["قفل الترحيل الافتتاحي (تاريخ القطع {})", "Opening migration closure (cut-over date {})"],
-  ["{n} دفعة مترحّلة", "{} batches posted"],
-  ["الحساب الوسيط {}", "clearing account {}"],
-  ["كل فحوصات القفل ناجحة", "all closing checks pass"],
-  ["إعادة فتح الشهر {}", "Reopen month {}"],
-  ["شهور بعده مقفولة: {}", "Later months closed: {}"],
-  ["إعادة فتح السنة المالية {}", "Reopen fiscal year {}"],
-  ["بواسطة {}", "by {}"],
-  ["موافقة ذاتية طارئة: {}", "Emergency self-approval: {}"],
-  ["{} وافق على طلب هو اللي طالبه ({}) لعدم وجود موافق تاني", "{} approved their own request ({}) as there is no other approver"],
+  ["تحويل {}: {} ← {}", "Transfer {}: \u2068{}\u2069 → \u2068{}\u2069", TO_EN],
+  ["سداد {} لـ {} من {}", "Payment {} to {} from {}", TO_EN],
+  ["عهدة شراء {} لـ {} من {}", "Purchasing custody {} for {} from {}", TO_EN],
+  ["أرصدة افتتاحية {} — {} ({})", "Opening balances {} — {} ({})", TO_EN],
+  ["أرصدة افتتاحية {} ({})", "Opening balances {} ({})", TO_EN],
+  ["موردين", "suppliers", TO_EN],
+  ["عملاء", "customers", TO_EN],
+  ["أرصدة أخرى", "other balances", TO_EN],
+  ["مدين {} = دائن {}", "debit {} = credit {}", TO_EN],
+  ["منها على الحساب الوسيط (مؤقت) {}", "of which on the clearing account (provisional) {}", TO_EN],
+  ["قفل الترحيل الافتتاحي (تاريخ القطع {})", "Opening migration closure (cut-over date {})", TO_EN],
+  ["{n} دفعة مترحّلة", "batches posted: {}", TO_EN],
+  ["الحساب الوسيط {}", "clearing account {}", TO_EN],
+  ["كل فحوصات القفل ناجحة", "all closing checks pass", TO_EN],
+  ["إعادة فتح الشهر {}", "Reopen month {}", TO_EN],
+  ["شهور بعده مقفولة: {}", "Later months closed: {}", TO_EN],
+  ["إعادة فتح السنة المالية {}", "Reopen fiscal year {}", TO_EN],
+  ["بواسطة {}", "by {}", TO_EN],
+  // Expense, custody, grading-loss, price-exception, bill and issue-exception requests.
+  ["{n} ج.م — {}", "EGP {} — {}", TO_EN],
+  ["{n} ج.م", "EGP {}", TO_EN],
+  ["اعتماد خسارة فرز", "Grading loss approval", TO_EN],
+  ["هالك {} بقيمة {n} ج.م — البضاعة محجوزة في {} لحد الموافقة", "Waste {} worth EGP {} — goods held in {} until approved", TO_EN],
+  ["هالك {} (التكلفة مش معروفة) — البضاعة محجوزة في {} لحد الموافقة", "Waste {} (cost unknown) — goods held in {} until approved", TO_EN],
+  ["هالك {} بقيمة {n} ج.م — المخرجات محجوزة في {} لحد الموافقة", "Waste {} worth EGP {} — output held in {} until approved", TO_EN],
+  ["اعتماد أسعار أوردر {}", "Prices on order {}", TO_EN],
+  ["اعتماد أسعار أوردر", "Prices on an order", TO_EN],
+  ["{}: خصم {n}% أكبر من الحد {n}%", "{}: discount {}% above the limit {}%", TO_EN],
+  ["{}: صافي {n} لكل {} أقل من التكلفة {n}", "{}: net {} per {} below the cost {}", TO_EN],
+  ["فيها استلام مالوش سعر متفق عليه نطابق عليه", "A receipt on it has no agreed price to match against", TO_EN],
+  ["الفاتورة {n} قبل الضريبة، والمتفق عليه {n} — فرق {n}", "Bill {} before tax, agreed {} — difference {}", TO_EN],
+  ["أوردر {}: خرج {} واتصرف {n}", "Order {}: {} went out, {} issued", TO_EN],
+  ["مقفول في مسير", "locked in a payroll run", TO_EN],
+  ["موافقة ذاتية طارئة: {}", "Emergency self-approval: {}", TO_EN],
+  ["{} وافق على طلب هو اللي طالبه ({}) لعدم وجود موافق تاني", "{} approved their own request ({}) as there is no other approver", TO_EN],
   // Approval type labels (lib/core/approvals.ts APPROVAL_TYPES), the body of a request notice
   // that has no summary; the same English as the approvals.type.* dictionary keys.
-  ["اعتماد فرق كمية في أوردر", "Order quantity difference approval"],
-  ["اعتماد خسارة فرز عند الاستلام", "Grading loss on receipt approval"],
-  ["قفل استثناء صرف بدون حركة مخزون", "Close an issue exception without a stock movement"],
-  ["اعتماد تسوية مخزون", "Stock adjustment approval"],
-  ["اعتماد سعر أقل من التكلفة أو خصم فوق الحد", "Price below cost or discount above the limit approval"],
-  ["اعتماد طلب شراء", "Purchase request approval"],
-  ["اعتماد أمر شراء", "Purchase order approval"],
-  ["اعتماد فرق فاتورة مورد", "Supplier bill variance approval"],
-  ["اعتماد مصروف", "Expense approval"],
-  ["اعتماد عهدة شراء", "Purchasing custody approval"],
-  ["اعتماد تصحيح حضور", "Attendance correction approval"],
-  ["اعتماد إجازة", "Leave approval"],
-  ["اعتماد مرتب موظف", "Salary change approval"],
-  ["اعتماد مسير مرتبات", "Payroll run approval"],
-  ["موافقة ائتمان لأوردر", "Order credit approval"],
-  ["إعادة فتح شهر محاسبي مقفول", "Reopen a closed accounting month"],
-  ["إعادة فتح سنة مالية مقفولة", "Reopen a closed fiscal year"],
-  ["اعتماد الأرصدة الافتتاحية", "Opening balances approval"],
-  ["قفل الترحيل الافتتاحي", "Opening migration closure"],
-  ["اعتماد قيد يدوي", "Manual journal approval"],
-  ["اعتماد سداد مورد", "Supplier payment approval"],
-  ["اعتماد تحويل بين الخزائن والبنوك", "Cash / bank transfer approval"],
+  ["اعتماد فرق كمية في أوردر", "Order quantity difference approval", TO_EN],
+  ["اعتماد خسارة فرز عند الاستلام", "Grading loss on receipt approval", TO_EN],
+  ["قفل استثناء صرف بدون حركة مخزون", "Close an issue exception without a stock movement", TO_EN],
+  ["اعتماد تسوية مخزون", "Stock adjustment approval", TO_EN],
+  ["اعتماد سعر أقل من التكلفة أو خصم فوق الحد", "Price below cost or discount above the limit approval", TO_EN],
+  ["اعتماد طلب شراء", "Purchase request approval", TO_EN],
+  ["اعتماد أمر شراء", "Purchase order approval", TO_EN],
+  ["اعتماد فرق فاتورة مورد", "Supplier bill variance approval", TO_EN],
+  ["اعتماد مصروف", "Expense approval", TO_EN],
+  ["اعتماد عهدة شراء", "Purchasing custody approval", TO_EN],
+  ["اعتماد تصحيح حضور", "Attendance correction approval", TO_EN],
+  ["اعتماد إجازة", "Leave approval", TO_EN],
+  ["اعتماد مرتب موظف", "Salary change approval", TO_EN],
+  ["اعتماد مسير مرتبات", "Payroll run approval", TO_EN],
+  ["موافقة ائتمان لأوردر", "Order credit approval", TO_EN],
+  ["إعادة فتح شهر محاسبي مقفول", "Reopen an accounting month", TO_EN],
+  ["إعادة فتح سنة مالية مقفولة", "Reopen a fiscal year", TO_EN],
+  ["اعتماد الأرصدة الافتتاحية", "Opening balances approval", TO_EN],
+  ["قفل الترحيل الافتتاحي", "Opening migration closure", TO_EN],
+  ["اعتماد قيد يدوي", "Manual journal approval", TO_EN],
+  ["اعتماد سداد مورد", "Supplier payment approval", TO_EN],
+  ["اعتماد تحويل بين الخزائن والبنوك", "Cash / bank transfer approval", TO_EN],
   // Counts and states in " · " summaries
   ["{n} سطر", "{} lines"],
   ["{n} صف", "{} rows"],
@@ -267,7 +288,8 @@ function rulesFor(target: Locale) {
   if (hit) return hit;
   const exact = new Map<string, string>();
   const rules: Rule[] = [];
-  for (const [ar, en] of PAIRS) {
+  for (const [ar, en, oneWay] of PAIRS) {
+    if (oneWay === TO_EN && target !== "en") continue;
     const [from, to] = target === "en" ? [ar, en] : [en, ar];
     if (!/\{n?\}/.test(from)) {
       exact.set(from, to.replace(/\{n\}/g, "{}"));
@@ -295,7 +317,8 @@ function translateOne(text: string, target: Locale, depth: number): string | nul
   for (const r of rules) {
     const m = r.re.exec(trimmed);
     if (!m) continue;
-    const slots = m.slice(1).map((v) => translateOne(v, target, depth + 1) ?? v);
+    // A slot that is a list of codes ("2026-11، 2026-12") takes the reader's comma.
+    const slots = m.slice(1).map((v) => translateOne(v, target, depth + 1) ?? (target === "en" && !ARABIC.test(v.replace(/،/g, "")) ? v.replace(/، /g, ", ") : v));
     let i = 0;
     return r.out.replace(/\{\}/g, () => slots[i++] ?? "");
   }
@@ -308,7 +331,8 @@ const ENGLISH_KEYS: Record<string, string> = { "orders.create": "Create orders",
 function englishIdentifier(seg: string): string | null {
   const key = ENGLISH_KEYS[seg.trim()];
   if (key) return seg.replace(seg.trim(), key);
-  identifiers ??= new Set(PAIRS.map(([, en]) => en).filter((en) => /^[a-z]+(?:_[a-z]+)*$/.test(en)));
+  // Only English that is ever stored: a one-way pair's English side never is.
+  identifiers ??= new Set(PAIRS.filter(([, , oneWay]) => oneWay !== TO_EN).map(([, en]) => en).filter((en) => /^[a-z]+(?:_[a-z]+)*$/.test(en)));
   const t = seg.trim();
   if (!identifiers.has(t)) return null;
   const words = t.replace(/_/g, " ");

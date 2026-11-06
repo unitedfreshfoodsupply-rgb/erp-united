@@ -20,6 +20,18 @@ type NotificationDTO = {
   createdAt: string;
 };
 
+/** A body is shown in the reader's language only when the system wrote it (an approval's summary
+ * or type, "بواسطة <name>", the emergency notice) — and only into English, since the system
+ * writes it in Arabic. Anything else (a decider's comment, a customer name, an exception's
+ * description) is someone's text and is shown as stored. */
+function bodyText(n: NotificationDTO, locale: "ar" | "en"): string {
+  const body = n.body ?? "";
+  if (locale !== "en") return body;
+  const systemWritten =
+    n.type === "approval.requested" || n.type === "approval.emergency_self" || (n.type === "approval.decided" && body.startsWith("بواسطة "));
+  return systemWritten ? systemText(body, locale) : body;
+}
+
 const DOT: Record<NotificationDTO["severity"], string> = {
   info: "bg-united-info",
   warning: "bg-united-warn",
@@ -132,7 +144,7 @@ export function NotificationBell() {
                     <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${n.readAt ? "bg-united-dark/20" : DOT[n.severity]}`} />
                     <span className="min-w-0">
                       <span className="block font-bold text-sm text-united-dark">{systemText(n.title, locale)}</span>
-                      {n.body && <span className="block text-xs font-bold text-united-muted">{systemText(n.body, locale)}</span>}
+                      {n.body && <span className="block text-xs font-bold text-united-muted">{bodyText(n, locale)}</span>}
                       {/* No forced LTR: the Arabic date carries its own direction marks and comma. */}
                       <span className="block text-[10px] font-bold text-united-muted mt-0.5">
                         {new Date(n.createdAt).toLocaleString(intlLocale(curLocale), { dateStyle: "short", timeStyle: "short" })}
