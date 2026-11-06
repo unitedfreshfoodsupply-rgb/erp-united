@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/Toast";
 import { SETTING_CHOICES, SETTING_EN, SETTING_GROUP_LABEL, SETTING_GROUP_LABEL_EN, SETTING_UNIT_EN, type SettingGroup, type SettingKey } from "@/lib/core/settings-registry";
 import type { SettingDTO } from "@/lib/admin-client-types";
 import { useLocale } from "@/lib/locale";
+import { ROLE_LABEL, ROLE_LABEL_EN, type Role } from "@/lib/types";
 
 /**
  * System settings: every operational policy number, its current value, where that
@@ -67,7 +68,8 @@ function SettingRow({ setting }: { setting: SettingDTO }) {
   const choices = SETTING_CHOICES[setting.key as SettingKey];
   const show = (v: unknown) => {
     if (isBool) return v ? t("admin.settings.toggled-on") : t("admin.settings.toggled-off");
-    if (Array.isArray(v)) return v.length ? v.join("، ") : "—";
+    // A list (auth.mfa_required_roles) reads as names in the screen's language, with its comma.
+    if (Array.isArray(v)) return v.length ? v.map((x) => (isEN ? ROLE_LABEL_EN : ROLE_LABEL)[x as Role] ?? String(x)).join(isEN ? ", " : "، ") : "—";
     const c = choices?.[String(v)];
     return c ? (isEN ? c.en : c.ar) : String(v);
   };
@@ -148,9 +150,11 @@ function SettingRow({ setting }: { setting: SettingDTO }) {
             {setting.isDefault ? (
               t("admin.settings.default-value")
             ) : (
-              <>
-                {t("admin.settings.is-default").replace("{value}", show(setting.defaultValue!)).replace("{user}", setting.updatedBy || "—")}
-              </>
+              // The default value is isolated (<bdi>) in the markup, never as text in the dictionary.
+              (() => {
+                const [before, after = ""] = t("admin.settings.is-default", { user: setting.updatedBy || "—" }).split("{value}");
+                return <>{before}<bdi>{show(setting.defaultValue!)}</bdi>{after}</>;
+              })()
             )}
           </div>
         </div>

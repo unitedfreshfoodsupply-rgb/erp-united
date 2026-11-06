@@ -10,7 +10,7 @@ import { apiFetch, apiPost, apiPut, ApiClientError, errorMessage } from "@/lib/a
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { useDialogs } from "@/components/ui/Dialog";
-import { StatusPill, docTone } from "@/components/ui/StatusPill";
+import { StatusPill, docTone, type Tone } from "@/components/ui/StatusPill";
 import { useBusy } from "@/components/ui/useBusy";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
@@ -45,11 +45,13 @@ export const BILL_STATUS: Record<string, { label: string }> = {
 const BillStatus = ({ status, size, t }: { status: string; size?: "sm" | "md"; t: (key: string) => string }) => (
   <StatusPill tone={docTone(status)} size={size}>{BILL_STATUS[status] ? t(BILL_STATUS[status].label) : status}</StatusPill>
 );
-const MATCH: Record<string, { label: string; cls: string }> = {
-  matched: { label: "bills.match.matched", cls: "text-united-green" },
-  within_tolerance: { label: "bills.match.within_tolerance", cls: "text-united-green" },
-  variance: { label: "bills.match.variance", cls: "text-united-danger" },
-  unpriced: { label: "bills.match.unpriced", cls: "text-united-warn" },
+// The three-way match result in the shared tones: agreed (or within tolerance) is done, a
+// variance needs a decision now, an unpriced receipt waits for its price.
+const MATCH: Record<string, { label: string; tone: Tone }> = {
+  matched: { label: "bills.match.matched", tone: "success" },
+  within_tolerance: { label: "bills.match.within_tolerance", tone: "success" },
+  variance: { label: "bills.match.variance", tone: "danger" },
+  unpriced: { label: "bills.match.unpriced", tone: "warn" },
 };
 
 type BillRow = { id: string; number: string; status: string; kind?: string; supplier: { id: string; code: string; name: string; nameAr?: string | null }; supplierInvoiceNo: string; billDate: string; dueDate: string; lineCount: number; total: string; variance: string; matchStatus: string; open: string | null };
@@ -206,7 +208,7 @@ function NewBill({ onDone, bill }: { onDone: (id?: string) => void; bill?: Bill 
                 <li key={k} className="py-2 grid grid-cols-[auto_1fr_auto] gap-2 items-center">
                   <input type="checkbox" className="w-6 h-6" checked={on} onChange={() => setPicked((p) => { const n = { ...p }; if (on) delete n[k]; else n[k] = r.expectedUnitPrice ?? ""; return n; })} aria-label={r.receiptNumber} />
                   <div className="text-sm">
-                    <div className="font-extrabold">{localName(r.product, locale)} · <span dir="ltr">{fmtQty(r.billableQty ?? r.goodQty, r.product.unit)}</span></div>
+                    <div className="font-extrabold">{localName(r.product, locale)} · <bdi>{fmtQty(r.billableQty ?? r.goodQty, r.product.unit)}</bdi></div>
                     {(Number(r.gradeBQty ?? 0) > 0 || Number(r.wasteQty ?? 0) > 0) && <div className="text-xs text-united-muted">{t("purchasing.bill.graded", { good: fmtQty(r.goodQty, r.product.unit), b: fmtQty(r.gradeBQty ?? "0", r.product.unit), waste: fmtQty(r.wasteQty ?? "0", r.product.unit) })}</div>}
                     <div className="text-xs font-bold text-united-muted"><span dir="ltr">{r.receiptNumber}</span> · {r.receivedDate}{r.poNumber ? <> · <span dir="ltr">{r.poNumber}</span></> : ""} · {t("purchasing.bill.agreed_price")} {r.expectedUnitPrice ? <span dir="ltr">{r.expectedUnitPrice}</span> : "—"}</div>
                     {diff !== null && Math.abs(diff) >= 0.005 && <div className={`text-xs font-extrabold ${diff > 0 ? "text-united-danger" : "text-united-green"}`}>{t("purchasing.bill.variance")} <span dir="ltr">{fmtMoney(diff)}</span></div>}
@@ -407,6 +409,8 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
   // A debit note is limited by what is left to debit on the lines, as on the server — not by
   // the open amount: a bill paid in full can still take one for goods returned afterwards.
   const debitable = service ? b.serviceLines.some((l) => Number(l.debitedNet) < Number(l.net)) : b.lines.some((l) => Number(l.debitedQty) < Number(l.quantity));
+  // Debit notes took everything back: the bill says so, and there is nothing left to debit.
+  const fullyDebited = b.status === "posted" && !debitable && b.debitNotes.length > 0;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap justify-between items-start gap-2">
@@ -422,7 +426,8 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
       </div>
       <div className="flex flex-wrap gap-2 items-center">
         <BillStatus status={b.status} size="md" t={t} />
-        <span className={`text-sm font-extrabold ${MATCH[b.matchStatus]?.cls}`}>{MATCH[b.matchStatus] ? t(MATCH[b.matchStatus].label) : b.matchStatus}{Number(b.variance) ? <> · {t("purchasing.bill.variance")} <span dir="ltr">{fmtMoney(b.variance)}</span></> : null}</span>
+        {fullyDebited && <StatusPill tone="neutral" size="md">{t("purchasing.bill.fully_debited")}</StatusPill>}
+        <StatusPill tone={MATCH[b.matchStatus]?.tone ?? "neutral"} size="md">{MATCH[b.matchStatus] ? t(MATCH[b.matchStatus].label) : b.matchStatus}{Number(b.variance) ? <> · {t("purchasing.bill.variance")} <bdi dir="ltr">{fmtMoney(b.variance)}</bdi></> : null}</StatusPill>
         {b.approvalId && <Link href={`/approvals?id=${b.approvalId}`} className="text-sm font-extrabold text-united-green underline">{t("orders.approval")}</Link>}
       </div>
       <section className="card p-4 flex flex-col divide-y divide-united-dark/5">
@@ -434,7 +439,7 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
               {Number(l.debitedNet) > 0 && <span>{t("purchasing.bill.debited_label")} <span dir="ltr">{fmtMoney(l.debitedNet)}</span></span>}
             </div>
             {manage && b.status === "posted" && Number(l.debitedNet) < Number(l.net) && (
-              <input className="field w-40 self-end" dir="ltr" inputMode="decimal" placeholder={t("purchasing.bill.allowance_placeholder")} aria-label={t("bills.debit-line", { line: l.lineNo })} value={debit[l.id] ?? ""} onChange={(e) => setDebit({ ...debit, [l.id]: e.target.value })} />
+              <Field label={t("purchasing.bill.allowance_label", { line: l.lineNo })} className="w-56 self-end"><input className="field" dir="ltr" inputMode="decimal" value={debit[l.id] ?? ""} onChange={(e) => setDebit({ ...debit, [l.id]: e.target.value })} /></Field>
             )}
           </div>
         ))}
@@ -442,12 +447,12 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <div key={l.id} className="py-2 flex flex-col gap-1">
             <div className="flex justify-between text-sm font-extrabold gap-2"><span>{l.description}</span><span dir="ltr">{fmtMoney(l.total)}</span></div>
             <div className="flex flex-wrap justify-between gap-2 text-xs font-bold text-united-muted">
-              <span>{l.productCode && <bdi dir="ltr">{l.productCode} · </bdi>}<DocLink href={profileHref.intake(l.receiptNumber)}>{l.receiptNumber}</DocLink>{l.poNumber && <> · <DocLink href={l.poId ? profileHref.po(l.poId) : null}>{l.poNumber}</DocLink></>} · {t("purchasing.bill.received_label")} <span dir="ltr">{fmtQty(l.receivedQty, l.uomCode)}</span> · {t("purchasing.bill.invoiced_label")} <span dir="ltr">{fmtQty(l.quantity, l.uomCode)} × {l.unitPrice}</span> · {t("purchasing.bill.agreed_price")} <span dir="ltr">{l.expectedUnitPrice ?? "—"}</span></span>
+              <span>{l.productCode && <bdi dir="ltr">{l.productCode} · </bdi>}<DocLink href={profileHref.intake(l.receiptNumber)}>{l.receiptNumber}</DocLink>{l.poNumber && <> · <DocLink href={l.poId ? profileHref.po(l.poId) : null}>{l.poNumber}</DocLink></>} · {t("purchasing.bill.received_label")} <bdi>{fmtQty(l.receivedQty, l.uomCode)}</bdi> · {t("purchasing.bill.invoiced_label")} <bdi>{fmtQty(l.quantity, l.uomCode)}</bdi> × <bdi dir="ltr">{l.unitPrice}</bdi> · {t("purchasing.bill.agreed_price")} <bdi dir="ltr">{l.expectedUnitPrice ?? "—"}</bdi></span>
               {l.lineVariance !== null && Number(l.lineVariance) !== 0 && <span className={Number(l.lineVariance) > 0 ? "text-united-danger" : "text-united-green"}>{t("purchasing.bill.variance")} <span dir="ltr">{fmtMoney(l.lineVariance)}</span></span>}
-              {Number(l.debitedQty) > 0 && <span>{t("purchasing.bill.debited_label")} <span dir="ltr">{fmtQty(l.debitedQty, l.uomCode)}</span></span>}
+              {Number(l.debitedQty) > 0 && <span>{t("purchasing.bill.debited_label")} <bdi>{fmtQty(l.debitedQty, l.uomCode)}</bdi></span>}
             </div>
             {manage && b.status === "posted" && Number(l.debitedQty) < Number(l.quantity) && (
-              <input className="field w-40 self-end" dir="ltr" inputMode="decimal" placeholder={`${t("purchasing.bill.variance")} ${l.lineNo}`} aria-label={t("bills.debit-line", { line: l.lineNo })} value={debit[l.id] ?? ""} onChange={(e) => setDebit({ ...debit, [l.id]: e.target.value })} />
+              <Field label={t("purchasing.bill.debit_qty_label", { line: l.lineNo, qty: fmtQty(Number(l.quantity) - Number(l.debitedQty), l.uomCode) })} className="w-56 self-end"><input className="field" dir="ltr" inputMode="decimal" value={debit[l.id] ?? ""} onChange={(e) => setDebit({ ...debit, [l.id]: e.target.value })} /></Field>
             )}
           </div>
         ))}
@@ -466,7 +471,7 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
         </section>
       )}
       <p className="text-xs font-bold text-united-muted">{b.createdBy}{b.postedBy ? ` · ${t("operations.performed_by_prefix")} ${b.postedBy}` : ""}{b.approvedBy ? ` · ${b.approvedBy}` : ""}{b.cancelReason ? ` · ${b.cancelReason}` : ""}</p>
-      {manage && b.status !== "cancelled" && (
+      {manage && b.status !== "cancelled" && !(b.status === "posted" && !debitable) && (
         <section className="card p-4 flex flex-wrap items-end gap-2">
           {b.status === "draft" && <button type="button" className="btn-primary" disabled={!!busy} aria-busy={busy === "post"} onClick={post}>{busy === "post" ? t("purchasing.bill.posting") : t("purchasing.bill.post_action")}</button>}
           {b.status === "draft" && <button type="button" className="btn-secondary" disabled={!!busy} onClick={() => setEditing(true)}>{t("ui.edit")}</button>}

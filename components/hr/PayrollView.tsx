@@ -50,7 +50,10 @@ export function PayrollView() {
     ...(components ? [{ key: "components" as Tab, label: t("pay.tab.components") }] : []),
     ...(rules ? [{ key: "rules" as Tab, label: t("pay.tab.rules") }] : []),
   ];
-  const [tab, setTab] = useState<Tab>(items[0]?.key ?? "rules");
+  // The tab follows the permissions: they arrive after the first render (when `items` is still
+  // empty), so the first tab the user may see is chosen on every render, never fixed at mount.
+  const [chosen, setTab] = useState<Tab | null>(null);
+  const tab: Tab = chosen && items.some((i) => i.key === chosen) ? chosen : items[0]?.key ?? "runs";
   return (
     <div className="page-container">
       <PageHeader back={{ href: "/hr", label: t("hr.profile.back") }} title={t("pay.title")} description={t("pay.description")} />
@@ -167,7 +170,7 @@ function PackageDialog({ onClose }: { onClose: () => void }) {
           <Field label={t("pay.effective_from")} required><input type="date" className="field" value={f.effective_from} onChange={(e) => setF({ ...f, effective_from: e.target.value })} /></Field>
           <Field label={t("pay.insurable_wage")} hint={t("pay.insurable_hint")}><input type="number" min={0} step="0.01" className="field" dir="ltr" value={f.insurable_wage} onChange={(e) => setF({ ...f, insurable_wage: e.target.value })} /></Field>
         </div>
-        {!fixed.length && <p className="rounded-lg border border-[#F3D9AE] bg-[#FDF3E2] px-3 py-2 text-sm text-united-warn">{t("pay.no_fixed_components")}</p>}
+        {!fixed.length && <p className="rounded-lg border border-[#F3D9AE] bg-united-warn-fill px-3 py-2 text-sm text-united-warn">{t("pay.no_fixed_components")}</p>}
         <table className="data-table">
           <thead><tr><th>{t("pay.component")}</th><th className="num">{t("pay.monthly_amount")}</th><th /></tr></thead>
           <tbody>
@@ -354,6 +357,7 @@ const PARAM_VALUE: Record<string, { ar: string; en: string }> = {
   taxable_gross_minus_employee_insurance: { ar: "الإجمالي الخاضع ناقص تأمينات الموظف", en: "Taxable gross minus employee insurance" },
   taxable_gross: { ar: "الإجمالي الخاضع", en: "Taxable gross" },
   annualised_monthly: { ar: "شهري على أساس سنوي", en: "Annualised monthly" },
+  cumulative_ytd: { ar: "تراكمي من أول السنة", en: "Cumulative year to date" },
   fixed_divisor: { ar: "قاسم ثابت", en: "Fixed divisor" },
   calendar_days: { ar: "أيام الشهر الفعلية", en: "Calendar days" },
   gross: { ar: "الإجمالي", en: "Gross" },
@@ -361,6 +365,10 @@ const PARAM_VALUE: Record<string, { ar: string; en: string }> = {
   net_entitlement: { ar: "صافي الاستحقاق", en: "Net entitlement" },
   employee: { ar: "الموظف", en: "Employee" },
   employer: { ar: "صاحب العمل", en: "Employer" },
+  // Rounding modes ({ step, mode }).
+  nearest: { ar: "لأقرب قيمة", en: "Nearest" },
+  down: { ar: "لتحت", en: "Down" },
+  up: { ar: "لفوق", en: "Up" },
 };
 
 function RuleParams({ parameters }: { parameters: unknown }) {
@@ -380,6 +388,8 @@ function RuleParams({ parameters }: { parameters: unknown }) {
     }
     if (typeof v === "boolean") return v ? t("ui.yes") : t("ui.no");
     if (typeof v === "number") return v.toLocaleString("en-US");
+    // A small record (rounding: { step, mode }) reads as its values, not "[object Object]".
+    if (typeof v === "object") return Object.values(v as Record<string, unknown>).filter((y) => y !== null && y !== undefined).map(fmt).join(" · ");
     const w = PARAM_VALUE[String(v)];
     return w ? (isEN ? w.en : w.ar) : String(v);
   };

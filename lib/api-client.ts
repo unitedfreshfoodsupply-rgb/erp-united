@@ -72,7 +72,14 @@ export async function apiFetch<T = Untyped>(path: string, init?: RequestInit): P
     });
   } catch {
     const loc = storedLocale();
-    throw new ApiClientError(loc === "en" ? "No internet connection, please try again" : "مفيش اتصال بالإنترنت، حاول تاني");
+    // The browser says when it is offline; otherwise the network is up and the server is what
+    // could not be reached (down, restarting, blocked), so do not blame the user's internet.
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    throw new ApiClientError(
+      offline
+        ? loc === "en" ? "No internet connection, please try again" : "مفيش اتصال بالإنترنت، حاول تاني"
+        : loc === "en" ? "Could not reach the server, please try again" : "مقدرناش نوصل للسيرفر، حاول تاني",
+    );
   }
 
   if (res.status === 401 && typeof window !== "undefined" && !path.includes("/auth/")) {

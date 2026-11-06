@@ -365,8 +365,8 @@ type MonthData = {
 // The status pill fills (app/globals.css .pill-*), so each letter keeps at least 4.5:1. Leave
 // keeps a deeper info tint (5.25:1) than holiday (5.66:1) so the two days stay apart.
 const CELL_CLASS: Record<string, string> = {
-  present: "bg-[#E7F3EA] text-united-green", absent: "bg-[#FDECEA] text-united-danger", absent_unpaid: "bg-united-danger/20 text-united-danger",
-  leave: "bg-united-info/15 text-united-info", holiday: "bg-united-info/10 text-united-info", rest_day: "bg-united-subtle text-united-muted", suspended: "bg-[#FDF3E2] text-united-warn",
+  present: "bg-united-success-fill text-united-green", absent: "bg-united-danger-fill text-united-danger", absent_unpaid: "bg-united-danger/20 text-united-danger",
+  leave: "bg-united-info/15 text-united-info", holiday: "bg-united-info/10 text-united-info", rest_day: "bg-united-subtle text-united-muted", suspended: "bg-united-warn-fill text-united-warn",
 };
 
 function MonthTab({ onOpenDay }: { onOpenDay: (d: string) => void }) {
@@ -381,6 +381,8 @@ function MonthTab({ onOpenDay }: { onOpenDay: (d: string) => void }) {
           {["present", "absent", "absent_unpaid", "leave", "holiday", "rest_day", "suspended"].map((s) => (
             <span key={s} className={`rounded px-1.5 py-0.5 font-semibold ${CELL_CLASS[s]}`}>{t(`att.code.${s}`)} = {t(`att.status.${s}`)}</span>
           ))}
+          {/* A suggested day (from the schedule, not recorded yet): a dashed cell with the code in muted text (5.7:1). */}
+          <span className="rounded border border-dashed border-united-border px-1.5 py-0.5 text-united-muted">{t("att.legend.suggested")}</span>
         </div>
       </div>
       {q.isLoading ? <LoadingState /> : q.isError ? <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} /> : !q.data!.rows.length ? <EmptyState title={t("att.empty")} /> : (
@@ -408,7 +410,7 @@ function MonthTab({ onOpenDay }: { onOpenDay: (d: string) => void }) {
                       {!c.employed ? <span className="text-united-border">·</span> : (
                         <button type="button" onClick={() => onOpenDay(c.date)} title={`${c.date}${c.status ? ` · ${t(`att.status.${c.status}`)} · ${t(`att.state.${c.state}`)}` : ""}`}
                           className={`h-7 w-7 rounded font-bold ${c.status ? CELL_CLASS[c.status] ?? "" : "border border-dashed border-united-border text-united-muted"} ${c.state === "draft" ? "ring-1 ring-united-warn" : ""}`}>
-                          {c.status ? t(`att.code.${c.status}`) : c.suggested ? <span className="opacity-50">{t(`att.code.${c.suggested}`)}</span> : ""}
+                          {c.status ? t(`att.code.${c.status}`) : c.suggested ? <span className="font-normal text-united-muted">{t(`att.code.${c.suggested}`)}</span> : ""}
                         </button>
                       )}
                     </td>

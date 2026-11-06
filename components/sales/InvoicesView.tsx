@@ -106,6 +106,10 @@ function InvoiceList({ status, onOpen }: { status: string; onOpen: (id: string) 
   const q = useListQuery<{ invoices: InvRow[]; total: number }>(["sales", "invoices", status], `/api/sales/invoices?status=${status}&${list.apiQuery()}`);
   const rows = q.data?.invoices;
   const sum = (k: "total" | "open") => fmtMoney((rows ?? []).reduce((a, r) => a + Number(r[k] ?? 0), 0));
+  // Fully credited reads as such, not as a paid invoice (both have nothing open).
+  const openCell = (i: InvRow) => (isFullyCredited(i)
+    ? <StatusPill tone="neutral">{t("sales.invoice.fully_credited")}</StatusPill>
+    : <span className={Number(i.open) > 0 ? "font-semibold text-united-dark" : "text-united-muted"}>{fmtMoney(i.open ?? 0)}</span>);
   const columns: Column<InvRow>[] = [
     { key: "number", label: t("sales.col.invoice"), sortValue: (i) => i.number ?? "", render: (i) => <span dir="ltr" className="whitespace-nowrap">{i.number ?? t("sales.invoice.invoice_number_placeholder")}</span> },
     { key: "customer", label: t("sales.col.customer"), sortValue: (i) => localName(i.customer, locale), render: (i) => localName(i.customer, locale) },
@@ -113,7 +117,7 @@ function InvoiceList({ status, onOpen }: { status: string; onOpen: (id: string) 
     { key: "issued", label: t("sales.col.issued"), sortValue: (i) => i.issueDate ?? "", render: (i) => <span dir="ltr">{i.issueDate ?? "—"}</span> },
     { key: "due", label: t("sales.col.due"), sortValue: (i) => i.dueDate ?? "", render: (i) => <span dir="ltr">{i.dueDate ?? "—"}</span>, secondary: true },
     { key: "total", label: t("sales.col.total"), numeric: true, sortValue: (i) => Number(i.total), render: (i) => fmtMoney(i.total) },
-    ...(status === "issued" ? [{ key: "open", label: t("sales.col.open"), numeric: true, sortValue: (i: InvRow) => Number(i.open ?? 0), render: (i: InvRow) => <span className={Number(i.open) > 0 ? "font-semibold text-united-dark" : "text-united-muted"}>{fmtMoney(i.open ?? 0)}</span> }] : []),
+    ...(status === "issued" ? [{ key: "open", label: t("sales.col.open"), numeric: true, sortValue: (i: InvRow) => Number(i.open ?? 0), render: openCell }] : []),
   ];
   return (
     <div className="flex flex-col gap-3">
@@ -136,6 +140,9 @@ function InvoiceList({ status, onOpen }: { status: string; onOpen: (id: string) 
     </div>
   );
 }
+
+/** Every line credited in full (the credit notes add up to the invoice): nothing is left to credit. */
+const isFullyCredited = (i: { status: string; total: string; credited: string }) => i.status === "issued" && Number(i.total) > 0 && Number(i.credited) >= Number(i.total);
 
 /** A draft's notes, printed on the invoice. Audited with the previous and the new text. */
 function DraftNotes({ id, notes, version, onSaved }: { id: string; notes: string | null; version: number; onSaved: () => void }) {
@@ -179,15 +186,19 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
   // A credit note is limited by the quantity left to credit, as on the server — not by the
   // open amount: an invoice paid in full can still be credited for goods returned afterwards.
   const creditable = inv.lines.some((l) => Number(l.quantity) > Number(l.creditedQty));
+  const fullyCredited = inv.status === "issued" && !creditable;
   const refresh = () => void qc.invalidateQueries({ queryKey: ["sales"] });
-  // Localized STATUS labels (inside component so t() is available); the tone is the shared one.
+  // Localized STATUS labels (inside component so t() is available); the tone is the shared one
+  // (a voided draft is neutral there, like a cancelled document).
   const statusLabels: Record<string, string> = {
     draft: t("sales.invoice.draft"),
     issued: t("sales.invoice.issued"),
     void: t("sales.invoice.voided"),
   };
   const fail = (err: unknown) => toast.show(err instanceof ApiClientError ? err.message : t("sales.invoice.error_generic"), "error");
-  const party = inv.buyerName ?? localName(inv.customer, locale);
+  // On screen the customer reads in the screen's language; the legal name frozen at issue
+  // (buyerName, usually Arabic) stays on the printed invoice and in Arabic.
+  const party = locale === "en" ? localName(inv.customer, locale) : inv.buyerName ?? localName(inv.customer, locale);
   // Each irreversible step says what it will do — to whom, for how much — before it runs.
   const issue = async () => {
     if (!(await dialogs.confirm({ title: t("sales.invoice.confirm_issue", { customer: party }), body: t("sales.invoice.confirm_issue_body", { amount: fmtMoney(inv.total), date: issueDate }), confirmLabel: t("sales.invoice.issue_now"), cancelLabel: t("ui.back") }))) return;
@@ -216,8 +227,8 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap justify-between items-start gap-2">
         <div className="min-w-0">
-          <h2 className="text-xl font-extrabold" dir="ltr">{inv.number ?? t("sales.invoice.draft_number")}</h2>
-          <p className="text-sm font-bold text-united-muted"><PartyLink kind="customer" id={inv.customer.id} name={inv.buyerName ?? localName(inv.customer, locale)} />{inv.buyerTaxId ? ` · ${t("sales.invoice.tax_id_prefix")}${inv.buyerTaxId}` : ""}{inv.order ? <> · <DocLink href={profileHref.order(inv.order.id)}>{inv.order.orderNumber}</DocLink></> : ""}</p>
+          <h2 className="text-xl font-extrabold" dir={inv.number ? "ltr" : undefined}>{inv.number ?? t(inv.status === "void" ? "sales.invoice.voided_number" : "sales.invoice.draft_number")}</h2>
+          <p className="text-sm font-bold text-united-muted"><PartyLink kind="customer" id={inv.customer.id} name={party} />{inv.buyerTaxId ? ` · ${t("sales.invoice.tax_id_prefix")}${inv.buyerTaxId}` : ""}{inv.order ? <> · <DocLink href={profileHref.order(inv.order.id)}>{inv.order.orderNumber}</DocLink></> : ""}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {inv.status === "issued" && <Link href={`/sales/invoices/${inv.id}/print`} target="_blank" className="btn-secondary">{t("doc.print-ar")}</Link>}
@@ -234,7 +245,9 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
       )}
       {inv.status === "draft" && inv.current && <DraftMasterData parties={inv.current} customerId={inv.customer.id} />}
       {manage && inv.status === "draft" && <DraftNotes id={inv.id} notes={inv.notes} version={inv.version} onSaved={refresh} />}
-      <span className="self-start"><StatusPill tone={inv.status === "void" ? "neutral" : docTone(inv.status)} size="md">{statusLabels[inv.status] ?? inv.status}{inv.issueDate ? ` ${t("sales.invoice.due_date_text")}${inv.dueDate}` : ""}</StatusPill></span>
+      <span className="self-start">{fullyCredited
+        ? <StatusPill tone="neutral" size="md">{t("sales.invoice.fully_credited")}</StatusPill>
+        : <StatusPill tone={docTone(inv.status)} size="md">{statusLabels[inv.status] ?? inv.status}{inv.issueDate ? ` ${t("sales.invoice.due_date_text")}${inv.dueDate}` : ""}</StatusPill>}</span>
       <section className="card p-4 flex flex-col divide-y divide-united-dark/5">
         {inv.lines.map((l) => (
           <div key={l.id} className="py-2 flex flex-col gap-1">
@@ -243,10 +256,12 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
               <span dir="ltr" className="font-extrabold">{fmtMoney(l.total)}</span>
             </div>
             <div className="flex justify-between gap-2 text-xs font-bold text-united-muted">
-              <span dir="ltr">{fmtQty(l.quantity, l.uomCode)} × {l.unitPrice}{Number(l.discountPct) ? ` − ${l.discountPct}%` : ""}{Number(l.taxRate) ? ` + VAT ${l.taxRate}%` : ""}</span>
-              {Number(l.creditedQty) > 0 && <span>{t("sales.invoice.is_deducted_text")}{fmtQty(l.creditedQty, l.uomCode)}</span>}
+              {/* Each figure isolated, so in Arabic the unit stays with its quantity: "30 كجم × 15". */}
+              <span><bdi>{fmtQty(l.quantity, l.uomCode)}</bdi> × <bdi dir="ltr">{l.unitPrice}</bdi>{Number(l.discountPct) ? <> − <bdi dir="ltr">{l.discountPct}%</bdi></> : null}{Number(l.taxRate) ? <> + <bdi dir="ltr">VAT {l.taxRate}%</bdi></> : null}</span>
+              {Number(l.creditedQty) > 0 && <span>{t("sales.invoice.is_deducted_text")}<bdi>{fmtQty(l.creditedQty, l.uomCode)}</bdi></span>}
             </div>
-            {inv.status === "issued" && manage && (
+            {/* Only a line with something left to credit takes a quantity (the credit-note form below). */}
+            {inv.status === "issued" && manage && creditable && Number(l.quantity) > Number(l.creditedQty) && (
               <Field label={t("sales.invoice.quantity_to_deduct").replace("${qty}", `${Number(l.quantity) - Number(l.creditedQty)}`)}><input className="field text-sm" inputMode="decimal" dir="ltr" value={credit[l.id] ?? ""} onChange={(e) => setCredit({ ...credit, [l.id]: e.target.value })} /></Field>
             )}
           </div>
