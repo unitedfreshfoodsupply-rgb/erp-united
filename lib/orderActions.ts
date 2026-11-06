@@ -98,12 +98,15 @@ const OK: OrderActionState = { offered: true, ok: true };
 export function orderActionState(f: OrderActionFacts): { cancel: OrderActionState; reopen: OrderActionState } {
   const departed = f.liveStop && (DEPARTED_TRIP_STATUSES as readonly string[]).includes(f.liveStop.tripStatus) ? f.liveStop : null;
 
-  // reopenOrder: a trip that has left, then (dispatched only) releaseOrderInvoiceForReopen.
+  // reopenOrder: (dispatched only) an issued invoice, then a trip that has left. The invoice
+  // comes first (ORD-02): once a delivered order is invoiced, the delivery result is already
+  // recorded and the invoice is what blocks — its correction is the credit note, not a return
+  // on the trip. Both refuse with 409; only the words (and the invoice link) differ.
   let reopen: OrderActionState = OK;
   const issued = f.status === "dispatched" ? f.invoices.find((i) => i.status === "issued") : undefined;
   if (!(REOPEN_OFFERED_STATUSES as readonly string[]).includes(f.status)) reopen = { offered: false, ok: false };
+  else if (issued) reopen = { offered: true, ok: false, status: 409, message: ORDER_REFUSAL.reopenInvoiced(issued), detail: restockDetail(issued), invoice: { id: issued.id, number: issued.number }, ...(departed ? { trip: departed.tripNumber } : {}) };
   else if (departed) reopen = { offered: true, ok: false, status: 409, message: ORDER_REFUSAL.reopenTripLeft(departed.tripNumber), trip: departed.tripNumber };
-  else if (issued) reopen = { offered: true, ok: false, status: 409, message: ORDER_REFUSAL.reopenInvoiced(issued), detail: restockDetail(issued), invoice: { id: issued.id, number: issued.number } };
 
   // cancelOrder: already cancelled (not offered), dispatched, then on a live trip.
   let cancel: OrderActionState = OK;

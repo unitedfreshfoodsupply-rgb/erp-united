@@ -37,7 +37,7 @@ import { assertQuantitiesFitUnits, assertQuantityFitsUnit, commitOrderStock } fr
 import { holdable, holdOrderForStockInTx } from "@/lib/sales/stock-hold";
 import { settleOrderSuggestions, syncOrderSuggestions } from "@/lib/purchasing/requests";
 import { assertPricingCleared, evaluateOrderPricing } from "@/lib/sales/price-exceptions";
-import { releaseOrderInvoiceForReopen } from "@/lib/sales/invoicing";
+import { refuseIssuedInvoiceForReopen, releaseOrderInvoiceForReopen } from "@/lib/sales/invoicing";
 import { ORDER_REFUSAL } from "@/lib/orderActions";
 import { searchWhere } from "@/lib/core/search";
 import { storedOrderCustomerName } from "@/lib/locale/names";
@@ -1480,6 +1480,9 @@ export async function reopenOrder(
   }
   const stop = await liveTripStop(orderId);
   if (stop && ["dispatched", "in_transit", "completed"].includes(stop.trip.status)) {
+    // An issued invoice is the real blocker once the trip has left (ORD-02): say that, with the
+    // credit-note path, instead of the delivery result. Same 409 as before.
+    if (order.status === "dispatched") await refuseIssuedInvoiceForReopen(prisma, orderId);
     throw new ApiError(409, ORDER_REFUSAL.reopenTripLeft(stop.trip.number));
   }
 
