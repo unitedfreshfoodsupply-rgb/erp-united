@@ -7,27 +7,14 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
 import { LoadingState, EmptyState, ErrorState } from "@/components/States";
 import { LiveIndicator } from "@/components/ui/LiveIndicator";
+import { StatusPill } from "@/components/ui/StatusPill";
+import { StatusBadge } from "@/components/StatusBadge";
+import type { OrderStatus } from "@/lib/types";
 import { todayLocalISO } from "@/lib/localDate";
 import { qty, unitLabel } from "@/lib/format";
 import type { DailySheetDTO } from "@/lib/picking-sheet";
 import { useLocale } from "@/lib/locale";
 import { localName, orderCustomerName } from "@/lib/locale/names";
-
-// Dictionary keys, translated at render.
-const STATUS_LABEL: Record<string, string> = {
-  new: "picking.status.new",
-  preparing: "picking.status.preparing",
-  ready_for_loading: "picking.status.ready_for_loading",
-  loading: "picking.status.loading",
-};
-
-// The order-status tones of StatusBadge, as the kit's pills (AA text on their fills).
-const STATUS_COLOR: Record<string, string> = {
-  new: "pill-info",
-  preparing: "pill-warn",
-  ready_for_loading: "pill-success",
-  loading: "pill-warn",
-};
 
 export function PickingSheet() {
   const { t, locale } = useLocale();
@@ -327,19 +314,14 @@ export function PickingSheet() {
                                 {qty(allocatedRemaining)}
                               </span>
                               <span className="text-center">
+                                {/* The order stage as everywhere else (StatusBadge: one vocabulary and
+                                    one set of tones, A11Y-3). */}
                                 {a.rejected ? (
-                                  <span className="pill-danger">
+                                  <StatusPill tone="danger">
                                     {t("picking.rejected-badge")}
-                                  </span>
+                                  </StatusPill>
                                 ) : (
-                                  <span
-                                    className={
-                                      STATUS_COLOR[a.status] ??
-                                      "pill-neutral"
-                                    }
-                                  >
-                                    {STATUS_LABEL[a.status] ? t(STATUS_LABEL[a.status]) : a.status}
-                                  </span>
+                                  <StatusBadge status={a.status as OrderStatus} size="sm" />
                                 )}
                               </span>
                             </div>
