@@ -72,6 +72,14 @@ test("a deadlock or serialization failure from a raw query (P2010 40P01/40001) �
     assert.equal(res.status, 409, pg);
     assert.match((await res.json()).error, /اتغيّر من واحد تاني/);
   }
+  // Prisma's meta.code is the code that counts.
+  const withMeta = Object.assign(prismaError("P2010", "Raw query failed."), { meta: { code: "40P01", message: "deadlock detected" } });
+  assert.equal((await quietly(() => handleApiError(withMeta, req()))).status, 409);
+  // "40001" quoted in the message's detail (a row's value) is not a serialization failure.
+  const quoted = prismaError("P2010", "Raw query failed. Code: `23505`. Message: `duplicate key value violates unique constraint \"x_key\"`. Detail: Key (ref)=(40001) already exists.");
+  assert.notEqual((await quietly(() => handleApiError(quoted, req()))).status, 409);
+  const quotedMeta = Object.assign(prismaError("P2010", "Raw query failed. Detail: Key (ref)=(40001) already exists."), { meta: { code: "23505", message: "Key (ref)=(40001) already exists." } });
+  assert.notEqual((await quietly(() => handleApiError(quotedMeta, req()))).status, 409);
   // Any other raw-query failure is still a server fault.
   const other = await quietly(() => handleApiError(prismaError("P2010", "Raw query failed. Code: `42P01`. Message: `relation does not exist`"), req()));
   assert.equal(other.status, 500);

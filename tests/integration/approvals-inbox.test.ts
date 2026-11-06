@@ -208,6 +208,9 @@ test("paging, the type filter and one request by id", async () => {
 test("statements do not grow with the number of pending requests (5 vs 50)", async () => {
   const types: ApprovalType[] = ["orders.shortage", "accounting.cash_transfer", "accounting.opening_batch", "hr.payroll_run", "sales.credit"];
   const measure = (n: number) => rolledBack(async (tx) => {
+    // Only this case's requests are pending while it measures: whatever an earlier run or a manual
+    // check left pending (other types, other module rules) is closed here and rolled back with it.
+    await tx.approvalRequest.updateMany({ where: { status: "pending" }, data: { status: "cancelled", closedReason: TAG, decidedAt: new Date() } });
     for (let i = 0; i < n; i++) await open(tx, types[i % types.length], accountant);
     const approver = await countQueries(() => listApprovalInbox(viewer.admin(), { status: "pending", limit: 200 }, tx));
     const requester = await countQueries(() => listApprovalInbox(viewer.accountant(), { status: "pending", limit: 200 }, tx));

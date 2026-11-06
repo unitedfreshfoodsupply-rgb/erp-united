@@ -125,8 +125,15 @@ export function handleApiError(err: unknown, req?: NextRequest) {
  * Plus the one server condition a user can act on: running out of time or connections
  * (503, asking to check the current state before retrying). Everything else stays a 500.
  */
+/** PostgreSQL's own code on a raw-query failure (P2010) is a deadlock or serialization failure. */
+function isRetryablePgCode(e: { message?: string; meta?: unknown }): boolean {
+  const code = (e.meta as { code?: unknown } | undefined)?.code;
+  if (typeof code === "string") return code === "40P01" || code === "40001";
+  return typeof e.message === "string" && /Code: `(40P01|40001)`/.test(e.message);
+}
+
 function clientFault(err: unknown, loc: "ar" | "en"): { status: number; message: string; loud?: boolean } | null {
-  const e = err as { name?: string; code?: string; message?: string } | null;
+  const e = err as { name?: string; code?: string; message?: string; meta?: unknown } | null;
   if (!e || typeof e !== "object") return null;
   if (e.name === "PrismaClientValidationError") return { status: 400, message: msg(loc, "validation", "بيانات الطلب غير صالحة: نوع حقل غير متوقع") };
   if (e.name === "PrismaClientKnownRequestError" && e.code === "P2002") return { status: 409, message: msg(loc, "duplicate", "السجل ده موجود بالفعل (تكرار) — حدّث الصفحة وراجع") };
@@ -153,7 +160,9 @@ function clientFault(err: unknown, loc: "ar" | "en"): { status: number; message:
   // A write conflict or deadlock: the transaction rolled back, as with a lost version race.
   if (e.name === "PrismaClientKnownRequestError" && e.code === "P2034") return { status: 409, message: msg(loc, "stale", "السجل اتغيّر من واحد تاني في نفس اللحظة — حدّث الشاشة وجرّب تاني") };
   // The same from a raw query (P2010 carries PostgreSQL's code): deadlock 40P01, serialization 40001.
-  if (e.name === "PrismaClientKnownRequestError" && e.code === "P2010" && typeof e.message === "string" && /\b(40P01|40001)\b/.test(e.message))
+  // Read from the code field only (meta.code, or the message's "Code: `…`" part) — the message's
+  // detail can quote the row's values, and a value that reads "40001" is not a deadlock.
+  if (e.name === "PrismaClientKnownRequestError" && e.code === "P2010" && isRetryablePgCode(e))
     return { status: 409, message: msg(loc, "stale", "السجل اتغيّر من واحد تاني في نفس اللحظة — حدّث الشاشة وجرّب تاني") };
   // A number too large for its column (numeric overflow): the request's value, not a fault.
   if (typeof e.message === "string" && /numeric field overflow|"22003"|code: "22003"/.test(e.message)) return { status: 400, message: msg(loc, "too_large", "رقم أكبر من المسموح") };

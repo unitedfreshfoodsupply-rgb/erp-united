@@ -35,6 +35,10 @@ export function usePendingApprovals(type: string, enabled = true, entityId?: str
       return pages.flatMap((p) => p.approvals);
     },
     enabled: enabled && (!ids || ids.length > 0),
+    // The table's id set changes after a withdraw or a decision: the notices it already has stay
+    // up while the new set loads, instead of every cell blanking (same type and record only).
+    placeholderData: (prev, prevQuery) =>
+      prevQuery?.queryKey[2] === type && prevQuery?.queryKey[3] === (entityId ?? null) ? prev : undefined,
   });
 }
 

@@ -30,7 +30,8 @@ export function Modal({
 }: {
   open: boolean;
   onClose: () => void;
-  title: string;
+  /** Text, or a node when part of it must not wrap or carries its own direction (a document number). */
+  title: React.ReactNode;
   description?: React.ReactNode;
   children?: React.ReactNode;
   footer?: React.ReactNode;
@@ -89,7 +90,7 @@ export function Modal({
 }
 
 type Tone = "primary" | "danger";
-type ConfirmOptions = { title: string; body?: React.ReactNode; confirmLabel?: string; cancelLabel?: string; tone?: Tone };
+type ConfirmOptions = { title: React.ReactNode; body?: React.ReactNode; confirmLabel?: string; cancelLabel?: string; tone?: Tone };
 type PromptOptions = ConfirmOptions & { label: string; placeholder?: string; required?: boolean; multiline?: boolean; initialValue?: string; inputDir?: "ltr" | "rtl" | "auto" };
 type Request = { kind: "confirm"; opts: ConfirmOptions; resolve: (v: boolean) => void } | { kind: "prompt"; opts: PromptOptions; resolve: (v: string | null) => void };
 

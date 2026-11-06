@@ -120,9 +120,17 @@ export function DecideControls({ a, onDone }: { a: ApprovalDTO; onDone?: () => v
     }
     if (decision === "approve" && (CONFIRM_TYPES.has(a.type) || approvalAmount(a))) {
       const amount = approvalAmount(a);
+      // The number kept whole and left to right, as on the cards: a narrow screen wraps the title
+      // around "APR-2026-00059", never inside it — and it reads, copies and searches as typed.
+      const [before, after = ""] = t("approvals.confirm.title", { number: "{number}" }).split("{number}");
       const ok = await dialogs.confirm({
-        // Non-breaking hyphens: a narrow screen wraps the title, never inside "APR-2026-00059".
-        title: t("approvals.confirm.title", { number: a.number.replace(/-/g, "\u2011") }),
+        title: (
+          <>
+            {before}
+            <bdi dir="ltr" className="whitespace-nowrap">{a.number}</bdi>
+            {after}
+          </>
+        ),
         body: (
           <div className="flex flex-col gap-1">
             <p className="text-xs font-medium">{typeLabel(a)}</p>
