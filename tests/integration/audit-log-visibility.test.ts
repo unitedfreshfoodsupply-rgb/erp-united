@@ -3,7 +3,9 @@
    no stock cost) sees neither the agreed supplier prices, nor a receipt's provisional unit cost,
    nor the values of a cost-field change; whoever may see stock cost still does. The route only
    authenticates, builds the filter and serialises auditLogFor, so the rules are tested on it.
-   Synthetic data on the test database. */
+   Synthetic data on the test database: the audit rows the tests write are removed afterwards;
+   the tagged supplier, products and receipt stay (the receipt has stock and ledger records,
+   which are append-only), switched off where they can be. */
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { prisma, actor } from "./_db";
@@ -20,8 +22,20 @@ const receiver = actor("أمين المخزن", ["stock.receive", "stock.view"],
 const stockController = { permissions: [...ROLE_PERMISSIONS.STOCK_CONTROLLER, "audit.view"] };
 const accountant = { permissions: ROLE_PERMISSIONS.ACCOUNTANT };
 
+// The audit rows written under generated ids (supplier, receipt) and the receipt's journal line.
+const written = { entityIds: [] as string[], receipts: [] as string[] };
 after(async () => {
-  await prisma.auditLog.deleteMany({ where: { entityId: { startsWith: TAG } } });
+  await prisma.auditLog.deleteMany({
+    where: {
+      OR: [
+        { entityId: { startsWith: TAG } },
+        { entityId: { in: written.entityIds } },
+        ...written.receipts.map((r) => ({ action: "journal_posted", newValue: { endsWith: r } })),
+      ],
+    },
+  });
+  await prisma.supplier.updateMany({ where: { name: { startsWith: TAG } }, data: { active: false } });
+  await prisma.stockProduct.updateMany({ where: { name: { startsWith: TAG } }, data: { active: false } });
   await prisma.$disconnect();
 });
 
@@ -32,6 +46,7 @@ const page = async (viewer: { permissions: readonly string[] }, entityId: string
 test("agreed supplier prices leave /api/audit only for those who may see purchase prices", async () => {
   assert.ok(!stockController.permissions.includes("purchasing.prices.view"));
   const supplier = await createSupplierFull({ name: `${TAG} Farm`, category: "vegetable" }, buyer);
+  written.entityIds.push(supplier.id);
   const product = await prisma.stockProduct.create({ data: { name: `${TAG} Tomato` } });
   await setSupplierPrices(supplier.id, { valid_from: todayLocalISO(), prices: [{ product_id: product.id, unit_price: "8.5" }] }, buyer);
 
@@ -44,9 +59,12 @@ test("agreed supplier prices leave /api/audit only for those who may see purchas
 test("a receipt's provisional unit cost leaves /api/audit only for those who may see stock cost", async () => {
   const supplier = await prisma.supplier.create({ data: { code: `SUP-7${String(Date.now()).slice(-7)}`, name: `${TAG} Gate Farm` } });
   const product = await prisma.stockProduct.create({ data: { name: `${TAG} Pepper` } });
+  written.entityIds.push(supplier.id);
   const { intake } = await recordIntake({ supplier_id: supplier.id, product_id: product.id, received_kg: 30, provisional_unit_cost: "11.75", location_id: "loc_cold_1" }, receiver);
-  const written = await prisma.auditLog.findFirstOrThrow({ where: { entityId: intake.id, action: "stock_intake_created" } });
-  assert.match(written.newValue ?? "", / · سعر مؤقت 11\.7500$/, "the trail itself keeps the amount");
+  written.entityIds.push(intake.id);
+  written.receipts.push(intake.receiptNumber);
+  const row = await prisma.auditLog.findFirstOrThrow({ where: { entityId: intake.id, action: "stock_intake_created" } });
+  assert.match(row.newValue ?? "", / · سعر مؤقت 11\.7500$/, "the trail itself keeps the amount");
 
   const atTheGate = (await page(stockController, intake.id)).find((l) => l.action === "stock_intake_created");
   assert.ok(atTheGate?.newValue?.endsWith(" · سعر مؤقت"), atTheGate?.newValue ?? "");
@@ -54,7 +72,7 @@ test("a receipt's provisional unit cost leaves /api/audit only for those who may
   assert.ok(atTheGate?.newValue?.startsWith(intake.receiptNumber), "the rest of the line is unchanged");
 
   const forFinance = (await page(accountant, intake.id)).find((l) => l.action === "stock_intake_created");
-  assert.equal(forFinance?.newValue, written.newValue);
+  assert.equal(forFinance?.newValue, row.newValue);
 });
 
 test("a cost-field change keeps the fact and loses the amounts and reason without stock.valuation.view", async () => {

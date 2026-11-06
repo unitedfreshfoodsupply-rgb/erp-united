@@ -243,7 +243,7 @@ export function Nav() {
           controls, straight to the page's own content (the target below). */}
       <a
         href="#main-content"
-        onClick={(e) => { e.preventDefault(); document.getElementById("main-content")?.focus(); }}
+        onClick={(e) => { e.preventDefault(); skipToContent(); }}
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:start-2 focus:z-50 focus:rounded-xl focus:bg-white focus:px-4 focus:py-2.5 focus:text-sm focus:font-semibold focus:text-united-green focus:shadow-pop"
       >
         {t("ui.skip-to-content")}
@@ -351,7 +351,8 @@ export function Nav() {
         )}
       </header>
 
-      {/* Where the skip link lands: right before the page's content, which follows Nav. */}
+      {/* Where the skip link lands: right before the page's content, which follows Nav (or on the
+          page heading just after it — skipToContent). */}
       <div id="main-content" tabIndex={-1} className="outline-none" />
 
       {/* Below 1024px the grouped navigation lives in a drawer (a native modal dialog). */}
@@ -411,4 +412,24 @@ function NavDrawer({ open, onClose, links, activeHref, home }: { open: boolean; 
       </nav>
     </dialog>
   );
+}
+
+/** The skip link's landing: the page's first heading when nothing the user could reach with Tab
+ * comes before it — a screen reader then announces where the user is — and otherwise the empty
+ * target right after Nav, so a control above the heading (a back link, a filter) stays the next
+ * Tab stop. */
+function skipToContent() {
+  const target = document.getElementById("main-content");
+  if (!target) return;
+  const after = (el: Element) => !!(target.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const heading = Array.from(document.querySelectorAll<HTMLElement>("h1")).find(after);
+  const before = (el: Element) => !!heading && !!(heading.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING);
+  const focusable = "a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex='-1'])";
+  const between = Array.from(document.querySelectorAll<HTMLElement>(focusable)).some((el) => after(el) && before(el) && el.getClientRects().length > 0);
+  if (!heading || between) {
+    target.focus();
+    return;
+  }
+  if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+  heading.focus();
 }

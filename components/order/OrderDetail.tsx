@@ -804,7 +804,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       <div className="card p-5 mt-4 lg:mt-0">
         <h2 className="font-extrabold mb-2 text-united-dark">{t("orders.documents")}</h2>
         <AttachmentsPanel entityType="order" entityId={orderId} canManage={isSupervisor} />
-        <OrderPricingPanel orderId={orderId} />
+        <OrderPricingPanel orderId={orderId} lines={order.items.length} />
       </div>
 
       <div className="card p-5 mt-4">

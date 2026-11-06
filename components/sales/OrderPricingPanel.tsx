@@ -9,7 +9,7 @@ import { fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { Field } from "@/components/ui/Field";
-import { CardSkeleton } from "@/components/Skeleton";
+import { CardSkeleton, SkeletonLine } from "@/components/Skeleton";
 
 type Amounts = { gross: string; discount: string; net: string; tax: string; total: string };
 type Pricing = {
@@ -35,7 +35,7 @@ const SOURCE: Record<string, string> = { list: "pricing.source.list", manual: "p
 
 /** The commercial side of an order, for people who may see prices. The floor screens
  * never load this. */
-export function OrderPricingPanel({ orderId }: { orderId: string }) {
+export function OrderPricingPanel({ orderId, lines }: { orderId: string; lines?: number }) {
   const { t, locale } = useLocale();
   const { can } = usePermissions();
   const qc = useQueryClient();
@@ -51,7 +51,9 @@ export function OrderPricingPanel({ orderId }: { orderId: string }) {
   if (!can("sales.pricing.view")) return null;
   // Below the attachments (components/order/OrderDetail.tsx), with a placeholder while the
   // first answer loads: nothing above it, and nothing the user may be about to click, moves.
-  if (!q.data) return q.isPending ? <div className="mt-4"><CardSkeleton lines={3} /></div> : null;
+  // Given the order's line count, the placeholder has the panel's shape — one row per line and
+  // the totals — so the card below it (the timeline) does not move when the prices arrive.
+  if (!q.data) return q.isPending ? (lines ? <PricingSkeleton lines={lines} reprice={can("sales.price_override")} /> : <div className="mt-4"><CardSkeleton lines={3} /></div>) : null;
   const p = q.data;
   const canOverride = can("sales.price_override");
   const refresh = () => void qc.invalidateQueries({ queryKey: ["orders", orderId, "pricing"] });
@@ -148,5 +150,31 @@ export function OrderPricingPanel({ orderId }: { orderId: string }) {
         </button>
       )}
     </section>
+  );
+}
+
+/** The pricing panel's shape while it loads: the same card, a row per order line (two text
+ * lines each, as in the list above), the 2 × 2 totals and, for who may change prices, the
+ * reprice button. */
+function PricingSkeleton({ lines, reprice }: { lines: number; reprice: boolean }) {
+  return (
+    <div className="card p-4 mt-4 flex flex-col gap-3" aria-busy="true">
+      <div className="flex items-center justify-between gap-2">
+        <SkeletonLine className="h-6 w-1/3" />
+        <SkeletonLine className="h-4 w-1/3" />
+      </div>
+      <ul className="flex flex-col divide-y divide-united-dark/5">
+        {Array.from({ length: lines }).map((_, i) => (
+          <li key={i} className="py-2 flex flex-col gap-1">
+            <SkeletonLine className="h-5 w-full" />
+            <SkeletonLine className="h-4 w-2/3" />
+          </li>
+        ))}
+      </ul>
+      <div className="grid grid-cols-2 gap-2">
+        {Array.from({ length: 4 }).map((_, i) => <SkeletonLine key={i} className="h-[52px] rounded-xl" />)}
+      </div>
+      {reprice && <SkeletonLine className="h-11 w-32 rounded-xl" />}
+    </div>
   );
 }

@@ -169,12 +169,12 @@ export default async function DeliverySheetPage({ params, searchParams }: { para
           <div>
             <div className="border-b border-united-dark h-14" />
             <div className="text-united-muted mt-1">{t("printdoc.receiver-sign")}</div>
-            <div className="text-united-dark/40 text-xs">{t("printdoc.name-date")}</div>
+            <div className="text-united-muted text-xs">{t("printdoc.name-date")}</div>
           </div>
           <div>
             <div className="border-b border-united-dark h-14" />
             <div className="text-united-muted mt-1">{t("printdoc.driver-sign")}</div>
-            <div className="text-united-dark/40 text-xs">{t("printdoc.name-date")}</div>
+            <div className="text-united-muted text-xs">{t("printdoc.name-date")}</div>
           </div>
         </div>
 
