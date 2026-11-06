@@ -114,7 +114,7 @@ export function PurchaseRequestsView() {
                 <span className="font-extrabold" dir="ltr">{r.number}</span>
                 <StatusPill tone={docTone(r.status, PR_TONE)}>{t(`pr.status.${r.status}`)}</StatusPill>
                 <span className="font-bold">{localName(r.product, locale)}</span>
-                <span dir="ltr">{r.quantity} {unitLabel(r.uomCode, locale)}</span>
+                <span><bdi dir="ltr">{r.quantity}</bdi> <bdi>{unitLabel(r.uomCode, locale)}</bdi></span>
                 {r.customer && <span className="text-united-muted">· {localName(r.customer, locale)}</span>}
                 {r.neededBy && <span className="text-united-muted">· {t("pr.needed-by", { date: r.neededBy })}</span>}
               </div>

@@ -893,7 +893,7 @@ function Health() {
                 {Array.isArray(c.detail) && c.detail.length > 0 && (
                   <ul className="flex flex-col">
                     {(c.detail as WasteRow[]).map((w) => (
-                      <li key={w.productId} className="flex justify-between gap-2"><span>{localName(w, locale)}</span><span dir="ltr">{fmtQty(w.quantity, w.unit)} · {fmtMoney(w.value)}</span></li>
+                      <li key={w.productId} className="flex justify-between gap-2"><span>{localName(w, locale)}</span><span><bdi>{fmtQty(w.quantity, w.unit)}</bdi> · <bdi dir="ltr">{fmtMoney(w.value)}</bdi></span></li>
                     ))}
                   </ul>
                 )}

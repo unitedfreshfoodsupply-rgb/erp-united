@@ -465,7 +465,7 @@ export const SETTING_DEFS = {
   "hr.payroll_absent_policy": def({
     group: "hr",
     label: "خصم أيام الغياب العادي",
-    description: "deduct = يوم الغياب (مش المتسجل بدون أجر) بيتخصم زي اليوم بدون أجر وبيظهر تنبيه على القسيمة؛ warn = مبيتخصمش وبيظهر تنبيه بس.",
+    description: "يتخصم: يوم الغياب (مش المتسجل بدون أجر) بيتخصم زي اليوم بدون أجر وبيظهر تنبيه على القسيمة. تنبيه بس: مبيتخصمش وبيظهر تنبيه بس.",
     unit: "",
     schema: z.enum(["deduct", "warn"], { errorMap: () => ({ message: "القيمة لازم تكون deduct أو warn" }) }),
     default: "deduct",
@@ -526,6 +526,7 @@ export const SETTING_CHOICES: Partial<Record<SettingKey, Record<string, { ar: st
   "inventory.grading_price_missing": { fallback: { ar: "توزيع بالتناسب", en: "Spread proportionally" }, refuse: { ar: "رفض", en: "Refuse" } },
   "inventory.dispatch_issue_policy": { strict: { ar: "صارم", en: "Strict" } },
   "sales.credit_check_mode": { off: { ar: "إيقاف", en: "Off" }, warn: { ar: "تنبيه", en: "Warn" }, block: { ar: "منع", en: "Block" } },
+  "hr.payroll_absent_policy": { deduct: { ar: "يتخصم", en: "Deduct" }, warn: { ar: "تنبيه بس", en: "Warn only" } },
 };
 
 export const SETTING_EN: Record<SettingKey, { label: string; description: string }> = {
@@ -579,7 +580,7 @@ export const SETTING_EN: Record<SettingKey, { label: string; description: string
   "hr.expense_approval_threshold": { label: "Expense approval threshold", description: "An expense above this amount waits for approval before it posts to the accounts. Zero = every expense needs approval." },
   // WS5 HR & payroll remediation (November 2026)
   "hr.advance_recovery_max_pct": { label: "Largest advance recovery, % of net pay", description: "The most of a month's net entitlement deducted to repay an advance (an automatic instalment is reduced to it; a manual entry above it blocks the run unless an approved repayment plan allows it). The default 10% comes from a single secondary source on Labour Law 14/2025 — needs legal confirmation. Salary paid on account is not counted." },
-  "hr.payroll_absent_policy": { label: "Deduct plain absences", description: "deduct = an absence day (not marked unpaid) is deducted like an unpaid day and flagged on the payslip; warn = not deducted, only flagged." },
+  "hr.payroll_absent_policy": { label: "Deduct plain absences", description: "Deduct: an absence day (not marked unpaid) is deducted like an unpaid day and flagged on the payslip. Warn only: not deducted, only flagged." },
 };
 
 /** English for the units shown next to values. */

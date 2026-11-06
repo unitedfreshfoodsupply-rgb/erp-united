@@ -15,6 +15,7 @@ import { useBusy } from "@/components/ui/useBusy";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
+import { billDebitFacts } from "@/components/purchasing/bill-debit";
 import { Segmented } from "@/components/ui/Segmented";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
@@ -406,11 +407,8 @@ function BillDetail({ id, onClose }: { id: string; onClose: () => void }) {
   };
   const debitLines = Object.entries(debit).filter(([, v]) => v.trim() !== "").map(([bill_line_id, quantity]) => ({ bill_line_id, quantity }));
   const allowanceLines = Object.entries(debit).filter(([, v]) => v.trim() !== "").map(([service_line_id, amount]) => ({ service_line_id, amount }));
-  // A debit note is limited by what is left to debit on the lines, as on the server — not by
-  // the open amount: a bill paid in full can still take one for goods returned afterwards.
-  const debitable = service ? b.serviceLines.some((l) => Number(l.debitedNet) < Number(l.net)) : b.lines.some((l) => Number(l.debitedQty) < Number(l.quantity));
-  // Debit notes took everything back: the bill says so, and there is nothing left to debit.
-  const fullyDebited = b.status === "posted" && !debitable && b.debitNotes.length > 0;
+  // Limited by what is left on the lines, as on the server; "fully debited" when nothing is.
+  const { debitable, fullyDebited } = billDebitFacts({ status: b.status, service, lines: b.lines, serviceLines: b.serviceLines, debitNotes: b.debitNotes });
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap justify-between items-start gap-2">

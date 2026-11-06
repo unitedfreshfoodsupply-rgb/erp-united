@@ -13,6 +13,7 @@ import { useBusy } from "@/components/ui/useBusy";
 import { usePermissions } from "@/lib/use-session";
 import { todayLocalISO } from "@/lib/localDate";
 import { Field, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
+import { isFullyCredited } from "@/components/sales/invoice-credit";
 import { Segmented } from "@/components/ui/Segmented";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
@@ -141,8 +142,6 @@ function InvoiceList({ status, onOpen }: { status: string; onOpen: (id: string) 
   );
 }
 
-/** Every line credited in full (the credit notes add up to the invoice): nothing is left to credit. */
-const isFullyCredited = (i: { status: string; total: string; credited: string }) => i.status === "issued" && Number(i.total) > 0 && Number(i.credited) >= Number(i.total);
 
 /** A draft's notes, printed on the invoice. Audited with the previous and the new text. */
 function DraftNotes({ id, notes, version, onSaved }: { id: string; notes: string | null; version: number; onSaved: () => void }) {
@@ -186,7 +185,8 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
   // A credit note is limited by the quantity left to credit, as on the server — not by the
   // open amount: an invoice paid in full can still be credited for goods returned afterwards.
   const creditable = inv.lines.some((l) => Number(l.quantity) > Number(l.creditedQty));
-  const fullyCredited = inv.status === "issued" && !creditable;
+  // Fully credited by the same rule as the list and the server (credit notes add up to the total).
+  const fullyCredited = isFullyCredited(inv);
   const refresh = () => void qc.invalidateQueries({ queryKey: ["sales"] });
   // Localized STATUS labels (inside component so t() is available); the tone is the shared one
   // (a voided draft is neutral there, like a cancelled document).
@@ -257,12 +257,12 @@ function InvoiceDetail({ id, onClose }: { id: string; onClose: () => void }) {
             </div>
             <div className="flex justify-between gap-2 text-xs font-bold text-united-muted">
               {/* Each figure isolated, so in Arabic the unit stays with its quantity: "30 كجم × 15". */}
-              <span><bdi>{fmtQty(l.quantity, l.uomCode)}</bdi> × <bdi dir="ltr">{l.unitPrice}</bdi>{Number(l.discountPct) ? <> − <bdi dir="ltr">{l.discountPct}%</bdi></> : null}{Number(l.taxRate) ? <> + <bdi dir="ltr">VAT {l.taxRate}%</bdi></> : null}</span>
+              <span><bdi>{fmtQty(l.quantity, l.uomCode)}</bdi> × <bdi dir="ltr">{l.unitPrice}</bdi>{Number(l.discountPct) ? <> − <bdi dir="ltr">{l.discountPct}%</bdi></> : null}{Number(l.taxRate) ? <> {t("sales.quotation.tax-prefix")} <bdi dir="ltr">{l.taxRate}%</bdi></> : null}</span>
               {Number(l.creditedQty) > 0 && <span>{t("sales.invoice.is_deducted_text")}<bdi>{fmtQty(l.creditedQty, l.uomCode)}</bdi></span>}
             </div>
             {/* Only a line with something left to credit takes a quantity (the credit-note form below). */}
-            {inv.status === "issued" && manage && creditable && Number(l.quantity) > Number(l.creditedQty) && (
-              <Field label={t("sales.invoice.quantity_to_deduct").replace("${qty}", `${Number(l.quantity) - Number(l.creditedQty)}`)}><input className="field text-sm" inputMode="decimal" dir="ltr" value={credit[l.id] ?? ""} onChange={(e) => setCredit({ ...credit, [l.id]: e.target.value })} /></Field>
+            {inv.status === "issued" && manage && Number(l.quantity) > Number(l.creditedQty) && (
+              <Field label={t("sales.invoice.quantity_to_deduct", { qty: fmtQty(Number(l.quantity) - Number(l.creditedQty), l.uomCode) })}><input className="field text-sm" inputMode="decimal" dir="ltr" value={credit[l.id] ?? ""} onChange={(e) => setCredit({ ...credit, [l.id]: e.target.value })} /></Field>
             )}
           </div>
         ))}

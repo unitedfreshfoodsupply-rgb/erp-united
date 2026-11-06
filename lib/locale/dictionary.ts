@@ -326,7 +326,7 @@ const sales = {
   "sales.invoice.due_until": { ar: "حتى تاريخ", en: "As of Date" },
   "sales.invoice.reason_label": { ar: "السبب (مطلوب): مرتجع، مرفوض عند الاستلام، نقص…", en: "Reason (required): returned, refused on delivery, shortage…" },
   "sales.invoice.draft_reason_placeholder": { ar: "سبب إلغاء المسودة", en: "Reason for voiding the draft" },
-  "sales.invoice.quantity_to_deduct": { ar: "كمية تتخصم (من ${qty})", en: "Qty to deduct (from ${qty})" },
+  "sales.invoice.quantity_to_deduct": { ar: "كمية تتخصم (من {qty})", en: "Qty to deduct (of {qty})" },
   // Summary labels
   "sales.invoice.net": { ar: "الصافي", en: "Net" },
   "sales.invoice.tax": { ar: "الضريبة", en: "Tax" },
@@ -2575,7 +2575,7 @@ const operations = {
   "ops.trip.status.planned": { ar: "متخططة", en: "Planned" },
   "ops.trip.status.loading": { ar: "بتتحمل", en: "Loading" },
   "ops.trip.status.loaded": { ar: "اتحملت", en: "Loaded" },
-  "ops.trip.status.dispatched": { ar: "خرجت للتوصيل", en: "Out for delivery" },
+  "ops.trip.status.dispatched": { ar: "اتصرفت ومستنية تتحرك", en: "Dispatched, not departed" },
   "ops.trip.status.in_transit": { ar: "في الطريق", en: "In Transit" },
   "ops.trip.status.completed": { ar: "خلصت", en: "Completed" },
   "ops.trip.status.cancelled": { ar: "ملغية", en: "Cancelled" },

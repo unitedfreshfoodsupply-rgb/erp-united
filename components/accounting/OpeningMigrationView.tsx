@@ -117,6 +117,8 @@ export function OpeningMigrationView({ onOpenBatch }: { onOpenBatch: (id: string
           <div><dt className="font-bold text-united-muted">{t("openmig.export")}</dt><dd className="flex flex-col gap-1 text-sm font-bold"><a className="underline" href="/api/accounting/opening-migration/export?part=accounts">{t("openmig.export-accounts")}</a><a className="underline" href="/api/accounting/opening-migration/export?part=parties">{t("openmig.export-parties")}</a></dd></div>
         </dl>
         {!closed && <p role="note" className="rounded-xl border border-united-warn/40 bg-united-warn-fill p-3 text-sm font-bold text-united-warn">{t("openmig.provisional-banner", { amount: signed(o.clearing?.balance) })}</p>}
+        {/* Green on purpose: the note answers the provisional (warn) banner — the opening figures are
+            now final. The pill stays the shared neutral "closed", like a closed period. */}
         {closed && <p className="text-sm font-bold text-united-green">{t("openmig.closed-note", { by: m.closedBy ?? "", at: (m.closedAt ?? "").slice(0, 10) })}</p>}
       </div>
 

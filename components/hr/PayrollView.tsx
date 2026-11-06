@@ -18,6 +18,7 @@ import { useLocale } from "@/lib/locale";
 import { PayrollRuns } from "@/components/hr/PayrollRuns";
 import { changeArrow } from "@/lib/auditLabels";
 import { localName } from "@/lib/locale/names";
+import { payrollTab } from "@/components/hr/payroll-tabs";
 
 /**
  * Payroll (docs/erp/DESIGN_SYSTEM.md §8.4): runs, salary packages, the pay-component
@@ -53,7 +54,7 @@ export function PayrollView() {
   // The tab follows the permissions: they arrive after the first render (when `items` is still
   // empty), so the first tab the user may see is chosen on every render, never fixed at mount.
   const [chosen, setTab] = useState<Tab | null>(null);
-  const tab: Tab = chosen && items.some((i) => i.key === chosen) ? chosen : items[0]?.key ?? "runs";
+  const tab: Tab = payrollTab(chosen, items.map((i) => i.key), "runs");
   return (
     <div className="page-container">
       <PageHeader back={{ href: "/hr", label: t("hr.profile.back") }} title={t("pay.title")} description={t("pay.description")} />
@@ -350,6 +351,7 @@ const PARAM_LABEL: Record<string, { ar: string; en: string }> = {
   minimum_minutes_per_day: { ar: "أقل دقايق في اليوم", en: "Minimum minutes per day" },
   method: { ar: "الطريقة", en: "Method" },
   divisor_days: { ar: "أيام القسمة", en: "Divisor days" },
+  rounding: { ar: "التقريب", en: "Rounding" },
 };
 
 /** Words for the choice values those parameters take (lib/hr/statutory.ts). */
@@ -371,6 +373,13 @@ const PARAM_VALUE: Record<string, { ar: string; en: string }> = {
   up: { ar: "لفوق", en: "Up" },
 };
 
+/** A rounding record ({ step, mode }, lib/hr/statutory.ts) as a phrase: "down to the nearest 10". */
+const ROUNDING_PHRASE: Record<string, { ar: string; en: string }> = {
+  nearest: { ar: "لأقرب {step}", en: "to the nearest {step}" },
+  down: { ar: "لتحت لأقرب {step}", en: "down to the nearest {step}" },
+  up: { ar: "لفوق لأقرب {step}", en: "up to the nearest {step}" },
+};
+
 function RuleParams({ parameters }: { parameters: unknown }) {
   const { t, isEN } = useLocale();
   if (!parameters || typeof parameters !== "object") return null;
@@ -388,7 +397,12 @@ function RuleParams({ parameters }: { parameters: unknown }) {
     }
     if (typeof v === "boolean") return v ? t("ui.yes") : t("ui.no");
     if (typeof v === "number") return v.toLocaleString("en-US");
-    // A small record (rounding: { step, mode }) reads as its values, not "[object Object]".
+    // A rounding record reads as a phrase; any other small record as its values, not "[object Object]".
+    if (typeof v === "object" && v && "step" in v && "mode" in v) {
+      const r = v as { step: unknown; mode: unknown };
+      const p = ROUNDING_PHRASE[String(r.mode)];
+      if (p) return (isEN ? p.en : p.ar).replace("{step}", fmt(r.step));
+    }
     if (typeof v === "object") return Object.values(v as Record<string, unknown>).filter((y) => y !== null && y !== undefined).map(fmt).join(" · ");
     const w = PARAM_VALUE[String(v)];
     return w ? (isEN ? w.en : w.ar) : String(v);

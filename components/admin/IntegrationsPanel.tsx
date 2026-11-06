@@ -26,7 +26,8 @@ export function IntegrationsPanel() {
   const qc = useQueryClient();
   const { t, locale } = useLocale();
   const dialogs = useDialogs();
-  const q = useQuery({ queryKey: ["admin", "integrations"], queryFn: () => apiFetch<{ integrations: Row[]; logs: Log[] }>("/api/admin/integrations") });
+  // The call log's errors come back in the screen's language, so each language has its own cache.
+  const q = useQuery({ queryKey: ["admin", "integrations", locale], queryFn: () => apiFetch<{ integrations: Row[]; logs: Log[] }>("/api/admin/integrations") });
   const [f, setF] = useState({ code: "", name: "", create: true, status: true, attendance: false });
   const [key, setKey] = useState<string | null>(null);
   const fail = (err: unknown) => toast.show(err instanceof ApiClientError ? err.message : t("ui.error"), "error");
