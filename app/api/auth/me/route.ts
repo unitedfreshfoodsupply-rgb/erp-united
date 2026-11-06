@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
-import { getAuthContext, isMfaEnrollmentPending } from "@/lib/authz";
+import { NextResponse, type NextRequest } from "next/server";
+import { getAuthContext, isMfaEnrollmentPending, throwIfAuthUnavailable } from "@/lib/authz";
+import { handleApiError } from "@/lib/rbac";
 import { PERMISSION_DEFS } from "@/lib/permissions";
 import { ROLE_LABEL, ROLE_DESC, type Role } from "@/lib/types";
 
@@ -11,8 +12,16 @@ import { ROLE_LABEL, ROLE_DESC, type Role } from "@/lib/types";
  * is NO user-supplied id here — the response is always about the authenticated user,
  * so no caller can ask for someone else's profile. Nothing sensitive (no hashes,
  * tokens, or epochs) leaves the server. */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const ctx = await getAuthContext();
+  // A database that could not check the session is not "signed out": 503 busy, not user: null.
+  if (!ctx) {
+    try {
+      await throwIfAuthUnavailable();
+    } catch (err) {
+      return handleApiError(err, req);
+    }
+  }
   // WS6: a session held at MFA enrolment is not a usable session — but the client is
   // told why, so it can open /mfa/setup instead of the sign-in form.
   if (!ctx) return NextResponse.json({ user: null, profile: null, ...((await isMfaEnrollmentPending()) ? { mfa_enrollment_required: true } : {}) });

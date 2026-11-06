@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getAuthContext, isMfaEnrollmentPending, type AuthContext } from "@/lib/authz";
+import { getAuthContext, isMfaEnrollmentPending, throwIfAuthUnavailable, type AuthContext } from "@/lib/authz";
 import { homePathFor } from "@/lib/nav";
 import type { Permission } from "@/lib/permissions";
 import { HOME_BY_ROLE } from "@/lib/types";
@@ -7,8 +7,11 @@ import { HOME_BY_ROLE } from "@/lib/types";
 export { HOME_BY_ROLE };
 
 /** Where a visitor without a usable session goes: the sign-in form, or — when the
- * session is held until a second factor is set up (WS6) — the enrolment page. */
+ * session is held until a second factor is set up (WS6) — the enrolment page. When the
+ * database could not check the session at all, nowhere: the page fails (its error screen)
+ * instead of signing a signed-in user out. */
 export async function signInPath(): Promise<string> {
+  await throwIfAuthUnavailable();
   return (await isMfaEnrollmentPending()) ? "/mfa/setup" : "/login";
 }
 

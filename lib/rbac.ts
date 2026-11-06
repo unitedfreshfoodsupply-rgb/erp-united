@@ -74,6 +74,19 @@ function msg(locale: "ar" | "en", key: string, fallbackAr: string): string {
   return ERRORS_AR[key] ?? fallbackAr;
 }
 
+/**
+ * Prisma failures that mean the database did not answer, not that the request or the session
+ * is bad: no connection from the pool in time (P2024), a transaction that could not start
+ * (P2028), the server unreachable or the connection lost (P1xxx), the client unable to start.
+ * lib/authz.ts uses it to tell "could not check the session" from "not signed in".
+ */
+export function isDatabaseUnavailable(err: unknown): boolean {
+  const e = err as { name?: unknown; code?: unknown } | null;
+  if (!e || typeof e !== "object") return false;
+  if (e.name === "PrismaClientInitializationError") return true;
+  return e.name === "PrismaClientKnownRequestError" && typeof e.code === "string" && (e.code === "P2024" || e.code === "P2028" || /^P1\d{3}$/.test(e.code));
+}
+
 export function handleApiError(err: unknown, req?: NextRequest) {
   const loc = localeFromReq(req);
   if (err instanceof ApiError) {
@@ -132,8 +145,16 @@ function clientFault(err: unknown, loc: "ar" | "en"): { status: number; message:
     return notStarted ? { status: 503, message: msg(loc, "busy", ERRORS_AR.busy), loud: true } : { status: 503, message: msg(loc, "tx_timeout", ERRORS_AR.tx_timeout), loud: true };
   }
   if (e.name === "PrismaClientKnownRequestError" && e.code === "P2024") return { status: 503, message: msg(loc, "busy", ERRORS_AR.busy), loud: true };
+  // The database unreachable, timed out or the connection lost (P1001/P1002/P1008/P1017), or the
+  // client unable to connect at all: the same "busy — check the state, then retry" answer (a
+  // lost connection may have ended a transaction either way), never a bare 500.
+  if ((e.name === "PrismaClientKnownRequestError" && (e.code === "P1001" || e.code === "P1002" || e.code === "P1008" || e.code === "P1017")) || e.name === "PrismaClientInitializationError")
+    return { status: 503, message: msg(loc, "busy", ERRORS_AR.busy), loud: true };
   // A write conflict or deadlock: the transaction rolled back, as with a lost version race.
   if (e.name === "PrismaClientKnownRequestError" && e.code === "P2034") return { status: 409, message: msg(loc, "stale", "السجل اتغيّر من واحد تاني في نفس اللحظة — حدّث الشاشة وجرّب تاني") };
+  // The same from a raw query (P2010 carries PostgreSQL's code): deadlock 40P01, serialization 40001.
+  if (e.name === "PrismaClientKnownRequestError" && e.code === "P2010" && typeof e.message === "string" && /\b(40P01|40001)\b/.test(e.message))
+    return { status: 409, message: msg(loc, "stale", "السجل اتغيّر من واحد تاني في نفس اللحظة — حدّث الشاشة وجرّب تاني") };
   // A number too large for its column (numeric overflow): the request's value, not a fault.
   if (typeof e.message === "string" && /numeric field overflow|"22003"|code: "22003"/.test(e.message)) return { status: 400, message: msg(loc, "too_large", "رقم أكبر من المسموح") };
   if (typeof e.message === "string" && /invalid byte sequence for encoding \\"?UTF8\\"?": 0x00|unsupported Unicode escape sequence/.test(e.message)) return { status: 400, message: msg(loc, "nul_char", "النص فيه حرف غير مسموح (NUL)") };

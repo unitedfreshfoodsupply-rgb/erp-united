@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { NextRequest } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { ApiError } from "@/lib/rbac";
+import { ApiError, isDatabaseUnavailable } from "@/lib/rbac";
 import { forbiddenMessage } from "@/lib/authz-core";
 import { type Permission } from "@/lib/permissions";
 import { type Role } from "@/lib/types";
@@ -79,7 +79,8 @@ function buildContext(
  * every page treats it as not signed in, and the guards say why (403
  * auth.mfa-enroll-required) so the client can send the user to /mfa/setup.
  *
- * Any error while resolving is swallowed into null — refused, not allowed.
+ * Any error while resolving is swallowed into null — refused, not allowed. (The guards below
+ * still tell a database that did not answer from a missing session: throwIfAuthUnavailable.)
  */
 export async function getAuthContext(deviceId?: string): Promise<AuthContext | null> {
   const resolved = await loadAuthState();
@@ -92,7 +93,7 @@ export type MfaSessionUser = { id: string; name: string; username: string; role:
 
 export async function getMfaEnrollmentSession(req?: NextRequest): Promise<MfaSessionUser | null> {
   const resolved = await loadAuthState();
-  if (resolved.kind === "none") return null;
+  if (resolved.kind === "none" || resolved.kind === "unavailable") return null;
   const u = resolved.user;
   return { id: u.id, name: u.name, username: u.username, role: u.role as Role, sessionEpoch: u.sessionEpoch, mfaEnabled: u.mfaEnabled, mustEnroll: resolved.kind === "mfa_enroll", deviceId: deviceIdOf(req) };
 }
@@ -105,7 +106,10 @@ export async function isMfaEnrollmentPending(): Promise<boolean> {
 /** For the enrolment endpoints: 401 without a session (full or held at enrolment). */
 export async function requireMfaSession(req?: NextRequest): Promise<MfaSessionUser> {
   const s = await getMfaEnrollmentSession(req);
-  if (!s) throw new ApiError(401, "لازم تسجل دخول الأول", "auth.required");
+  if (!s) {
+    await throwIfAuthUnavailable();
+    throw new ApiError(401, "لازم تسجل دخول الأول", "auth.required");
+  }
   return s;
 }
 
@@ -113,7 +117,9 @@ type LoadedUser = { id: string; name: string; username: string; role: string; ac
 type AuthState =
   | { kind: "none" }
   | { kind: "mfa_enroll"; user: LoadedUser }
-  | { kind: "ok"; user: LoadedUser; permissions: Set<Permission> };
+  | { kind: "ok"; user: LoadedUser; permissions: Set<Permission> }
+  /** The database could not answer (pool exhausted, unreachable): refused, but not "signed out". */
+  | { kind: "unavailable"; error: unknown };
 
 /**
  * One database round trip for identity AND permissions, memoised for the lifetime of
@@ -157,9 +163,21 @@ const loadAuthState = cache(async (): Promise<AuthState> => {
     // with fake auth errors and interfere with Next's own rendering decisions.
     if (isFrameworkControlFlow(err)) throw err;
     console.error("[authz] permission resolution failed — denying access", err);
-    return { kind: "none" };
+    // Still refused — but a database that could not answer is not a missing session. Told
+    // apart, the guards answer it as the fault it is (handleApiError: 503 "server busy" with a
+    // reference) instead of 401, which sent a signed-in user to the sign-in page mid-task.
+    return isDatabaseUnavailable(err) ? { kind: "unavailable", error: err } : { kind: "none" };
   }
 });
+
+/**
+ * Throws the database's own error when the session could not be checked because the database
+ * did not answer — for a guard about to refuse as "not signed in". Never grants anything.
+ */
+export async function throwIfAuthUnavailable(): Promise<void> {
+  const state = await loadAuthState();
+  if (state.kind === "unavailable") throw state.error;
+}
 
 function isFrameworkControlFlow(err: unknown) {
   const digest = (err as { digest?: unknown })?.digest;
@@ -174,6 +192,7 @@ function deviceIdOf(req?: NextRequest) {
 /** The refusal for a request without a usable context: 403 with a machine-readable code
  * when the session is held at MFA enrolment, else the usual 401. */
 async function noContext(): Promise<never> {
+  await throwIfAuthUnavailable();
   if (await isMfaEnrollmentPending()) {
     throw new ApiError(403, "لازم تفعّل التحقق بخطوتين الأول", "auth.mfa-enroll-required");
   }
