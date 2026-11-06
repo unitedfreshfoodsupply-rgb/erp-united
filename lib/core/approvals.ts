@@ -504,8 +504,16 @@ export type ApprovalListOptions = {
   id?: string;
   /** The requests about one record (an entity screen's "who approves this"). */
   entityId?: string;
+  /** The requests about any of these records (a table of them sharing one request; at most 200). */
+  entityIds?: string[];
   /** Name who can decide each pending request even when the caller can decide it too. */
   withApprovers?: boolean;
+  /**
+   * "decide": only the pending requests the caller can decide now — exactly the ones a card
+   * would offer the decision on (the count is of those). "raised": only the ones they raised.
+   * Unset: both together (a deep link, a record's own notice, the history).
+   */
+  scope?: "decide" | "raised";
 };
 
 /**
@@ -545,6 +553,8 @@ async function activeHolders(db: Tx): Promise<{ id: string; name: string; perms:
  * permission, minus whoever the rules exclude). Statements: the page (2), its count only when
  * the page may not be all, one users query only when a pending row needs names, and one per
  * module rule that reads its record (opening batches, payroll) — never one per row.
+ * scope "decide" reads every candidate's few columns instead of a counted page (plus one users
+ * query for a SUPER_ADMIN, for the emergency path), then the page's rows: still not one per row.
  */
 export async function listApprovalPage(
   actor: ApprovalViewer,
@@ -557,46 +567,91 @@ export async function listApprovalPage(
   );
   const status = opts.status && ["pending", "approved", "rejected", "cancelled"].includes(opts.status) ? opts.status : undefined;
   if (opts.type !== undefined && !isApprovalType(opts.type)) throw new ApiError(400, "نوع موافقة غير معروف");
-  const where: Prisma.ApprovalRequestWhereInput = {
-    ...(status ? { status } : {}),
-    ...(opts.type ? { type: opts.type } : {}),
-    ...(opts.id ? { id: opts.id } : {}),
-    ...(opts.entityId ? { entityId: opts.entityId } : {}),
-    OR: [{ type: { in: decidable } }, ...(actor.id ? [{ requestedById: actor.id }] : [])],
-  };
+  const scope = opts.scope === "decide" || opts.scope === "raised" ? opts.scope : undefined;
+  if (scope === "raised" && !actor.id) return { approvals: [], total: 0 };
+  const entityIds = opts.entityIds ? [...new Set(opts.entityIds.filter((x) => typeof x === "string" && x))].slice(0, 200) : undefined;
   const take = Math.min(Math.max(opts.limit ?? 50, 1), 200);
   const skip = Math.max(0, Math.floor(Number(opts.offset) || 0));
-  const rows = await db.approvalRequest.findMany({
-    where,
-    // The id breaks ties so paging never repeats or skips a row.
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take,
-    skip,
-    include: { decisions: { orderBy: { level: "asc" } } },
-  });
-  const total = skip === 0 && rows.length < take ? rows.length : await db.approvalRequest.count({ where });
+  const orderBy: Prisma.ApprovalRequestOrderByWithRelationInput[] = [{ createdAt: "desc" }, { id: "desc" }];
+  let holders: { id: string; name: string; perms: Set<Permission> }[] | null = null;
+  const where: Prisma.ApprovalRequestWhereInput = {
+    ...(scope === "decide" ? { status: "pending" } : status ? { status } : {}),
+    ...(opts.type ? { type: opts.type } : {}),
+    ...(opts.id ? { id: opts.id } : {}),
+    ...(opts.entityId ? { entityId: opts.entityId } : entityIds ? { entityId: { in: entityIds } } : {}),
+    ...(scope === "raised" ? { requestedById: actor.id } : scope === "decide" ? {} : { OR: [{ type: { in: decidable } }, ...(actor.id ? [{ requestedById: actor.id }] : [])] }),
+  };
+  if (scope === "decide") {
+    // Narrowed in SQL to what can be decidable — a type the caller holds, not decided by them
+    // already, and not their own request (unless the one-admin emergency path may apply) — and
+    // then judged below by the same rules as every card, so the count is of decidable ones.
+    const and: Prisma.ApprovalRequestWhereInput[] = [{ type: { in: decidable } }];
+    if (actor.id) {
+      and.push({ NOT: { decisions: { some: { deciderId: actor.id } } } });
+      if (rules.requireDifferentApprover) {
+        let emergencyTypes: ApprovalType[] = [];
+        if (actor.role === "SUPER_ADMIN") {
+          holders = await activeHolders(db);
+          emergencyTypes = decidable.filter((t) => !holders!.some((u) => u.id !== actor.id && u.perms.has(APPROVAL_TYPES[t].approvePermission)));
+        }
+        and.push({ OR: [{ requestedById: null }, { requestedById: { not: actor.id } }, ...(emergencyTypes.length ? [{ requestedById: actor.id, type: { in: emergencyTypes } }] : [])] });
+      }
+    }
+    where.AND = and;
+  }
 
-  const pending = rows.filter((r) => r.status === "pending" && isApprovalType(r.type));
+  // The module rules (per type, over the given pending rows) and the caller's verdict on a row.
   const moduleRules = new Map<string, Map<string, string[] | null>>();
-  if (rules.ineligible) {
-    for (const type of new Set(pending.map((r) => r.type as ApprovalType))) {
-      const found = await rules.ineligible(type, pending.filter((r) => r.type === type).map((r) => ({ entityId: r.entityId, requestedById: r.requestedById })), db);
+  const loadModuleRules = async (pendingRows: { type: string; entityId: string; requestedById: string | null }[]) => {
+    if (!rules.ineligible) return;
+    for (const type of new Set(pendingRows.map((r) => r.type as ApprovalType))) {
+      if (moduleRules.has(type)) continue;
+      const found = await rules.ineligible(type, pendingRows.filter((r) => r.type === type).map((r) => ({ entityId: r.entityId, requestedById: r.requestedById })), db);
       if (found) moduleRules.set(type, found);
     }
-  }
+  };
+  type Judged = { status: string; type: string; entityId: string; requestedById: string | null; decisions: { deciderId: string | null }[] };
+  type Verdict = { canDecide: boolean; emergency: boolean; rejectOnly: boolean; blocked: DecisionBlock | null };
   const ownRequest = (r: { requestedById: string | null }) => !!actor.id && r.requestedById === actor.id;
-  const decidedBy = (r: (typeof rows)[number], userId: string | null) => !!userId && r.decisions.some((d) => d.deciderId === userId);
-  const refusedFor = (r: (typeof rows)[number]) => moduleRules.get(r.type)?.get(r.entityId);
+  const decidedBy = (r: Judged, userId: string | null) => !!userId && r.decisions.some((d) => d.deciderId === userId);
+  const refusedFor = (r: Judged) => moduleRules.get(r.type)?.get(r.entityId);
+
+  let rows: Prisma.ApprovalRequestGetPayload<{ include: { decisions: true } }>[];
+  let total: number;
+  if (scope === "decide") {
+    // Every candidate's few columns (one statement), judged; then the page's full rows.
+    const candidates = await db.approvalRequest.findMany({ where, orderBy, select: { id: true, type: true, status: true, entityId: true, requestedById: true, decisions: { select: { deciderId: true } } } });
+    const judgeable = candidates.filter((r) => isApprovalType(r.type));
+    await loadModuleRules(judgeable);
+    if (!holders && judgeable.some(ownRequest)) holders = await activeHolders(db);
+    const decidableIds = judgeable.filter((r) => judgeWith(r).canDecide).map((r) => r.id);
+    total = decidableIds.length;
+    const pageIds = decidableIds.slice(skip, skip + take);
+    rows = pageIds.length ? await db.approvalRequest.findMany({ where: { id: { in: pageIds } }, orderBy, include: { decisions: { orderBy: { level: "asc" } } } }) : [];
+  } else {
+    rows = await db.approvalRequest.findMany({
+      where,
+      // The id breaks ties so paging never repeats or skips a row.
+      orderBy,
+      take,
+      skip,
+      include: { decisions: { orderBy: { level: "asc" } } },
+    });
+    total = skip === 0 && rows.length < take ? rows.length : await db.approvalRequest.count({ where });
+  }
+
+  const pending = rows.filter((r) => r.status === "pending" && isApprovalType(r.type));
+  await loadModuleRules(pending);
   // Names are read only when some pending row is not the caller's to decide (or is their own,
   // where the emergency path depends on who else holds the permission).
   const needsNames = pending.some((r) => {
     const refused = refusedFor(r);
     return opts.withApprovers || ownRequest(r) || !decidable.includes(r.type as ApprovalType) || decidedBy(r, actor.id) || refused === null || (!!actor.id && !!refused?.includes(actor.id));
   });
-  const holders = needsNames ? await activeHolders(db) : [];
+  if (!holders) holders = needsNames ? await activeHolders(db) : [];
+  const allHolders = holders;
 
-  type Verdict = { canDecide: boolean; emergency: boolean; rejectOnly: boolean; blocked: DecisionBlock | null };
-  const judge = (r: (typeof rows)[number]): Verdict => {
+  function judgeWith(r: Judged): Verdict {
     if (r.status !== "pending" || !isApprovalType(r.type)) return { canDecide: false, emergency: false, rejectOnly: false, blocked: null };
     const block = (blocked: DecisionBlock): Verdict => ({ canDecide: false, emergency: false, rejectOnly: false, blocked });
     if (!decidable.includes(r.type)) return block("no_permission");
@@ -613,22 +668,22 @@ export async function listApprovalPage(
       // recordDecision's emergency path: a SUPER_ADMIN whom no other active user can replace
       // may approve (never reject) their own request, with a written reason.
       const permission = APPROVAL_TYPES[r.type as ApprovalType].approvePermission;
-      const others = holders.filter((u) => u.id !== actor.id && u.perms.has(permission));
+      const others = (holders ?? []).filter((u) => u.id !== actor.id && u.perms.has(permission));
       return actor.role === "SUPER_ADMIN" && others.length === 0 ? { canDecide: true, emergency: true, rejectOnly: false, blocked: null } : block("own_request");
     }
     return { canDecide: true, emergency: false, rejectOnly: approveRefused, blocked: null };
-  };
+  }
   const approversOf = (r: (typeof rows)[number]) => {
     const refused = refusedFor(r);
     if (refused === null) return [];
     const permission = APPROVAL_TYPES[r.type as ApprovalType].approvePermission;
-    return holders
+    return allHolders
       .filter((u) => u.perms.has(permission) && u.id !== actor.id && !(rules.requireDifferentApprover && u.id === r.requestedById) && !refused?.includes(u.id) && !decidedBy(r, u.id))
       .map((u) => u.name);
   };
 
   const approvals = rows.map((r) => {
-    const verdict = judge(r);
+    const verdict = judgeWith(r);
     const named = r.status === "pending" && isApprovalType(r.type) && (opts.withApprovers || !verdict.canDecide || verdict.emergency || verdict.rejectOnly);
     return {
       ...r,
