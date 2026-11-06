@@ -118,6 +118,7 @@ const PAIRS: readonly (readonly [ar: string, en: string])[] = [
   ["{}: المطلوب {} {}، المتاح {}، الناقص {} {}", "{}: requested {} {}, available {}, short {} {}"],
   ["{} (خصم {}%)", "{} (discount {}%)"],
   ["عند تسجيل الأوردر", "at order entry"],
+  ["اتحفظ مستني بضاعة — مفيش أي كمية محجوزة لحد الإفراج", "Saved awaiting stock — nothing is reserved until it is released"],
   ["{}: اتجهز {} واتحمل {} {}", "{}: prepared {}, loaded {} {}"],
   ["{}: عجز {} عند العميل", "{}: {} short at the customer"],
   ["{}: عجز {} عند العميل — {}", "{}: {} short at the customer — {}"],

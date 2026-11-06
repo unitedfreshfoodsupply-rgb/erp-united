@@ -21,4 +21,5 @@ test("a line price as audited reads in English", () => {
 
 test("a return reason on the timeline reads in English", () => {
   assert.equal(systemText("مرتجع على INV-2026-00002: كسر", "en"), "Return on INV-2026-00002: كسر");
+  assert.equal(systemText("اتحفظ مستني بضاعة — مفيش أي كمية محجوزة لحد الإفراج", "en"), "Saved awaiting stock — nothing is reserved until it is released");
 });

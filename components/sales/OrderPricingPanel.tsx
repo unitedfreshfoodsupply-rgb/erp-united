@@ -80,7 +80,15 @@ export function OrderPricingPanel({ orderId, orderStatus }: { orderId: string; o
       )}
       {p.commercial && (p.commercial.delivery || p.commercial.invoice) && (
         <div className="flex flex-wrap gap-2 text-sm font-extrabold">
-          {p.commercial.delivery && <StatusPill tone={docTone(p.commercial.delivery.status)} size="md">{DELIVERY[p.commercial.delivery.status] ? t(DELIVERY[p.commercial.delivery.status]) : p.commercial.delivery.status} · <span dir="ltr">{p.commercial.delivery.trip}</span></StatusPill>}
+          {p.commercial.delivery && (
+            // A stop is "pending" from the moment the order is put on the trip; it is on the way
+            // only once the order has left with it (dispatched) — before that, it is on the trip.
+            p.commercial.delivery.status === "pending" && orderStatus && orderStatus !== "dispatched" ? (
+              <StatusPill tone="info" size="md">{t("pricing.delivery.on-trip")} · <span dir="ltr">{p.commercial.delivery.trip}</span></StatusPill>
+            ) : (
+              <StatusPill tone={docTone(p.commercial.delivery.status)} size="md">{DELIVERY[p.commercial.delivery.status] ? t(DELIVERY[p.commercial.delivery.status]) : p.commercial.delivery.status} · <span dir="ltr">{p.commercial.delivery.trip}</span></StatusPill>
+            )
+          )}
           {p.commercial.invoice ? (
             <StatusPill tone={p.commercial.invoice.open === "0.00" ? "success" : "warn"} size="md">
               {p.commercial.invoice.status === "draft" ? t("pricing.invoice-draft") : <>{t("pricing.invoice")} <span dir="ltr">{p.commercial.invoice.number}</span></>} · {p.commercial.invoice.open === "0.00" ? (Number(p.commercial.invoice.credited ?? 0) > 0 && Number(p.commercial.invoice.credited) >= Number(p.commercial.invoice.total) ? t("pricing.credited-full") : t("pricing.paid")) : p.commercial.invoice.open ? <>{t("pricing.left")} <span dir="ltr">{fmtMoney(p.commercial.invoice.open)}</span></> : <span dir="ltr">{fmtMoney(p.commercial.invoice.total)}</span>}

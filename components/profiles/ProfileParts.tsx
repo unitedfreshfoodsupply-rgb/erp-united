@@ -107,7 +107,7 @@ function Detail({ r, movement }: { r: ProfileRow; movement: boolean }) {
       // A stop is "pending" from the moment the order is put on the trip: it is on the way only
       // once the order has left with it (dispatched). Before that it is just on the trip (ORD-08).
       const stopKey = stop === "pending" && r.status !== "dispatched" ? "on-trip" : stop;
-      return <span>{t("profile.detail.order", { lines, prepared, loaded })}{trip ? <> · {ltr(trip)}{stop ? ` · ${t(`profile.stop.${stopKey}`)}` : ""}</> : null}</span>;
+      return <span>{t(lines === "1" ? "profile.detail.order_one" : "profile.detail.order", { lines, prepared, loaded })}{trip ? <> · {ltr(trip)}{stop ? ` · ${t(`profile.stop.${stopKey}`)}` : ""}</> : null}</span>;
     }
     case "invoice": case "opening_balance": return <span>{t("profile.detail.due", { date: "" })}{ltr(p[0])}</span>;
     case "receipt": case "payment": {
