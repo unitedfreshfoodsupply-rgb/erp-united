@@ -1,4 +1,3 @@
-import { unitLabel } from "@/lib/format";
 import {
   MOVEMENT_ICON,
   movementLabel,
@@ -11,6 +10,7 @@ import { localName } from "@/lib/locale/names";
 import { useLocale } from "@/lib/locale";
 import { systemText } from "@/lib/locale/system-text";
 import { EventIcon } from "@/components/ui/EventIcon";
+import { QtyUnit } from "@/components/stock/QtyUnit";
 
 /** One ledger line. Shows the signed quantity, because the sign is the whole point of
  * a ledger — a correction that removed 5kg has to look different from one that added it. */
@@ -25,9 +25,7 @@ export function MovementRow({ movement }: { movement: MovementDTO }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
           <span className="truncate font-medium text-united-dark">{localName(movement.product, locale)}</span>
-          <span dir="ltr" className={`shrink-0 font-semibold ${positive ? "text-united-green" : "text-united-danger"}`}>
-            {fmtSignedKg(movement.quantityKg)} {unitLabel(movement.product.unit)}
-          </span>
+          <QtyUnit value={fmtSignedKg(movement.quantityKg)} unit={movement.product.unit} className={`shrink-0 font-semibold ${positive ? "text-united-green" : "text-united-danger"}`} />
         </div>
         <div className="flex flex-wrap items-center gap-x-2 text-xs text-united-muted">
           <span>{movementLabel(movement.kind, locale)}</span>

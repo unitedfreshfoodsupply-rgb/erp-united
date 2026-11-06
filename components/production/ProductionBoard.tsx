@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CheckCircle2, CircleDashed } from "lucide-react";
+import { CheckCircle2, ChevronDown, CircleDashed } from "lucide-react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, errorMessage } from "@/lib/api-client";
@@ -14,6 +14,7 @@ import { qty, unitLabel } from "@/lib/format";
 import { useLocale } from "@/lib/locale";
 import { localName, orderCustomerName } from "@/lib/locale/names";
 import { aggregateProduction, productionLines } from "@/lib/production";
+import { QtyUnit } from "@/components/stock/QtyUnit";
 
 export function ProductionBoard() {
   const { t, locale } = useLocale();
@@ -86,10 +87,10 @@ export function ProductionBoard() {
           const remaining = p.required - p.prepared;
           const complete = remaining <= 0;
           const pct = p.required > 0 ? Math.min(100, (p.prepared / p.required) * 100) : 0;
-          // Keyed by name and unit (UXO-13): the same product ordered in kg and in crates is
-          // two rows, and each lists only its own lines.
+          // Keyed by product and unit, like the picking sheet's cards (UXO-13, FLOOR-5): the same
+          // product ordered in kg and in crates is two rows, and each lists only its own lines.
           const isOpen = open === p.key;
-          const related = isOpen ? productionLines(openOrders, p.key) : [];
+          const related = isOpen ? productionLines<OrderDTO, OrderDTO["items"][number]>(openOrders, p.key) : [];
           return (
             <div key={p.key} className="card p-5">
               <button
@@ -98,23 +99,25 @@ export function ProductionBoard() {
                 aria-expanded={isOpen}
                 onClick={() => setOpen(isOpen ? null : p.key)}
               >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xl font-extrabold text-united-dark flex items-center gap-2">
-                    {localName({ name: p.productNameEn ?? p.productName, nameAr: p.productNameAr }, locale === "en" ? "en" : "ar")}
-                    {complete ? <CheckCircle2 size={20} className="text-united-green" aria-label={t("ui.done")} /> : <CircleDashed size={20} className="text-united-warn" aria-hidden />}
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  {/* A long name wraps; the figure beside it stays on one line (FLOOR-14). */}
+                  <span className="min-w-0 text-xl font-extrabold text-united-dark flex items-center gap-2">
+                    <span className="min-w-0 break-words">{localName({ name: p.productNameEn ?? p.productName, nameAr: p.productNameAr }, locale === "en" ? "en" : "ar")}</span>
+                    {complete ? <CheckCircle2 size={20} className="shrink-0 text-united-green" aria-label={t("ui.done")} /> : <CircleDashed size={20} className="shrink-0 text-united-warn" aria-hidden />}
                   </span>
-                  <span className="text-lg font-extrabold text-united-dark">
+                  <span className="shrink-0 whitespace-nowrap flex items-center gap-1 text-lg font-extrabold text-united-dark">
                     <span dir="ltr">
                       {qty(p.prepared)} / {qty(p.required)}
                     </span>
-                    <span className="text-xs font-bold text-united-muted"> {unitLabel(p.unit)}</span>
+                    <span className="text-xs font-bold text-united-muted">{unitLabel(p.unit)}</span>
+                    <ChevronDown size={18} aria-hidden className={`shrink-0 text-united-muted transition-transform ${isOpen ? "rotate-180" : ""}`} />
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm text-united-muted font-bold mb-2">
-                  <span>{t("prodboard.orders", { count: p.orderCount })}</span>
+                  <span>{p.orderCount === 1 ? t("prodboard.orders-one") : t("prodboard.orders", { count: p.orderCount })}</span>
                   {!complete && (
                     <span className="text-united-warn">
-                      {t("prodboard.left")} <span dir="ltr">{qty(remaining)} {unitLabel(p.unit)}</span>
+                      {t("prodboard.left")} <QtyUnit value={qty(remaining)} unit={p.unit} />
                     </span>
                   )}
                 </div>
@@ -134,14 +137,12 @@ export function ProductionBoard() {
                   {related.map(({ order: o, item }) => {
                     return (
                       <Link
-                        key={o.id}
+                        key={item.id}
                         href={`/orders/${o.id}`}
                         className="flex items-center justify-between text-sm py-2 px-2 -mx-2 rounded-lg hover:bg-united-dark/5"
                       >
                         <span className="font-bold text-united-dark">{orderCustomerName(o, locale === "en" ? "en" : "ar")}</span>
-                        <span dir="ltr" className="text-united-muted">
-                          {qty(item.requiredQuantity)} {unitLabel(item.unit)}
-                        </span>
+                        <QtyUnit value={qty(item.requiredQuantity)} unit={item.unit} className="text-united-muted" />
                         <StatusBadge status={o.status} />
                       </Link>
                     );

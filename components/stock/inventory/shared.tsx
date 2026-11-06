@@ -7,6 +7,7 @@ import { storageLocationTypeLabel } from "@/lib/core/reference-data";
 import { localName } from "@/lib/locale/names";
 import { money, qty, unitLabel } from "@/lib/format";
 import { useLocale } from "@/lib/locale";
+import { QtyUnit } from "@/components/stock/QtyUnit";
 
 /** Quantities arrive as decimal strings (exact). Display only — never computed on. */
 /** Display helpers kept for their many callers; the format itself lives in lib/format.ts. */
@@ -14,6 +15,12 @@ export function fmtQty(q: string | number | null | undefined, unit?: string) {
   if (q === null || q === undefined || q === "") return "—";
   const s = qty(q);
   return unit ? `${s} ${unitLabel(unit)}` : s;
+}
+
+/** A quantity with its unit in reading order (FLOOR-2): the number before the unit in Arabic
+ * too, which `<span dir="ltr">{fmtQty(q, unit)}</span>` turned round. "—" when there is none. */
+export function Qty({ q, unit, className }: { q: string | number | null | undefined; unit?: string; className?: string }) {
+  return <QtyUnit value={fmtQty(q)} unit={unit} className={className} />;
 }
 
 export function fmtMoney(v: string | number | null | undefined) {

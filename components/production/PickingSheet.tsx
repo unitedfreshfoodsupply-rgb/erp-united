@@ -366,8 +366,9 @@ function SummaryFigure({ label, value, unit, tone = "" }: { label: string; value
   return (
     <div>
       <div className="text-xs text-white/60 font-bold print:text-gray-600">{label}</div>
-      <div dir="ltr" className={`text-xl font-extrabold ${tone} print:text-united-dark`}>
-        {value}
+      {/* Only the number is left-to-right: the unit follows it in Arabic too (FLOOR-2). */}
+      <div className={`text-xl font-extrabold ${tone} print:text-united-dark`}>
+        <span dir="ltr">{value}</span>
         {unit && <span className="text-sm font-bold text-white/70 print:text-gray-600"> {unitLabel(unit)}</span>}
       </div>
     </div>

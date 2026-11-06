@@ -167,18 +167,20 @@ test("daily production and the daily summary: the same figures from fewer querie
   await prisma.orderItem.updateMany({ where: { orderId: o.id }, data: { stockProductId: p.id, preparedQuantity: 3 } });
   // The production totals as they were computed from the full orders (reference).
   const full = await prisma.order.findMany({ where: productionScope(), include: { items: { include: { stockProduct: { select: { name: true, nameAr: true } } } } } });
+  // Grouped like the picking sheet (FLOOR-5): the catalogue product when the line is linked,
+  // else the name as ordered, plus the unit; a linked row is named by its product.
   const byKey = new Map<string, { productName: string; productNameEn: string | null; productNameAr: string | null; unit: string; required: number; prepared: number; orders: Set<string> }>();
   for (const ord of full) for (const i of ord.items) {
-    const k = `${i.productName}__${i.unit}`;
+    const k = `${i.stockProductId ? `p:${i.stockProductId}` : `n:${i.productName}`}__${i.unit}`;
     const agg = byKey.get(k) ?? { productName: i.productName, productNameEn: null, productNameAr: null, unit: i.unit, required: 0, prepared: 0, orders: new Set<string>() };
     if (!agg.productNameEn && !agg.productNameAr && i.stockProduct) { agg.productNameEn = i.stockProduct.name || null; agg.productNameAr = i.stockProduct.nameAr || null; }
     agg.required += i.requiredQuantity; agg.prepared += i.preparedQuantity ?? 0; agg.orders.add(ord.id); byKey.set(k, agg);
   }
-  const key = (r: { productName: string; unit: string }) => `${r.productName}__${r.unit}`;
+  const key = (r: { key: string }) => r.key;
   // Each row also carries its group key, and sums are rounded to the 3 decimals quantities have
   // (lib/production.ts aggregateProduction, shared with the production board — PC-5/UXO-13).
   const round3 = (n: number) => Math.round(n * 1000) / 1000;
-  const expected = [...byKey.values()].map(({ orders, ...r }) => ({ key: key(r), ...r, required: round3(r.required), prepared: round3(r.prepared), orderCount: orders.size })).sort((a, b) => key(a).localeCompare(key(b)));
+  const expected = [...byKey].map(([k, { orders, ...r }]) => ({ key: k, ...r, required: round3(r.required), prepared: round3(r.prepared), orderCount: orders.size })).sort((a, b) => key(a).localeCompare(key(b)));
   const { result, queries } = await countQueries(() => dailyProduction());
   assert.equal(queries, 2, "lines and their product names");
   assert.deepEqual([...result].sort((a, b) => key(a).localeCompare(key(b))), expected);

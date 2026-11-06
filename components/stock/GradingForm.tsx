@@ -1,7 +1,6 @@
 "use client";
 
 import { ErrorState } from "@/components/States";
-import { unitLabel } from "@/lib/format";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,6 +15,7 @@ import { useLocale } from "@/lib/locale";
 import type { IntakeDTO, StockProductDTO } from "@/lib/stock-client-types";
 import { localName } from "@/lib/locale/names";
 import { Field } from "@/components/ui/Field";
+import { QtyUnit } from "@/components/stock/QtyUnit";
 
 /**
  * F-08 — the grading / فرز screen.
@@ -205,7 +205,7 @@ export function GradingForm({
             <div className="text-sm font-extrabold text-united-dark" dir={dir}>
               {t("grading.title", { number: intake.receiptNumber, product: localName(intake.product, locale) })}
             </div>
-            <span dir="ltr" className="text-xs font-bold text-united-muted">
+            <span className="text-xs font-bold text-united-muted">
               {remainingKnown ? t("grading.remaining", { qty: fmtKg(remaining) }) : ledgerQ.isError ? "—" : t("ui.loading")}
             </span>
           </div>
@@ -224,10 +224,13 @@ export function GradingForm({
 
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex flex-col gap-1 min-w-[180px] flex-1">
-              <span className="text-[11px] font-extrabold text-united-muted">{t("stock.grade-b-product-hint")}</span>
-              <select className="field" value={gradeBProductId} onChange={(e) => setGradeBProductId(e.target.value)} aria-label={t("stock.grade-b-choose")} required={Number(gradeBKg) > 0}>
+              {/* One statement (FLOOR-15): optional while grade B is 0, required once there is grade B. */}
+              <span className="text-[11px] font-extrabold text-united-muted">
+                {t("stock.grade-b-product-label")} {Number(gradeBKg) > 0 ? t("stock.grade-b-product-required") : t("stock.grade-b-product-optional")}
+              </span>
+              <select className="field" value={gradeBProductId} onChange={(e) => setGradeBProductId(e.target.value)} aria-label={t("stock.grade-b-product-label")} required={Number(gradeBKg) > 0}>
                 {/* Grade B is its own product with its own price: it is never kept on the first-grade product. */}
-                <option value="" disabled>{t("stock.grade-b-choose")}</option>
+                <option value="" disabled>{t("stock.grade-b-choose-short")}</option>
                 {gbChoices.map((p) => (
                     <option key={p.id} value={p.id}>
                       {localName(p, locale)}
@@ -266,8 +269,8 @@ export function GradingForm({
             <span>
               {t("grading.equation", { total: fmtKg(total), good: fmtKg(g), gradeB: fmtKg(b), waste: fmtKg(w) })}
             </span>
-            <span dir="ltr">
-              {conservationOk ? t("stock.conservation.equal") : `${t("stock.conservation.diff")} ${fmtKg(residual)}`}
+            <span>
+              {conservationOk ? t("stock.conservation.equal") : <>{t("stock.conservation.diff")} <span dir="ltr">{fmtKg(residual)}</span></>}
             </span>
           </div>
 
@@ -371,10 +374,7 @@ function SortResult({
                 {labelKey ? t(labelKey as Parameters<typeof t>[0]) : m.kind} · {m.product ? localName(m.product, locale) : ""}
                 {m.location ? ` · ${localName(m.location, locale)}` : ""}
               </span>
-              <span dir="ltr" className="font-extrabold">
-                {m.quantityKg > 0 ? "+" : ""}
-                {fmtKg(m.quantityKg)} {unitLabel(m.product?.unit)}
-              </span>
+              <QtyUnit value={`${m.quantityKg > 0 ? "+" : ""}${fmtKg(m.quantityKg)}`} unit={m.product?.unit} className="font-extrabold" />
             </div>
           );
         })}

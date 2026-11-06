@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { unitLabel } from "@/lib/format";
 import Link from "next/link";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -10,6 +11,7 @@ import { StatTile } from "@/components/stock/StatTile";
 import { YieldMeter } from "@/components/stock/YieldMeter";
 import { QuickIntakeForm } from "@/components/stock/QuickIntakeForm";
 import { MovementRow } from "@/components/stock/MovementRow";
+import { PerUnitQty, QtyUnit } from "@/components/stock/QtyUnit";
 import { todayLocalISO } from "@/lib/localDate";
 import { fmtKg, fmtYield, YIELD_TONE_CLASS, yieldTone } from "@/lib/stockPresentation";
 import type { StockDashboardDTO } from "@/lib/stock-client-types";
@@ -75,8 +77,8 @@ export function StockDashboard() {
             <div className="flex items-center justify-between gap-3 mb-3">
               <h2 className="text-lg font-extrabold text-united-dark">{t("stock.current-balance-title")}</h2>
               {/* One total per unit (UXO-10): kg and pieces are never added together. */}
-              <span dir="ltr" className="text-lg font-extrabold text-united-green text-end">
-                {data.stockTotalsByUnit.length > 0 ? perUnit(data.stockTotalsByUnit, (u) => u.balance) : `0 ${unitLabel("KG")}`}
+              <span className="text-lg font-extrabold text-united-green text-end">
+                <PerUnitQty rows={data.stockTotalsByUnit.length > 0 ? perUnitRows(data.stockTotalsByUnit, (u) => u.balance) : ZERO_KG} />
               </span>
             </div>
             {data.currentStock.length === 0 ? (
@@ -98,9 +100,7 @@ export function StockDashboard() {
                         <span className="flex flex-col items-end text-end">
                           <span className="font-extrabold">
                             <span className="text-xs font-bold text-united-muted">{t("stock.available-label")} </span>
-                            <span dir="ltr" className={sell.available > 0 ? "text-united-dark" : "text-united-muted"}>
-                              {fmtKg(sell.available)} {unitLabel(s.unit)}
-                            </span>
+                            <QtyUnit value={fmtKg(sell.available)} unit={s.unit} className={sell.available > 0 ? "text-united-dark" : "text-united-muted"} />
                           </span>
                           {differs && (
                             <span className="text-xs font-bold text-united-muted">
@@ -115,9 +115,7 @@ export function StockDashboard() {
                           )}
                         </span>
                       ) : (
-                        <span dir="ltr" className={`font-extrabold ${s.balanceKg > 0 ? "text-united-dark" : "text-united-muted"}`}>
-                          {fmtKg(s.balanceKg)} {unitLabel(s.unit)}
-                        </span>
+                        <QtyUnit value={fmtKg(s.balanceKg)} unit={s.unit} className={`font-extrabold ${s.balanceKg > 0 ? "text-united-dark" : "text-united-muted"}`} />
                       )}
                     </li>
                   );
@@ -130,7 +128,7 @@ export function StockDashboard() {
             {data.sellable && (
               <p className="text-[11px] font-bold text-united-muted mt-1">
                 {t("stock.available-explanation")}{" "}
-                <Link href="/stock/inventory" className="inline-flex min-h-10 items-center font-extrabold text-united-green">
+                <Link href="/stock/inventory" className="inline-flex min-h-11 items-center font-extrabold text-united-green">
                   {t("stock.available-details-link")}
                 </Link>
               </p>
@@ -145,8 +143,8 @@ export function StockDashboard() {
                   <li key={p.productId}>
                     <div className="flex items-center justify-between text-sm font-bold mb-1">
                       <span className="text-united-dark">{localName({ name: p.productName, nameAr: p.productNameAr }, locale)}</span>
-                      <span dir="ltr" className="text-united-muted">
-                        {fmtKg(p.goodKg)} / {fmtKg(p.receivedKg)} {unitLabel(p.unit)}
+                      <span className="shrink-0 whitespace-nowrap text-united-muted">
+                        <span dir="ltr">{fmtKg(p.goodKg)} / {fmtKg(p.receivedKg)}</span> {unitLabel(p.unit)}
                       </span>
                     </div>
                     <YieldMeter pct={p.yieldPct} label={`${p.intakeCount} ${t("stock.stat-intake-count")}`} />
@@ -170,21 +168,38 @@ export function StockDashboard() {
               <EmptyState icon="🚚" title={t("stock.empty-no-supplies-month")} />
             ) : (
               <ul className="flex flex-col divide-y divide-united-border">
-                {data.supplierPerformance.map((s) => (
-                  <li key={s.supplierId} className="py-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-extrabold text-united-dark">{localName({ name: s.supplierName, nameAr: s.supplierNameAr }, locale)}</span>
-                      <span dir="ltr" className={`font-extrabold ${YIELD_TONE_CLASS[yieldTone(s.yieldPct)]}`}>
-                        {fmtYield(s.yieldPct)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs font-bold text-united-muted" dir="ltr">
-                      <span>{s.intakeCount} {t("stock.supplier-delivery-unit")}</span>
-                      <span>· {fmtKg(s.receivedKg)} {t("stock.supplier-received-unit")}</span>
-                      <span>· {fmtKg(s.rejectedKg)} {t("stock.supplier-rejected-unit")}</span>
-                    </div>
-                  </li>
-                ))}
+                {data.supplierPerformance.map((s) => {
+                  // Per unit (UXO-10): a supplier of kg and of pieces gets a line per unit, each
+                  // with its own yield, never one "kg received" over both.
+                  const units = s.byUnit ?? [];
+                  const single = units.length <= 1;
+                  const headYield = single ? units[0]?.yieldPct ?? s.yieldPct : null;
+                  return (
+                    <li key={s.supplierId} className="py-3">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="font-extrabold text-united-dark">{localName({ name: s.supplierName, nameAr: s.supplierNameAr }, locale)}</span>
+                        {single && (
+                          <span dir="ltr" className={`font-extrabold ${YIELD_TONE_CLASS[yieldTone(headYield)]}`}>
+                            {fmtYield(headYield)}
+                          </span>
+                        )}
+                      </div>
+                      {units.map((u) => (
+                        <div key={u.unit} className="flex flex-wrap items-center gap-x-1.5 text-xs font-bold text-united-muted">
+                          <span>{u.intakeCount === 1 ? t("stock.supplier-deliveries-one") : t("stock.supplier-deliveries", { count: u.intakeCount })}</span>
+                          <span>· {t("stock.supplier-received-qty", { qty: `${fmtKg(u.received)} ${unitLabel(u.unit)}` })}</span>
+                          <span>· {t("stock.supplier-rejected-qty", { qty: `${fmtKg(u.rejected)} ${unitLabel(u.unit)}` })}</span>
+                          {!single && (
+                            <span>
+                              · {t("stock.supplier-yield")}{" "}
+                              <span dir="ltr" className={`font-extrabold ${YIELD_TONE_CLASS[yieldTone(u.yieldPct)]}`}>{fmtYield(u.yieldPct)}</span>
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </li>
+                  );
+                })}
               </ul>
             )}
             <p className="text-[11px] font-bold text-united-muted mt-3">
@@ -195,7 +210,7 @@ export function StockDashboard() {
           <section className="card p-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-extrabold text-united-dark">{t("stock.last-movements-title")}</h2>
-              <Link href="/stock/ledger" className="inline-flex min-h-10 items-center text-sm font-extrabold text-united-green">
+              <Link href="/stock/ledger" className="inline-flex min-h-11 items-center text-sm font-extrabold text-united-green">
                 {t("stock.full-ledger-link")}
               </Link>
             </div>
@@ -238,10 +253,10 @@ function PeriodCard({ title, totals }: { title: string; totals: StockDashboardDT
   );
 }
 
-function Metric({ label, value, tone = "text-united-dark" }: { label: string; value: string; tone?: string }) {
+function Metric({ label, value, tone = "text-united-dark" }: { label: string; value: ReactNode; tone?: string }) {
   return (
     <div>
-      <div dir="ltr" className={`text-lg font-extrabold ${tone}`}>
+      <div className={`text-lg font-extrabold ${tone}`}>
         {value}
       </div>
       <div className="text-[11px] font-bold text-united-muted">{label}</div>
@@ -256,8 +271,15 @@ function perUnit<U extends { unit: string }>(rows: readonly U[], pick: (u: U) =>
   return rows.map((u) => `${fmtKg(pick(u))} ${unitLabel(u.unit)}`).join(" · ");
 }
 
+/** The same figures for <PerUnitQty>, which keeps each number before its unit (FLOOR-2). */
+function perUnitRows<U extends { unit: string }>(rows: readonly U[], pick: (u: U) => number) {
+  return rows.map((u) => ({ value: fmtKg(pick(u)), unit: u.unit }));
+}
+
+const ZERO_KG = [{ value: "0", unit: "KG" }];
+
 function perUnitOrZero(rows: readonly UnitRow[], pick: (u: UnitRow) => number) {
-  return rows.length > 0 ? perUnit(rows, pick) : `0 ${unitLabel("KG")}`;
+  return <PerUnitQty rows={rows.length > 0 ? perUnitRows(rows, pick) : ZERO_KG} />;
 }
 
 /** Yield per unit, like the other tiles: the first unit's ratio as the figure (with its unit
