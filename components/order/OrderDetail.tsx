@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, ArrowLeft, Clock, OctagonAlert, StickyNote } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, ArrowLeft, Clock, OctagonAlert, SearchX, StickyNote } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -41,6 +41,8 @@ import { OrderInvoices } from "@/components/order/OrderInvoices";
 import { DocLink } from "@/components/profiles/EntityLink";
 import { href as profileHref } from "@/lib/profiles/links";
 import type { OrderActionState } from "@/lib/orderActions";
+import { StatusPill } from "@/components/ui/StatusPill";
+import { stockRefusalText } from "@/components/order/stockRefusal";
 
 type CustomerCards = { customers: { id: string; code: string; name: string; nameAr: string | null; active: boolean }[] };
 const customerCardsQuery = {
@@ -60,6 +62,12 @@ const SOURCE_TKEY: Record<string, string> = {
   user: "orders.source.user",
 };
 
+/** A refusal of these is shown next to their controls in the supervisor panel (A11Y-1): the
+ * banner at the top is scrolled out of view by then. */
+const PANEL_ACTIONS = new Set(["cancel", "reopen", "override", "edit"]);
+/** No such order: retrying cannot help, and the 5 s poll must not keep asking (ORD-13). */
+const isMissing = (err: unknown) => err instanceof ApiClientError && err.status === 404;
+
 export function OrderDetail({ orderId }: { orderId: string }) {
   const { t, locale } = useLocale();
   const ops = useOperationalSettings();
@@ -68,6 +76,8 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const toast = useToast();
   const { can, permissions } = usePermissions();
   const [error, setError] = useState<string | null>(null);
+  // Which action failed, so its message can sit next to its controls.
+  const [errorId, setErrorId] = useState<string | null>(null);
   // A SET of in-flight action ids, not a single one. The old single-slot version meant
   // confirming item A also disabled item B — on a six-line order that serialises the
   // whole screen behind one request. A repeat of the SAME id is still ignored, which is
@@ -97,10 +107,11 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   // it — this removes the spinner, not the refresh.
   const seeded = cachedOrderFromLists(qc, orderId);
 
-  const { data, isLoading, isError, refetch, dataUpdatedAt } = useQuery({
+  const { data, isLoading, isError, error: loadError, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["order", orderId],
     queryFn: () => apiFetch<{ order: OrderDTO }>(`/api/orders/${orderId}`),
-    refetchInterval: 5000,
+    refetchInterval: (q) => (isMissing(q.state.error) ? false : 5000),
+    retry: (count, err) => !isMissing(err) && count < 1,
     ...(seeded ? { initialData: { order: seeded }, initialDataUpdatedAt: 0 } : {}),
   });
   const order = data?.order;
@@ -122,6 +133,24 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     refetchInterval: order?.status === "dispatched" ? 60_000 : false,
   });
 
+  // The fixed bottom bar covers the end of the page: the page keeps room for it at its real
+  // height (the dispatch form and the approval reason make it grow), so every control can be
+  // scrolled clear of it (ORD-01).
+  const [stickyHeight, setStickyHeight] = useState(0);
+  const stickyObserver = useRef<ResizeObserver | null>(null);
+  const stickyRef = useCallback((el: HTMLDivElement | null) => {
+    stickyObserver.current?.disconnect();
+    stickyObserver.current = null;
+    if (!el) return setStickyHeight(0);
+    const measure = () => setStickyHeight(Math.ceil(el.getBoundingClientRect().height));
+    measure();
+    if (typeof ResizeObserver !== "undefined") {
+      stickyObserver.current = new ResizeObserver(measure);
+      stickyObserver.current.observe(el);
+    }
+  }, []);
+  useEffect(() => () => stickyObserver.current?.disconnect(), []);
+
   /**
    * Run one action and apply its result.
    *
@@ -141,6 +170,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   ): Promise<boolean> {
     if (busyIds.has(id)) return false; // same action already in flight — ignore the double tap
     setError(null);
+    setErrorId(null);
     setBusyIds((prev) => new Set(prev).add(id));
     try {
       const result = await fn();
@@ -153,8 +183,9 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       if (successMsg) toast.show(successMsg, "success");
       return true;
     } catch (err) {
-      const msg = err instanceof ApiClientError ? err.message : t("orders.error.generic");
+      const msg = stockRefusalText(err, t, locale === "en" ? "en" : "ar") ?? (err instanceof ApiClientError ? err.message : t("orders.error.generic"));
       setError(msg);
+      setErrorId(id);
       toast.show(msg, "error");
       // The cache may now disagree with the server (a 409 means someone else moved
       // first) — pull the truth rather than leaving a stale screen.
@@ -170,6 +201,25 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   }
 
   if (isLoading && !order) return <OrderDetailSkeleton />;
+  // Same landing rule as the header: derived from what this account can reach, so
+  // "back" never lands on a page it is about to be refused from.
+  const backHref = homePathFor(permissions);
+  if (!order && isMissing(loadError)) {
+    return (
+      <div className="page-container max-w-2xl">
+        <div className="card p-6 flex flex-col items-center gap-3 text-center">
+          <span aria-hidden className="flex h-12 w-12 items-center justify-center rounded-full bg-united-subtle text-united-muted">
+            <SearchX size={22} />
+          </span>
+          <h1 className="text-lg font-extrabold text-united-dark">{t("orders.error.not_found")}</h1>
+          <p className="max-w-md text-sm text-united-muted">{t("orders.error.not_found_hint")}</p>
+          <Link href={backHref} className="btn-secondary inline-flex items-center gap-1.5">
+            <ArrowLeft size={16} className="rtl:rotate-180" aria-hidden /> {t("orders.back")}
+          </Link>
+        </div>
+      </div>
+    );
+  }
   // Only replace the whole screen when there is truly nothing to show yet. React
   // Query keeps the last-good `order` in cache across a failed poll, and every other
   // board in the app (PrepBoard, LoadBoard, SupervisorBoard...) keeps rendering that
@@ -178,9 +228,6 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   // brief Wi-Fi blip must not make the action buttons disappear mid-task.
   if (!order) return <ErrorState message={t("orders.error.open_failed")} onRetry={() => refetch()} />;
 
-  // Same landing rule as the header: derived from what this account can reach, so
-  // "back" never lands on a page it is about to be refused from.
-  const backHref = homePathFor(permissions);
   const urgency = orderUrgency(order.status, order.deliveryDate, order.deliveryTime, ops.deliverySoonMinutes);
   // Affordances follow effective permissions, never the role name — otherwise a role
   // that holds the permission (SUPER_ADMIN) or an account granted it by an override
@@ -209,6 +256,11 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const cancelNoteShown = cancelOffered && !!cancelState && !cancelState.ok && !cancelViaReopen;
   const reopenNoteShown = reopenOffered && !!reopenState && !reopenState.ok;
 
+  const remainingLabel = (count: number) => t(count === 1 ? "orders.remaining_items_one" : "orders.remaining_items", { count });
+  // A refusal of a panel action is shown in the panel; anything else in the banner at the top.
+  const panelError = error && errorId && PANEL_ACTIONS.has(errorId) ? error : null;
+  const bannerError = error && !panelError ? error : null;
+
   function startEditing() {
     if (can("sales.customers.view")) void qc.prefetchQuery(customerCardsQuery);
     const base = {
@@ -229,6 +281,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     e.preventDefault();
     if (!editForm.reason.trim()) {
       setError(t("orders.edit.required_reason"));
+      setErrorId("edit");
       return;
     }
     const changed = (["customer_account_id", "customer_name", "delivery_date", "delivery_time", "notes", "customer_po_ref"] as const).filter((k) => editForm[k] !== editBase[k]);
@@ -338,7 +391,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         {order.needsReview
           ? t("orders.needs_supervisor_review")
           : !allPrepared
-          ? t("orders.remaining_items", { count: order.items.length - preparedCount })
+          ? remainingLabel(order.items.length - preparedCount)
           : t("orders.finish_prep_checkmark")}
       </button>
     );
@@ -378,7 +431,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         {order.needsReview
           ? t("orders.needs_supervisor_review")
           : !allLoaded
-          ? t("orders.remaining_items", { count: order.items.length - loadedCount })
+          ? remainingLabel(order.items.length - loadedCount)
           : t("orders.finish_load_checkmark")}
       </button>
     );
@@ -409,7 +462,10 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   }
 
   return (
-    <div className="page-container max-w-2xl lg:max-w-6xl">
+    <div
+      className="page-container max-w-2xl lg:max-w-6xl"
+      style={stickyAction ? { paddingBottom: `${Math.max(stickyHeight, 88) + 24}px` } : undefined}
+    >
       <div className="flex items-center justify-between mb-3">
         <Link
           href={backHref}
@@ -439,11 +495,11 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       {/* Header / operational record */}
       <div className="card p-5">
         <div className="flex items-start justify-between gap-2 mb-1">
-          <h1 className="text-2xl font-extrabold text-united-dark"><PartyLink kind="customer" id={order.customerAccountId} name={orderCustomerName(order, locale === "en" ? "en" : "ar")} /></h1>
-          <div className="flex flex-col items-end gap-1">
+          <h1 className="min-w-0 break-words [overflow-wrap:anywhere] text-2xl font-extrabold text-united-dark"><PartyLink kind="customer" id={order.customerAccountId} name={orderCustomerName(order, locale === "en" ? "en" : "ar")} /></h1>
+          <div className="flex shrink-0 flex-col items-end gap-1">
             <StatusBadge status={order.status} />
             {order.stockStatus === "awaiting_stock" && order.status !== "cancelled" && (
-              <span className="rounded-full bg-[#FFF4E0] px-2.5 py-0.5 text-xs font-bold text-united-warn">{t("order.awaiting-stock")}</span>
+              <StatusPill tone="warn">{t("order.awaiting-stock")}</StatusPill>
             )}
           </div>
         </div>
@@ -575,7 +631,8 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         </p>
       )}
 
-      {error && <p className="bg-red-50 text-united-danger font-bold rounded-xl p-3 mt-3">{error}</p>}
+      {/* No role here: the error toast already announces it (role=alert), once. */}
+      {bannerError && <p className="bg-red-50 text-united-danger font-bold rounded-xl p-3 mt-3">{bannerError}</p>}
 
       <StockHoldPanel order={order} />
 
@@ -710,11 +767,13 @@ export function OrderDetail({ orderId }: { orderId: string }) {
               when needed) — this row only holds the less urgent supervisor actions.
               Cancel and reopen follow the server's answer (lib/orderActions.ts): when one
               is not possible it stays visible, disabled, with the reason and the way out. */}
-          <div className="flex flex-wrap gap-2">
+          {panelError && <p className="bg-red-50 text-united-danger font-bold rounded-xl p-3">{panelError}</p>}
+          <div className="flex flex-wrap items-start gap-2">
             {cancelOffered && (
               <ReasonAction
                 label={t("orders.cancel_btn")}
                 confirmLabel={t("orders.cancel_confirm")}
+                tone="danger"
                 className="btn-danger text-sm px-4 py-2"
                 disabled={cancelState ? !cancelState.ok : actions.isPending}
                 describedBy={cancelViaReopen ? `order-${orderId}-reopen-why` : cancelNoteShown ? `order-${orderId}-cancel-why` : undefined}
@@ -777,12 +836,15 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                 className="field"
                aria-label={t("orders.override_choose_status")}>
                 <option value="">{t("orders.override_choose_status")}</option>
-                {ORDER_STATUSES.filter((s) => s !== "cancelled" && s !== order.status).map((s) => (
+                {/* Not "dispatched" either: it needs the vehicle, driver and crates, which only the
+                    dispatch button and the loading board record (the line below says so). */}
+                {ORDER_STATUSES.filter((s) => s !== "cancelled" && s !== "dispatched" && s !== order.status).map((s) => (
                   <option key={s} value={s}>
                     {(locale === "en" ? STATUS_LABEL_EN : STATUS_LABEL)[s]}
                   </option>
                 ))}
               </select>
+              <p className="text-xs text-united-muted">{t("orders.override_no_dispatch")}</p>
               <Field label={t("orders.override_reason_placeholder")}>
                 <input value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} className="field" />
               </Field>
@@ -803,7 +865,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       <aside className="min-w-0 flex flex-col">
       <div className="card p-5 mt-4 lg:mt-0">
         <h2 className="font-extrabold mb-2 text-united-dark">{t("orders.documents")}</h2>
-        <OrderPricingPanel orderId={orderId} />
+        <OrderPricingPanel orderId={orderId} orderStatus={order.status} />
         <AttachmentsPanel entityType="order" entityId={orderId} canManage={isSupervisor} />
       </div>
 
@@ -816,7 +878,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
 
       {/* u-sticky-action: on desk widths the bar starts after the sidebar (app/globals.css). */}
       {stickyAction && (
-        <div className="u-sticky-action fixed bottom-0 inset-x-0 bg-white border-t-2 border-united-green/20 p-4 sm:px-6 z-10">
+        <div ref={stickyRef} className="u-sticky-action fixed bottom-0 inset-x-0 bg-white border-t-2 border-united-green/20 p-4 sm:px-6 z-10">
           <div className="max-w-2xl lg:max-w-6xl mx-auto">{stickyAction}</div>
         </div>
       )}

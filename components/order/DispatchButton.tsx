@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useLocale } from "@/lib/locale";
 
 /** The truck-leaving confirmation — requires driver name, vehicle number, and crate
@@ -18,6 +18,11 @@ export function DispatchButton({
   const [vehicle, setVehicle] = useState("");
   const [driverName, setDriverName] = useState("");
   const [crateCount, setCrateCount] = useState("");
+  // Dispatch takes a few seconds (stock issue, trip, documents). The ref stops a second tap in
+  // the same frame; `sending` keeps the label honest until the parent's own busy flag is up.
+  const inFlight = useRef(false);
+  const [sending, setSending] = useState(false);
+  const working = !!busy || sending;
 
   if (!open) {
     return (
@@ -52,16 +57,24 @@ export function DispatchButton({
       </label>
       <div className="flex gap-2">
         <button
-          disabled={!canConfirm || busy}
-          onClick={() => {
-            if (busy) return;
-            onConfirm({ vehicle: vehicle.trim(), driverName: driverName.trim(), crateCount: Number(crateCount) });
+          disabled={!canConfirm || working}
+          aria-busy={working || undefined}
+          onClick={async () => {
+            if (working || inFlight.current) return;
+            inFlight.current = true;
+            setSending(true);
+            try {
+              await onConfirm({ vehicle: vehicle.trim(), driverName: driverName.trim(), crateCount: Number(crateCount) });
+            } finally {
+              inFlight.current = false;
+              setSending(false);
+            }
           }}
           className="btn-primary flex-1 text-lg"
         >
-          {t("orders.dispatch_btn.confirm_btn")}
+          {working ? t("orders.dispatch_btn.busy") : t("orders.dispatch_btn.confirm_btn")}
         </button>
-        <button onClick={() => setOpen(false)} className="btn-secondary px-5">
+        <button onClick={() => setOpen(false)} disabled={working} className="btn-secondary px-5">
           {t("ui.cancel")}
         </button>
       </div>

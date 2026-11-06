@@ -9,6 +9,8 @@ import { fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 import { Field } from "@/components/ui/Field";
+import { StatusPill, docTone } from "@/components/ui/StatusPill";
+import { useBusy } from "@/components/ui/useBusy";
 
 type Amounts = { gross: string; discount: string; net: string; tax: string; total: string };
 type Pricing = {
@@ -33,14 +35,16 @@ const BASIS: Record<string, string> = { loaded: "pricing.basis.loaded", prepared
 const SOURCE: Record<string, string> = { list: "pricing.source.list", manual: "pricing.source.manual", quotation: "pricing.source.quotation" };
 
 /** The commercial side of an order, for people who may see prices. The floor screens
- * never load this. */
-export function OrderPricingPanel({ orderId }: { orderId: string }) {
+ * never load this. `orderStatus` (the order screen knows it) lets the panel stop offering
+ * price changes the server refuses on a cancelled order. */
+export function OrderPricingPanel({ orderId, orderStatus }: { orderId: string; orderStatus?: string }) {
   const { t, locale } = useLocale();
   const { can } = usePermissions();
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState({ price: "", discount: "", reason: "" });
+  const { busy, run } = useBusy();
   const q = useQuery({
     queryKey: ["orders", orderId, "pricing"],
     queryFn: () => apiFetch<Pricing>(`/api/orders/${orderId}/pricing`),
@@ -49,7 +53,19 @@ export function OrderPricingPanel({ orderId }: { orderId: string }) {
   });
   if (!can("sales.pricing.view") || !q.data) return null;
   const p = q.data;
-  const canOverride = can("sales.price_override");
+  // Prices change on the order only while no invoice holds them and the order is live — the
+  // same rule the server refuses with (lib/sales/pricing.ts assertNotInvoiced, overrideLinePrice,
+  // repriceOrder). Then the actions are not offered and one line says why (ORD-06).
+  const inv = p.commercial?.invoice ?? null;
+  const locked =
+    orderStatus === "cancelled"
+      ? t("pricing.locked.cancelled")
+      : inv?.status === "issued"
+        ? t("pricing.locked.issued", { number: inv.number ?? "" })
+        : inv?.status === "draft"
+          ? t("pricing.locked.draft")
+          : null;
+  const canOverride = can("sales.price_override") && !locked;
   const refresh = () => void qc.invalidateQueries({ queryKey: ["orders", orderId, "pricing"] });
   return (
     <section className="card p-4 flex flex-col gap-3">
@@ -64,13 +80,13 @@ export function OrderPricingPanel({ orderId }: { orderId: string }) {
       )}
       {p.commercial && (p.commercial.delivery || p.commercial.invoice) && (
         <div className="flex flex-wrap gap-2 text-sm font-extrabold">
-          {p.commercial.delivery && <span className="rounded-full px-3 py-1 bg-blue-50 text-blue-700">{DELIVERY[p.commercial.delivery.status] ? t(DELIVERY[p.commercial.delivery.status]) : p.commercial.delivery.status} · <span dir="ltr">{p.commercial.delivery.trip}</span></span>}
+          {p.commercial.delivery && <StatusPill tone={docTone(p.commercial.delivery.status)} size="md">{DELIVERY[p.commercial.delivery.status] ? t(DELIVERY[p.commercial.delivery.status]) : p.commercial.delivery.status} · <span dir="ltr">{p.commercial.delivery.trip}</span></StatusPill>}
           {p.commercial.invoice ? (
-            <span className={`rounded-full px-3 py-1 ${p.commercial.invoice.open === "0.00" ? "bg-united-green/10 text-united-green" : "bg-united-warn/10 text-united-warn"}`}>
+            <StatusPill tone={p.commercial.invoice.open === "0.00" ? "success" : "warn"} size="md">
               {p.commercial.invoice.status === "draft" ? t("pricing.invoice-draft") : <>{t("pricing.invoice")} <span dir="ltr">{p.commercial.invoice.number}</span></>} · {p.commercial.invoice.open === "0.00" ? (Number(p.commercial.invoice.credited ?? 0) > 0 && Number(p.commercial.invoice.credited) >= Number(p.commercial.invoice.total) ? t("pricing.credited-full") : t("pricing.paid")) : p.commercial.invoice.open ? <>{t("pricing.left")} <span dir="ltr">{fmtMoney(p.commercial.invoice.open)}</span></> : <span dir="ltr">{fmtMoney(p.commercial.invoice.total)}</span>}
-            </span>
+            </StatusPill>
           ) : (
-            <span className="rounded-full px-3 py-1 bg-united-dark/5">{t("pricing.not-invoiced")}</span>
+            <StatusPill tone="neutral" size="md">{t("pricing.not-invoiced")}</StatusPill>
           )}
         </div>
       )}
@@ -93,25 +109,27 @@ export function OrderPricingPanel({ orderId }: { orderId: string }) {
                 </button>
               )}
             </div>
-            {editing === l.itemId && (
+            {editing === l.itemId && canOverride && (
               <form
                 className="grid grid-cols-3 gap-2"
-                onSubmit={async (e) => {
+                onSubmit={(e) => {
                   e.preventDefault();
-                  try {
-                    await apiPatch(`/api/orders/${orderId}/items/${l.itemId}/price`, { unit_price: form.price, discount_pct: form.discount || 0, reason: form.reason, expected_version: l.price?.version });
-                    setEditing(null);
-                    refresh();
-                    toast.show(t("pricing.toast-changed"), "success");
-                  } catch (err) {
-                    toast.show(err instanceof ApiClientError && err.message ? err.message : t("ui.error.generic"), "error");
-                  }
+                  void run("price", async () => {
+                    try {
+                      await apiPatch(`/api/orders/${orderId}/items/${l.itemId}/price`, { unit_price: form.price, discount_pct: form.discount || 0, reason: form.reason, expected_version: l.price?.version });
+                      setEditing(null);
+                      refresh();
+                      toast.show(t("pricing.toast-changed"), "success");
+                    } catch (err) {
+                      toast.show(err instanceof ApiClientError && err.message ? err.message : t("ui.error.generic"), "error");
+                    }
+                  });
                 }}
               >
                 <Field label={t("pricing.price")}><input className="field" inputMode="decimal" dir="ltr" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /></Field>
                 <Field label={t("pricing.discount")}><input className="field" inputMode="decimal" dir="ltr" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} /></Field>
                 <Field label={t("pricing.reason")}><input className="field" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></Field>
-                <button className="btn-primary col-span-3">{t("pricing.save-price")}</button>
+                <button className="btn-primary col-span-3" disabled={!!busy} aria-busy={busy === "price" || undefined}>{busy === "price" ? t("ui.saving") : t("pricing.save-price")}</button>
               </form>
             )}
           </li>
@@ -130,19 +148,24 @@ export function OrderPricingPanel({ orderId }: { orderId: string }) {
         <button
           type="button"
           className="btn-secondary self-start"
-          onClick={async () => {
-            try {
-              const r = await apiPost<{ priced: number }>(`/api/orders/${orderId}/reprice`, {});
-              refresh();
-              toast.show(r.priced ? t("pricing.repriced", { count: r.priced }) : t("pricing.up-to-date"), "success");
-            } catch (err) {
-              toast.show(err instanceof ApiClientError && err.message ? err.message : t("ui.error.generic"), "error");
-            }
-          }}
+          disabled={!!busy}
+          aria-busy={busy === "reprice" || undefined}
+          onClick={() =>
+            void run("reprice", async () => {
+              try {
+                const r = await apiPost<{ priced: number }>(`/api/orders/${orderId}/reprice`, {});
+                refresh();
+                toast.show(r.priced ? t("pricing.repriced", { count: r.priced }) : t("pricing.up-to-date"), "success");
+              } catch (err) {
+                toast.show(err instanceof ApiClientError && err.message ? err.message : t("ui.error.generic"), "error");
+              }
+            })
+          }
         >
-          {t("pricing.reprice")}
+          {busy === "reprice" ? t("ui.working") : t("pricing.reprice")}
         </button>
       )}
+      {locked && can("sales.price_override") && <p className="text-sm text-united-muted" data-testid="pricing-locked">{locked}</p>}
     </section>
   );
 }

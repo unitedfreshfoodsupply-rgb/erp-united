@@ -10,6 +10,7 @@ export function ReasonAction({
   className,
   disabled,
   describedBy,
+  tone,
   onConfirm,
 }: {
   label: string;
@@ -18,6 +19,8 @@ export function ReasonAction({
   /** Not possible now: the button shows, disabled, and `describedBy` names the text saying why. */
   disabled?: boolean;
   describedBy?: string;
+  /** "danger": the confirm destroys something (cancel an order), and looks like it. */
+  tone?: "danger";
   /** Resolve false (or reject) when the action was refused: the prompt then stays open
    *  with the reason still typed, so the user can correct and retry. */
   onConfirm: (reason: string) => Promise<boolean | void>;
@@ -52,6 +55,7 @@ export function ReasonAction({
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           className="field"
+          aria-required="true"
         />
       </Field>
       <div className="flex gap-2">
@@ -69,12 +73,13 @@ export function ReasonAction({
               setBusy(false);
             }
           }}
-          className="btn-primary flex-1"
+          aria-busy={busy || undefined}
+          className={`${tone === "danger" ? "btn-danger" : "btn-primary"} flex-1`}
         >
-          {confirmLabel ?? t("ui.confirm")}
+          {busy ? t("ui.working") : confirmLabel ?? t("ui.confirm")}
         </button>
         {/* "رجوع", not "إلغاء": in a prompt that cancels something, "إلغاء" read as the confirm. */}
-        <button onClick={() => setOpen(false)} className="btn-secondary">
+        <button onClick={() => setOpen(false)} disabled={busy} className="btn-secondary">
           {t("ui.back")}
         </button>
       </div>
