@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, errorMessage } from "@/lib/api-client";
 import { useToast } from "@/components/ui/Toast";
 import { useDialogs } from "@/components/ui/Dialog";
-import { StatusPill } from "@/components/ui/StatusPill";
+import { StatusPill, docTone } from "@/components/ui/StatusPill";
 import { usePermissions } from "@/lib/use-session";
 import { useLocale } from "@/lib/locale";
 import { fmtMoney } from "@/components/stock/inventory/shared";
@@ -38,7 +38,10 @@ export function JournalRequests() {
   };
   return (
     <section className="card overflow-x-auto" aria-labelledby="journal-requests">
-      <h2 id="journal-requests" className="section-title p-3">{t("journal.requests-title")}</h2>
+      <div className="p-3">
+        <h2 id="journal-requests" className="section-title">{t("journal.requests-title")}</h2>
+        <p className="text-xs text-united-muted">{t("journal.requests-hint")}</p>
+      </div>
       <table className="data-table">
         <thead><tr><th>{t("treasury.col.number")}</th><th>{t("treasury.col.date")}</th><th>{t("accounting.description")}</th><th className="num">{t("treasury.field.amount")}</th><th>{t("treasury.col.status")}</th><th><span className="sr-only">{t("treasury.col.actions")}</span></th></tr></thead>
         <tbody>
@@ -48,7 +51,7 @@ export function JournalRequests() {
               <td><bdi dir="ltr">{r.date}</bdi></td>
               <td>{r.description}<span className="block text-xs text-united-muted">{r.requestedBy}{r.decidedBy ? ` → ${r.decidedBy}` : ""}{r.decisionNote ? ` · ${r.decisionNote}` : ""}</span></td>
               <td className="num" dir="ltr">{fmtMoney(r.total)}</td>
-              <td><StatusPill tone={r.status === "posted" ? "success" : r.status === "pending_approval" ? "warn" : "neutral"}>{t(`journal.status.${r.status}`)}</StatusPill>{r.status === "pending_approval" && <AwaitingApproval type={APPROVAL_TYPE.manualJournal} entityId={r.id} compact />}</td>
+              <td><StatusPill tone={docTone(r.status)}>{t(`journal.status.${r.status}`)}</StatusPill>{r.status === "pending_approval" && <AwaitingApproval type={APPROVAL_TYPE.manualJournal} entityId={r.id} compact />}</td>
               <td>{r.status === "pending_approval" && can("accounting.manage") && <button type="button" className="btn-secondary btn-sm" onClick={() => cancel(r)}>{t("journal.cancel")}</button>}</td>
             </tr>
           ))}

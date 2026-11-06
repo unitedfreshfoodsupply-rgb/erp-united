@@ -7,7 +7,7 @@ import { newClientKey } from "@/lib/clientKey";
 import { ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { useDialogs } from "@/components/ui/Dialog";
-import { StatusPill, type Tone } from "@/components/ui/StatusPill";
+import { StatusPill, docTone, type Tone } from "@/components/ui/StatusPill";
 import { usePermissions } from "@/lib/use-session";
 import { useLocale } from "@/lib/locale";
 import { todayLocalISO } from "@/lib/localDate";
@@ -48,7 +48,8 @@ type ImportResult = { mode: "preview" | "commit"; summary: { rows: number; total
 
 const SEGMENTS = ["suppliers", "customers", "other"] as const;
 type AttestationKey = "suppliers_complete" | "customers_complete" | "cash_bank_verified" | "other_accounts_reconciled";
-const STATUS_TONE: Record<Status, Tone> = { not_started: "neutral", in_progress: "info", awaiting_approval: "warn", reconciliation_required: "danger", ready_for_closure: "success", closed: "success" };
+// The migration's own phases; closed is the shared "finished" tone (docTone), like a closed period.
+const MIGRATION_TONE: Record<string, Tone> = { not_started: "neutral", in_progress: "info", awaiting_approval: "warn", reconciliation_required: "danger", ready_for_closure: "success" };
 /** A check's value: figures formatted ("1283160.00 / 1283160.00" → "1,283,160.00 / 1,283,160.00"), anything else as is. */
 const checkValue = (v: string) => v.split(" / ").map((x) => (/^-?\d+(\.\d+)?$/.test(x.trim()) ? fmtMoney(x.trim()) : x)).join(" / ");
 /** A signed balance (debit positive) as the amount and its side, in the screen's language. */
@@ -103,7 +104,7 @@ export function OpeningMigrationView({ onOpenBatch }: { onOpenBatch: (id: string
       <div className="card p-4 flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 id="openmig-title" className="section-title">{t("openmig.title")}</h2>
-          <StatusPill tone={STATUS_TONE[o.status]} size="md">{t(`openmig.status.${o.status}`)}</StatusPill>
+          <StatusPill tone={docTone(o.status, MIGRATION_TONE)} size="md">{t(`openmig.status.${o.status}`)}</StatusPill>
         </div>
         <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
           <div><dt className="font-bold text-united-muted">{t("openmig.cutoff")}</dt><dd className="font-extrabold"><bdi dir="ltr">{m.cutoverDate}</bdi></dd></div>
@@ -115,7 +116,7 @@ export function OpeningMigrationView({ onOpenBatch }: { onOpenBatch: (id: string
           <div><dt className="font-bold text-united-muted">{t("openmig.pending-approvals")}</dt><dd className="font-extrabold">{pendingApprovals > 0 ? <Link href="/approvals" className="underline">{pendingApprovals}</Link> : 0}</dd></div>
           <div><dt className="font-bold text-united-muted">{t("openmig.export")}</dt><dd className="flex flex-col gap-1 text-sm font-bold"><a className="underline" href="/api/accounting/opening-migration/export?part=accounts">{t("openmig.export-accounts")}</a><a className="underline" href="/api/accounting/opening-migration/export?part=parties">{t("openmig.export-parties")}</a></dd></div>
         </dl>
-        {!closed && <p role="note" className="rounded-xl border border-united-warn/40 bg-united-warn/10 p-3 text-sm font-bold text-united-warn">{t("openmig.provisional-banner", { amount: signed(o.clearing?.balance) })}</p>}
+        {!closed && <p role="note" className="rounded-xl border border-united-warn/40 bg-united-warn-fill p-3 text-sm font-bold text-united-warn">{t("openmig.provisional-banner", { amount: signed(o.clearing?.balance) })}</p>}
         {closed && <p className="text-sm font-bold text-united-green">{t("openmig.closed-note", { by: m.closedBy ?? "", at: (m.closedAt ?? "").slice(0, 10) })}</p>}
       </div>
 
@@ -342,7 +343,7 @@ export function ProvisionalOpeningBanner() {
   const q = useQuery({ queryKey: ["acc", "opening-position"], queryFn: () => apiFetch<{ opening: { final: boolean; state: string; cutoverDate: string | null; clearing: string } }>("/api/accounting/opening-migration/position").then((r) => r.opening) });
   if (!q.data || q.data.final) return null;
   return (
-    <p role="note" className="rounded-xl border border-united-warn/40 bg-united-warn/10 p-3 text-sm font-bold text-united-warn">
+    <p role="note" className="rounded-xl border border-united-warn/40 bg-united-warn-fill p-3 text-sm font-bold text-united-warn">
       {q.data.state === "none" ? t("openmig.report-banner-none") : t("openmig.report-banner", { date: q.data.cutoverDate ?? "", amount: signed(q.data.clearing) })}
     </p>
   );

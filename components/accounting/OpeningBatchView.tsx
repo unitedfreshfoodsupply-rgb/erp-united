@@ -7,7 +7,7 @@ import { newClientKey } from "@/lib/clientKey";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { useDialogs } from "@/components/ui/Dialog";
-import { StatusPill } from "@/components/ui/StatusPill";
+import { StatusPill, docTone } from "@/components/ui/StatusPill";
 import { useBusy } from "@/components/ui/useBusy";
 import { usePermissions } from "@/lib/use-session";
 import { useLocale } from "@/lib/locale";
@@ -122,7 +122,7 @@ export function OpeningBatchView(props: { open?: string | null; setOpen?: (id: s
           {q.data.map((b) => (
             <li key={b.id} className="card p-3 flex flex-wrap items-center justify-between gap-2">
               <button type="button" className="font-extrabold text-start" onClick={() => setOpen(open === b.id ? null : b.id)}><bdi dir="ltr">{b.number}</bdi> · {t(`opening.kind.${b.kind}`)}{b.segment ? ` — ${t(`openmig.segment.${b.segment}`)}` : ""} · <bdi dir="ltr">{b.cutoverDate}</bdi> · {t("opening.lines-n", { n: String(b._count.lines) })}{b.sourceFile ? ` · ${b.sourceFile}` : ""}</button>
-              <StatusPill tone={b.status === "posted" ? "success" : b.status === "pending_approval" ? "warn" : b.status === "cancelled" ? "neutral" : "info"}>{t(`opening.status.${b.status}`)}</StatusPill>
+              <StatusPill tone={docTone(b.status)}>{t(`opening.status.${b.status}`)}</StatusPill>
             </li>
           ))}
         </ul>
@@ -178,7 +178,7 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
   return (
     <section className="card overflow-hidden" aria-labelledby="batch-detail">
       <div className="card-header">
-        <h3 id="batch-detail" className="section-title flex flex-wrap items-center gap-2"><span><bdi dir="ltr">{b.number}</bdi> · {t(`opening.kind.${b.kind}`)} · <bdi dir="ltr">{b.cutoverDate}</bdi></span> <StatusPill tone={b.status === "posted" ? "success" : b.status === "pending_approval" ? "warn" : b.status === "cancelled" ? "neutral" : "info"}>{t(`opening.status.${b.status}`)}</StatusPill></h3>
+        <h3 id="batch-detail" className="section-title flex flex-wrap items-center gap-2"><span><bdi dir="ltr">{b.number}</bdi> · {t(`opening.kind.${b.kind}`)} · <bdi dir="ltr">{b.cutoverDate}</bdi></span> <StatusPill tone={docTone(b.status)}>{t(`opening.status.${b.status}`)}</StatusPill></h3>
         <button type="button" className="btn-secondary btn-sm" onClick={onClose}>{t("accounting.button.close")}</button>
       </div>
       <div className="p-4 flex flex-col gap-3">

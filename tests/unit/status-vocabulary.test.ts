@@ -13,6 +13,9 @@ test("docTone: one tone per shared document state; a screen's extra states never
   assert.equal(docTone("draft"), "neutral");
   assert.equal(docTone("cancelled"), "neutral");
   assert.equal(docTone("reversed"), "neutral");
+  // A voided draft was never issued: finished, like a cancelled document, not an alarm.
+  assert.equal(docTone("void"), "neutral");
+  assert.equal(docTone("voided"), "neutral");
   assert.equal(docTone("pending_approval"), "warn");
   assert.equal(docTone("approved"), "info");
   assert.equal(docTone("posted"), "success");
@@ -83,15 +86,19 @@ function tsx(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-test("hr, admin, operations, assets and security screens use the kit's status colours", () => {
+test("hr, admin, operations, assets, security, sales, purchasing and accounting screens use the kit's status colours", () => {
   const offenders: string[] = [];
-  for (const dir of ["hr", "admin", "operations", "assets", "security"]) {
-    for (const file of tsx(path.join("components", dir))) {
+  // OrderPricingPanel is the order screen's pricing card (owned with the order screens).
+  const skip = new Set([path.join("components", "sales", "OrderPricingPanel.tsx")]);
+  for (const dir of ["hr", "admin", "operations", "assets", "security", "sales", "purchasing", "accounting"]) {
+    for (const file of tsx(path.join("components", dir)).filter((f) => !skip.has(f))) {
       readFileSync(file, "utf8").split("\n").forEach((line, i) => {
         if (/\b(bg|text|border)-(blue|red|green|amber|yellow|orange|purple)-\d{2,3}\b/.test(line) || /className="input\b/.test(line)) offenders.push(`${file}:${i + 1}`);
         // Tinted text on its own light tint below 4.5:1: warn on warn/10 (4.39) or /15 (4.08),
         // green on green/15 (4.24). Use the pill fills (#FDF3E2, #E7F3EA) instead.
         if ((/\bbg-united-warn\/(10|15)\b/.test(line) && /\btext-united-warn(?!\/)\b/.test(line)) || (/\bbg-united-green\/15\b/.test(line) && /\btext-united-green(?!\/)\b/.test(line))) offenders.push(`${file}:${i + 1} (sub-AA tint)`);
+        // The status fills are tokens (united-*-fill in tailwind.config.js), not hex literals.
+        if (/#(FDF3E2|E7F3EA|E8F0F9|FDECEA)\b/i.test(line)) offenders.push(`${file}:${i + 1} (fill literal)`);
       });
     }
   }

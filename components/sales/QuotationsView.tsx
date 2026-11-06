@@ -9,7 +9,7 @@ import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { Field, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { Segmented } from "@/components/ui/Segmented";
-import { StatusPill, type Tone } from "@/components/ui/StatusPill";
+import { StatusPill, docTone, type Tone } from "@/components/ui/StatusPill";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
 
@@ -27,9 +27,10 @@ type QDetail = QRow & {
 };
 type Catalog = { products: { id: string; name: string; nameAr: string | null; unit: string; packagings: { uomCode: string }[] }[] };
 
-// The shared status vocabulary (StatusPill): sent and accepted wait for the next normal step,
-// converted is done, rejected is refused, cancelled is finished; an expired offer needs a look.
-const STATUS_TONE: Record<string, Tone> = { draft: "neutral", sent: "info", accepted: "info", rejected: "danger", converted: "success", cancelled: "neutral" };
+// The shared status vocabulary (StatusPill docTone) for draft, sent, rejected and cancelled;
+// a quotation's own states: accepted waits for the next normal step, converted is done. An
+// expired offer needs a look.
+const QUOTE_TONE: Record<string, Tone> = { accepted: "info", converted: "success" };
 const STATUS_LABEL: Record<string, string> = {
   draft: "sales.quotation.status.draft",
   sent: "sales.quotation.status.sent",
@@ -42,7 +43,7 @@ function QuotationStatus({ x, size }: { x: { status: string; expired: boolean };
   const { t } = useLocale();
   return x.expired
     ? <StatusPill tone="warn" size={size}>{t("sales.quotation.expired-badge")}</StatusPill>
-    : <StatusPill tone={STATUS_TONE[x.status] ?? "neutral"} size={size}>{STATUS_LABEL[x.status] ? t(STATUS_LABEL[x.status]) : ""}</StatusPill>;
+    : <StatusPill tone={docTone(x.status, QUOTE_TONE)} size={size}>{STATUS_LABEL[x.status] ? t(STATUS_LABEL[x.status]) : ""}</StatusPill>;
 }
 
 export function QuotationsView() {
@@ -188,7 +189,7 @@ function QuotationDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <div key={l.id} className="py-2 flex justify-between gap-2 text-sm">
             <div>
               <div className="font-extrabold">{localName(l.product, locale)}</div>
-              <div className="text-xs font-bold text-united-muted" dir="rtl"><span dir="ltr">{fmtQty(l.quantity, l.uomCode)} × {l.unitPrice}</span>{Number(l.discountPct) > 0 ? ` − ${l.discountPct}%` : ""}{Number(l.taxRate) > 0 ? ` ${t("sales.quotation.tax-prefix")} ${l.taxRate}%` : ""} · {l.priceSource === "list" ? t("sales.quotation.price-source.list") : t("sales.quotation.price-source.manual")}</div>
+              <div className="text-xs font-bold text-united-muted"><bdi>{fmtQty(l.quantity, l.uomCode)}</bdi> × <bdi dir="ltr">{l.unitPrice}</bdi>{Number(l.discountPct) > 0 ? <> − <bdi dir="ltr">{l.discountPct}%</bdi></> : null}{Number(l.taxRate) > 0 ? <> {t("sales.quotation.tax-prefix")} <bdi dir="ltr">{l.taxRate}%</bdi></> : null} · {l.priceSource === "list" ? t("sales.quotation.price-source.list") : t("sales.quotation.price-source.manual")}</div>
             </div>
             <span dir="ltr" className="font-extrabold">{fmtMoney(l.amounts.total)}</span>
           </div>

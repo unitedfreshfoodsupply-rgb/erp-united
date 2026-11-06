@@ -10,7 +10,7 @@ import { unitLabel } from "@/lib/format";
 import { ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { useDialogs } from "@/components/ui/Dialog";
-import { StatusPill, type Tone } from "@/components/ui/StatusPill";
+import { StatusPill, docTone, type Tone } from "@/components/ui/StatusPill";
 import { todayLocalISO } from "@/lib/localDate";
 import { FilterBar, useListState } from "@/components/ui/DataTable";
 import Link from "next/link";
@@ -48,8 +48,10 @@ type Req = {
 };
 
 const STATUSES = ["pending_approval", "approved", "ordered", "fulfilled", "rejected", "cancelled"] as const;
-// The shared status vocabulary (StatusPill): waiting on someone, a normal next step, done, refused, finished.
-const STATUS_TONE: Record<Req["status"], Tone> = { pending_approval: "warn", approved: "info", ordered: "info", fulfilled: "success", rejected: "danger", cancelled: "neutral" };
+// The shared status vocabulary (StatusPill docTone) for awaiting approval, approved (the order is
+// the next normal step), rejected and cancelled; a request's own states: ordered waits for the
+// goods, fulfilled is done.
+const PR_TONE: Record<string, Tone> = { ordered: "info", fulfilled: "success" };
 
 export function PurchaseRequestsView() {
   const { t, locale } = useLocale();
@@ -110,7 +112,7 @@ export function PurchaseRequestsView() {
             <div key={r.id} className="card p-4 flex flex-col gap-2">
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="font-extrabold" dir="ltr">{r.number}</span>
-                <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{t(`pr.status.${r.status}`)}</StatusPill>
+                <StatusPill tone={docTone(r.status, PR_TONE)}>{t(`pr.status.${r.status}`)}</StatusPill>
                 <span className="font-bold">{localName(r.product, locale)}</span>
                 <span dir="ltr">{r.quantity} {unitLabel(r.uomCode, locale)}</span>
                 {r.customer && <span className="text-united-muted">· {localName(r.customer, locale)}</span>}
