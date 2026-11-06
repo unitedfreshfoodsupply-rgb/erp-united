@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, apiPut, ApiClientError, errorMessage } from "@/lib/api-client";
 import { ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
-import { StatusPill, type Tone } from "@/components/ui/StatusPill";
+import { StatusPill, docTone, type Tone } from "@/components/ui/StatusPill";
 import { usePermissions, useSession } from "@/lib/use-session";
 import { Field, Tabs, fmtMoney } from "@/components/stock/inventory/shared";
 import { useLocale } from "@/lib/locale";
@@ -52,10 +52,13 @@ const ADDRESS: [keyof Address, TranslationKey][] = [
   ["buildingNumber", "eta.field.building-number" as TranslationKey],
 ];
 
-const fail = (toast: ReturnType<typeof useToast>, err: unknown) => toast.show(err instanceof ApiClientError ? err.message : "error.generic", "error");
+// The toast shows text, not keys: callers pass their `t`.
+const fail = (toast: ReturnType<typeof useToast>, err: unknown, t: (key: string) => string) => toast.show(err instanceof ApiClientError ? err.message : t("error.generic"), "error");
 // The shared status vocabulary (StatusPill): accepted is done, sent waits for validation, a
 // refusal or a failed send needs action now, an unknown delivery needs a look.
-const TONE: Record<string, Tone> = { valid: "success", submitting: "info", submitted: "info", rejected: "danger", invalid: "danger", receiver_rejected: "danger", unknown: "warn", failed: "danger" };
+// Shared states come from docTone; these are the tax portal's own.
+const ETA_TONE: Record<string, Tone> = { submitting: "info", receiver_rejected: "danger" };
+const etaTone = (s: string | null | undefined) => docTone(s, ETA_TONE);
 
 export function EtaView() {
   const { t } = useLocale();
@@ -97,7 +100,7 @@ function Invoices({ data }: { data: Overview }) {
         <li key={i.id} className="card p-3 flex flex-col gap-2">
           <button type="button" className="flex min-h-10 items-center justify-between gap-2 text-sm font-bold text-start" onClick={() => setOpen(open === i.id ? null : i.id)}>
             <span><span dir="ltr">{i.number}</span> · {i.buyerName} · {i.issueDate}</span>
-            <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(i.total)}</span><StatusPill tone={TONE[i.etaStatus ?? ""] ?? "neutral"}>{statusLabel(t, i)}</StatusPill></span>
+            <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(i.total)}</span><StatusPill tone={etaTone(i.etaStatus)}>{statusLabel(t, i)}</StatusPill></span>
           </button>
           {open === i.id && <InvoiceEta id={i.id} />}
         </li>
@@ -118,7 +121,7 @@ function CreditNotes({ data }: { data: Overview }) {
         <li key={c.id} className="card p-3 flex flex-col gap-2">
           <button type="button" className="flex min-h-10 items-center justify-between gap-2 text-sm font-bold text-start" onClick={() => setOpen(open === c.id ? null : c.id)}>
             <span><span dir="ltr">{c.number}</span> · {t("eta.credit-note-on")} <span dir="ltr">{c.invoiceNumber}</span> · {c.buyerName} · {c.issueDate}</span>
-            <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(c.total)}</span><StatusPill tone={TONE[c.etaStatus ?? ""] ?? "neutral"}>{statusLabel(t, c)}</StatusPill></span>
+            <span className="flex items-center gap-2"><span dir="ltr">{fmtMoney(c.total)}</span><StatusPill tone={etaTone(c.etaStatus)}>{statusLabel(t, c)}</StatusPill></span>
           </button>
           {open === c.id && <InvoiceEta id={c.id} base="credit-notes" />}
         </li>
@@ -138,7 +141,7 @@ function InvoiceEta({ id, base = "invoices" }: { id: string; base?: "invoices" |
   const q = useQuery({ queryKey: ["eta", base, id], queryFn: () => apiFetch<{ ready: boolean; issues: Issue[]; api: { enabled: boolean; from: string | null; eligible: boolean }; eta: EtaState | null; document: unknown; documentSource?: "signed" | "draft"; receiverEditHref?: string | null }>(`/api/eta/${base}/${id}`) });
   const act = async (path: string, body?: unknown) => {
     setBusy(true);
-    try { await apiPost(`/api/eta/${base}/${id}/${path}`, body); toast.show("orders.item.done", "success"); } catch (err) { fail(toast, err); } finally { setBusy(false); void qc.invalidateQueries({ queryKey: ["eta"] }); }
+    try { await apiPost(`/api/eta/${base}/${id}/${path}`, body); toast.show(t("orders.item.done"), "success"); } catch (err) { fail(toast, err, t); } finally { setBusy(false); void qc.invalidateQueries({ queryKey: ["eta"] }); }
   };
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
@@ -253,7 +256,7 @@ function Pending() {
             <span className="flex flex-wrap items-center gap-2">
               <span dir="ltr">{fmtMoney(r.total)}</span>
               {r.ageHours !== null && <StatusPill tone={r.ageHours >= 72 ? "danger" : "warn"}>{t("eta.age-hours", { hours: String(r.ageHours) })}</StatusPill>}
-              <StatusPill tone={TONE[r.etaStatus ?? ""] ?? "neutral"}>{statusLabel(t, r)}</StatusPill>
+              <StatusPill tone={etaTone(r.etaStatus)}>{statusLabel(t, r)}</StatusPill>
               {!r.apiEligible && <span className="text-xs text-united-muted">{t("eta.api-portal-only")}</span>}
             </span>
           </li>
@@ -270,7 +273,7 @@ function Setup({ data }: { data: Overview }) {
   const toast = useToast();
   const qc = useQueryClient();
   const save = async (path: string, body: unknown) => {
-    try { await apiPut(path, body); toast.show("orders.edit.save_success", "success"); void qc.invalidateQueries({ queryKey: ["eta"] }); } catch (err) { fail(toast, err); }
+    try { await apiPut(path, body); toast.show(t("orders.edit.save_success"), "success"); void qc.invalidateQueries({ queryKey: ["eta"] }); } catch (err) { fail(toast, err, t); }
   };
   const p = data.issuer.profile;
   const [issuer, setIssuer] = useState<Record<string, string>>({ eta_branch_id: p?.eta_branch_id ?? "", activity_code: p?.activity_code ?? "", ...Object.fromEntries(ADDRESS.map(([k]) => [k, p?.[k] ?? ""])) });

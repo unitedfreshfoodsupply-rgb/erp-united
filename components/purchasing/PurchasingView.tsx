@@ -193,8 +193,8 @@ function LineEditor({ lines, setLines, withPrice, t }: { lines: { product_id: st
             <Field label={t("purchasing.line.quantity.placeholder")} required><input className="field" inputMode="decimal" dir="ltr" value={l.quantity} onChange={(e) => set(i, { quantity: e.target.value })} /></Field>
             <Field label={t("purchasing.line.unit.default")}>
               <select className="field" value={l.uom} onChange={(e) => set(i, { uom: e.target.value })}>
-                <option value="">{p?.unit ?? t("purchasing.line.unit.default")}</option>
-                {(p?.packagings ?? []).map((x) => <option key={x.uomCode} value={x.uomCode}>{x.uomCode}</option>)}
+                <option value="">{p?.unit ? unitLabel(p.unit) : t("purchasing.line.unit.default")}</option>
+                {(p?.packagings ?? []).map((x) => <option key={x.uomCode} value={x.uomCode}>{unitLabel(x.uomCode)}</option>)}
               </select>
             </Field>
             {withPrice && <Field label={t("purchasing.line.price.placeholder")}><input className="field" inputMode="decimal" dir="ltr" value={l.unit_price} onChange={(e) => set(i, { unit_price: e.target.value })} /></Field>}
@@ -298,8 +298,9 @@ function PoDetail({ id, onClose, locale, t, poStatus }: { id: string; onClose: (
               {l.amounts && <span dir="ltr">{fmtMoney(l.amounts.total)}</span>}
             </div>
             <div className="flex flex-wrap justify-between gap-2 text-xs font-bold text-united-muted">
-              <span dir="ltr">{fmtQty(l.quantity, l.uomCode)}{l.uomCode !== l.product.unit ? ` = ${fmtQty(l.baseQuantity, l.product.unit)}` : ""}{l.unitPrice ? ` × ${l.unitPrice}` : ""}</span>
-              <span>{t("purchasing.po_detail.qty_good")} {fmtQty(l.receivedGood, l.product.unit)}{Number(l.rejected) ? ` · ${t("purchasing.po_detail.rejected")} ${fmtQty(l.rejected, l.product.unit)}` : ""} · {t("purchasing.po_detail.remaining")} {fmtQty(l.remaining, l.product.unit)}</span>
+              {/* Each figure isolated, so in Arabic the unit stays with its quantity: "40 كجم × 11.75". */}
+              <span><bdi>{fmtQty(l.quantity, l.uomCode)}</bdi>{l.uomCode !== l.product.unit ? <> = <bdi>{fmtQty(l.baseQuantity, l.product.unit)}</bdi></> : null}{l.unitPrice ? <> × <bdi dir="ltr">{l.unitPrice}</bdi></> : null}</span>
+              <span>{t("purchasing.po_detail.qty_good")} <bdi>{fmtQty(l.receivedGood, l.product.unit)}</bdi>{Number(l.rejected) ? <> · {t("purchasing.po_detail.rejected")} <bdi>{fmtQty(l.rejected, l.product.unit)}</bdi></> : null} · {t("purchasing.po_detail.remaining")} <bdi>{fmtQty(l.remaining, l.product.unit)}</bdi></span>
             </div>
           </div>
         ))}
@@ -384,7 +385,7 @@ function Rfqs({ onOpenPo, seedLines, onSeedUsed, locale, t }: { onOpenPo: (id: s
           <li key={r.id}>
             <button type="button" className="card p-3 w-full text-start flex justify-between" onClick={() => setOpen(r.id)}>
               <span className="font-extrabold" dir="ltr">{r.number}</span>
-              <span className="text-xs font-bold text-united-muted">{r._count.lines} {t("purchasing.rfqs.items_count")} · {r.suppliers.filter((s) => s.status === "quoted").length}/{r._count.suppliers} {t("purchasing.rfqs.responses")} · {rfqStatus(t, r.status)}</span>
+              <span className="text-xs font-bold text-united-muted">{r._count.lines} {t(r._count.lines === 1 ? "purchasing.rfqs.items_count_one" : "purchasing.rfqs.items_count")} · {r.suppliers.filter((s) => s.status === "quoted").length}/{r._count.suppliers} {t("purchasing.rfqs.responses")} · {rfqStatus(t, r.status)}</span>
             </button>
           </li>
         ))}
@@ -450,7 +451,7 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
         <h3 className="font-extrabold">{t("purchasing.rfq.comparison_title")}</h3>
         {r.comparison.map((c) => (
           <div key={c.line.id} className="border-b border-united-dark/5 pb-2">
-            <div className="font-extrabold text-sm">{localName(c.line.product, locale)} · <span dir="ltr">{fmtQty(c.line.quantity, c.line.uomCode)}</span></div>
+            <div className="font-extrabold text-sm">{localName(c.line.product, locale)} · <bdi>{fmtQty(c.line.quantity, c.line.uomCode)}</bdi></div>
             {c.quotes.length === 0 && <p className="text-xs font-bold text-united-muted">{t("purchasing.rfq.no_quotes")}</p>}
             {c.quotes.map((x) => (
               <label key={x.supplier.id} className="flex items-center justify-between text-sm font-bold py-1">
@@ -461,7 +462,7 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
                   {x.awarded ? ` · ${t("purchasing.rfq.awarded_text")}` : ""}
                   {x.leadTimeDays != null ? ` · ${x.leadTimeDays} ${t("purchasing.rfq.days_label")}` : ""}
                 </span>
-                <span dir="ltr">{x.unitPrice} / {c.line.uomCode}</span>
+                <span><bdi dir="ltr">{x.unitPrice}</bdi> / <bdi>{unitLabel(c.line.uomCode)}</bdi></span>
               </label>
             ))}
           </div>
@@ -488,7 +489,7 @@ function RfqView({ id, onClose, onOpenPo, locale, t }: { id: string; onClose: ()
           </Field>
           {quote.supplier && r.comparison.map((c) => (
             <div key={c.line.id} className="flex items-center gap-2 text-sm font-bold">
-              <span className="flex-1">{localName(c.line.product, locale)} ({c.line.uomCode})</span>
+              <span className="flex-1">{localName(c.line.product, locale)} (<bdi>{unitLabel(c.line.uomCode)}</bdi>)</span>
               <input className="field w-32" inputMode="decimal" dir="ltr" placeholder={t("purchasing.rfq.quote_price")} aria-label={`${t("purchasing.rfq.quote_price")} — ${localName(c.line.product, locale)}`} value={quote.prices[c.line.id] ?? ""} onChange={(e) => setQuote({ ...quote, prices: { ...quote.prices, [c.line.id]: e.target.value } })} />
             </div>
           ))}

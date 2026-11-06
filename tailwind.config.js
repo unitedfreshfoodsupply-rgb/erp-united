@@ -23,6 +23,12 @@ module.exports = {
           warn: "rgb(var(--u-warn-rgb) / <alpha-value>)", // 5.0:1 on white
           danger: "rgb(var(--u-danger-rgb) / <alpha-value>)", // 6.6:1
           info: "rgb(var(--u-info-rgb) / <alpha-value>)", // 6.6:1
+          // Status fills (the pill backgrounds): the matching status text keeps 4.5:1 on each,
+          // unlike a /10 or /15 tint of warn or green. For status callouts and banners.
+          "warn-fill": "rgb(var(--u-warn-fill-rgb) / <alpha-value>)", // #FDF3E2, warn text 4.57:1
+          "success-fill": "rgb(var(--u-success-fill-rgb) / <alpha-value>)", // #E7F3EA, green text 4.56:1
+          "info-fill": "rgb(var(--u-info-fill-rgb) / <alpha-value>)", // #E8F0F9, info text 5.71:1
+          "danger-fill": "rgb(var(--u-danger-fill-rgb) / <alpha-value>)", // #FDECEA, danger text 5.75:1
           border: "rgb(var(--u-border-rgb) / <alpha-value>)",
           "border-strong": "rgb(var(--u-border-strong-rgb) / <alpha-value>)",
           field: "rgb(var(--u-field-rgb) / <alpha-value>)", // form-control outline (3.1:1, WCAG 1.4.11)

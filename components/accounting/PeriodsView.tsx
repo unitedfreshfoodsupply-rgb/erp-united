@@ -66,7 +66,12 @@ export function PeriodsView() {
     try {
       const c = await apiFetch<{ warnings: { code: string; count: number }[] }>(`/api/accounting/periods/${code}/checklist`);
       if (c.warnings.length) {
-        const body = c.warnings.map((w) => `• ${t(`periods.close-warning.${w.code}` as "periods.close-warning.draft_invoices", { count: String(w.count) })}`).join("\n");
+        // One warning per line; a single item reads in the singular ("1 supplier bill").
+        const body = (
+          <ul className="list-disc ps-5 flex flex-col gap-0.5">
+            {c.warnings.map((w) => <li key={w.code}>{t(`periods.close-warning.${w.code}${w.count === 1 ? ".one" : ""}`, { count: String(w.count) })}</li>)}
+          </ul>
+        );
         if (!(await dialogs.confirm({ title: t("periods.close-warnings-title", { code }), body, tone: "danger", confirmLabel: t("periods.close-anyway"), cancelLabel: t("ui.back") }))) return;
         warned = true;
       }
@@ -133,8 +138,12 @@ export function PeriodsView() {
           {(periods.data ?? []).map((m) => (
             <li key={m.id} className="card p-3 flex flex-wrap justify-between items-center gap-2 font-bold">
               <span dir="ltr">{m.code}</span>
-              <span className={m.status === "open" ? "text-united-green" : "text-united-muted"}>
-                {m.status === "open" ? t("accounting.period.open") : t("accounting.period.closed", { by: m.closedBy ?? "" })}
+              {/* The same pill as the fiscal year's status; who closed it reads beside it. */}
+              <span className="flex flex-col items-center gap-0.5">
+                <span className="flex flex-wrap items-center gap-2">
+                  <StatusPill tone={m.status === "open" ? "success" : "neutral"}>{t(m.status === "open" ? "periods.status.open" : "periods.status.closed")}</StatusPill>
+                  {m.status !== "open" && m.closedBy && <span className="text-xs font-normal text-united-muted">{t("periods.year-closed-by", { by: m.closedBy })}</span>}
+                </span>
                 {m.reopenCount > 0 && <span className="block text-xs font-normal text-united-muted">{t("periods.reopened-times", { n: String(m.reopenCount), by: m.reopenedBy ?? "" })}</span>}
               </span>
               {m.status === "open" && can("accounting.periods.close") && <button type="button" className="btn-danger btn-sm" disabled={!!busy} aria-busy={busy === `close:${m.code}`} onClick={() => closeMonth(m.code)}>{busy === `close:${m.code}` ? t("ui.working") : t("accounting.button.close")}</button>}

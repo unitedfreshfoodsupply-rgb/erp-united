@@ -22,6 +22,13 @@
   --u-warn-rgb: 180 83 9;         /* #B45309 */
   --u-danger-rgb: 180 35 24;      /* #B42318 */
   --u-info-rgb: 29 95 160;        /* #1D5FA0 */
+  /* Status fills (the pill backgrounds): each status colour above keeps 4.5:1 on its own fill
+     (warn 4.57, success 4.56, info 5.71, danger 5.75), where /10 and /15 tints of warn and
+     green fall below it. Use these for status callouts and banners, not opacity tints. */
+  --u-warn-fill-rgb: 253 243 226;    /* #FDF3E2 */
+  --u-success-fill-rgb: 231 243 234; /* #E7F3EA */
+  --u-info-fill-rgb: 232 240 249;    /* #E8F0F9 */
+  --u-danger-fill-rgb: 253 236 234;  /* #FDECEA */
 
   /* Plain-CSS aliases (dialogs, focus, charts). */
   --u-ink: rgb(var(--u-ink-rgb));
@@ -389,16 +396,16 @@ dialog::backdrop {
     @apply pill bg-united-subtle text-united-muted border-united-border;
   }
   .pill-info {
-    @apply pill bg-[#E8F0F9] text-united-info border-[#C9DBEF];
+    @apply pill bg-united-info-fill text-united-info border-[#C9DBEF];
   }
   .pill-success {
-    @apply pill bg-[#E7F3EA] text-united-green border-[#C3E2CC];
+    @apply pill bg-united-success-fill text-united-green border-[#C3E2CC];
   }
   .pill-warn {
-    @apply pill bg-[#FDF3E2] text-united-warn border-[#F3D9AE];
+    @apply pill bg-united-warn-fill text-united-warn border-[#F3D9AE];
   }
   .pill-danger {
-    @apply pill bg-[#FDECEA] text-united-danger border-[#F5C6C1];
+    @apply pill bg-united-danger-fill text-united-danger border-[#F5C6C1];
   }
   .pill-dot {
     @apply inline-block w-1.5 h-1.5 rounded-full bg-current shrink-0;

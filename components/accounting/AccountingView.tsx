@@ -465,6 +465,8 @@ function Journals() {
   const crTotal = used.reduce((a, l) => a + piastres(l.credit), 0);
   const linesOk = used.length >= 2 && used.every((l) => l.account_id && Number.isFinite(Number(l.debit || 0)) && Number.isFinite(Number(l.credit || 0)) && (piastres(l.debit) > 0) !== (piastres(l.credit) > 0));
   const balanced = drTotal === crTotal && drTotal > 0;
+  // The server requires a description (البيان); say so here rather than after a refused post.
+  const described = m.description.trim().length > 0;
   return (
     <div className="flex flex-col gap-3">
       <JournalRequests />
@@ -472,9 +474,9 @@ function Journals() {
         <details className="card p-4">
           <summary className="font-extrabold cursor-pointer">{t("accounting.button.manual-journal")}</summary>
           <div className="flex flex-col gap-2 mt-2">
-            <div className="grid grid-cols-2 gap-2">
-              <input type="date" className="field" aria-label={t("accounting.form.date")} value={m.date} onChange={(e) => setM({ ...m, date: e.target.value })} />
-              <Field label={t("accounting.description")}><input className="field" value={m.description} onChange={(e) => setM({ ...m, description: e.target.value })} /></Field>
+            <div className="grid grid-cols-2 gap-2 items-start">
+              <Field label={t("accounting.form.date")} required><input type="date" className="field" required value={m.date} onChange={(e) => setM({ ...m, date: e.target.value })} /></Field>
+              <Field label={t("accounting.description")} required><input className="field" required value={m.description} onChange={(e) => setM({ ...m, description: e.target.value })} /></Field>
             </div>
             {m.lines.map((l, i) => (
               <div key={i} className="grid grid-cols-[1fr_6rem_6rem_auto] sm:grid-cols-[1fr_10rem_6rem_6rem_auto] gap-2 items-end">
@@ -494,9 +496,10 @@ function Journals() {
               <div><dt className="font-bold text-united-muted">{t("accounting.detail.difference")}</dt><dd className={`font-extrabold tabular-nums ${drTotal === crTotal ? "text-united-green" : "text-united-danger"}`} dir="ltr" aria-live="polite" aria-atomic="true">{drTotal === crTotal ? t("accounting.journal.balanced") : fmtMoney((drTotal - crTotal) / 100)}</dd></div>
             </dl>
             {!linesOk && used.length > 0 && <p className="text-xs font-bold text-united-muted">{t("accounting.journal.need-lines")}</p>}
+            {linesOk && balanced && !described && <p className="text-xs font-bold text-united-muted">{t("accounting.journal.need-description")}</p>}
             <div className="flex gap-2">
               <button type="button" className="btn-secondary" onClick={() => setM({ ...m, lines: [...m.lines, { account_id: "", debit: "", credit: "", cost_center_id: "" }] })}>{t("accounting.button.add-line")}</button>
-              <button type="button" className="btn-primary" disabled={!linesOk || !balanced || !!posting} aria-busy={!!posting} onClick={() => guard("post", async () => {
+              <button type="button" className="btn-primary" disabled={!linesOk || !balanced || !described || !!posting} aria-busy={!!posting} onClick={() => guard("post", async () => {
                 try {
                   const res = await apiPost<{ journal?: { number: string }; journalRequest?: { number: string } }>("/api/accounting/journals", { date: m.date, description: m.description, lines: m.lines.filter((l) => l.account_id).map((l) => ({ account_id: l.account_id, debit: l.debit || 0, credit: l.credit || 0, ...(l.cost_center_id ? { cost_center_id: l.cost_center_id } : {}) })), idempotency_key: mKey });
                   toast.show(res.journalRequest ? t("journal.toast-pending", { number: res.journalRequest.number }) : t("journal.toast-posted", { number: res.journal?.number ?? "" }), "success");
@@ -869,7 +872,7 @@ function Health() {
   return (
     <div className="flex flex-col gap-3">
       <ProvisionalOpeningBanner />
-      <section className={`card p-4 font-extrabold ${r.ok ? "bg-[#E7F3EA] text-united-green" : "bg-[#FDECEA] text-united-danger"}`}>
+      <section className={`card p-4 font-extrabold ${r.ok ? "bg-united-success-fill text-united-green" : "bg-united-danger-fill text-united-danger"}`}>
         {r.ok ? t("accounting.health-matched") : t("accounting.health-diff")}
         <div className="text-xs font-bold text-united-muted mt-1">{t("accounting.last-checked")} {new Date(r.checkedAt).toLocaleString(intlLocale(locale))}</div>
       </section>
@@ -891,7 +894,7 @@ function Health() {
                 {Array.isArray(c.detail) && c.detail.length > 0 && (
                   <ul className="flex flex-col">
                     {(c.detail as WasteRow[]).map((w) => (
-                      <li key={w.productId} className="flex justify-between gap-2"><span>{localName(w, locale)}</span><span dir="ltr">{fmtQty(w.quantity, w.unit)} · {fmtMoney(w.value)}</span></li>
+                      <li key={w.productId} className="flex justify-between gap-2"><span>{localName(w, locale)}</span><span><bdi>{fmtQty(w.quantity, w.unit)}</bdi> · <bdi dir="ltr">{fmtMoney(w.value)}</bdi></span></li>
                     ))}
                   </ul>
                 )}

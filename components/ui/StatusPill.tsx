@@ -5,11 +5,11 @@ import type { ReactNode } from "react";
  * colour alone (WCAG 1.4.1) and never an emoji (they render differently per device).
  *
  * Tones carry meaning, not decoration:
- *   neutral — nothing to do (draft, finished, cancelled)
+ *   neutral — nothing to do (draft, finished, cancelled, voided)
  *   info    — new / approved, waiting for the next normal step
  *   warn    — in progress or waiting on someone (pending approval, partial)
  *   success — done correctly (posted, paid, delivered)
- *   danger  — failed, rejected, voided, needs action now
+ *   danger  — failed, rejected, needs action now
  */
 export type Tone = "neutral" | "info" | "warn" | "success" | "danger";
 
@@ -53,8 +53,9 @@ export const DOC_STATUS_TONE: Record<string, Tone> = {
   delivered: "success",
   partial: "warn",
   cancelled: "neutral",
-  void: "danger",
-  voided: "danger",
+  // A voided draft was never issued: finished, like a cancelled document, not an alarm.
+  void: "neutral",
+  voided: "neutral",
   rejected: "danger",
   invalid: "danger",
   failed: "danger",

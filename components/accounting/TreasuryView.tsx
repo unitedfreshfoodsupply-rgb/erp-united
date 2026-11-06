@@ -7,7 +7,7 @@ import { newClientKey } from "@/lib/clientKey";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { useDialogs } from "@/components/ui/Dialog";
-import { StatusPill } from "@/components/ui/StatusPill";
+import { StatusPill, docTone } from "@/components/ui/StatusPill";
 import { usePermissions } from "@/lib/use-session";
 import { useLocale } from "@/lib/locale";
 import { localName } from "@/lib/locale/names";
@@ -198,7 +198,7 @@ function Transfers({ manage }: { manage: boolean }) {
                   <td>{localName(r.from, locale)}</td>
                   <td>{localName(r.to, locale)}</td>
                   <td className="num" dir="ltr">{fmtMoney(r.amount)}{Number(r.fee) ? <span className="block text-xs text-united-muted">+ {fmtMoney(r.fee)}</span> : null}</td>
-                  <td>{r.reversal ? <StatusPill tone="neutral" strike>{t("treasury.status.reversed")}</StatusPill> : <StatusPill tone={r.status === "posted" ? "success" : r.status === "pending_approval" ? "warn" : "danger"}>{t(`treasury.status.${r.status}`)}</StatusPill>}</td>
+                  <td>{r.reversal ? <StatusPill tone="neutral" strike>{t("treasury.status.reversed")}</StatusPill> : <StatusPill tone={docTone(r.status)}>{t(`treasury.status.${r.status}`)}</StatusPill>}</td>
                   {manage && <td>{r.status === "posted" && !r.reversal && <button type="button" className="btn-danger btn-sm" onClick={() => reverse(r)}>{t("accounting.button.reverse")}</button>}</td>}
                 </tr>
               ))}

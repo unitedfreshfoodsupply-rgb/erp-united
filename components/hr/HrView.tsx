@@ -664,7 +664,7 @@ function Departments() {
                       {d.active ? (
                         <button
                           type="button"
-                          className="btn-ghost btn-sm text-united-danger hover:bg-[#FDECEA] disabled:opacity-40"
+                          className="btn-ghost btn-sm text-united-danger hover:bg-united-danger-fill disabled:opacity-40"
                           disabled={busy || (d.activeEmployees ?? 0) > 0}
                           title={(d.activeEmployees ?? 0) > 0 ? t("hr.department.close_blocked") : undefined}
                           onClick={() => void save({ code: d.code, name: d.name, name_ar: d.nameAr ?? null, active: false }, t("hr.department.closed"))}

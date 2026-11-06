@@ -131,7 +131,7 @@ export function DataImportPanel({ allowed }: { allowed: Partial<Record<Kind, boo
       {preview && <section className="card p-4 flex flex-col gap-3">
         <h3 className="font-extrabold text-united-dark">{t("admin.data-import.preview-title", { rowCount: preview.rowCount, errorCount: preview.errorCount })}</h3>
         {preview.errorCount === 0 ? <p className="text-sm font-bold text-united-green">{t("admin.data-import.preview-passed")}</p> : null}
-        <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-start"><th className="p-2">{t("admin.data-import.table-row")}</th><th className="p-2">{t("admin.data-import.table-label")}</th><th className="p-2">{t("admin.data-import.table-status")}</th></tr></thead><tbody>
+        <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr><th className="p-2 text-start">{t("admin.data-import.table-row")}</th><th className="p-2 text-start">{t("admin.data-import.table-label")}</th><th className="p-2 text-start">{t("admin.data-import.table-status")}</th></tr></thead><tbody>
           {shownRows.map((row) => <tr className="border-t border-united-border" key={row.rowNumber}><td className="p-2">{row.rowNumber}</td><td className="p-2" dir="auto">{row.code && row.code !== row.label ? `${row.code} · ` : ""}{localName({ name: row.label, nameAr: row.labelAr }, locale)}</td><td className={`p-2 font-bold ${row.errors.length ? "text-united-danger" : "text-united-green"}`}>{row.errors.length ? row.errors.join(" · ") : t("admin.data-import.ready")}</td></tr>)}
         </tbody></table></div>
         {preview.rows.length > shownRows.length && <p className="text-xs font-bold text-united-muted">{t("admin.data-import.preview-truncated")}</p>}

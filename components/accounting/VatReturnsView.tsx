@@ -6,7 +6,7 @@ import { apiFetch, apiPost, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { useDialogs } from "@/components/ui/Dialog";
-import { StatusPill } from "@/components/ui/StatusPill";
+import { StatusPill, docTone } from "@/components/ui/StatusPill";
 import { usePermissions } from "@/lib/use-session";
 import { useLocale } from "@/lib/locale";
 import { todayLocalISO } from "@/lib/localDate";
@@ -100,7 +100,7 @@ export function VatReturnsView() {
                   <td className="num" dir="ltr">{fmtMoney(r.inputUsed)}</td>
                   <td className="num" dir="ltr">{fmtMoney(r.payable)}</td>
                   <td className="num" dir="ltr">{fmtMoney(r.carryForward)}</td>
-                  <td><StatusPill tone={r.status === "paid" ? "success" : r.status === "filed" ? "warn" : "neutral"} strike={r.status === "voided"}>{t(`vat.status.${r.status}`)}</StatusPill></td>
+                  <td><StatusPill tone={docTone(r.status, { filed: "warn" })} strike={r.status === "voided"}>{t(`vat.status.${r.status}`)}</StatusPill></td>
                   {manage && (
                     <td className="whitespace-nowrap">
                       {r.status === "filed" && <button type="button" className="btn-primary btn-sm" onClick={() => setPaying(r)}>{t("vat.pay")}</button>}
