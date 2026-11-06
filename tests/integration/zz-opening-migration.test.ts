@@ -5,7 +5,9 @@
    posts once; unmatched rows wait in the exception register; the migration closes only when
    every check passes and someone other than the requester approves. Synthetic data only.
    A migration is permanent and closes the direct opening forms, so this file runs last
-   ("zz-") and, on a database where the opening is already done, only checks that it stays closed. */
+   ("zz-") and, on a database where the opening is already done, only checks that it stays closed.
+   When this run started the migration, it removes everything it wrote at the end (see cleanUp),
+   so the suites can run again without a test:reset. */
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { Prisma } from "@prisma/client";
@@ -30,7 +32,58 @@ const sales = actor("مبيعات", ["sales.customers.view", "sales.customers.ma
 const D = (v: Prisma.Decimal.Value | null | undefined) => new Prisma.Decimal(v ?? 0);
 const status = (s: number) => (e: any) => e?.status === s;
 
-after(async () => { await prisma.$disconnect(); });
+// Set when this run starts the migration: everything written from then on is this file's (the
+// suites run one file at a time, and nothing else writes to the test database meanwhile).
+let startedAt: Date | null = null;
+
+/**
+ * Test hygiene: the database refuses to delete a migration, its posted entries, stock movements
+ * or audit rows (append-only triggers), as it must. On the test database those guards are
+ * suspended for one transaction (session_replication_role = replica, which also skips the
+ * foreign-key actions, so children are deleted explicitly) and the run's rows go: the migration,
+ * its batches, exceptions, opening balances, journal entries, stock, approvals, notifications,
+ * audit rows and the parties it created. Number sequences keep their advanced counters.
+ */
+async function cleanUp(since: Date) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
+    const recent = { createdAt: { gte: since } };
+    const entries = (await tx.journalEntry.findMany({ where: recent, select: { id: true } })).map((e) => e.id);
+    const batches = (await tx.openingBatch.findMany({ where: recent, select: { id: true } })).map((b) => b.id);
+    const requests = (await tx.approvalRequest.findMany({ where: recent, select: { id: true } })).map((r) => r.id);
+    await tx.journalLine.deleteMany({ where: { entryId: { in: entries } } });
+    await tx.openingBatchLine.deleteMany({ where: { batchId: { in: batches } } });
+    await tx.approvalDecision.deleteMany({ where: { OR: [{ requestId: { in: requests } }, recent] } });
+    await tx.stockValuationPosting.deleteMany({ where: recent });
+    await tx.stockValuationLayer.deleteMany({ where: recent });
+    await tx.stockMovement.deleteMany({ where: recent });
+    await tx.stockLot.deleteMany({ where: recent });
+    await tx.inventoryDocument.deleteMany({ where: recent });
+    await tx.stockProduct.deleteMany({ where: recent });
+    await tx.journalEntry.deleteMany({ where: { id: { in: entries } } });
+    await tx.partyOpeningBalance.deleteMany({ where: recent });
+    await tx.openingException.deleteMany({ where: recent });
+    await tx.openingBatch.deleteMany({ where: { id: { in: batches } } });
+    await tx.openingMigration.deleteMany({ where: recent });
+    await tx.approvalRequest.deleteMany({ where: { id: { in: requests } } });
+    await tx.notification.deleteMany({ where: recent });
+    await tx.customerAlias.deleteMany({ where: recent });
+    await tx.customer.deleteMany({ where: recent });
+    await tx.supplier.deleteMany({ where: recent });
+    await tx.auditLog.deleteMany({ where: { timestamp: { gte: since } } });
+  }, { timeout: 60_000 });
+}
+
+after(async () => {
+  try {
+    if (startedAt) {
+      await cleanUp(startedAt);
+      assert.equal(await prisma.openingMigration.count(), 0, "the run's migration is gone, so the next run starts from the same state");
+    }
+  } finally {
+    await prisma.$disconnect();
+  }
+});
 
 const balance = async (systemKey: string) => {
   const [r] = await prisma.$queryRaw<{ v: Prisma.Decimal | null }[]>`SELECT sum(l."debit" - l."credit") AS v FROM "JournalLine" l JOIN "Account" a ON a."id" = l."accountId" WHERE a."systemKey" = ${systemKey}`;
@@ -48,6 +101,7 @@ test("phased opening migration: suppliers, customers, the rest, then a second pe
     t.skip("the opening migration needs a database where the opening has not started (fresh test database)");
     return;
   }
+  startedAt = new Date(Date.now() - 1000);
   const [u1, u2] = await prisma.user.findMany({ where: { active: true }, orderBy: { username: "asc" }, take: 2, select: { id: true } });
   prep = { ...prep, id: u1.id };
   checker = { ...checker, id: u2.id };
