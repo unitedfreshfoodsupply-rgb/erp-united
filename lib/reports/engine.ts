@@ -7,6 +7,7 @@ import { mayOpenLink } from "@/lib/reports/page-access";
 import type { ReportColumn, ReportDef, ReportParams, ReportResult } from "@/lib/reports/types";
 import type { Permission } from "@/lib/permissions";
 import { systemText } from "@/lib/locale/system-text";
+import { codedText } from "@/lib/reports/labels";
 import { csvCell } from "@/lib/core/csv-export";
 
 type Viewer = { can: (p: Permission) => boolean };
@@ -76,7 +77,12 @@ export async function runReport(key: string, p: ReportParams, viewer: Viewer) {
 
 type Ran = Awaited<ReturnType<typeof runReport>>;
 /** Stored system text ("رصيد أول المدة", movement kinds…) in the export's language; names and user text stay as stored. */
-const localRows = (r: Ran, lang: "ar" | "en") => (lang === "ar" ? r.rows : r.rows.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, typeof v === "string" && r.columns.some((c) => c.key === k && c.type === "text" && !/_(ar|en)$/.test(k)) ? systemText(v, lang) : v]))));
+/** Coded columns (`labels`: statuses) read as words in either language. */
+const localRows = (r: Ran, lang: "ar" | "en") => {
+  const coded = r.columns.filter((c) => c.labels);
+  const rows = coded.length ? r.rows.map((row) => ({ ...row, ...Object.fromEntries(coded.map((c) => [c.key, codedText(c, row[c.key], lang) ?? row[c.key]])) })) : r.rows;
+  return lang === "ar" ? rows : rows.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, typeof v === "string" && r.columns.some((c) => c.key === k && c.type === "text" && !c.labels && !/_(ar|en)$/.test(k)) ? systemText(v, lang) : v])));
+};
 const cell = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 
 /** CSV in the chosen language: UTF-8 with a BOM (Excel opens Arabic correctly), header row, rows, totals row. */

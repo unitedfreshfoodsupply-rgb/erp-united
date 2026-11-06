@@ -12,13 +12,15 @@ import { useLocale } from "@/lib/locale";
 import { formatNumber } from "@/lib/format";
 import { localName } from "@/lib/locale/names";
 import { systemText } from "@/lib/locale/system-text";
+import { codedText } from "@/lib/reports/labels";
 import { todayLocalISO } from "@/lib/localDate";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ErrorState } from "@/components/States";
+import { CardSkeleton } from "@/components/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 
 type Bi = { ar: string; en: string };
-type Col = { key: string; label: Bi; type: "text" | "code" | "date" | "money" | "qty" | "number" | "percent"; total?: boolean };
+type Col = { key: string; label: Bi; type: "text" | "code" | "date" | "money" | "qty" | "number" | "percent"; total?: boolean; labels?: string };
 type Row = Record<string, string | number | null> & { _href?: string | null; _tone?: "warn" | "danger" | null };
 type Ran = { key: string; title: Bi; description: Bi; notes: Bi | null; filters: string[]; params: Record<string, string>; columns: Col[]; rows: Row[]; totals: Record<string, string | number | null>; warnings: Bi[]; scope: Bi | null };
 
@@ -68,6 +70,9 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
   const cols = r ? r.columns.filter((c) => { const tw = twin(c.key); return !tw || !keys.has(tw) || c.key.endsWith(lang === "ar" ? "_ar" : "_en"); }) : [];
   const fmt = (c: Col, v: unknown) => {
     if (v === null || v === undefined || v === "") return "—";
+    // A stored status code reads as its words ("ready_for_loading" → جاهز للتحميل / Ready for Loading).
+    const coded = codedText(c, v, lang);
+    if (coded) return coded;
     if (c.type === "money") return formatNumber(v as string, { minDp: 2, maxDp: 2 });
     if (c.type === "qty") return formatNumber(v as number, { maxDp: 3 });
     if (c.type === "number") return formatNumber(v as number, { maxDp: 1 });
@@ -119,7 +124,15 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
           </div>
         )}
       </div>
-      {q.isError && !r && <ErrorState message={errorMessage(q.error) ?? t("ui.error.generic")} onRetry={() => q.refetch()} />}
+      {/* Until the first result arrives: a loading state, not an empty page. */}
+      {q.isPending && !r && (
+        <div className="flex flex-col gap-3">
+          <CardSkeleton lines={2} />
+          <CardSkeleton lines={6} />
+        </div>
+      )}
+      {/* A refusal (no permission, unknown report) is final: no Retry; the back link stays. */}
+      {q.isError && !r && <ErrorState message={errorMessage(q.error) ?? t("ui.error.generic")} onRetry={refusal(q.error) ? undefined : () => q.refetch()} />}
       {r && (
         <>
           <header className="flex flex-col gap-1">
@@ -182,6 +195,12 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
       )}
     </div>
   );
+}
+
+/** A 4xx other than a timeout or rate limit: asking again gives the same answer. */
+function refusal(error: unknown) {
+  const status = (error as { status?: number } | null)?.status;
+  return !!status && status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
 
 function ExportMenu({ onPick, t }: { onPick: (f: "csv" | "xls", l: "ar" | "en") => void; t: (k: string) => string }) {

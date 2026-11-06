@@ -13,7 +13,9 @@ export type ColumnType = "text" | "code" | "date" | "money" | "qty" | "number" |
 /** `cost`: a cost or a figure derived from cost (stock value, unit cost, cost of sales, margin). It is
  *  shown only to viewers who may see what stock is worth (stock.valuation.view), as everywhere else
  *  (lib/security/redact.ts): the report stays open to its other viewers without those columns. */
-export type ReportColumn = { key: string; label: Bilingual; type: ColumnType; total?: boolean; cost?: boolean };
+/** `labels`: the column holds a stored code (an order or document status); it reads as the words of
+ *  the dictionary entry `${labels}.${code}` (e.g. "orders.status"), on screen and in the exports. */
+export type ReportColumn = { key: string; label: Bilingual; type: ColumnType; total?: boolean; cost?: boolean; labels?: string };
 export type FilterKey = "period" | "customer" | "supplier" | "product" | "category" | "account" | "cashAccount" | "groupBy" | "days";
 
 export type ReportParams = {
