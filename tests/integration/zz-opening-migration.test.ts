@@ -6,7 +6,7 @@
    every check passes and someone other than the requester approves. Synthetic data only.
    A migration is permanent and closes the direct opening forms, so this file runs last
    ("zz-") and, on a database where the opening is already done, only checks that it stays closed.
-   When this run started the migration, it removes everything it wrote at the end (see cleanUp),
+   When this run started the migration, it removes what it wrote, by id, at the end (see cleanUp),
    so the suites can run again without a test:reset. */
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
@@ -32,53 +32,100 @@ const sales = actor("مبيعات", ["sales.customers.view", "sales.customers.ma
 const D = (v: Prisma.Decimal.Value | null | undefined) => new Prisma.Decimal(v ?? 0);
 const status = (s: number) => (e: any) => e?.status === s;
 
-// Set when this run starts the migration: everything written from then on is this file's (the
-// suites run one file at a time, and nothing else writes to the test database meanwhile).
-let startedAt: Date | null = null;
+// What this run wrote, by id (filled as the run creates it). The clean-up deletes only these rows
+// and what hangs off them, never "everything since a time": the test database can be shared with
+// a dev server or another suite, and their rows are not this file's to delete.
+const mine = { migrationId: null as string | null, batches: new Set<string>(), suppliers: new Set<string>(), customers: new Set<string>(), products: new Set<string>() };
+let orphansBefore: Map<string, number> | null = null;
+
+/** Rows whose single-column foreign key points at nothing, per constraint (public schema). */
+async function fkOrphans(db: Pick<typeof prisma, "$queryRawUnsafe"> = prisma) {
+  const fks = await db.$queryRawUnsafe<{ conname: string; child: string; col: string; parent: string; pcol: string }[]>(`
+    SELECT c.conname, cl.relname AS child, a.attname AS col, pcl.relname AS parent, pa.attname AS pcol
+    FROM pg_constraint c
+    JOIN pg_class cl ON cl.oid = c.conrelid JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+    JOIN pg_class pcl ON pcl.oid = c.confrelid
+    JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+    JOIN pg_attribute pa ON pa.attrelid = c.confrelid AND pa.attnum = c.confkey[1]
+    WHERE c.contype = 'f' AND ns.nspname = 'public' AND array_length(c.conkey, 1) = 1`);
+  const q = (n: string) => `"${n.replace(/"/g, '""')}"`;
+  const out = new Map<string, number>();
+  for (const f of fks) {
+    const [r] = await db.$queryRawUnsafe<{ n: bigint }[]>(`SELECT count(*) AS n FROM ${q(f.child)} x WHERE x.${q(f.col)} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM ${q(f.parent)} p WHERE p.${q(f.pcol)} = x.${q(f.col)})`);
+    if (Number(r.n)) out.set(f.conname, Number(r.n));
+  }
+  return out;
+}
+
+// The append-only and frozen-record guards this run's rows sit behind (user triggers only).
+const GUARDED = ["JournalEntry", "JournalLine", "PartyOpeningBalance", "OpeningMigration", "OpeningBatch", "OpeningBatchLine", "OpeningException", "StockMovement", "StockValuationLayer", "StockValuationPosting"];
 
 /**
  * Test hygiene: the database refuses to delete a migration, its posted entries, stock movements
- * or audit rows (append-only triggers), as it must. On the test database those guards are
- * suspended for one transaction (session_replication_role = replica, which also skips the
- * foreign-key actions, so children are deleted explicitly) and the run's rows go: the migration,
- * its batches, exceptions, opening balances, journal entries, stock, approvals, notifications,
- * audit rows and the parties it created. Number sequences keep their advanced counters.
+ * and so on (append-only triggers), as it must. On the test database those user triggers are
+ * disabled on the guarded tables for one transaction (and enabled again before it commits); the
+ * foreign keys stay on, so a child this list misses fails the clean-up loudly instead of being
+ * orphaned. Deleted by id: the migration, its batches, lines, exceptions, opening balances,
+ * journal entries, stock, approvals, notifications, audit rows, and the parties and product the
+ * run created. Number sequences keep their advanced counters.
  */
-async function cleanUp(since: Date) {
+async function cleanUp() {
   await prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
-    const recent = { createdAt: { gte: since } };
-    const entries = (await tx.journalEntry.findMany({ where: recent, select: { id: true } })).map((e) => e.id);
-    const batches = (await tx.openingBatch.findMany({ where: recent, select: { id: true } })).map((b) => b.id);
-    const requests = (await tx.approvalRequest.findMany({ where: recent, select: { id: true } })).map((r) => r.id);
-    await tx.journalLine.deleteMany({ where: { entryId: { in: entries } } });
-    await tx.openingBatchLine.deleteMany({ where: { batchId: { in: batches } } });
-    await tx.approvalDecision.deleteMany({ where: { OR: [{ requestId: { in: requests } }, recent] } });
-    await tx.stockValuationPosting.deleteMany({ where: recent });
-    await tx.stockValuationLayer.deleteMany({ where: recent });
-    await tx.stockMovement.deleteMany({ where: recent });
-    await tx.stockLot.deleteMany({ where: recent });
-    await tx.inventoryDocument.deleteMany({ where: recent });
-    await tx.stockProduct.deleteMany({ where: recent });
-    await tx.journalEntry.deleteMany({ where: { id: { in: entries } } });
-    await tx.partyOpeningBalance.deleteMany({ where: recent });
-    await tx.openingException.deleteMany({ where: recent });
-    await tx.openingBatch.deleteMany({ where: { id: { in: batches } } });
-    await tx.openingMigration.deleteMany({ where: recent });
-    await tx.approvalRequest.deleteMany({ where: { id: { in: requests } } });
-    await tx.notification.deleteMany({ where: recent });
-    await tx.customerAlias.deleteMany({ where: recent });
-    await tx.customer.deleteMany({ where: recent });
-    await tx.supplier.deleteMany({ where: recent });
-    await tx.auditLog.deleteMany({ where: { timestamp: { gte: since } } });
+    for (const t of GUARDED) await tx.$executeRawUnsafe(`ALTER TABLE "${t}" DISABLE TRIGGER USER`);
+    const batches = (await tx.openingBatch.findMany({ where: { OR: [{ id: { in: [...mine.batches] } }, ...(mine.migrationId ? [{ migrationId: mine.migrationId }] : [])] }, select: { id: true, entryIds: true } }));
+    const batchIds = batches.map((b) => b.id);
+    const lineIds = (await tx.openingBatchLine.findMany({ where: { batchId: { in: batchIds } }, select: { id: true } })).map((l) => l.id);
+    const openingIds = (await tx.partyOpeningBalance.findMany({ where: { openingBatchId: { in: batchIds } }, select: { id: true } })).map((o) => o.id);
+    const exceptionIds = mine.migrationId ? (await tx.openingException.findMany({ where: { migrationId: mine.migrationId }, select: { id: true } })).map((e) => e.id) : [];
+    const productIds = [...mine.products];
+    const docIds = (await tx.inventoryDocument.findMany({ where: { OR: [{ sourceId: { in: batchIds.map((b) => `${b}:stock`) } }, { movements: { some: { productId: { in: productIds } } } }] }, select: { id: true } })).map((d) => d.id);
+    const movementIds = (await tx.stockMovement.findMany({ where: { OR: [{ productId: { in: productIds } }, { documentId: { in: docIds } }] }, select: { id: true } })).map((m) => m.id);
+    const valuationEntries = (await tx.stockValuationPosting.findMany({ where: { movementId: { in: movementIds } }, select: { entryId: true } })).flatMap((p) => (p.entryId ? [p.entryId] : []));
+    const entryIds = (await tx.journalEntry.findMany({
+      where: { OR: [
+        { id: { in: [...batches.flatMap((b) => (Array.isArray(b.entryIds) ? (b.entryIds as string[]) : [])), ...valuationEntries] } },
+        { sourceType: "opening_balance", sourceId: { in: openingIds } },
+        ...batchIds.map((b) => ({ sourceType: "opening_batch", sourceId: { startsWith: `${b}:` } })),
+      ] },
+      select: { id: true },
+    })).map((e) => e.id);
+    const entityIds = [...(mine.migrationId ? [mine.migrationId] : []), ...batchIds, ...lineIds, ...openingIds, ...exceptionIds, ...docIds, ...entryIds, ...productIds, ...mine.suppliers, ...mine.customers];
+    const requestIds = (await tx.approvalRequest.findMany({ where: { entityId: { in: entityIds } }, select: { id: true } })).map((r) => r.id);
+    const aliasIds = (await tx.customerAlias.findMany({ where: { customerId: { in: [...mine.customers] } }, select: { id: true } })).map((a) => a.id);
+    const everything = [...entityIds, ...requestIds, ...aliasIds];
+
+    await tx.approvalDecision.deleteMany({ where: { requestId: { in: requestIds } } });
+    await tx.approvalRequest.deleteMany({ where: { id: { in: requestIds } } });
+    await tx.notification.deleteMany({ where: { entityId: { in: everything } } });
+    await tx.auditLog.deleteMany({ where: { entityId: { in: everything } } });
+    await tx.stockValuationPosting.deleteMany({ where: { movementId: { in: movementIds } } });
+    await tx.stockValuationLayer.deleteMany({ where: { movementId: { in: movementIds } } });
+    await tx.stockMovement.deleteMany({ where: { id: { in: movementIds } } });
+    await tx.stockLot.deleteMany({ where: { productId: { in: productIds } } });
+    await tx.inventoryDocument.deleteMany({ where: { id: { in: docIds } } });
+    await tx.journalLine.deleteMany({ where: { entryId: { in: entryIds } } });
+    await tx.journalEntry.deleteMany({ where: { id: { in: entryIds } } });
+    await tx.partyOpeningBalance.deleteMany({ where: { id: { in: openingIds } } });
+    await tx.openingBatchLine.deleteMany({ where: { id: { in: lineIds } } });
+    await tx.openingException.deleteMany({ where: { id: { in: exceptionIds } } });
+    await tx.openingBatch.deleteMany({ where: { id: { in: batchIds } } });
+    if (mine.migrationId) await tx.openingMigration.delete({ where: { id: mine.migrationId } });
+    await tx.stockProduct.deleteMany({ where: { id: { in: productIds } } });
+    await tx.customerAlias.deleteMany({ where: { id: { in: aliasIds } } });
+    await tx.customer.deleteMany({ where: { id: { in: [...mine.customers] } } });
+    await tx.supplier.deleteMany({ where: { id: { in: [...mine.suppliers] } } });
+    for (const t of GUARDED) await tx.$executeRawUnsafe(`ALTER TABLE "${t}" ENABLE TRIGGER USER`);
   }, { timeout: 60_000 });
 }
 
 after(async () => {
   try {
-    if (startedAt) {
-      await cleanUp(startedAt);
+    if (mine.migrationId || mine.batches.size || mine.suppliers.size || mine.customers.size || mine.products.size) {
+      await cleanUp();
       assert.equal(await prisma.openingMigration.count(), 0, "the run's migration is gone, so the next run starts from the same state");
+      const now = await fkOrphans();
+      const added = [...now].filter(([k, n]) => n > (orphansBefore?.get(k) ?? 0));
+      assert.deepEqual(added, [], "the clean-up leaves no row pointing at a deleted one");
     }
   } finally {
     await prisma.$disconnect();
@@ -101,7 +148,7 @@ test("phased opening migration: suppliers, customers, the rest, then a second pe
     t.skip("the opening migration needs a database where the opening has not started (fresh test database)");
     return;
   }
-  startedAt = new Date(Date.now() - 1000);
+  orphansBefore = await fkOrphans();
   const [u1, u2] = await prisma.user.findMany({ where: { active: true }, orderBy: { username: "asc" }, take: 2, select: { id: true } });
   prep = { ...prep, id: u1.id };
   checker = { ...checker, id: u2.id };
@@ -111,11 +158,14 @@ test("phased opening migration: suppliers, customers, the rest, then a second pe
   const veg3 = await createSupplierFull({ name: `${TAG} سيد ليمون`, category: "vegetable" }, buyer);
   const fruit = await createSupplierFull({ name: `${TAG} مزرعة فاكهة`, category: "fruit" }, buyer);
   const customer = await createCustomer({ name: `${TAG} فندق` }, sales);
+  for (const s of [veg1, veg2, veg3, fruit]) mine.suppliers.add(s.id);
+  mine.customers.add(customer.id);
   const clearing0 = await balance("opening_clearing");
   assert.ok(clearing0.isZero(), "nothing is on the clearing account before the migration");
 
   // 1. Start: once; the one-batch opening and the direct forms are closed from then on.
   const m = await startMigration({ cutover_date: today, notes: "go-live in phases" }, prep);
+  mine.migrationId = m.id;
   assert.equal((await startMigration({ cutover_date: today }, prep)).id, m.id, "a repeat returns the same migration");
   await assert.rejects(startMigration({ cutover_date: "2020-01-31" }, prep), status(409));
   await assert.rejects(createBatch({ kind: "initial", cutover_date: today }, prep), status(409));
@@ -212,6 +262,7 @@ test("phased opening migration: suppliers, customers, the rest, then a second pe
   }
   // Stock at cost through the stock ledger: valued against 3300 by the ledger, then moved to the clearing account.
   const potato = await prisma.stockProduct.create({ data: { name: `${TAG} Potato`, unit: "KG" } });
+  mine.products.add(potato.id);
   await addLines(ob.id, { lines: [{ kind: "stock", product_id: potato.id, quantity: "100", unit_cost: "12.5" }] }, prep);
   // Where opening stock was already posted directly (as in production), stock lines are refused —
   // the same stock would count twice; the batch then carries everything else.
@@ -265,5 +316,6 @@ test("phased opening migration: suppliers, customers, the rest, then a second pe
   await assert.rejects(createBatch({ kind: "phase", segment: "suppliers" }, prep), status(409));
   await assert.rejects(prisma.openingMigration.update({ where: { id: closed.id }, data: { status: "open" } }), /does not change/);
   const correction = await createBatch({ kind: "correction" }, prep);
+  mine.batches.add(correction.id);
   assert.equal(correction.cutoverDate, today, "after closure, opening figures change by an approved correction batch");
 });
