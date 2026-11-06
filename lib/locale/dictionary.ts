@@ -176,7 +176,7 @@ const ui = {
   "ui.empty": { ar: "لا توجد بيانات", en: "No data" },
   "ui.error": { ar: "حصل خطأ", en: "An error occurred" },
   "ui.error-try": { ar: "حصل خطأ. حاول تاني.", en: "Something went wrong. Try again." },
-  "ui.not-found": { ar: "هذه الصفحة مش موجودة", en: "This page was not found" },
+  "ui.not-found": { ar: "الصفحة دي مش موجودة", en: "This page was not found" },
   "ui.not-found-desc": { ar: "يمكن الرابط غلط أو مش ليك الصلاحية. ارجع للصفحة الرئيسية وابدأ من هناك.", en: "The link may be wrong or you don't have permission. Go back to the home page." },
 
   // Access denied
@@ -4478,6 +4478,7 @@ export const DICTIONARY = {
   "master.loading-coverage": { ar: "بيحسب الربط...", en: "Calculating coverage..." },
   "master.loading-products": { ar: "بيحمّل الأصناف...", en: "Loading products..." },
   "master.stat-active": { ar: "شغّال", en: "active" },
+  "master.filter-active": { ar: "شغّال", en: "Active" },
   "master.stat-ambiguous": { ar: "ملتبسة", en: "ambiguous" },
   "master.stat-order-names": { ar: "أسماء في الأوردرات", en: "Names in orders" },
   "master.stat-connected": { ar: "مربوطة بالمخزون", en: "Linked to stock" },
