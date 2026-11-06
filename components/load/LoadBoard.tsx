@@ -82,7 +82,7 @@ export function LoadBoard() {
       ].filter((x): x is string => !!x);
 
   async function dispatchAll() {
-    if (busy) return;
+    if (busy || !canDispatch) return;
     const ok = await dialogs.confirm({
       title: t("orders.load-board.confirm-text", {
         vehicle: vehicle.trim(),
@@ -199,10 +199,11 @@ export function LoadBoard() {
                   {/* The order number and time tell one customer's orders apart (FLOOR-4). */}
                   <span className="flex-1 min-w-0">
                     <span className="block font-bold truncate">{customer}</span>
-                    <span className="block text-xs text-united-muted truncate">
+                    {/* Wraps rather than truncates, so the delivery time is never cut off on a phone. */}
+                    <span className="flex flex-wrap gap-x-1 text-xs text-united-muted">
                       <span dir="ltr" className="whitespace-nowrap">{o.orderNumber}</span>
-                      {" · "}
-                      {deliverySlot(o.deliveryDate, o.deliveryTime, locale === "en" ? "en" : "ar")}
+                      <span aria-hidden>·</span>
+                      <span>{deliverySlot(o.deliveryDate, o.deliveryTime, locale === "en" ? "en" : "ar")}</span>
                     </span>
                   </span>
                   <label className="flex shrink-0 items-center gap-1 text-xs font-semibold text-united-muted">
@@ -228,7 +229,15 @@ export function LoadBoard() {
             <input value={vehicle} onChange={(e) => setVehicle(e.target.value)} className="field" autoComplete="off" />
           </Field>
           {error && <p role="alert" className="text-united-danger font-bold mb-2">{error}</p>}
-          <button disabled={busy || !canDispatch} onClick={dispatchAll} aria-describedby={blockedBy.length > 0 ? "dispatch-blocked-hint" : undefined} className="btn-dark w-full text-xl">
+          {/* aria-disabled, not disabled, while blocked: the button stays focusable so the
+              reasons it is described by are read; dispatchAll() does nothing until they clear. */}
+          <button
+            disabled={busy}
+            aria-disabled={!busy && !canDispatch ? true : undefined}
+            onClick={dispatchAll}
+            aria-describedby={blockedBy.length > 0 ? "dispatch-blocked-hint" : undefined}
+            className={`btn-dark w-full text-xl${!busy && !canDispatch ? " opacity-45 cursor-not-allowed" : ""}`}
+          >
             {progressParts ? (
               <span>
                 {progressParts[0]}
@@ -239,13 +248,15 @@ export function LoadBoard() {
               t("orders.load-board.dispatch-btn")
             )}
           </button>
-          {blockedBy.length > 0 && (
-            <ul id="dispatch-blocked-hint" className="mt-2 text-xs font-bold text-united-muted">
-              {blockedBy.map((m) => (
-                <li key={m}>{m}</li>
-              ))}
-            </ul>
-          )}
+          <div role="status">
+            {blockedBy.length > 0 && (
+              <ul id="dispatch-blocked-hint" className="mt-2 text-xs font-bold text-united-muted">
+                {blockedBy.map((m) => (
+                  <li key={m}>{m}</li>
+                ))}
+              </ul>
+            )}
+          </div>
           {/* Announced from a status region beside the button, not from the control itself. */}
           <span role="status" className="sr-only">{progressText ?? ""}</span>
         </div>

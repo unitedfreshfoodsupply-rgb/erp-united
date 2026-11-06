@@ -182,4 +182,16 @@ test("the picking sheet has one 'left to pick': the card total is the sum of its
   assert.equal(kg?.totalRemaining, sheet.lines.filter((l) => l.unit === "KG").reduce((s, l) => s + l.totalRemaining, 0));
   // Each row is one order line, with its own id.
   assert.equal(new Set(line.allocations.map((a) => a.itemId)).size, line.allocations.length);
+  // A rejected preparation is rejected, not prepared: the card's prepared figure leaves its 7
+  // out (it used to read "✓ 7 · rejected 7 · 7 left" for that line).
+  assert.equal(line.totalRejected, 7);
+  assert.equal(line.totalPrepared, 100 + 8 + 10);
+  // The production board reads the same lines the same way.
+  const ours = new Set(orderIds);
+  const list = (await listOrders({ scope: "production" })).filter((o) => ours.has(o.id) && o.deliveryDate === day);
+  const row = byKey(aggregateProduction(list)).get(`n:${name}__KG`) as ReturnType<typeof aggregateProduction>[number] | undefined;
+  assert.equal(row?.prepared, line.totalPrepared);
+  assert.equal(row?.required, line.totalRequired);
+  const daily = byKey(await dailyProduction()).get(`n:${name}__KG`) as ReturnType<typeof aggregateProduction>[number] | undefined;
+  assert.equal(daily?.prepared, line.totalPrepared);
 });

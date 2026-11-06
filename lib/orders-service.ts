@@ -1618,10 +1618,12 @@ export async function cloneOrder(
 export async function dailyProduction() {
   // The lines of the production scope with only what the totals read, and the catalogue names
   // of their products, so the board can show each product in the UI language (`productName`
-  // stays the name as ordered — it is also the drill-down key). Two queries (PS-4).
+  // stays the name as ordered; the group and drill-down key is p:<stockProductId> or
+  // n:<name>, plus the unit — lib/production.ts productionKey). Status and notes tell a
+  // rejected preparation, which is not counted as prepared. Two queries (PS-4).
   const items = await prisma.orderItem.findMany({
     where: { order: productionScope() },
-    select: { orderId: true, productName: true, unit: true, stockProductId: true, requiredQuantity: true, preparedQuantity: true, stockProduct: { select: { name: true, nameAr: true } } },
+    select: { orderId: true, productName: true, unit: true, stockProductId: true, requiredQuantity: true, preparedQuantity: true, preparationStatus: true, notes: true, stockProduct: { select: { name: true, nameAr: true } } },
   });
   // The board computes the same totals from /api/orders?scope=production with the same helper
   // (PC-5), so the two cannot drift.

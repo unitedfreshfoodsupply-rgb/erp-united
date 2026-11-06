@@ -4,7 +4,7 @@
    two rows, and each row's drill-down lists only its own lines (UXO-13). */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { aggregateProduction, productionKey, productionLines } from "../../lib/production";
+import { aggregateProduction, isRejectedPreparation, productionKey, productionLines } from "../../lib/production";
 
 const tomato = { name: "Tomatoes", nameAr: "طماطم" };
 const item = (productName: string, unit: string, requiredQuantity: number, preparedQuantity: number | null, linked = false) => ({
@@ -86,4 +86,18 @@ test("the drill-down lists every line of the row, so it adds up to the row's tot
 
 test("no orders, no rows", () => {
   assert.deepEqual(aggregateProduction([]), []);
+});
+
+test("a rejected preparation is not counted as prepared (the picking sheet's rule)", () => {
+  const rejected = { ...item("x", "KG", 7, 7), preparationStatus: "pending", notes: "[رفض: وزن ناقص]" };
+  const done = { ...item("x", "KG", 5, 5), preparationStatus: "done", notes: null };
+  // Pending with a quantity but no rejection note (a partial pick) still counts.
+  const partial = { ...item("x", "KG", 4, 2), preparationStatus: "pending", notes: "ملاحظة" };
+  assert.equal(isRejectedPreparation(rejected), true);
+  assert.equal(isRejectedPreparation(done), false);
+  assert.equal(isRejectedPreparation(partial), false);
+  assert.equal(isRejectedPreparation({ preparationStatus: "pending", preparedQuantity: null, notes: "[رفض: x]" }), false);
+  const row = aggregateProduction([{ id: "a", items: [rejected, done, partial] }]).find((r) => r.key === "n:x__KG");
+  assert.equal(row?.required, 16);
+  assert.equal(row?.prepared, 7);
 });

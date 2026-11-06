@@ -1208,7 +1208,7 @@ const orders = {
   "orders.load-board.upcoming-header": { ar: "لسه بيتجهز — للمتابعة بس", en: "Still Preparing — For Reference Only" },
   "orders.load-board.vehicle-section": { ar: "العربية", en: "Vehicle" },
   "orders.load-board.crate-count-placeholder": { ar: "برنيكة", en: "Crates" },
-  "orders.load-board.crate-count-for": { ar: "عدد البرانيك لأوردر {order} ({customer})", en: "Crates for order {order} ({customer})" },
+  "orders.load-board.crate-count-for": { ar: "برنيكة — أوردر {order} ({customer})", en: "Crates for order {order} ({customer})" },
   "orders.load-board.total-orders": { ar: "إجمالي الأوردرات", en: "Total Orders" },
   "orders.load-board.driver-placeholder": { ar: "اسم السواق", en: "Driver Name" },
   "orders.load-board.vehicle-placeholder": { ar: "رقم/اسم العربية", en: "Vehicle No./Name" },

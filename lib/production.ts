@@ -18,7 +18,16 @@ export type ProductionItemInput = {
   stockProductId?: string | null;
   /** The linked catalogue product's names (the line's stockProduct relation). */
   stockProduct?: { name: string; nameAr: string | null } | null;
+  /** Read to tell a rejected preparation (isRejectedPreparation), which is not prepared. */
+  preparationStatus?: string;
+  notes?: string | null;
 };
+
+/** A preparation the supervisor rejected: reset to pending with its quantity kept and a
+ * "[رفض: …]" note. Nothing of it counts as prepared, on the board or on the picking sheet. */
+export function isRejectedPreparation(item: { preparationStatus?: string; preparedQuantity: number | null; notes?: string | null }) {
+  return item.preparationStatus === "pending" && item.preparedQuantity != null && /^\[رفض:/i.test(item.notes ?? "");
+}
 
 export type ProductionOrderInput = { id: string; items: readonly ProductionItemInput[] };
 
@@ -71,7 +80,7 @@ export function aggregateProduction(orders: readonly ProductionOrderInput[]): Pr
         agg.names = item.stockProduct ?? null;
       }
       agg.required += item.requiredQuantity;
-      agg.prepared += item.preparedQuantity ?? 0;
+      agg.prepared += isRejectedPreparation(item) ? 0 : item.preparedQuantity ?? 0;
       agg.orders.add(order.id);
     }
   }

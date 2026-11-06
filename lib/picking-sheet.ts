@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { storedOrderCustomerName } from "@/lib/locale/names";
+import { isRejectedPreparation } from "@/lib/production";
 
 
 /**
@@ -155,7 +156,7 @@ export async function dailyConsolidatedSheet(date: string): Promise<DailySheetDT
       }
 
       // Detect rejection: preparation was done but reset to pending with [رفض:] note
-      const rejected = item.preparationStatus === "pending" && item.preparedQuantity != null && /^\[رفض:/i.test(item.notes ?? "");
+      const rejected = isRejectedPreparation(item);
 
       // "Approved" quantity = what the preparer recorded and hasn't been rejected
       // If the item was prepared and not rejected, count it toward approved
@@ -171,7 +172,9 @@ export async function dailyConsolidatedSheet(date: string): Promise<DailySheetDT
       const rejectedQty = rejected ? (item.preparedQuantity ?? 0) : 0;
 
       group.totalRequired += item.requiredQuantity;
-      group.totalPrepared += prepared;
+      // A rejected preparation is shown as rejected (totalRejected), not as prepared: counted in
+      // both, the card read "✓ 7 · rejected 7 · 7 left" with a full bar on a 7 kg line.
+      group.totalPrepared += rejected ? 0 : prepared;
       group.totalApproved += approved;
       group.totalLoaded += loaded;
       group.totalRemaining += remaining;
