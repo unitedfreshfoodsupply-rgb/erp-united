@@ -29,6 +29,8 @@ const TYPE_PREFIX = "approvals.type.";
 const KNOWN_TYPES = Object.keys(DICTIONARY).filter((k) => k.startsWith(TYPE_PREFIX)).map((k) => k.slice(TYPE_PREFIX.length));
 const PAGE_SIZE = 50;
 
+/** Date and time in the reader's locale. Shown in a plain <bdi> (its own direction): the Arabic
+ * form carries right-to-left marks and the Arabic comma, which a forced LTR run scrambles. */
 const when = (iso: string, locale: string) => new Date(iso).toLocaleString(intlLocale(locale), { dateStyle: "short", timeStyle: "short" });
 
 type Page = { approvals: ApprovalDTO[]; total: number };
@@ -47,7 +49,9 @@ export function ApprovalsInbox() {
   const focusId = params.get("id");
   const typeParam = params.get("type");
   const type = typeParam && KNOWN_TYPES.includes(typeParam) ? typeParam : "";
-  const [tab, setTab] = useState<"pending" | "all">("pending");
+  // "pending": what the caller can decide now; "raised": their own requests still waiting —
+  // apart, so the count and the first page are of decisions the caller can actually take.
+  const [tab, setTab] = useState<"pending" | "raised" | "all">("pending");
   // The page belongs to one tab and type: switching either starts at page 1 in the same render,
   // so no request goes out with the old offset.
   const listKey = `${tab}|${type}`;
@@ -56,7 +60,9 @@ export function ApprovalsInbox() {
   const setPage = (p: number) => setPaging({ key: listKey, page: p });
 
   const qs = new URLSearchParams({ limit: String(PAGE_SIZE) });
-  if (tab === "pending") qs.set("status", "pending");
+  if (tab !== "all") qs.set("status", "pending");
+  if (tab === "pending") qs.set("scope", "decide");
+  if (tab === "raised") qs.set("scope", "raised");
   if (type) qs.set("type", type);
   if (page > 1) qs.set("offset", String((page - 1) * PAGE_SIZE));
   const q = useQuery({
@@ -95,7 +101,7 @@ export function ApprovalsInbox() {
       <PageHeader
         title={tr("approvals.title")}
         description={tr("approvals.description")}
-        actions={<Segmented label={tr("approvals.title")} value={tab} onChange={setTab} items={[{ key: "pending", label: tr("approvals.tab.pending"), ...(tab === "pending" && q.data ? { count: q.data.total } : {}) }, { key: "all", label: tr("approvals.tab.all") }]} />}
+        actions={<Segmented label={tr("approvals.title")} value={tab} onChange={setTab} items={[{ key: "pending", label: tr("approvals.tab.pending"), ...(tab === "pending" && q.data ? { count: q.data.total } : {}) }, { key: "raised", label: tr("approvals.tab.raised"), ...(tab === "raised" && q.data ? { count: q.data.total } : {}) }, { key: "all", label: tr("approvals.tab.all") }]} />}
       />
       {focusId && (
         <section aria-labelledby="approval-focus" className="mb-4 flex flex-col gap-2">
@@ -121,7 +127,7 @@ export function ApprovalsInbox() {
       </div>
       {q.isLoading && <LoadingState />}
       {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
-      {q.data && total === 0 && <EmptyState icon="✅" title={tab === "pending" ? tr("approvals.empty.pending") : tr("approvals.empty.all")} />}
+      {q.data && total === 0 && <EmptyState icon="✅" title={tab === "pending" ? tr("approvals.empty.pending") : tab === "raised" ? tr("approvals.empty.raised") : tr("approvals.empty.all")} />}
       <ul className="flex flex-col gap-3">
         {rows.map((a) => (
           <ApprovalCard key={a.id} a={a} />
@@ -155,7 +161,7 @@ function ApprovalCard({ a, highlighted = false }: { a: ApprovalDTO; highlighted?
           {a.summary && <p className="mt-0.5 text-sm text-united-dark">{systemText(a.summary, locale)}</p>}
           {amount && <p className="mt-0.5 text-sm font-bold text-united-dark">{t("approvals.amount", { amount })}</p>}
           <p className="mt-1 text-xs text-united-muted">
-            {t("approvals.requested-by", { name: a.requestedBy })} · <bdi dir="ltr">{when(a.createdAt, locale)}</bdi>
+            {t("approvals.requested-by", { name: a.requestedBy })} · <bdi>{when(a.createdAt, locale)}</bdi>
             {a.requiredLevels > 1 && t("approvals.level", { done: a.approvedLevels, required: a.requiredLevels })}
           </p>
           {a.requestReason && <p className="text-xs text-united-dark/80">{t("approvals.reason-line", { reason: a.requestReason })}</p>}
@@ -169,7 +175,7 @@ function ApprovalCard({ a, highlighted = false }: { a: ApprovalDTO; highlighted?
           {a.decisions.map((d) => (
             <li key={d.id} className="flex items-center gap-1.5">
               {d.decision === "approve" ? <Check size={14} className="text-united-green" aria-label={t("approvals.status.approved")} /> : <X size={14} className="text-united-danger" aria-label={t("approvals.status.rejected")} />} {d.decider}
-              {d.comment && ` — ${d.comment}`} · <bdi dir="ltr">{when(d.createdAt, locale)}</bdi>
+              {d.comment && ` — ${d.comment}`} · <bdi>{when(d.createdAt, locale)}</bdi>
             </li>
           ))}
         </ul>

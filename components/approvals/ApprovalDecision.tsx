@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiPost, ApiClientError } from "@/lib/api-client";
 import { money } from "@/lib/format";
@@ -101,24 +101,28 @@ export function DecideControls({ a, onDone }: { a: ApprovalDTO; onDone?: () => v
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A refusal about the comment itself (no reason to reject, a short emergency reason) marks the
+  // field and puts the cursor in it; a server refusal is about the request, not the field.
+  const [fieldError, setFieldError] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   if (!a.canDecide) return null;
   const reasonShort = a.emergency && comment.trim().length < EMERGENCY_REASON_MIN;
   const errorId = `approval-error-${a.id}`;
 
   async function decide(decision: "approve" | "reject") {
     if (busy) return;
-    if (decision === "reject" && !comment.trim()) {
-      setError(t("approvals.reject-reason"));
-      return;
-    }
-    if (decision === "approve" && reasonShort) {
-      setError(t("approvals.emergency.label"));
+    const missing = decision === "reject" && !comment.trim() ? t("approvals.reject-reason") : decision === "approve" && reasonShort ? t("approvals.emergency.label") : null;
+    if (missing) {
+      setError(missing);
+      setFieldError(true);
+      inputRef.current?.focus();
       return;
     }
     if (decision === "approve" && (CONFIRM_TYPES.has(a.type) || approvalAmount(a))) {
       const amount = approvalAmount(a);
       const ok = await dialogs.confirm({
-        title: t("approvals.confirm.title", { number: a.number }),
+        // Non-breaking hyphens: a narrow screen wraps the title, never inside "APR-2026-00059".
+        title: t("approvals.confirm.title", { number: a.number.replace(/-/g, "\u2011") }),
         body: (
           <div className="flex flex-col gap-1">
             <p className="text-xs font-medium">{typeLabel(a)}</p>
@@ -134,6 +138,7 @@ export function DecideControls({ a, onDone }: { a: ApprovalDTO; onDone?: () => v
     }
     setBusy(decision);
     setError(null);
+    setFieldError(false);
     try {
       await apiPost(`/api/approvals/${a.id}/decide`, { decision, comment: comment || undefined, expected_version: a.version });
       await Promise.all([
@@ -157,7 +162,21 @@ export function DecideControls({ a, onDone }: { a: ApprovalDTO; onDone?: () => v
       {a.rejectOnly && <p className="text-sm font-medium text-united-dark">{t("approvals.reject-only")}</p>}
       <div className="flex flex-wrap items-end gap-2">
         <Field label={a.emergency ? t("approvals.emergency.label") : t("approvals.comment")} className="flex-1 min-w-[12rem]">
-          <input className="field" value={comment} onChange={(e) => setComment(e.target.value)} disabled={!!busy} />
+          <input
+            ref={inputRef}
+            className="field"
+            value={comment}
+            onChange={(e) => {
+              setComment(e.target.value);
+              if (fieldError) {
+                setFieldError(false);
+                setError(null);
+              }
+            }}
+            disabled={!!busy}
+            aria-invalid={fieldError || undefined}
+            aria-describedby={fieldError && error ? errorId : undefined}
+          />
         </Field>
         {/* Stays enabled with a short emergency reason: the click says what is missing. */}
         {!a.rejectOnly && (

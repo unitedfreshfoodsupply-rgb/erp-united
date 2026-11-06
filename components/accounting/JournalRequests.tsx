@@ -10,12 +10,13 @@ import { useLocale } from "@/lib/locale";
 import { fmtMoney } from "@/components/stock/inventory/shared";
 import { AwaitingApproval } from "@/components/approvals/AwaitingApproval";
 import { APPROVAL_TYPE } from "@/lib/core/approval-presentation";
+import { changeText } from "@/lib/auditLabels";
 
 type Req = { id: string; number: string; date: string; description: string; total: string; status: "pending_approval" | "posted" | "rejected" | "cancelled"; requestedBy: string; decidedBy: string | null; decisionNote: string | null; entry: { number: string } | null };
 
 /** Manual journals waiting for (or decided by) a second person — shown only when there are any. */
 export function JournalRequests() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { can } = usePermissions();
   const toast = useToast();
   const dialogs = useDialogs();
@@ -30,6 +31,8 @@ export function JournalRequests() {
     </section>
   );
   if (!rows.length) return null;
+  // The compact notices share one request for exactly the pending rows shown.
+  const pendingIds = rows.filter((r) => r.status === "pending_approval").map((r) => r.id);
   const cancel = async (r: Req) => {
     const reason = await dialogs.prompt({ title: t("journal.prompt-cancel", { number: r.number }), label: t("ui.reason-label"), required: true, tone: "danger", confirmLabel: t("journal.cancel") });
     if (!reason) return;
@@ -46,9 +49,9 @@ export function JournalRequests() {
             <tr key={r.id}>
               <td><bdi dir="ltr">{r.number}</bdi>{r.entry && <span className="block text-xs text-united-muted"><bdi dir="ltr">{r.entry.number}</bdi></span>}</td>
               <td><bdi dir="ltr">{r.date}</bdi></td>
-              <td>{r.description}<span className="block text-xs text-united-muted">{r.requestedBy}{r.decidedBy ? ` → ${r.decidedBy}` : ""}{r.decisionNote ? ` · ${r.decisionNote}` : ""}</span></td>
+              <td>{r.description}<span className="block text-xs text-united-muted">{/* requester → decider, the arrow in the reading direction (U+2192 does not mirror) */}{r.decidedBy ? changeText(r.requestedBy, r.decidedBy, locale) : r.requestedBy}{r.decisionNote ? ` · ${r.decisionNote}` : ""}</span></td>
               <td className="num" dir="ltr">{fmtMoney(r.total)}</td>
-              <td><StatusPill tone={r.status === "posted" ? "success" : r.status === "pending_approval" ? "warn" : "neutral"}>{t(`journal.status.${r.status}`)}</StatusPill>{r.status === "pending_approval" && <AwaitingApproval type={APPROVAL_TYPE.manualJournal} entityId={r.id} compact />}</td>
+              <td><StatusPill tone={r.status === "posted" ? "success" : r.status === "pending_approval" ? "warn" : "neutral"}>{t(`journal.status.${r.status}`)}</StatusPill>{r.status === "pending_approval" && <AwaitingApproval type={APPROVAL_TYPE.manualJournal} entityId={r.id} compact batch={pendingIds} />}</td>
               <td>{r.status === "pending_approval" && can("accounting.manage") && <button type="button" className="btn-secondary btn-sm" onClick={() => cancel(r)}>{t("journal.cancel")}</button>}</td>
             </tr>
           ))}

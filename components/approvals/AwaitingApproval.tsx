@@ -11,25 +11,39 @@ import { approvalAmount, DecideControls, useTypeLabel, WhoDecides, type Approval
  * "Waiting for approval" on the record's own screen (an opening batch, a journal request…):
  * who can decide it, a link to it in the approvals inbox, and — for whoever may decide it —
  * the decision right here. The full notice asks for its own record (entity_id); the compact
- * table-cell notices of one type on a screen share one request (the newest 200 pending).
+ * table-cell notices of one type on a screen share one request for exactly the records the
+ * table shows (`batch`: entity_ids, in chunks of 200), so no row past a cap goes without one.
  *
  * The listing shows only what the caller may decide or raised; anyone else sees where it is
  * decided, without its detail.
  */
-export function usePendingApprovals(type: string, enabled = true, entityId?: string) {
+/** The server's cap on entity_ids (and on a page) per request. */
+const BATCH_MAX = 200;
+
+export function usePendingApprovals(type: string, enabled = true, entityId?: string, entityIds?: string[]) {
+  // A stable key for the same set of records, whatever order the table lists them in.
+  const ids = entityIds ? [...new Set(entityIds)].sort() : null;
   return useQuery({
-    queryKey: ["approvals", "for", type, entityId ?? null],
-    queryFn: () =>
-      apiFetch<{ approvals: ApprovalDTO[] }>(`/api/approvals?status=pending&type=${encodeURIComponent(type)}&approvers=1&${entityId ? `entity_id=${encodeURIComponent(entityId)}&limit=5` : "limit=200"}`).then((r) => r.approvals),
-    enabled,
+    queryKey: ["approvals", "for", type, entityId ?? null, ids?.join(",") ?? null],
+    queryFn: async () => {
+      const base = `/api/approvals?status=pending&type=${encodeURIComponent(type)}&approvers=1`;
+      if (entityId) return (await apiFetch<{ approvals: ApprovalDTO[] }>(`${base}&entity_id=${encodeURIComponent(entityId)}&limit=5`)).approvals;
+      if (!ids) return (await apiFetch<{ approvals: ApprovalDTO[] }>(`${base}&limit=${BATCH_MAX}`)).approvals;
+      const chunks: string[][] = [];
+      for (let i = 0; i < ids.length; i += BATCH_MAX) chunks.push(ids.slice(i, i + BATCH_MAX));
+      const pages = await Promise.all(chunks.map((c) => apiFetch<{ approvals: ApprovalDTO[] }>(`${base}&entity_ids=${c.map(encodeURIComponent).join(",")}&limit=${BATCH_MAX}`)));
+      return pages.flatMap((p) => p.approvals);
+    },
+    enabled: enabled && (!ids || ids.length > 0),
   });
 }
 
-export function AwaitingApproval({ type, entityId, compact = false }: { type: string; entityId: string; compact?: boolean }) {
+/** `batch` (compact cells): every record of this type the table shows pending, this one included. */
+export function AwaitingApproval({ type, entityId, compact = false, batch }: { type: string; entityId: string; compact?: boolean; batch?: string[] }) {
   const { t, locale } = useLocale();
   const typeLabel = useTypeLabel();
   const headingId = useId();
-  const q = usePendingApprovals(type, true, compact ? undefined : entityId);
+  const q = usePendingApprovals(type, true, compact ? undefined : entityId, compact ? (batch ?? [entityId]) : undefined);
   const a = q.data?.find((x) => x.entityId === entityId);
   if (q.isLoading) return null;
   if (q.isError) {

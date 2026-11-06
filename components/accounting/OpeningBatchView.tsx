@@ -182,13 +182,14 @@ function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
         <button type="button" className="btn-secondary btn-sm" onClick={onClose}>{t("accounting.button.close")}</button>
       </div>
       <div className="p-4 flex flex-col gap-3">
+        {/* Figures in an LTR isolate inside the cell, not an LTR cell: each sits under its own label. */}
         <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-          <div><dt className="font-bold text-united-muted">{t("opening.total-debit")}</dt><dd className="font-extrabold" dir="ltr">{fmtMoney(v.totals.debit)}</dd></div>
-          <div><dt className="font-bold text-united-muted">{t("opening.total-credit")}</dt><dd className="font-extrabold" dir="ltr">{fmtMoney(v.totals.credit)}</dd></div>
-          <div><dt className="font-bold text-united-muted">{t("opening.residual")}</dt><dd className={`font-extrabold ${Number(v.totals.residual) ? "text-united-danger" : "text-united-green"}`} dir="ltr">{fmtMoney(v.totals.residual)}</dd></div>
+          <div><dt className="font-bold text-united-muted">{t("opening.total-debit")}</dt><dd className="font-extrabold"><bdi dir="ltr">{fmtMoney(v.totals.debit)}</bdi></dd></div>
+          <div><dt className="font-bold text-united-muted">{t("opening.total-credit")}</dt><dd className="font-extrabold"><bdi dir="ltr">{fmtMoney(v.totals.credit)}</bdi></dd></div>
+          <div><dt className="font-bold text-united-muted">{t("opening.residual")}</dt><dd className={`font-extrabold ${Number(v.totals.residual) ? "text-united-danger" : "text-united-green"}`}><bdi dir="ltr">{fmtMoney(v.totals.residual)}</bdi></dd></div>
           <div><dt className="font-bold text-united-muted">{t("opening.lines")}</dt><dd className="font-extrabold">{b.lines.length}</dd></div>
-          {b.kind === "phase" && <div className="sm:col-span-2"><dt className="font-bold text-united-muted">{t("openmig.batch-clearing")}</dt><dd className="font-extrabold text-united-warn" dir="ltr">{fmtMoney(v.clearing ?? "0")}</dd></div>}
-          {(["customers", "suppliers", "stock", "assetsCost", "assetsAccumulated"] as const).map((k) => <div key={k}><dt className="font-bold text-united-muted">{t(`opening.sub.${k}`)}</dt><dd className="font-extrabold" dir="ltr">{fmtMoney(v.subledgers[k] ?? "0")}</dd></div>)}
+          {b.kind === "phase" && <div className="sm:col-span-2"><dt className="font-bold text-united-muted">{t("openmig.batch-clearing")}</dt><dd className="font-extrabold text-united-warn"><bdi dir="ltr">{fmtMoney(v.clearing ?? "0")}</bdi></dd></div>}
+          {(["customers", "suppliers", "stock", "assetsCost", "assetsAccumulated"] as const).map((k) => <div key={k}><dt className="font-bold text-united-muted">{t(`opening.sub.${k}`)}</dt><dd className="font-extrabold"><bdi dir="ltr">{fmtMoney(v.subledgers[k] ?? "0")}</bdi></dd></div>)}
         </dl>
         {/* Who approves it and where (and, for the approver, the decision itself). */}
         {b.status === "pending_approval" && <AwaitingApproval type={APPROVAL_TYPE.openingBatch} entityId={b.id} />}

@@ -132,8 +132,9 @@ export function NotificationBell() {
                     <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${n.readAt ? "bg-united-dark/20" : DOT[n.severity]}`} />
                     <span className="min-w-0">
                       <span className="block font-bold text-sm text-united-dark">{systemText(n.title, locale)}</span>
-                      {n.body && <span className="block text-xs font-bold text-united-muted">{n.body}</span>}
-                      <span className="block text-[10px] font-bold text-united-muted mt-0.5" dir="ltr">
+                      {n.body && <span className="block text-xs font-bold text-united-muted">{systemText(n.body, locale)}</span>}
+                      {/* No forced LTR: the Arabic date carries its own direction marks and comma. */}
+                      <span className="block text-[10px] font-bold text-united-muted mt-0.5">
                         {new Date(n.createdAt).toLocaleString(intlLocale(curLocale), { dateStyle: "short", timeStyle: "short" })}
                       </span>
                     </span>
