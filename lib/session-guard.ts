@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getAuthContext, isMfaEnrollmentPending, throwIfAuthUnavailable, type AuthContext } from "@/lib/authz";
+import { resolveAuth, type AuthContext, type AuthOutcome } from "@/lib/authz";
 import { homePathFor } from "@/lib/nav";
 import type { Permission } from "@/lib/permissions";
 import { HOME_BY_ROLE } from "@/lib/types";
@@ -11,8 +11,20 @@ export { HOME_BY_ROLE };
  * database could not check the session at all, nowhere: the page fails (its error screen)
  * instead of signing a signed-in user out. */
 export async function signInPath(): Promise<string> {
-  await throwIfAuthUnavailable();
-  return (await isMfaEnrollmentPending()) ? "/mfa/setup" : "/login";
+  return signInPathFor(await resolveAuth());
+}
+
+function signInPathFor(outcome: AuthOutcome): string {
+  if (outcome.kind === "unavailable") throw outcome.error;
+  return outcome.kind === "mfa_enroll" ? "/mfa/setup" : "/login";
+}
+
+/** The signed-in user for a page, from one read of the session; otherwise redirects (or, when
+ * the database could not answer, fails to the error screen) exactly as signInPath says. */
+async function pageUser(): Promise<AuthContext> {
+  const outcome = await resolveAuth();
+  if (outcome.kind === "ok") return outcome.ctx;
+  redirect(signInPathFor(outcome));
 }
 
 export type PageGate =
@@ -33,8 +45,7 @@ export type PageGate =
 export async function requirePagePermission(
   permission: Permission | Permission[]
 ): Promise<PageGate> {
-  const user = await getAuthContext();
-  if (!user) redirect(await signInPath());
+  const user = await pageUser();
   const needed = Array.isArray(permission) ? permission : [permission];
   const missing = needed.filter((p) => !user.can(p));
   if (missing.length > 0) return { ok: false, user, missing };
@@ -43,15 +54,13 @@ export async function requirePagePermission(
 
 /** Like requirePagePermission, but any one of the permissions opens the page. */
 export async function requireAnyPagePermission(permissions: Permission[]): Promise<PageGate> {
-  const user = await getAuthContext();
-  if (!user) redirect(await signInPath());
+  const user = await pageUser();
   if (permissions.some((p) => user.can(p))) return { ok: true, user };
   return { ok: false, user, missing: permissions };
 }
 
 /** Landing page for the signed-in user, derived from what they can actually reach. */
 export async function resolveHomePath() {
-  const user = await getAuthContext();
-  if (!user) redirect(await signInPath());
+  const user = await pageUser();
   return homePathFor(user.permissions, user.role);
 }

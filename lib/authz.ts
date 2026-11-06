@@ -80,7 +80,7 @@ function buildContext(
  * auth.mfa-enroll-required) so the client can send the user to /mfa/setup.
  *
  * Any error while resolving is swallowed into null — refused, not allowed. (The guards below
- * still tell a database that did not answer from a missing session: throwIfAuthUnavailable.)
+ * still tell a database that did not answer from a missing session: resolveAuth.)
  */
 export async function getAuthContext(deviceId?: string): Promise<AuthContext | null> {
   const resolved = await loadAuthState();
@@ -103,14 +103,14 @@ export async function isMfaEnrollmentPending(): Promise<boolean> {
   return (await loadAuthState()).kind === "mfa_enroll";
 }
 
-/** For the enrolment endpoints: 401 without a session (full or held at enrolment). */
+/** For the enrolment endpoints: 401 without a session (full or held at enrolment); the
+ * database's own error (503 busy) when it could not check the session. One read of the state. */
 export async function requireMfaSession(req?: NextRequest): Promise<MfaSessionUser> {
-  const s = await getMfaEnrollmentSession(req);
-  if (!s) {
-    await throwIfAuthUnavailable();
-    throw new ApiError(401, "لازم تسجل دخول الأول", "auth.required");
-  }
-  return s;
+  const resolved = await loadAuthState();
+  if (resolved.kind === "unavailable") throw resolved.error;
+  if (resolved.kind === "none") throw new ApiError(401, "لازم تسجل دخول الأول", "auth.required");
+  const u = resolved.user;
+  return { id: u.id, name: u.name, username: u.username, role: u.role as Role, sessionEpoch: u.sessionEpoch, mfaEnabled: u.mfaEnabled, mustEnroll: resolved.kind === "mfa_enroll", deviceId: deviceIdOf(req) };
 }
 
 type LoadedUser = { id: string; name: string; username: string; role: string; active: boolean; sessionEpoch: number; mustChangePassword: boolean; mfaEnabled: boolean };
@@ -121,18 +121,25 @@ type AuthState =
   /** The database could not answer (pool exhausted, unreachable): refused, but not "signed out". */
   | { kind: "unavailable"; error: unknown };
 
+// React's cache() exists only in the server build Next bundles; outside Next (unit tests,
+// scripts) the export is absent and the loader simply runs per call.
+const perRequest: <T extends (...args: never[]) => Promise<unknown>>(fn: T) => T =
+  typeof cache === "function" ? cache : (fn) => fn;
+
 /**
  * One database round trip for identity AND permissions, memoised for the lifetime of
- * the request.
+ * a page render.
  *
  * Both matter on site: every protected request pays this cost, the database is a
  * region away, and a page guard plus the endpoints it calls would otherwise each
- * re-resolve the same user. Fetching the overrides alongside the user keeps the total
+ * re-resolve the same user. (React memoises only while a page renders: in a route handler
+ * every call is a fresh query — which is why each guard reads the state exactly once,
+ * through resolveAuth, and decides from that one answer.) Fetching the overrides alongside the user keeps the total
  * at exactly one query — the same as the role-only check this replaced — so adding
  * permissions cost the request nothing. (The MFA policy is a setting, served from the
  * in-process settings cache.)
  */
-const loadAuthState = cache(async (): Promise<AuthState> => {
+const loadAuthState = perRequest(async (): Promise<AuthState> => {
   try {
     const session = await getSessionUser();
     if (!session) return { kind: "none" };
@@ -171,12 +178,21 @@ const loadAuthState = cache(async (): Promise<AuthState> => {
 });
 
 /**
- * Throws the database's own error when the session could not be checked because the database
- * did not answer — for a guard about to refuse as "not signed in". Never grants anything.
+ * What the request's session resolved to, from ONE read of the database — so a guard never
+ * asks twice and sees two different answers (the database failing, then answering) and
+ * refuses a signed-in user as "not signed in". Never grants anything beyond `ok`.
  */
-export async function throwIfAuthUnavailable(): Promise<void> {
-  const state = await loadAuthState();
-  if (state.kind === "unavailable") throw state.error;
+export type AuthOutcome =
+  | { kind: "ok"; ctx: AuthContext }
+  | { kind: "none" }
+  | { kind: "mfa_enroll" }
+  | { kind: "unavailable"; error: unknown };
+
+export async function resolveAuth(deviceId?: string): Promise<AuthOutcome> {
+  const s = await loadAuthState();
+  if (s.kind === "ok") return { kind: "ok", ctx: buildContext(s.user, s.permissions, deviceId) };
+  if (s.kind === "unavailable") return { kind: "unavailable", error: s.error };
+  return { kind: s.kind };
 }
 
 function isFrameworkControlFlow(err: unknown) {
@@ -188,23 +204,26 @@ function deviceIdOf(req?: NextRequest) {
   return req?.headers.get("x-device-id") ?? undefined;
 }
 
-/** 401 when not signed in, 403 when signed in without the permission. */
-/** The refusal for a request without a usable context: 403 with a machine-readable code
- * when the session is held at MFA enrolment, else the usual 401. */
-async function noContext(): Promise<never> {
-  await throwIfAuthUnavailable();
-  if (await isMfaEnrollmentPending()) {
+/** The refusal for a request without a usable context, decided from the same outcome the
+ * guard already read: the database's own error when it could not answer (handleApiError: 503
+ * busy with a reference), 403 with a machine-readable code when the session is held at MFA
+ * enrolment, else the usual 401. */
+function noContext(outcome: Exclude<AuthOutcome, { kind: "ok" }>): never {
+  if (outcome.kind === "unavailable") throw outcome.error;
+  if (outcome.kind === "mfa_enroll") {
     throw new ApiError(403, "لازم تفعّل التحقق بخطوتين الأول", "auth.mfa-enroll-required");
   }
   throw new ApiError(401, "لازم تسجل دخول الأول", "auth.required");
 }
 
+/** 401 when not signed in, 403 when signed in without the permission. */
 export async function requirePermission(
   req: NextRequest | undefined,
   permission: Permission | Permission[]
 ): Promise<AuthContext> {
-  const ctx = await getAuthContext(deviceIdOf(req));
-  if (!ctx) return noContext();
+  const outcome = await resolveAuth(deviceIdOf(req));
+  if (outcome.kind !== "ok") return noContext(outcome);
+  const ctx = outcome.ctx;
   const needed = Array.isArray(permission) ? permission : [permission];
   const missing = needed.filter((p) => !ctx.can(p));
   if (missing.length > 0) throw new ApiError(403, forbiddenMessage(missing));
@@ -216,16 +235,18 @@ export async function requireAnyPermission(
   req: NextRequest | undefined,
   permissions: Permission[]
 ): Promise<AuthContext> {
-  const ctx = await getAuthContext(deviceIdOf(req));
-  if (!ctx) return noContext();
+  const outcome = await resolveAuth(deviceIdOf(req));
+  if (outcome.kind !== "ok") return noContext(outcome);
+  const ctx = outcome.ctx;
   if (!permissions.some((p) => ctx.can(p))) throw new ApiError(403, forbiddenMessage(permissions));
   return ctx;
 }
 
 /** Authenticated only — for endpoints whose finer checks happen in the service. */
 export async function requireAuth(req?: NextRequest): Promise<AuthContext> {
-  const ctx = await getAuthContext(deviceIdOf(req));
-  if (!ctx) return noContext();
+  const outcome = await resolveAuth(deviceIdOf(req));
+  if (outcome.kind !== "ok") return noContext(outcome);
+  const ctx = outcome.ctx;
   // SEC-01: there is no self-service password change (an administrator sets passwords), so
   // "must change password" is a notice, never a lock: refusing here locked the user out of
   // every authenticated-only route with no way to clear the flag themselves.

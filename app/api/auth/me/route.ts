@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getAuthContext, isMfaEnrollmentPending, throwIfAuthUnavailable } from "@/lib/authz";
+import { resolveAuth } from "@/lib/authz";
 import { handleApiError } from "@/lib/rbac";
 import { PERMISSION_DEFS } from "@/lib/permissions";
 import { ROLE_LABEL, ROLE_DESC, type Role } from "@/lib/types";
@@ -13,18 +13,14 @@ import { ROLE_LABEL, ROLE_DESC, type Role } from "@/lib/types";
  * so no caller can ask for someone else's profile. Nothing sensitive (no hashes,
  * tokens, or epochs) leaves the server. */
 export async function GET(req: NextRequest) {
-  const ctx = await getAuthContext();
+  // One read of the session, so the answer cannot change between two checks.
+  const outcome = await resolveAuth();
   // A database that could not check the session is not "signed out": 503 busy, not user: null.
-  if (!ctx) {
-    try {
-      await throwIfAuthUnavailable();
-    } catch (err) {
-      return handleApiError(err, req);
-    }
-  }
+  if (outcome.kind === "unavailable") return handleApiError(outcome.error, req);
   // WS6: a session held at MFA enrolment is not a usable session — but the client is
   // told why, so it can open /mfa/setup instead of the sign-in form.
-  if (!ctx) return NextResponse.json({ user: null, profile: null, ...((await isMfaEnrollmentPending()) ? { mfa_enrollment_required: true } : {}) });
+  if (outcome.kind !== "ok") return NextResponse.json({ user: null, profile: null, ...(outcome.kind === "mfa_enroll" ? { mfa_enrollment_required: true } : {}) });
+  const ctx = outcome.ctx;
   const permissions = [...ctx.permissions]
     .map((key) => PERMISSION_DEFS.find((d) => d.key === key))
     .filter((d): d is (typeof PERMISSION_DEFS)[number] => !!d)

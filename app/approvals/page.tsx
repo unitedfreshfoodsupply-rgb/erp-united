@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/authz";
+import { signInPath } from "@/lib/session-guard";
 import { Nav } from "@/components/Nav";
 import { ApprovalsInbox } from "@/components/approvals/ApprovalsInbox";
 
@@ -7,7 +8,7 @@ import { ApprovalsInbox } from "@/components/approvals/ApprovalsInbox";
  * ones they raised. What they may DECIDE is checked per request on the server. */
 export default async function ApprovalsPage() {
   const user = await getAuthContext();
-  if (!user) redirect("/login");
+  if (!user) redirect(await signInPath());
   return (
     <main className="min-h-screen">
       <Nav />
