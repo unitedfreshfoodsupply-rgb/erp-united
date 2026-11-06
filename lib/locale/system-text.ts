@@ -239,6 +239,8 @@ const PAIRS: readonly (readonly [ar: string, en: string, oneWay?: typeof TO_EN])
   ["{n} يوم", "{} days"],
   ["{n} يوم رجعوا للرصيد", "{} days back to the register"],
   ["{n} بايت", "{} bytes"],
+  // Two-step sign-in (lib/security/mfa-service.ts audits "10 recovery codes")
+  ["{n} كود استرداد", "{} recovery codes"],
   ["من {}", "from {}"],
   ["اتلغى", "cancelled"],
   ["اتوقف", "retired"],

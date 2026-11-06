@@ -1,19 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { SearchX } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useLocale } from "@/lib/locale";
 
 /** Custom 404 page — friendlier than the browser's default "Not Found". */
 export default function NotFound() {
   const { t } = useLocale();
-  const [path, setPath] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Capture the URL path on the client side (server headers are unavailable).
-    setPath(typeof window !== "undefined" ? window.location.pathname : null);
-  }, []);
+  // The path asked for, in the server HTML too (no line appearing after hydration).
+  const path = usePathname();
 
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
@@ -22,7 +18,8 @@ export default function NotFound() {
         <h1 className="text-xl font-bold text-united-dark">{t("ui.not-found")}</h1>
         {path && (
           <p className="text-sm font-bold text-united-muted">
-            <code className="text-xs">{path}</code>
+            {/* A left-to-right run of its own: in Arabic the leading slash stays in front. */}
+            <code dir="ltr" className="text-xs">{path}</code>
           </p>
         )}
         <p className="text-sm text-united-muted">{t("ui.not-found-desc")}</p>

@@ -95,7 +95,16 @@ export async function POST(req: NextRequest) {
       );
       if (!method) {
         await recordLoginFailure(user.username, ip);
-        throw new ApiError(401, loc === "en" ? "Wrong verification code" : "كود التحقق غلط");
+        // A code is refused both when it is wrong and when its 30-second step was already used
+        // (replay protection: e.g. signing in again right after enrolling). Saying which would
+        // tell the caller the code was right, so the one message covers both and says what to do.
+        // A recovery code (checked only when no app code is sent, as verifySecondFactor does) is
+        // single-use and has no "next code": its message says only that it is wrong or used.
+        const filled = (v: unknown) => v !== undefined && v !== null && v !== "";
+        if (!filled(body.code) && filled(body.recovery_code)) {
+          throw new ApiError(401, loc === "en" ? "Wrong or already used recovery code" : "كود الاسترداد غلط أو اتستخدم قبل كده");
+        }
+        throw new ApiError(401, loc === "en" ? "Wrong or already used verification code — wait for the next code in the app" : "كود التحقق غلط أو اتستخدم قبل كده — استنى الكود الجاي في التطبيق");
       }
       await recordLoginSuccess(user.username, ip);
       return signIn(user, true);

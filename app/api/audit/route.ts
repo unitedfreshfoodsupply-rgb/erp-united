@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleApiError } from "@/lib/rbac";
 import { requireOrderActor } from "@/lib/api-auth";
-import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
-import type { Permission } from "@/lib/permissions";
-import { visibleAuditRows } from "@/lib/security/audit-visibility";
 import { isValidISODate } from "@/lib/dates";
 import { localizeServerMessage, requestLocale } from "@/lib/locale/server-messages";
 import { jsonResponse } from "@/lib/http-response";
-import { auditPage } from "./query";
+import { auditLogFor } from "./query";
 
 const MAX_PAGE = 200;
 const KNOWN_ENTITY_TYPES = new Set([
@@ -36,7 +33,6 @@ export async function GET(req: NextRequest) {
     // The timeline of one order is part of working that order, so anyone who can see
     // orders can see it. All other filtering requires the higher audit.view permission.
     const actor = await requireOrderActor(req, orderId ? "orders.view" : "audit.view");
-    const can = (p: Permission) => actor.permissions.includes(p);
 
     // Build the where clause.
     const where: Prisma.AuditLogWhereInput = {};
@@ -76,27 +72,8 @@ export async function GET(req: NextRequest) {
     }
 
     // A search or one order's timeline usually fits on one page, so its count is usually skipped.
-    const { total, rows } = await auditPage(where, limit, offset, { likelyShort: !!q || !!orderId });
-
-    const logs = visibleAuditRows(rows, can);
-
-    // Resolve item names for order_item events.
-    const itemIds = [...new Set(logs.filter((l) => l.entityType === "order_item").map((l) => l.entityId))];
-    const items = itemIds.length
-      ? await prisma.orderItem.findMany({ where: { id: { in: itemIds } }, select: { id: true, productName: true, unit: true } })
-      : [];
-    const itemById = new Map(items.map((i) => [i.id, i]));
-
-    return jsonResponse(req, {
-      total,
-      offset,
-      limit,
-      logs: logs.map((l) => ({
-        ...l,
-        itemName: l.entityType === "order_item" ? itemById.get(l.entityId)?.productName ?? null : null,
-        itemUnit: l.entityType === "order_item" ? itemById.get(l.entityId)?.unit ?? null : null,
-      })),
-    });
+    // Rows and values follow the viewer's money permissions (auditLogFor).
+    return jsonResponse(req, await auditLogFor(actor, where, limit, offset, { likelyShort: !!q || !!orderId }));
   } catch (err) {
     return handleApiError(err, req);
   }

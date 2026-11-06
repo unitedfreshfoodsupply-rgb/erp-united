@@ -79,7 +79,7 @@ export default async function DispatchSheetPage({ params, searchParams }: { para
           <div className="font-extrabold mb-2">{t("printdoc.dispatch-data")} {isDispatched ? "" : t("printdoc.fill-at-dispatch")}</div>
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <div className="text-united-dark/50 text-xs mb-1">{t("printdoc.driver-name")}</div>
+              <div className="text-united-muted text-xs mb-1">{t("printdoc.driver-name")}</div>
               {order.driverName ? (
                 <div className="font-bold">{order.driverName}</div>
               ) : (
@@ -87,7 +87,7 @@ export default async function DispatchSheetPage({ params, searchParams }: { para
               )}
             </div>
             <div>
-              <div className="text-united-dark/50 text-xs mb-1">{t("printdoc.vehicle-name")}</div>
+              <div className="text-united-muted text-xs mb-1">{t("printdoc.vehicle-name")}</div>
               {order.vehicle ? (
                 <div className="font-bold">{order.vehicle}</div>
               ) : (
@@ -95,7 +95,7 @@ export default async function DispatchSheetPage({ params, searchParams }: { para
               )}
             </div>
             <div>
-              <div className="text-united-dark/50 text-xs mb-1">{t("printdoc.crate-count")}</div>
+              <div className="text-united-muted text-xs mb-1">{t("printdoc.crate-count")}</div>
               {order.crateCount != null ? (
                 <div dir="ltr" className="font-bold">{order.crateCount}</div>
               ) : (
@@ -108,15 +108,15 @@ export default async function DispatchSheetPage({ params, searchParams }: { para
         <div className="grid grid-cols-2 gap-6 mt-10 text-sm print-break-inside-avoid">
           <div>
             <div className="border-b border-united-dark h-14" />
-            <div className="text-united-dark/60 mt-1">{t("printdoc.driver-sign-goods")}</div>
+            <div className="text-united-muted mt-1">{t("printdoc.driver-sign-goods")}</div>
           </div>
           <div>
             <div className="border-b border-united-dark h-14" />
-            <div className="text-united-dark/60 mt-1">{t("printdoc.supervisor-sign")}</div>
+            <div className="text-united-muted mt-1">{t("printdoc.supervisor-sign")}</div>
           </div>
         </div>
 
-        <p className="text-[10px] text-united-dark/30 mt-8">
+        <p className="text-[10px] text-united-muted mt-8">
           {t("printdoc.printed-at", { when: new Date().toLocaleString(printIntl(locale)), id: order.id })}
         </p>
       </div>

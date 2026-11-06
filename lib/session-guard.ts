@@ -1,13 +1,17 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { resolveAuth, type AuthContext, type AuthOutcome } from "@/lib/authz";
 import { homePathFor } from "@/lib/nav";
+import { signInHref } from "@/lib/hooks/urlQuery";
 import type { Permission } from "@/lib/permissions";
 import { HOME_BY_ROLE } from "@/lib/types";
 
 export { HOME_BY_ROLE };
 
 /** Where a visitor without a usable session goes: the sign-in form, or — when the
- * session is held until a second factor is set up (WS6) — the enrolment page. When the
+ * session is held until a second factor is set up (WS6) — the enrolment page. The sign-in
+ * form is told which page was asked for (?next=, from the path middleware.ts records), so a
+ * shared link or a notification opens that page once the visitor has signed in. When the
  * database could not check the session at all, nowhere: the page fails (its error screen)
  * instead of signing a signed-in user out. */
 export async function signInPath(): Promise<string> {
@@ -16,7 +20,7 @@ export async function signInPath(): Promise<string> {
 
 function signInPathFor(outcome: AuthOutcome): string {
   if (outcome.kind === "unavailable") throw outcome.error;
-  return outcome.kind === "mfa_enroll" ? "/mfa/setup" : "/login";
+  return outcome.kind === "mfa_enroll" ? "/mfa/setup" : signInHref(headers().get("x-united-path"));
 }
 
 /** The signed-in user for a page, from one read of the session; otherwise redirects (or, when

@@ -4,27 +4,34 @@ import Link from "next/link";
 import { Lock } from "lucide-react";
 import { ROLE_LABEL, ROLE_LABEL_EN, type Role } from "@/lib/types";
 import { useLocale } from "@/lib/locale";
+import { Nav } from "@/components/Nav";
 
 /**
  * The visible half of a refusal. The server has already decided; this only explains
  * it, naming the missing permission so an operator can tell an administrator exactly
  * what to grant instead of reporting "the page is broken".
+ *
+ * The person is signed in, so the card sits in the same shell as every other page (header with
+ * the language switch, notifications and sign-out, inside the page's main landmark); `shell`
+ * is false only where the caller already renders that shell around it.
  */
 export function AccessDenied({
   missing = [],
   role,
   homeHref = "/",
+  shell = true,
 }: {
   missing?: string[];
   role?: Role;
   homeHref?: string;
+  shell?: boolean;
 }) {
   const { t, locale } = useLocale();
 
   // Select role label based on current locale (safe: role is non-undefined in the ternary usage below)
   const roleLabel = role && locale === "en" ? ROLE_LABEL_EN[role] : (role && ROLE_LABEL[role]);
 
-  return (
+  const card = (
     <div className="min-h-[60vh] flex items-center justify-center p-6">
       <div className="card p-8 max-w-md w-full flex flex-col items-center text-center gap-3">
         <span aria-hidden className="flex h-12 w-12 items-center justify-center rounded-full bg-united-subtle text-united-dark"><Lock size={22} /></span>
@@ -55,4 +62,10 @@ export function AccessDenied({
       </div>
     </div>
   );
+  return shell ? (
+    <main className="min-h-screen">
+      <Nav />
+      {card}
+    </main>
+  ) : card;
 }

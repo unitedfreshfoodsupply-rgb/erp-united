@@ -876,8 +876,8 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       <aside className="min-w-0 flex flex-col">
       <div className="card p-5 mt-4 lg:mt-0">
         <h2 className="font-extrabold mb-2 text-united-dark">{t("orders.documents")}</h2>
-        <OrderPricingPanel orderId={orderId} orderStatus={order.status} />
         <AttachmentsPanel entityType="order" entityId={orderId} canManage={isSupervisor} />
+        <OrderPricingPanel orderId={orderId} orderStatus={order.status} lines={order.items.length} />
       </div>
 
       <div className="card p-5 mt-4">

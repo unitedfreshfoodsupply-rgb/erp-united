@@ -213,7 +213,9 @@ function describeOne(l: AuditLogDTO, locale: TimelineLocale) {
     // An action without a verb here still reads in the reader's language: English gets the
     // action in words, Arabic a neutral "activity" rather than an English identifier.
     headline: `${what} — ${verb ? (en ? verb.en : verb.ar) : en ? l.action.replace(/_/g, " ") : "نشاط مسجّل"}`,
-    detail: event?.detail ?? (l.newValue ? sourceInWords(l.newValue, locale) : undefined),
+    // The catch-all event repeats the stored value as its detail; read it through
+    // sourceInWords so a journal entry's source type ("stock_valuation · …") is in words.
+    detail: event?.detail && event.detail !== l.newValue ? event.detail : l.newValue ? sourceInWords(l.newValue, locale) : undefined,
   };
 }
 

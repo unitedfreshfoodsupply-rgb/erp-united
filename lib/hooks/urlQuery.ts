@@ -34,3 +34,33 @@ export function replaceQuery(params: URLSearchParams) {
   const qs = params.toString();
   window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`);
 }
+
+/**
+ * The page a signed-out visitor asked for (`?next=` on /login, set by lib/session-guard.ts and the
+ * API client's 401 handler), when it is a page of this app: a same-origin path, never another site
+ * ("//host", "/\\host", "https://…") and never the sign-in steps themselves. Null otherwise.
+ */
+export function returnPath(next: string | null | undefined, origin: string): string | null {
+  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return null;
+  try {
+    const url = new URL(next, origin);
+    if (url.origin !== origin || url.pathname === "/login" || url.pathname.startsWith("/mfa")) return null;
+    // Only pages: a route handler or a build file is never a place to land after signing in, and
+    // neither is /no-access (the landing for an account without any permission, not a destination).
+    if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/_next/") || url.pathname === "/no-access") return null;
+    return url.pathname + url.search + url.hash;
+  } catch {
+    return null;
+  }
+}
+
+/** Any fixed origin: returnPath only needs one to resolve a path against. */
+const SIGN_IN_ORIGIN = "http://united.invalid";
+
+/** The sign-in address for a visitor who asked for `asked` (the path middleware.ts records in
+ * x-united-path): /login?next=… when returnPath accepts it, plain /login otherwise (and for "/",
+ * which lands on the home page anyway). Used by lib/session-guard.ts signInPath. */
+export function signInHref(asked: string | null | undefined): string {
+  const back = asked && asked !== "/" ? returnPath(asked, SIGN_IN_ORIGIN) : null;
+  return back ? `/login?next=${encodeURIComponent(back)}` : "/login";
+}

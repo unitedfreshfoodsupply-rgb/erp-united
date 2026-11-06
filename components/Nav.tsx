@@ -20,6 +20,7 @@ import { Modal } from "@/components/ui/Dialog";
 import { Menu as AccountMenu } from "@/components/ui/Menu";
 import { useLocale } from "@/lib/locale";
 import { Avatar } from "@/components/ui/Avatar";
+import { rememberShellShape, shellShapeFor } from "@/lib/hooks/shellHint";
 
 /**
  * The application shell.
@@ -204,18 +205,14 @@ export function Nav() {
   // Links come from the shared NAV_LINKS definition filtered by effective permissions,
   // so the shell can never offer a module the server would refuse.
   const links = visibleNavLinks(permissions);
-  const groups = NAV_GROUPS.filter((g) => links.some((l) => l.group === g.key));
   // A role with a handful of screens sees them all as tabs; a role spanning departments
   // gets the grouped sidebar — never a wall of twenty pills.
-  const grouped = links.length > 7 && groups.length > 1;
+  const grouped = shellShapeFor(permissions) === "grouped";
 
   // Remember the shell shape for the next page load (a layout hint, nothing else).
   useEffect(() => {
     if (!user) return;
-    const shape = grouped ? "grouped" : "tabs";
-    if (!document.cookie.split("; ").includes(`u_shell=${shape}`)) {
-      document.cookie = `u_shell=${shape}; path=/; max-age=31536000; samesite=lax`;
-    }
+    rememberShellShape(grouped ? "grouped" : "tabs");
   }, [user, grouped]);
 
   // Hold the bar's height (and, on the desktop, the sidebar's width when this browser's last
@@ -242,6 +239,15 @@ export function Nav() {
 
   return (
     <>
+      {/* The first Tab stop on every page: past the brand, the module links and the header
+          controls, straight to the page's own content (the target below). */}
+      <a
+        href="#main-content"
+        onClick={(e) => { e.preventDefault(); skipToContent(); }}
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:start-2 focus:z-50 focus:rounded-xl focus:bg-white focus:px-4 focus:py-2.5 focus:text-sm focus:font-semibold focus:text-united-green focus:shadow-pop"
+      >
+        {t("ui.skip-to-content")}
+      </a>
       {grouped && (
         <aside className="u-shell-sidebar hidden lg:flex fixed inset-y-0 start-0 z-30 w-[var(--u-sidebar)] flex-col border-e border-united-border bg-white">
           <div className={`flex h-14 items-center border-b border-united-border ${rail ? "justify-center px-2" : "px-4"}`}>
@@ -345,6 +351,10 @@ export function Nav() {
         )}
       </header>
 
+      {/* Where the skip link lands: right before the page's content, which follows Nav (or on the
+          page heading just after it — skipToContent). */}
+      <div id="main-content" tabIndex={-1} className="outline-none" />
+
       {/* Below 1024px the grouped navigation lives in a drawer (a native modal dialog). */}
       {grouped && <NavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} links={links} activeHref={activeHref} home={home} />}
 
@@ -402,4 +412,24 @@ function NavDrawer({ open, onClose, links, activeHref, home }: { open: boolean; 
       </nav>
     </dialog>
   );
+}
+
+/** The skip link's landing: the page's first heading when nothing the user could reach with Tab
+ * comes before it — a screen reader then announces where the user is — and otherwise the empty
+ * target right after Nav, so a control above the heading (a back link, a filter) stays the next
+ * Tab stop. */
+function skipToContent() {
+  const target = document.getElementById("main-content");
+  if (!target) return;
+  const after = (el: Element) => !!(target.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const heading = Array.from(document.querySelectorAll<HTMLElement>("h1")).find(after);
+  const before = (el: Element) => !!heading && !!(heading.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING);
+  const focusable = "a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex='-1'])";
+  const between = Array.from(document.querySelectorAll<HTMLElement>(focusable)).some((el) => after(el) && before(el) && el.getClientRects().length > 0);
+  if (!heading || between) {
+    target.focus();
+    return;
+  }
+  if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+  heading.focus();
 }

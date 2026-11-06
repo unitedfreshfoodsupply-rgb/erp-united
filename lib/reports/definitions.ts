@@ -222,7 +222,7 @@ export const REPORTS: ReportDef[] = [
     title: { ar: "الخصومات واستثناءات الأسعار", en: "Discounts and pricing exceptions" },
     description: { ar: "طلبات استثناء السعر (تحت التكلفة أو خصم أكبر من المسموح) وقراراتها", en: "Price-exception requests (below cost or above the discount limit) and their decisions" },
     permissions: SALES, filters: ["period"],
-    columns: [{ key: "date", label: { ar: "التاريخ", en: "Date" }, type: "date" }, { key: "title", label: { ar: "الأوردر", en: "Order" }, type: "text" }, { key: "summary", label: { ar: "التفاصيل", en: "Detail" }, type: "text", cost: true }, { key: "status", label: { ar: "القرار", en: "Decision" }, type: "text" }, { key: "by", label: { ar: "طلبه", en: "Requested by" }, type: "text" }],
+    columns: [{ key: "date", label: { ar: "التاريخ", en: "Date" }, type: "date" }, { key: "title", label: { ar: "الأوردر", en: "Order" }, type: "text" }, { key: "summary", label: { ar: "التفاصيل", en: "Detail" }, type: "text", cost: true }, { key: "status", label: { ar: "القرار", en: "Decision" }, type: "text", labels: "approvals.status" }, { key: "by", label: { ar: "طلبه", en: "Requested by" }, type: "text" }],
     run: async (p) => {
       const rows = await prisma.approvalRequest.findMany({ where: { type: "sales.price_exception", createdAt: businessDayRange(p.from, p.to) }, orderBy: { createdAt: "desc" }, take: 2000 });
       return { rows: rows.map((r) => ({ date: businessDate(r.createdAt), title: r.title, summary: r.summary ?? "", status: r.status, by: r.requestedBy ?? "", _href: `/orders/${r.entityId}` })) };
@@ -310,7 +310,7 @@ export const REPORTS: ReportDef[] = [
     title: { ar: "أوامر الشراء: المطلوب والمستلم", en: "Purchase orders: ordered vs received" },
     description: { ar: "لكل سطر أمر شراء: المطلوب، المستلم، والباقي", en: "Per purchase-order line: ordered, received and outstanding" },
     permissions: ["purchasing.orders.view"], filters: ["period", "supplier"],
-    columns: [{ key: "number", label: { ar: "أمر الشراء", en: "PO" }, type: "code" }, ...SUPPLIER_COLS, ...PARTY_COLS, { key: "ordered", label: { ar: "المطلوب", en: "Ordered" }, type: "qty" }, { key: "received", label: { ar: "المستلم", en: "Received" }, type: "qty" }, { key: "outstanding", label: { ar: "الباقي", en: "Outstanding" }, type: "qty" }, { key: "fill", label: { ar: "نسبة الاستلام %", en: "Fill %" }, type: "percent" }, { key: "status", label: { ar: "الحالة", en: "Status" }, type: "text" }],
+    columns: [{ key: "number", label: { ar: "أمر الشراء", en: "PO" }, type: "code" }, ...SUPPLIER_COLS, ...PARTY_COLS, { key: "ordered", label: { ar: "المطلوب", en: "Ordered" }, type: "qty" }, { key: "received", label: { ar: "المستلم", en: "Received" }, type: "qty" }, { key: "outstanding", label: { ar: "الباقي", en: "Outstanding" }, type: "qty" }, { key: "fill", label: { ar: "نسبة الاستلام %", en: "Fill %" }, type: "percent" }, { key: "status", label: { ar: "الحالة", en: "Status" }, type: "text", labels: "purchasing.po.status" }],
     run: async (p) => {
       const rows = await prisma.$queryRaw<{ id: string; number: string; status: string; sname: string; snameAr: string | null; name: string; nameAr: string | null; ordered: Prisma.Decimal; received: Prisma.Decimal | null }[]>`
         SELECT o."id", o."number", o."status", s."name" sname, s."nameAr" "snameAr", pr."name", pr."nameAr", l."baseQuantity" ordered,
@@ -516,7 +516,7 @@ export const REPORTS: ReportDef[] = [
     description: { ar: "الأوردرات حسب الحالة، والوقت من التسجيل للخروج", en: "Orders by status, and the time from entry to dispatch" },
     notes: { ar: "الوقت = من تسجيل الأوردر لحد مستند الصرف (خروج البضاعة).", en: "Time = from order entry to its stock issue (goods leaving)." },
     permissions: OPS, filters: ["period"],
-    columns: [{ key: "status", label: { ar: "الحالة", en: "Status" }, type: "text" }, { key: "orders", label: { ar: "أوردرات", en: "Orders" }, type: "number", total: true }, { key: "avg_hours", label: { ar: "متوسط الساعات للخروج", en: "Average hours to dispatch" }, type: "number" }],
+    columns: [{ key: "status", label: { ar: "الحالة", en: "Status" }, type: "text", labels: "orders.status" }, { key: "orders", label: { ar: "أوردرات", en: "Orders" }, type: "number", total: true }, { key: "avg_hours", label: { ar: "متوسط الساعات للخروج", en: "Average hours to dispatch" }, type: "number" }],
     run: async (p) => {
       const rows = await prisma.$queryRaw<{ status: string; n: bigint; hrs: number | null }[]>`
         SELECT o."status", count(*) n, avg(EXTRACT(EPOCH FROM (d."createdAt" - o."createdAt")) / 3600) hrs
@@ -530,7 +530,7 @@ export const REPORTS: ReportDef[] = [
     title: { ar: "الأوردرات المتأخرة", en: "Delayed orders" },
     description: { ar: "أوردرات مفتوحة فات معاد تسليمها، أو خرجت بعد معادها", en: "Open orders past their delivery date, or dispatched after it" },
     permissions: OPS, filters: ["period"],
-    columns: [{ key: "number", label: { ar: "الأوردر", en: "Order" }, type: "code" }, { key: "customer_ar", label: { ar: "العميل", en: "Customer (Arabic)" }, type: "text" }, { key: "customer_en", label: { ar: "العميل بالإنجليزي", en: "Customer" }, type: "text" }, { key: "delivery", label: { ar: "معاد التسليم", en: "Delivery date" }, type: "date" }, { key: "status", label: { ar: "الحالة", en: "Status" }, type: "text" }, { key: "dispatched", label: { ar: "خرج يوم", en: "Dispatched" }, type: "date" }, { key: "days_late", label: { ar: "أيام تأخير", en: "Days late" }, type: "number" }],
+    columns: [{ key: "number", label: { ar: "الأوردر", en: "Order" }, type: "code" }, { key: "customer_ar", label: { ar: "العميل", en: "Customer (Arabic)" }, type: "text" }, { key: "customer_en", label: { ar: "العميل بالإنجليزي", en: "Customer" }, type: "text" }, { key: "delivery", label: { ar: "معاد التسليم", en: "Delivery date" }, type: "date" }, { key: "status", label: { ar: "الحالة", en: "Status" }, type: "text", labels: "orders.status" }, { key: "dispatched", label: { ar: "خرج يوم", en: "Dispatched" }, type: "date" }, { key: "days_late", label: { ar: "أيام تأخير", en: "Days late" }, type: "number" }],
     run: async (p) => {
       // The customer as of now (a current report): the linked card, else the name as received.
       const rows = await prisma.$queryRaw<{ id: string; orderNumber: string; customerName: string; cardName: string | null; cardNameAr: string | null; deliveryDate: string; status: string; issued: string | null }[]>`
@@ -547,7 +547,7 @@ export const REPORTS: ReportDef[] = [
     title: { ar: "نواقص التجهيز والتحميل", en: "Order shortages" },
     description: { ar: "الأوردرات اللي اتجهزت أو اتحملت ناقص وطلبت موافقة المشرف", en: "Orders prepared or loaded short that needed a supervisor's approval" },
     permissions: OPS, filters: ["period"],
-    columns: [{ key: "date", label: { ar: "التاريخ", en: "Date" }, type: "date" }, { key: "title", label: { ar: "الأوردر", en: "Order" }, type: "text" }, { key: "summary", label: { ar: "أكبر فرق", en: "Largest shortfall" }, type: "text" }, { key: "status", label: { ar: "القرار", en: "Decision" }, type: "text" }],
+    columns: [{ key: "date", label: { ar: "التاريخ", en: "Date" }, type: "date" }, { key: "title", label: { ar: "الأوردر", en: "Order" }, type: "text" }, { key: "summary", label: { ar: "أكبر فرق", en: "Largest shortfall" }, type: "text" }, { key: "status", label: { ar: "القرار", en: "Decision" }, type: "text", labels: "approvals.status" }],
     run: async (p) => {
       const rows = await prisma.approvalRequest.findMany({ where: { type: "orders.shortage", createdAt: businessDayRange(p.from, p.to) }, orderBy: { createdAt: "desc" }, take: 2000 });
       return { rows: rows.map((r) => ({ date: businessDate(r.createdAt), title: r.title, summary: r.summary ?? "", status: r.status, _href: `/orders/${r.entityId}` })) };

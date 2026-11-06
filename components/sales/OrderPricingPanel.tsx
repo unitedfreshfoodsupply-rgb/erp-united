@@ -13,6 +13,7 @@ import { StatusPill, docTone } from "@/components/ui/StatusPill";
 import { useBusy } from "@/components/ui/useBusy";
 import { orderPriceLock, orderStopShownAs } from "@/lib/orderActions";
 import { systemText } from "@/lib/locale/system-text";
+import { CardSkeleton, SkeletonLine } from "@/components/Skeleton";
 
 type Amounts = { gross: string; discount: string; net: string; tax: string; total: string };
 type Pricing = {
@@ -38,8 +39,8 @@ const SOURCE: Record<string, string> = { list: "pricing.source.list", manual: "p
 
 /** The commercial side of an order, for people who may see prices. The floor screens
  * never load this. `orderStatus` (the order screen knows it) lets the panel stop offering
- * price changes the server refuses on a cancelled order. */
-export function OrderPricingPanel({ orderId, orderStatus }: { orderId: string; orderStatus?: string }) {
+ * price changes the server refuses on a cancelled order; `lines` sizes its loading skeleton. */
+export function OrderPricingPanel({ orderId, orderStatus, lines }: { orderId: string; orderStatus?: string; lines?: number }) {
   const { t, locale } = useLocale();
   const { can } = usePermissions();
   const qc = useQueryClient();
@@ -53,7 +54,12 @@ export function OrderPricingPanel({ orderId, orderStatus }: { orderId: string; o
     enabled: can("sales.pricing.view"),
     refetchInterval: 30_000,
   });
-  if (!can("sales.pricing.view") || !q.data) return null;
+  if (!can("sales.pricing.view")) return null;
+  // Below the attachments (components/order/OrderDetail.tsx), with a placeholder while the
+  // first answer loads: nothing above it, and nothing the user may be about to click, moves.
+  // Given the order's line count, the placeholder has the panel's shape — one row per line and
+  // the totals — so the card below it (the timeline) does not move when the prices arrive.
+  if (!q.data) return q.isPending ? (lines ? <PricingSkeleton lines={lines} reprice={can("sales.price_override")} /> : <div className="mt-4"><CardSkeleton lines={3} /></div>) : null;
   const p = q.data;
   // Prices change on the order only while no invoice holds them and the order is live — the
   // same rule the server refuses with (lib/orderActions.ts orderPriceLock). Then the actions
@@ -71,7 +77,7 @@ export function OrderPricingPanel({ orderId, orderStatus }: { orderId: string; o
   const canOverride = can("sales.price_override") && !locked;
   const refresh = () => void qc.invalidateQueries({ queryKey: ["orders", orderId, "pricing"] });
   return (
-    <section className="card p-4 flex flex-col gap-3">
+    <section className="card p-4 mt-4 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <h3 className="font-extrabold text-united-dark">{t("pricing.title")}</h3>
         <span className="text-xs font-bold text-united-muted">{p.customer ? `${localName(p.customer, locale)} · ` : t("pricing.unlinked-customer")}{p.priceList ? p.priceList.name : t("pricing.no-price-list")}</span>
@@ -179,5 +185,31 @@ export function OrderPricingPanel({ orderId, orderStatus }: { orderId: string; o
       )}
       {locked && can("sales.price_override") && <p className="text-sm text-united-muted" data-testid="pricing-locked">{locked}</p>}
     </section>
+  );
+}
+
+/** The pricing panel's shape while it loads: the same card, a row per order line (two text
+ * lines each, as in the list above), the 2 × 2 totals and, for who may change prices, the
+ * reprice button. */
+function PricingSkeleton({ lines, reprice }: { lines: number; reprice: boolean }) {
+  return (
+    <div className="card p-4 mt-4 flex flex-col gap-3" aria-busy="true">
+      <div className="flex items-center justify-between gap-2">
+        <SkeletonLine className="h-6 w-1/3" />
+        <SkeletonLine className="h-4 w-1/3" />
+      </div>
+      <ul className="flex flex-col divide-y divide-united-dark/5">
+        {Array.from({ length: lines }).map((_, i) => (
+          <li key={i} className="py-2 flex flex-col gap-1">
+            <SkeletonLine className="h-5 w-full" />
+            <SkeletonLine className="h-4 w-2/3" />
+          </li>
+        ))}
+      </ul>
+      <div className="grid grid-cols-2 gap-2">
+        {Array.from({ length: 4 }).map((_, i) => <SkeletonLine key={i} className="h-[52px] rounded-xl" />)}
+      </div>
+      {reprice && <SkeletonLine className="h-11 w-32 rounded-xl" />}
+    </div>
   );
 }

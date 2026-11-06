@@ -8,17 +8,21 @@ import { AlertTriangle, ArrowLeft, Download, Info, Printer } from "lucide-react"
 import { apiDownload, apiFetch, errorMessage } from "@/lib/api-client";
 import { isValidISODate } from "@/lib/dates";
 import { replaceQuery, withParams } from "@/lib/hooks/urlQuery";
+import { isRefusal } from "@/lib/hooks/refusal";
 import { useLocale } from "@/lib/locale";
 import { formatNumber } from "@/lib/format";
 import { localName } from "@/lib/locale/names";
 import { systemText } from "@/lib/locale/system-text";
+import { codedText } from "@/lib/reports/labels";
+import type { LabelFamily } from "@/lib/reports/types";
 import { todayLocalISO } from "@/lib/localDate";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ErrorState } from "@/components/States";
+import { CardSkeleton } from "@/components/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 
 type Bi = { ar: string; en: string };
-type Col = { key: string; label: Bi; type: "text" | "code" | "date" | "money" | "qty" | "number" | "percent"; total?: boolean };
+type Col = { key: string; label: Bi; type: "text" | "code" | "date" | "money" | "qty" | "number" | "percent"; total?: boolean; labels?: LabelFamily };
 type Row = Record<string, string | number | null> & { _href?: string | null; _tone?: "warn" | "danger" | null };
 type Ran = { key: string; title: Bi; description: Bi; notes: Bi | null; filters: string[]; params: Record<string, string>; columns: Col[]; rows: Row[]; totals: Record<string, string | number | null>; warnings: Bi[]; scope: Bi | null };
 
@@ -68,6 +72,9 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
   const cols = r ? r.columns.filter((c) => { const tw = twin(c.key); return !tw || !keys.has(tw) || c.key.endsWith(lang === "ar" ? "_ar" : "_en"); }) : [];
   const fmt = (c: Col, v: unknown) => {
     if (v === null || v === undefined || v === "") return "—";
+    // A stored status code reads as its words ("ready_for_loading" → جاهز للتحميل / Ready for Loading).
+    const coded = codedText(c, v, lang);
+    if (coded) return coded;
     if (c.type === "money") return formatNumber(v as string, { minDp: 2, maxDp: 2 });
     if (c.type === "qty") return formatNumber(v as number, { maxDp: 3 });
     if (c.type === "number") return formatNumber(v as number, { maxDp: 1 });
@@ -113,7 +120,15 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
           </div>
         )}
       </div>
-      {q.isError && !r && <ErrorState message={errorMessage(q.error) ?? t("ui.error.generic")} onRetry={() => q.refetch()} />}
+      {/* Until the first result arrives: a loading state, not an empty page. */}
+      {q.isPending && !r && (
+        <div className="flex flex-col gap-3">
+          <CardSkeleton lines={2} />
+          <CardSkeleton lines={6} />
+        </div>
+      )}
+      {/* A refusal (no permission, unknown report) is final: no Retry; the back link stays. */}
+      {q.isError && !r && <ErrorState message={errorMessage(q.error) ?? t("ui.error.generic")} onRetry={isRefusal(q.error) ? undefined : () => q.refetch()} />}
       {r && (
         <>
           <header className="flex flex-col gap-1">
@@ -151,7 +166,7 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
           {q.isError && (
             <div className="card flex flex-wrap items-center justify-between gap-2 border-s-4 !border-s-united-danger p-3" role="alert">
               <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-united-danger"><AlertTriangle size={15} aria-hidden /> {errorMessage(q.error) ?? t("ui.error.generic")}</p>
-              <button type="button" className="btn-secondary btn-sm" onClick={() => q.refetch()}>{t("ui.retry")}</button>
+              {!isRefusal(q.error) && <button type="button" className="btn-secondary btn-sm" onClick={() => q.refetch()}>{t("ui.retry")}</button>}
             </div>
           )}
           {r.warnings.length > 0 && (
@@ -178,6 +193,7 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
   );
 }
 
+/** A 4xx other than a timeout or rate limit: asking again gives the same answer. */
 function ExportMenu({ onPick, t }: { onPick: (f: "csv" | "xls", l: "ar" | "en") => void; t: (k: string) => string }) {
   const [open, setOpen] = useState(false);
   return (

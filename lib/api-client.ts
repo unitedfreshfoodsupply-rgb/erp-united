@@ -89,7 +89,9 @@ async function send(path: string, init: RequestInit | undefined, accept: "json" 
 
   if (res.status === 401 && typeof window !== "undefined" && !path.includes("/auth/")) {
     const loc = storedLocale();
-    window.location.href = "/login";
+    // Back to this page after signing in again (app/login/page.tsx checks it is one of ours).
+    const here = window.location.pathname + window.location.search;
+    window.location.href = window.location.pathname === "/login" || here === "/" ? "/login" : `/login?next=${encodeURIComponent(here)}`;
     throw new ApiClientError(loc === "en" ? "Please sign in again" : "لازم تسجل دخول تاني");
   }
 

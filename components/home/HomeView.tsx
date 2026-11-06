@@ -164,7 +164,7 @@ export function HomeView({ name }: { name: string }) {
                   { key: "dispatched-today", label: t("home.flow.dispatched"), count: q.data.operations.dispatchedToday, done: true }].map((stage, i) => (
                   <li key={stage.key} className={`relative flex min-h-[76px] flex-col justify-between rounded-xl border p-3 ${stage.done ? "border-united-green/30 bg-united-green/5" : stage.count ? "border-united-border-strong bg-white" : "border-united-border bg-united-subtle/60"}`}>
                     <span className="text-xs font-medium text-united-muted">{stage.label}</span>
-                    <span className={`num text-2xl font-bold ${stage.count ? (stage.done ? "text-united-green" : "text-united-dark") : "text-united-muted/70"}`} dir="ltr">{num(stage.count)}</span>
+                    <span className={`num text-2xl font-bold ${stage.count ? (stage.done ? "text-united-green" : "text-united-dark") : "text-united-muted"}`} dir="ltr">{num(stage.count)}</span>
                     {i < ORDER_STATUS_ORDER.length && <span aria-hidden className="absolute -end-1.5 top-1/2 hidden -translate-y-1/2 text-united-border-strong sm:block rtl:rotate-180">›</span>}
                   </li>
                 ))}

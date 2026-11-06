@@ -63,18 +63,33 @@ export function NotificationBell() {
   });
 
   // Opening moves focus to the panel's title (a dialog takes focus; the title names it). The panel
-  // closes on a click elsewhere, or on Esc inside the bell or panel, with focus back on the bell.
+  // closes on a click elsewhere, when focus moves out of the bell and panel (Tab past its last
+  // item, like the kit Menu), or on Esc while it is open, with focus back on the bell.
   useEffect(() => {
     if (!open) return;
     title.current?.focus();
     const close = (e: MouseEvent) => {
       if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
     };
+    // Esc from anywhere while the panel is open: focus may be on the page behind it.
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      setOpen(false);
+      bell.current?.focus();
+    };
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onEsc);
+    };
   }, [open]);
-  const onKey = (e: React.KeyboardEvent) => {
-    if (open && e.key === "Escape") { e.preventDefault(); setOpen(false); bell.current?.focus(); }
+  // Focus leaving for another control closes the panel; focus leaving for nowhere (the window
+  // lost focus, a click on the page) is the mousedown handler's business.
+  const onBlur = (e: React.FocusEvent) => {
+    const next = e.relatedTarget as Node | null;
+    if (open && next && !box.current?.contains(next)) setOpen(false);
   };
 
   const unread = q.data?.unread ?? 0;
@@ -94,7 +109,7 @@ export function NotificationBell() {
   }
 
   return (
-    <div className="relative" ref={box} onKeyDown={onKey}>
+    <div className="relative" ref={box} onBlur={onBlur}>
       <button
         ref={bell}
         type="button"
@@ -136,14 +151,14 @@ export function NotificationBell() {
                   <button
                     type="button"
                     onClick={() => openItem(n)}
-                    className={`w-full flex gap-2 items-start rounded-xl px-2 py-2.5 hover:bg-united-dark/5 ${
-                      n.readAt ? "opacity-60" : ""
-                    }`}
+                    // A read notification is told apart by its grey dot and lighter title, not by
+                    // dimming the whole row (that took its text below AA contrast).
+                    className="w-full flex gap-2 items-start rounded-xl px-2 py-2.5 hover:bg-united-dark/5"
                     dir={isRTL ? "rtl" : "ltr"}
                   >
-                    <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${n.readAt ? "bg-united-dark/20" : DOT[n.severity]}`} />
+                    <span aria-hidden className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${n.readAt ? "bg-united-dark/20" : DOT[n.severity]}`} />
                     <span className="min-w-0">
-                      <span className="block font-bold text-sm text-united-dark">{systemText(n.title, locale)}</span>
+                      <span className={`block text-sm text-united-dark ${n.readAt ? "font-medium" : "font-bold"}`}>{systemText(n.title, locale)}</span>
                       {n.body && <span className="block text-xs font-bold text-united-muted">{bodyText(n, locale)}</span>}
                       {/* No forced LTR: the Arabic date carries its own direction marks and comma. */}
                       <span className="block text-[10px] font-bold text-united-muted mt-0.5">

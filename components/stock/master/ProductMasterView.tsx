@@ -89,7 +89,7 @@ export function ProductMasterView() {
                 searchHint={t("master.search-hint")}
                 filters={[
                   { key: "category", label: t("stock.field-category"), kind: "select", options: categories.map((c) => ({ value: c, label: c })) },
-                  { key: "status", label: t("list.status"), kind: "select", options: [{ value: "active", label: t("master.stat-active") }, { value: "inactive", label: t("stock.suspended") }] },
+                  { key: "status", label: t("list.status"), kind: "select", options: [{ value: "active", label: t("master.filter-active") }, { value: "inactive", label: t("stock.badge-suspended") }] },
                 ]}
               />
               <p className="text-sm text-united-muted" aria-live="polite">{t("master.showing", { shown: String(shown.length), total: String(products.length) })}</p>

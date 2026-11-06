@@ -230,9 +230,9 @@ export function ItemRow({
           {/* Inline prepared-vs-ordered comparison — updates immediately on every keystroke. */}
           <div className="flex items-center gap-2 mt-2 text-sm font-bold">
             <span className="text-united-muted">{t("orders.item.req_label")}</span>
-            <span dir="ltr" className="text-united-dark">{qtyLabel(item.requiredQuantity)} {unitLabel(item.unit)}</span>
+            <span className="text-united-dark"><bdi dir="ltr">{qtyLabel(item.requiredQuantity)}</bdi> {unitLabel(item.unit)}</span>
             <span className="text-united-muted">{t("orders.item.prep_label")}</span>
-            <span dir="ltr" className={qty > item.requiredQuantity ? "text-united-warn" : "text-united-green"}>{qtyLabel(qty)} {unitLabel(item.unit)}</span>
+            <span className={qty > item.requiredQuantity ? "text-united-warn" : "text-united-green"}><bdi dir="ltr">{qtyLabel(qty)}</bdi> {unitLabel(item.unit)}</span>
           </div>
           {qty > item.requiredQuantity && (
             <p className="text-united-danger font-bold text-sm mt-1">
