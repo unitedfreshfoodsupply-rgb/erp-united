@@ -8,11 +8,13 @@ import { AlertTriangle, ArrowLeft, Download, Info, Printer } from "lucide-react"
 import { apiFetch, errorMessage } from "@/lib/api-client";
 import { isValidISODate } from "@/lib/dates";
 import { replaceQuery, withParams } from "@/lib/hooks/urlQuery";
+import { isRefusal } from "@/lib/hooks/refusal";
 import { useLocale } from "@/lib/locale";
 import { formatNumber } from "@/lib/format";
 import { localName } from "@/lib/locale/names";
 import { systemText } from "@/lib/locale/system-text";
 import { codedText } from "@/lib/reports/labels";
+import type { LabelFamily } from "@/lib/reports/types";
 import { todayLocalISO } from "@/lib/localDate";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ErrorState } from "@/components/States";
@@ -20,7 +22,7 @@ import { CardSkeleton } from "@/components/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 
 type Bi = { ar: string; en: string };
-type Col = { key: string; label: Bi; type: "text" | "code" | "date" | "money" | "qty" | "number" | "percent"; total?: boolean; labels?: string };
+type Col = { key: string; label: Bi; type: "text" | "code" | "date" | "money" | "qty" | "number" | "percent"; total?: boolean; labels?: LabelFamily };
 type Row = Record<string, string | number | null> & { _href?: string | null; _tone?: "warn" | "danger" | null };
 type Ran = { key: string; title: Bi; description: Bi; notes: Bi | null; filters: string[]; params: Record<string, string>; columns: Col[]; rows: Row[]; totals: Record<string, string | number | null>; warnings: Bi[]; scope: Bi | null };
 
@@ -132,7 +134,7 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
         </div>
       )}
       {/* A refusal (no permission, unknown report) is final: no Retry; the back link stays. */}
-      {q.isError && !r && <ErrorState message={errorMessage(q.error) ?? t("ui.error.generic")} onRetry={refusal(q.error) ? undefined : () => q.refetch()} />}
+      {q.isError && !r && <ErrorState message={errorMessage(q.error) ?? t("ui.error.generic")} onRetry={isRefusal(q.error) ? undefined : () => q.refetch()} />}
       {r && (
         <>
           <header className="flex flex-col gap-1">
@@ -170,7 +172,7 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
           {q.isError && (
             <div className="card flex flex-wrap items-center justify-between gap-2 border-s-4 !border-s-united-danger p-3" role="alert">
               <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-united-danger"><AlertTriangle size={15} aria-hidden /> {errorMessage(q.error) ?? t("ui.error.generic")}</p>
-              <button type="button" className="btn-secondary btn-sm" onClick={() => q.refetch()}>{t("ui.retry")}</button>
+              {!isRefusal(q.error) && <button type="button" className="btn-secondary btn-sm" onClick={() => q.refetch()}>{t("ui.retry")}</button>}
             </div>
           )}
           {r.warnings.length > 0 && (
@@ -198,11 +200,6 @@ export function ReportViewer({ reportKey }: { reportKey: string }) {
 }
 
 /** A 4xx other than a timeout or rate limit: asking again gives the same answer. */
-function refusal(error: unknown) {
-  const status = (error as { status?: number } | null)?.status;
-  return !!status && status >= 400 && status < 500 && status !== 408 && status !== 429;
-}
-
 function ExportMenu({ onPick, t }: { onPick: (f: "csv" | "xls", l: "ar" | "en") => void; t: (k: string) => string }) {
   const [open, setOpen] = useState(false);
   return (

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { getAuthContext, isMfaEnrollmentPending, type AuthContext } from "@/lib/authz";
 import { homePathFor } from "@/lib/nav";
+import { signInHref } from "@/lib/hooks/urlQuery";
 import type { Permission } from "@/lib/permissions";
 import { HOME_BY_ROLE } from "@/lib/types";
 
@@ -13,10 +14,7 @@ export { HOME_BY_ROLE };
  * shared link or a notification opens that page once the visitor has signed in. */
 export async function signInPath(): Promise<string> {
   if (await isMfaEnrollmentPending()) return "/mfa/setup";
-  const asked = headers().get("x-united-path");
-  return asked && asked !== "/" && asked.startsWith("/") && !asked.startsWith("//") && !asked.startsWith("/login")
-    ? `/login?next=${encodeURIComponent(asked)}`
-    : "/login";
+  return signInHref(headers().get("x-united-path"));
 }
 
 export type PageGate =

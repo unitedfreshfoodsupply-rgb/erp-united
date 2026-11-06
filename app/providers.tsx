@@ -6,6 +6,7 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { DialogProvider } from "@/components/ui/Dialog";
 import { LocaleProvider, type Locale } from "@/lib/locale";
 import { unlockAudio } from "@/lib/sound";
+import { isRefusal } from "@/lib/hooks/refusal";
 
 export function Providers({ children, locale = "ar" }: { children: React.ReactNode; locale?: Locale }) {
   // Browsers won't play audio until a real user gesture happens — catch the
@@ -39,11 +40,7 @@ export function Providers({ children, locale = "ar" }: { children: React.ReactNo
             // One more try for a failure that may pass (network, server fault, timeout, rate
             // limit); none for a refusal — a permission, a missing record, a refused filter
             // answer the same the second time, and the retry only delayed the message.
-            retry: (failures, error) => {
-              const status = (error as { status?: number } | null)?.status;
-              if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) return false;
-              return failures < 1;
-            },
+            retry: (failures, error) => !isRefusal(error) && failures < 1,
           },
         },
       })
