@@ -17,6 +17,7 @@ import { localName } from "@/lib/locale/names";
 import { formatNumber } from "@/lib/format";
 import { Field } from "@/components/ui/Field";
 import { lineMissingQuantity, lineNeedsListPrice, linePriceDiffers, linePricingPayload } from "@/lib/orderEntry";
+import { stockRefusalText } from "@/components/order/stockRefusal";
 
 /**
  * Order entry (remediation 2026-11). Each line shows what can be promised now — the
@@ -103,6 +104,17 @@ export function CreateOrderForm({ onDone, onDirtyChange }: { onDone: () => void;
     setError(msg);
     toast.show(msg, "error");
   }
+  /** The user changed the form: a refusal about the old input no longer holds, and on a phone
+   * its toast would sit over the save buttons (ORD-07). The form refuses again on submit. */
+  const errorRef = useRef<string | null>(null);
+  errorRef.current = error;
+  function inputChanged() {
+    const stale = errorRef.current;
+    if (!stale) return;
+    errorRef.current = null;
+    setError(null);
+    toast.clear(stale);
+  }
 
   const products = useMemo(() => catalog.data?.products ?? [], [catalog.data]);
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
@@ -183,6 +195,7 @@ export function CreateOrderForm({ onDone, onDirtyChange }: { onDone: () => void;
   const prCovered = rows.find((r, i) => r.prNumber && (lines[i].short || r.serverIssue));
 
   function updateRow(i: number, patch: Partial<Row>) {
+    inputChanged();
     setServerShort(false);
     setRows((r) => r.map((row, idx) => (idx === i ? { ...row, ...patch, serverIssue: undefined, missingQty: undefined } : row)));
   }
@@ -297,7 +310,7 @@ export function CreateOrderForm({ onDone, onDirtyChange }: { onDone: () => void;
         setServerShort(sf.length > 0 && sf.every((x) => x.reason === "insufficient"));
         await qc.invalidateQueries({ queryKey: ["orders", "entry-catalog"] });
       }
-      const msg = err instanceof ApiClientError ? err.message : t("create.error-generic");
+      const msg = stockRefusalText(err, t, locale === "en" ? "en" : "ar") ?? (err instanceof ApiClientError ? err.message : t("create.error-generic"));
       setError(msg);
       toast.show(msg, "error");
     } finally {
@@ -314,7 +327,7 @@ export function CreateOrderForm({ onDone, onDirtyChange }: { onDone: () => void;
       {error && <p className="text-united-danger font-bold" role="alert">{error}</p>}
 
       {can("sales.customers.view") && (
-        <select className="field font-bold" value={accountId} onChange={(e) => setAccountId(e.target.value)} aria-label={t("create.customer-placeholder")}>
+        <select className="field font-bold" value={accountId} onChange={(e) => { inputChanged(); setAccountId(e.target.value); }} aria-label={t("create.customer-placeholder")}>
           <option value="">{t("create.customer-placeholder")}</option>
           {accounts.data?.customers.map((c) => (
             <option key={c.id} value={c.id}>{localName(c, locale)}{c.creditHold ? ` ${t("create.credit-hold")}` : ""}</option>
@@ -329,7 +342,7 @@ export function CreateOrderForm({ onDone, onDirtyChange }: { onDone: () => void;
       {catalog.data && products.length === 0 && <p className="text-sm text-united-warn">{t("create.no-products")}</p>}
       {accountId && <p className="text-sm text-united-muted">{t("create.account-info")}</p>}
       <div className="flex gap-3">
-        <Field label={t("orders.delivery-date")} required className="flex-1"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="field" /></Field>
+        <Field label={t("orders.delivery-date")} required className="flex-1"><input type="date" value={date} onChange={(e) => { inputChanged(); setDate(e.target.value); }} className="field" /></Field>
         <Field label={t("orders.delivery-time-label")} className="flex-1"><input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="field" /></Field>
       </div>
       <Field label={t("create.po-ref")}><input value={poRef} onChange={(e) => setPoRef(e.target.value)} className="field" maxLength={100} dir="auto" /></Field>
@@ -341,7 +354,10 @@ export function CreateOrderForm({ onDone, onDirtyChange }: { onDone: () => void;
           const p = l.p;
           const units = p ? [...new Set([p.unit, ...p.packagings.map((x) => x.uomCode)])] : [];
           const q = row.search.trim().toLowerCase();
-          const options = q ? products.filter((x) => [x.name, x.nameAr ?? "", x.sku ?? ""].some((s) => s.toLowerCase().includes(q))) : products;
+          const matches = q ? products.filter((x) => [x.name, x.nameAr ?? "", x.sku ?? ""].some((s) => s.toLowerCase().includes(q))) : products;
+          // The line's product stays in the list while the search narrows it, so the select keeps
+          // showing what the line holds (and what Save sends) (ORD-05).
+          const options = p && !matches.includes(p) ? [p, ...matches] : matches;
           const bad = l.short || !l.precisionOk || !!row.serverIssue || !!row.missingQty;
           return (
             <div key={row.key} className={`rounded-xl border p-3 flex flex-col gap-2 ${bad ? "border-united-danger" : "border-united-border"}`}>
@@ -370,7 +386,7 @@ export function CreateOrderForm({ onDone, onDirtyChange }: { onDone: () => void;
                     </option>
                   ))}
                 </select>
-                <button type="button" onClick={() => setRows((r) => (r.length > 1 ? r.filter((_, idx) => idx !== i) : [emptyRow()]))} className="btn-danger px-3" aria-label={t("ui.delete")}>
+                <button type="button" onClick={() => { inputChanged(); setRows((r) => (r.length > 1 ? r.filter((_, idx) => idx !== i) : [emptyRow()])); }} className="btn-danger px-3" aria-label={t("ui.delete")}>
                   <X size={18} aria-hidden />
                 </button>
               </div>
@@ -454,13 +470,13 @@ export function CreateOrderForm({ onDone, onDirtyChange }: { onDone: () => void;
             </div>
           );
         })}
-        <button type="button" onClick={() => setRows((r) => [...r, emptyRow()])} className="btn-secondary self-start text-sm">
+        <button type="button" onClick={() => { inputChanged(); setRows((r) => [...r, emptyRow()]); }} className="btn-secondary self-start text-sm">
           {t("create.add-item")}
         </button>
       </div>
 
       {canPrice && lines.some((l) => l.priceChanged) && (
-        <Field label={t("create.price-reason")}><input className="field" value={priceReason} onChange={(e) => setPriceReason(e.target.value)} /></Field>
+        <Field label={t("create.price-reason")}><input className="field" value={priceReason} onChange={(e) => { inputChanged(); setPriceReason(e.target.value); }} /></Field>
       )}
       <div className="flex items-center justify-between border-t border-united-border pt-3">
         <span className="text-united-muted">{t("create.total-before-tax")}{pricesLoading ? ` ${t("create.prices-loading")}` : anyUnpriced ? ` ${t("create.some-unpriced")}` : ""}</span>

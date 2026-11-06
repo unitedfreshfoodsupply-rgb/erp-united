@@ -98,12 +98,15 @@ const OK: OrderActionState = { offered: true, ok: true };
 export function orderActionState(f: OrderActionFacts): { cancel: OrderActionState; reopen: OrderActionState } {
   const departed = f.liveStop && (DEPARTED_TRIP_STATUSES as readonly string[]).includes(f.liveStop.tripStatus) ? f.liveStop : null;
 
-  // reopenOrder: a trip that has left, then (dispatched only) releaseOrderInvoiceForReopen.
+  // reopenOrder: (dispatched only) an issued invoice, then a trip that has left. The invoice
+  // comes first (ORD-02): once a delivered order is invoiced, the delivery result is already
+  // recorded and the invoice is what blocks — its correction is the credit note, not a return
+  // on the trip. Both refuse with 409; only the words (and the invoice link) differ.
   let reopen: OrderActionState = OK;
   const issued = f.status === "dispatched" ? f.invoices.find((i) => i.status === "issued") : undefined;
   if (!(REOPEN_OFFERED_STATUSES as readonly string[]).includes(f.status)) reopen = { offered: false, ok: false };
+  else if (issued) reopen = { offered: true, ok: false, status: 409, message: ORDER_REFUSAL.reopenInvoiced(issued), detail: restockDetail(issued), invoice: { id: issued.id, number: issued.number }, ...(departed ? { trip: departed.tripNumber } : {}) };
   else if (departed) reopen = { offered: true, ok: false, status: 409, message: ORDER_REFUSAL.reopenTripLeft(departed.tripNumber), trip: departed.tripNumber };
-  else if (issued) reopen = { offered: true, ok: false, status: 409, message: ORDER_REFUSAL.reopenInvoiced(issued), detail: restockDetail(issued), invoice: { id: issued.id, number: issued.number } };
 
   // cancelOrder: already cancelled (not offered), dispatched, then on a live trip.
   let cancel: OrderActionState = OK;
@@ -125,3 +128,27 @@ export const ORDER_ACTION_SAMPLE_TEXTS: readonly string[] = [
   T.restocked,
   T.notRestocked,
 ];
+
+/**
+ * Why the prices on an order can no longer be changed, or null when they can (ORD-06).
+ * The rule lib/sales/pricing.ts refuses with: overrideLinePrice and repriceOrder refuse a
+ * cancelled order, and assertNotInvoiced an order with an issued invoice or a draft one
+ * (void the draft first). The order screen hides the price actions and says which one.
+ */
+export type OrderPriceLock = "cancelled" | "issued" | "draft" | null;
+export function orderPriceLock(orderStatus: string | null | undefined, invoiceStatus: string | null | undefined): OrderPriceLock {
+  if (orderStatus === "cancelled") return "cancelled";
+  if (invoiceStatus === "issued") return "issued";
+  if (invoiceStatus === "draft") return "draft";
+  return null;
+}
+
+/**
+ * How an order's trip stop reads (ORD-08). A stop is "pending" from the moment the order is
+ * put on the trip, but the order is on the way only once it has left with it (dispatched);
+ * before that it is "on-trip". Other stop states read as they are. Used by the customer's
+ * orders list and the order's pricing panel.
+ */
+export function orderStopShownAs(stopStatus: string, orderStatus: string | null | undefined): string {
+  return stopStatus === "pending" && orderStatus !== "dispatched" ? "on-trip" : stopStatus;
+}

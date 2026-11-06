@@ -121,7 +121,9 @@ async function receipt(supplierId: string, productId: string, kg: number, price:
 }
 
 test("supplier bill: recorded against receipts, edited only as a draft, posted once with the supplier frozen; corrected by a debit note", async () => {
-  const s = await prisma.supplier.create({ data: { code: `SUP-8${String(Date.now()).slice(-6)}`, name: `${TAG} Saif`, nameAr: `${TAG} سيف`, category: "vegetable", phone: "0111-1", taxRegistrationNo: "555666777", paymentTermsDays: 14 } });
+  // A fresh tax number each run: the column is unique, so a fixed one fails on a rerun.
+  const supplierTaxNo = taxNo();
+  const s = await prisma.supplier.create({ data: { code: `SUP-8${String(Date.now()).slice(-6)}`, name: `${TAG} Saif`, nameAr: `${TAG} سيف`, category: "vegetable", phone: "0111-1", taxRegistrationNo: supplierTaxNo, paymentTermsDays: 14 } });
   const product = await prisma.stockProduct.create({ data: { name: `${TAG} Tomato`, unit: "KG", sku: `${TAG}-TOM` } });
   const first = await receipt(s.id, product.id, 100, "8");
   const second = await receipt(s.id, product.id, 40, "8");
@@ -156,7 +158,7 @@ test("supplier bill: recorded against receipts, edited only as a draft, posted o
 
   b = await getBill(bill.id);
   const frozen = b.postSnapshot!;
-  assert.deepEqual([frozen.supplier.code, frozen.supplier.phone, frozen.supplier.taxRegistrationNo, frozen.lines["1"].productCode, frozen.lines["1"].poNumber, frozen.lines["1"].receiptNumber], [s.code, "0111-1", "555666777", `${TAG}-TOM`, first.po.number, first.intake.receiptNumber]);
+  assert.deepEqual([frozen.supplier.code, frozen.supplier.phone, frozen.supplier.taxRegistrationNo, frozen.lines["1"].productCode, frozen.lines["1"].poNumber, frozen.lines["1"].receiptNumber], [s.code, "0111-1", supplierTaxNo, `${TAG}-TOM`, first.po.number, first.intake.receiptNumber]);
   assert.equal(b.current, null);
 
   // A posted bill is not edited or cancelled — it is corrected with a debit note.

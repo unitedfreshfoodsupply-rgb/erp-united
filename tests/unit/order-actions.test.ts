@@ -28,10 +28,20 @@ test("dispatched: cancel says reopen first; on a trip: take it off the trip firs
   assert.equal(t.reopen.ok, true);
 });
 
-test("a trip that has left blocks reopen — before any invoice is looked at", () => {
+test("a trip that has left blocks reopen; with an issued invoice the invoice is named instead (ORD-02)", () => {
   for (const tripStatus of ["dispatched", "in_transit", "completed"]) {
-    const s = orderActionState(facts({ status: "dispatched", liveStop: { tripNumber: "TRP-9", tripStatus }, invoices: [inv()] }));
-    assert.deepEqual([s.reopen.ok, s.reopen.status, s.reopen.message], [false, 409, "الأوردر خرج على الرحلة TRP-9 — التصحيح بنتيجة التسليم (مرتجع/عجز)"], tripStatus);
+    const s = orderActionState(facts({ status: "dispatched", liveStop: { tripNumber: "TRP-9", tripStatus } }));
+    assert.deepEqual([s.reopen.ok, s.reopen.status, s.reopen.message, s.reopen.trip], [false, 409, "الأوردر خرج على الرحلة TRP-9 — التصحيح بنتيجة التسليم (مرتجع/عجز)", "TRP-9"], tripStatus);
+    // A draft invoice does not change that.
+    const draft = orderActionState(facts({ status: "dispatched", liveStop: { tripNumber: "TRP-9", tripStatus }, invoices: [inv({ status: "draft", id: "d" })] }));
+    assert.equal(draft.reopen.message, s.reopen.message, tripStatus);
+    // Delivered and invoiced: the invoice blocks, and the note links it with the credit-note path.
+    const invoiced = orderActionState(facts({ status: "dispatched", liveStop: { tripNumber: "TRP-9", tripStatus }, invoices: [inv()] }));
+    assert.deepEqual([invoiced.reopen.ok, invoiced.reopen.status, invoiced.reopen.message, invoiced.reopen.invoice], [false, 409, ORDER_REFUSAL.reopenInvoiced(inv()), { id: "i1", number: "INV-2026-00007" }], tripStatus);
+    // Fully credited: "closed by the credit note — copy the order".
+    const credited = orderActionState(facts({ status: "dispatched", liveStop: { tripNumber: "TRP-9", tripStatus }, invoices: [inv({ fullyCredited: true, creditNotes: [{ number: "CN-1", restocked: true }] })] }));
+    assert.match(credited.reopen.message!, /متخصومة بالكامل بالإشعار CN-1 — .*اعمل نسخة من الأوردر$/, tripStatus);
+    assert.equal(credited.reopen.detail, "البضاعة رجعت المخزن مع الإشعار");
   }
 });
 

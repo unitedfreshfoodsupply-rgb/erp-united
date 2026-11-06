@@ -117,6 +117,15 @@ const PAIRS: readonly (readonly [ar: string, en: string, oneWay?: typeof TO_EN])
   ["استحقاق {}", "due {}"],
   ["تعيين", "Hire"],
   ["(اتغيّرت)", "(changed)"],
+  // An order saved awaiting stock, per line (lib/sales/stock-hold.ts), and a line's price as
+  // audited (lib/sales/pricing.ts) (ORD-09).
+  ["{}: المطلوب {} {}، المتاح {} {}، الناقص {} {}", "{}: requested {} {}, available {} {}, short {} {}"],
+  ["{}: المطلوب {} {}، المتاح {}، الناقص {} {}", "{}: requested {} {}, available {}, short {} {}"],
+  ["{} (خصم {}%)", "{} (discount {}%)"],
+  ["عند تسجيل الأوردر", "at order entry"],
+  ["اتحفظ مستني بضاعة — مفيش أي كمية محجوزة لحد الإفراج", "Saved awaiting stock — nothing is reserved until it is released"],
+  ["البضاعة اتوفرت — كل السطور اتحجزت", "Stock arrived — every line is reserved"],
+  ["سعر متفق عليه مع العميل عند تسجيل الأوردر", "Price agreed with the customer at order entry"],
   ["{}: اتجهز {} واتحمل {} {}", "{}: prepared {}, loaded {} {}"],
   ["{}: عجز {} عند العميل", "{}: {} short at the customer"],
   ["{}: عجز {} عند العميل — {}", "{}: {} short at the customer — {}"],

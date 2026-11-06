@@ -173,3 +173,46 @@ test("an issued invoice blocks reopen; fully credited, it still does — and now
   assert.deepEqual([after.status, after.version], ["dispatched", o.version]);
   assert.equal((await prisma.salesInvoice.findUniqueOrThrow({ where: { id: inv.id } })).status, "issued");
 });
+
+test("ORD-02: delivered on a trip that has left and invoiced — the invoice blocks reopen, not the trip, on the screen and in the service", async () => {
+  const o = await makeOrder(1, { status: "dispatched" });
+  const vehicle = await prisma.vehicle.create({ data: { code: `${TAG}-V2`, plate: `${TAG}-P2` } });
+  const driver = await prisma.driver.create({ data: { name: `${TAG} سواق 2` } });
+  const trip = await prisma.trip.create({ data: { number: `TRP-9998-${String(Date.now()).slice(-9)}`, status: "completed", tripDate: day, vehicleId: vehicle.id, driverId: driver.id, createdBy: "test" } });
+  await prisma.tripStop.create({ data: { tripId: trip.id, orderId: o.id, sequence: 1 } });
+
+  // Not invoiced yet: the delivery result is still the correction (unchanged).
+  let v = await orderActionView(o.id);
+  let r = await refusal(reopenOrder(o.id, "preparing", sup as never, `${TAG} x`, o.version));
+  assert.deepEqual([v.reopen.ok, v.reopen.status, v.reopen.message], [false, r.status, r.message]);
+  assert.match(r.message, new RegExp(`${trip.number} — التصحيح بنتيجة التسليم`));
+
+  const inv = await prisma.salesInvoice.create({
+    data: {
+      orderId: o.id, customerId,
+      gross: new Prisma.Decimal("50"), discountTotal: new Prisma.Decimal(0), net: new Prisma.Decimal("50"), taxTotal: new Prisma.Decimal(0), total: new Prisma.Decimal("50"),
+      createdBy: "test",
+      lines: { create: { lineNo: 1, description: `${TAG} مانجا`, uomCode: "KG", quantity: new Prisma.Decimal(5), unitPrice: new Prisma.Decimal(10), taxCode: "EXEMPT", taxRate: new Prisma.Decimal(0), gross: new Prisma.Decimal(50), discount: new Prisma.Decimal(0), net: new Prisma.Decimal(50), tax: new Prisma.Decimal(0), total: new Prisma.Decimal(50) } },
+    },
+  });
+  // A draft does not block (it is voided on reopen) and does not change the trip answer.
+  v = await orderActionView(o.id);
+  assert.match(v.reopen.message!, /التصحيح بنتيجة التسليم/);
+
+  const issued = await issueInvoice(inv.id, {}, acct as never);
+  v = await orderActionView(o.id);
+  r = await refusal(reopenOrder(o.id, "preparing", sup as never, `${TAG} x`, o.version));
+  assert.deepEqual([v.reopen.ok, v.reopen.status, v.reopen.message, v.reopen.invoice, v.reopen.trip], [false, r.status, r.message, { id: inv.id, number: issued.number }, trip.number]);
+  assert.equal(r.status, 409);
+  assert.match(r.message, new RegExp(`فاتورة صادرة ${issued.number} — مينفعش يتفتح تاني؛ المرتجع أو الإلغاء بإشعار دائن`));
+
+  // Fully credited: "closed by the credit note — copy the order", on the screen and in the service.
+  await createCreditNote(inv.id, { reason: `${TAG} كله`, full: true }, acct as never);
+  v = await orderActionView(o.id);
+  r = await refusal(reopenOrder(o.id, "preparing", sup as never, `${TAG} x`, o.version));
+  assert.deepEqual([v.reopen.ok, v.reopen.status, v.reopen.message], [false, r.status, r.message]);
+  assert.match(r.message, /متخصومة بالكامل بالإشعار .* اعمل نسخة من الأوردر$/);
+  // Nothing was written by the refused reopens.
+  const after = await prisma.order.findUniqueOrThrow({ where: { id: o.id } });
+  assert.deepEqual([after.status, after.version], ["dispatched", o.version]);
+});

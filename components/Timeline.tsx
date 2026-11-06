@@ -77,7 +77,7 @@ export function Timeline({ orderId }: { orderId: string }) {
               <span className="text-united-green">{e.actor}</span> {e.headline}
             </div>
             {e.detail && <div className="text-sm text-united-dark/80">{systemText(e.detail, locale)}</div>}
-            {e.reason && <div className="text-sm text-united-muted">{t("audit.reason-prefix")} {e.reason}</div>}
+            {e.reason && <div className="text-sm text-united-muted">{t("audit.reason-prefix")} {systemText(e.reason, locale)}</div>}
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-united-muted mt-0.5">
               <span dir="ltr">{clockLabel(e.at, locale)}</span>
               <span>·</span>

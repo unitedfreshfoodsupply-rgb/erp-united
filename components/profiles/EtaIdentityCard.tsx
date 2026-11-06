@@ -46,7 +46,7 @@ const GAP_LABEL: Record<string, TranslationKey> = {
 const TYPE_LABEL: Record<string, TranslationKey> = { B: "eta.receiver-company", P: "eta.receiver-person", F: "eta.receiver-foreign" };
 
 export function EtaIdentityCard({ customerId }: { customerId: string }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const qc = useQueryClient();
   const key = ["sales", "customer", customerId, "eta-identity"];
@@ -87,7 +87,7 @@ export function EtaIdentityCard({ customerId }: { customerId: string }) {
   };
   const shown = le ?? d.receiver.address;
   return (
-    <section id="eta-identity" className="card mt-4 flex flex-col gap-3">
+    <section id="eta-identity" className="card p-4 mt-4 flex flex-col gap-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="text-base font-bold">{t("customer.eta.title")}</h2>
@@ -103,7 +103,7 @@ export function EtaIdentityCard({ customerId }: { customerId: string }) {
         {FIELDS.map(([k, , label]) => <div key={k}><dt className="text-xs text-united-muted">{t(label)}</dt><dd>{(shown as Address)[k] ?? "—"}</dd></div>)}
       </dl>
       {d.gaps.length > 0
-        ? <p className="text-sm text-united-danger" role="status">{t("eta.receiver-missing", { fields: d.gaps.map((g) => t(GAP_LABEL[g] ?? ("eta.receiver-type" as TranslationKey))).join("، ") })}</p>
+        ? <p className="text-sm text-united-danger" role="status">{t("eta.receiver-missing", { fields: d.gaps.map((g) => t(GAP_LABEL[g] ?? ("eta.receiver-type" as TranslationKey))).join(locale === "en" ? ", " : "، ") })}</p>
         : <p className="text-sm text-united-green" role="status">✓ {t("eta.receiver-complete")}</p>}
       {d.personIdOnlyAbove && <p className="text-xs text-united-muted">{t("eta.receiver-person-id-above")}</p>}
       {d.receiver.origin === "eta_profile_legacy" && <p className="text-xs text-united-warn">{t("eta.receiver-source.eta_profile_legacy")}</p>}

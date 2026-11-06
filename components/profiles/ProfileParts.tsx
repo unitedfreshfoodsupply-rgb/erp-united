@@ -11,6 +11,7 @@ import { StatusPill, type Tone } from "@/components/ui/StatusPill";
 import { Field, Tabs, fmtMoney, fmtQty } from "@/components/stock/inventory/shared";
 import { DocLink, PartyLink } from "./EntityLink";
 import type { ProfileGroup, ProfileRow } from "@/lib/profiles/service";
+import { orderStopShownAs } from "@/lib/orderActions";
 
 /**
  * The parts every profile shares (customer, supplier, product): tabs kept in the address
@@ -104,7 +105,9 @@ function Detail({ r, movement }: { r: ProfileRow; movement: boolean }) {
   switch (r.kind) {
     case "order": {
       const [lines, prepared, loaded, trip, stop] = p;
-      return <span>{t("profile.detail.order", { lines, prepared, loaded })}{trip ? <> · {ltr(trip)}{stop ? ` · ${t(`profile.stop.${stop}`)}` : ""}</> : null}</span>;
+      // A pending stop is on the way only once the order has left with it (ORD-08).
+      const stopKey = orderStopShownAs(stop, r.status);
+      return <span>{t(lines === "1" ? "profile.detail.order_one" : "profile.detail.order", { lines, prepared, loaded })}{trip ? <> · {ltr(trip)}{stop ? ` · ${t(`profile.stop.${stopKey}`)}` : ""}</> : null}</span>;
     }
     case "invoice": case "opening_balance": return <span>{t("profile.detail.due", { date: "" })}{ltr(p[0])}</span>;
     case "receipt": case "payment": {
@@ -167,7 +170,7 @@ export function DocSection({ kind, id, section, movement = false, openFilter = f
     ...(has("delivered") ? [{ key: "delivered", label: t("profile.col.delivered"), numeric: true, render: (r: ProfileRow) => (r.delivered == null ? "—" : <span dir="ltr">{fmtQty(r.delivered, r.uom ?? undefined)}</span>), secondary: true }] : []),
     ...(has("price") ? [{ key: "price", label: t("profile.col.price"), numeric: true, render: (r: ProfileRow) => (r.price == null ? "—" : <span dir="ltr">{fmtMoney(r.price)}</span>) }] : []),
     ...(has("unitCost") ? [{ key: "cost", label: t("profile.col.unit-cost"), numeric: true, render: (r: ProfileRow) => { const c = (r as { unitCost?: string | null }).unitCost; return c == null ? "—" : <span dir="ltr">{c}</span>; }, secondary: true }] : []),
-    ...(has("amount") ? [{ key: "amount", label: t("profile.col.amount"), numeric: true, sortValue: (r: ProfileRow) => Number(r.amount ?? 0), render: (r: ProfileRow) => (r.amount == null ? "—" : <span dir="ltr">{fmtMoney(r.amount)}</span>) }] : []),
+    ...(has("amount") ? [{ key: "amount", label: t("profile.col.amount"), numeric: true, sortValue: (r: ProfileRow) => Number(r.amount ?? 0), render: (r: ProfileRow) => (r.unpriced ? <span className="text-united-muted">{t("profile.amount.unpriced")}</span> : r.amount == null ? "—" : <span dir="ltr">{fmtMoney(r.amount)}</span>) }] : []),
     ...(has("open") ? [{ key: "open", label: t("profile.col.open"), numeric: true, render: (r: ProfileRow) => (r.open == null ? "—" : <span dir="ltr" className={Number(r.open) > 0 ? "font-extrabold text-united-dark" : "text-united-muted"}>{fmtMoney(r.open)}</span>) }] : []),
   ];
   const groups = q.data?.groups;

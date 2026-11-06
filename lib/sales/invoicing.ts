@@ -200,6 +200,14 @@ export async function releaseOrderInvoiceForReopen(tx: Tx, orderId: string, reas
   }
 }
 
+/** Read only: the refusal releaseOrderInvoiceForReopen would raise for an issued invoice, if
+ * the order has one (reopenOrder asks this before the departed-trip refusal, ORD-02). */
+export async function refuseIssuedInvoiceForReopen(db: Pick<Tx, "salesInvoice" | "creditNote">, orderId: string) {
+  const live = await db.salesInvoice.findMany({ where: { orderId, status: { not: "void" } }, select: { id: true, number: true, status: true, total: true } });
+  const issued = live.find((i) => i.status === "issued");
+  if (issued) throw new ApiError(409, ORDER_REFUSAL.reopenInvoiced(await invoiceCreditFacts(db, issued)));
+}
+
 /** How far credit notes cover an issued invoice — what the reopen refusal says about it. */
 export async function invoiceCreditFacts(db: Pick<Tx, "creditNote">, inv: Pick<SalesInvoice, "id" | "number" | "total">) {
   const notes = await db.creditNote.findMany({ where: { invoiceId: inv.id }, orderBy: { createdAt: "asc" }, select: { number: true, total: true, returnDocumentId: true } });
