@@ -12,6 +12,8 @@ import { unitLabel } from "@/lib/format";
 import { applyOrderToCache } from "@/lib/orderCache";
 import { invalidateDerivedOrderData } from "@/lib/queryInvalidation";
 import { useState } from "react";
+import { StatusPill, docTone, type Tone } from "@/components/ui/StatusPill";
+import { stockRefusalText } from "@/components/order/stockRefusal";
 
 /**
  * An order waiting for stock (Nov 2026): per line what was asked, what is available now, what
@@ -30,6 +32,8 @@ type Suggestion = {
   orderItem: { id: string; productName: string } | null;
   purchaseOrder: { id: string; number: string; status: string } | null;
 };
+/** The purchase-request states as the requests screen colours them (PurchaseRequestsView). */
+const PR_TONE: Record<string, Tone> = { ordered: "info", fulfilled: "success" };
 type StockView = { stockStatus: string; status: string; version: number; lines: StockLine[]; releasable: boolean; suggestions: Suggestion[] | null };
 
 export function StockHoldPanel({ order }: { order: OrderDTO }) {
@@ -62,7 +66,7 @@ export function StockHoldPanel({ order }: { order: OrderDTO }) {
       await qc.invalidateQueries({ queryKey: ["order", order.id, "stock"] });
       toast.show(t("hold.released"), "success");
     } catch (err) {
-      toast.show(err instanceof ApiClientError ? err.message : t("orders.error.generic"), "error");
+      toast.show(stockRefusalText(err, t, locale) ?? (err instanceof ApiClientError ? err.message : t("orders.error.generic")), "error");
       await qc.invalidateQueries({ queryKey: ["order", order.id, "stock"] });
       void qc.invalidateQueries({ queryKey: ["order", order.id] });
     } finally {
@@ -117,7 +121,7 @@ export function StockHoldPanel({ order }: { order: OrderDTO }) {
               {suggestions.map((s) => (
                 <li key={s.id} className="flex flex-wrap items-center gap-2">
                   <Link className="font-bold underline" dir="ltr" href={`/purchasing/requests?pr_q=${encodeURIComponent(s.number)}`}>{s.number}</Link>
-                  <span className="rounded-full bg-united-subtle px-2 py-0.5 text-xs font-bold">{t(`pr.status.${s.status}`)}</span>
+                  <StatusPill tone={docTone(s.status, PR_TONE)}>{t(`pr.status.${s.status}`)}</StatusPill>
                   <span dir="ltr">{s.quantity} {unitLabel(s.uomCode, locale)}</span>
                   {s.orderItem && <span className="text-united-muted">{t("hold.suggestion-line", { product: s.orderItem.productName })}</span>}
                   {s.purchaseOrder && <span className="text-united-muted" dir="ltr">{s.purchaseOrder.number}</span>}
@@ -130,7 +134,7 @@ export function StockHoldPanel({ order }: { order: OrderDTO }) {
 
       {held && can("orders.edit") && (
         <div className="flex flex-wrap items-center gap-3 border-t border-united-border pt-3">
-          <button className="btn-primary" disabled={busy} onClick={release}>{t("hold.release")}</button>
+          <button className="btn-primary" disabled={busy} aria-busy={busy || undefined} onClick={release}>{busy ? t("ui.working") : t("hold.release")}</button>
           {view.data && <span className={`text-sm font-bold ${view.data.releasable ? "text-united-green" : "text-united-muted"}`}>{view.data.releasable ? t("hold.ready") : t("hold.not-ready")}</span>}
         </div>
       )}
