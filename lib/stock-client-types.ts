@@ -152,6 +152,8 @@ export type SupplierPerformanceDTO = {
   goodKg: number;
   yieldPct: number | null;
   lastDeliveryDate: string | null;
+  /** The same figures per base unit, kg first — what a screen shows (UXO-10). */
+  byUnit: { unit: string; intakeCount: number; received: number; rejected: number; good: number; yieldPct: number | null }[];
 };
 
 export type ProductTotalsDTO = {
