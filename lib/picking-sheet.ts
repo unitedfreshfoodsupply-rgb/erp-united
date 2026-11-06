@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { storedOrderCustomerName } from "@/lib/locale/names";
+import { isRejectedPreparation } from "@/lib/production";
 
 
 /**
@@ -11,7 +12,7 @@ const ELIGIBLE_STATUSES = ["new", "preparing", "ready_for_loading", "loading"];
  * Consolidated daily picking sheet.
  *
  * Groups eligible orders by the operational date, product, grade, and unit.
- * Shows aggregate quantities (required, prepared, approved, loaded, remaining)
+ * Shows aggregate quantities (required, prepared, approved, loaded, left to pick)
  * with per-customer allocation underneath each product.
  *
  * The sheet is an operational view — it never writes stock, never changes order
@@ -30,12 +31,18 @@ export interface ConsolidatedLine {
   totalPrepared: number;
   totalApproved: number;
   totalLoaded: number;
+  /** Left to pick: the sum of the allocations' `remainingQuantity` (FLOOR-1). The header, the
+   * rows, the summary and the Done filter all read this one figure. */
   totalRemaining: number;
   /** Total quantity across allocations that have been rejected. */
   totalRejected: number;
   allocations: {
+    /** The order line (an order may have two lines of the same product). */
+    itemId: string;
     orderId: string;
     orderNumber: string;
+    /** The linked customer card, so two orders of one customer count as one customer. */
+    customerAccountId: string | null;
     /** The customer as of now, Arabic-first: the linked card, else the name as received. */
     customerName: string;
     /** The linked card's names, for the reader's language (null for an unmapped order). */
@@ -44,6 +51,9 @@ export interface ConsolidatedLine {
     requiredQuantity: number;
     preparedQuantity: number | null;
     loadedQuantity: number | null;
+    /** Left to pick on this line: required minus what is loaded, or else prepared (a rejected
+     * preparation counts as nothing picked). Never below zero. */
+    remainingQuantity: number;
     preparationStatus: string;
     loadingStatus: string;
     status: string;
@@ -146,27 +156,35 @@ export async function dailyConsolidatedSheet(date: string): Promise<DailySheetDT
       }
 
       // Detect rejection: preparation was done but reset to pending with [رفض:] note
-      const rejected = item.preparationStatus === "pending" && item.preparedQuantity != null && /^\[رفض:/i.test(item.notes ?? "");
+      const rejected = isRejectedPreparation(item);
 
       // "Approved" quantity = what the preparer recorded and hasn't been rejected
       // If the item was prepared and not rejected, count it toward approved
       const prepared = item.preparedQuantity ?? 0;
       const approved = item.preparationStatus === "done" ? prepared : 0;
       const loaded = item.loadedQuantity ?? 0;
-      const remaining = Math.max(0, item.requiredQuantity - loaded);
+      // Left to pick (FLOOR-1): what is loaded, or else what is prepared, is picked. It used
+      // to be "required minus loaded" here while the rows said "minus loaded or prepared", so a
+      // fully prepared product read as all still to do on the same card.
+      const picked = item.loadedQuantity ?? (rejected ? 0 : prepared);
+      const remaining = Math.max(0, item.requiredQuantity - picked);
       // Rejected quantity: what was prepared but then rejected by supervisor
       const rejectedQty = rejected ? (item.preparedQuantity ?? 0) : 0;
 
       group.totalRequired += item.requiredQuantity;
-      group.totalPrepared += prepared;
+      // A rejected preparation is shown as rejected (totalRejected), not as prepared: counted in
+      // both, the card read "✓ 7 · rejected 7 · 7 left" with a full bar on a 7 kg line.
+      group.totalPrepared += rejected ? 0 : prepared;
       group.totalApproved += approved;
       group.totalLoaded += loaded;
       group.totalRemaining += remaining;
       group.totalRejected += rejectedQty;
 
       group.allocations.push({
+        itemId: item.id,
         orderId: order.id,
         orderNumber: order.orderNumber,
+        customerAccountId: order.customerAccountId,
         // An open order shows the customer card as it is now (a rename reaches the floor at once).
         customerName: order.customerAccount ? storedOrderCustomerName(order.customerAccount) : order.customerName,
         customerAccount: order.customerAccount,
@@ -174,6 +192,7 @@ export async function dailyConsolidatedSheet(date: string): Promise<DailySheetDT
         requiredQuantity: item.requiredQuantity,
         preparedQuantity: item.preparedQuantity,
         loadedQuantity: item.loadedQuantity,
+        remainingQuantity: remaining,
         preparationStatus: item.preparationStatus,
         loadingStatus: item.loadingStatus,
         status: order.status,

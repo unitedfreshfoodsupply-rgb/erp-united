@@ -18,13 +18,25 @@ export type ProductionItemInput = {
   stockProductId?: string | null;
   /** The linked catalogue product's names (the line's stockProduct relation). */
   stockProduct?: { name: string; nameAr: string | null } | null;
+  /** Read to tell a rejected preparation (isRejectedPreparation), which is not prepared. */
+  preparationStatus?: string;
+  notes?: string | null;
 };
+
+/** A preparation the supervisor rejected: reset to pending with its quantity kept and a
+ * "[رفض: …]" note. Nothing of it counts as prepared, on the board or on the picking sheet. */
+export function isRejectedPreparation(item: { preparationStatus?: string; preparedQuantity: number | null; notes?: string | null }) {
+  return item.preparationStatus === "pending" && item.preparedQuantity != null && /^\[رفض:/i.test(item.notes ?? "");
+}
 
 export type ProductionOrderInput = { id: string; items: readonly ProductionItemInput[] };
 
 export type ProductionRow = {
-  /** The group: the name as ordered plus the unit. Also the board's React key and drill-down
-   * key, so the same product ordered in kg and in crates stays two separate rows (UXO-13). */
+  /** The group: the catalogue product (p:<id>) when the line is linked, else the name as
+   * ordered (n:<name>), plus the unit — the picking sheet's grouping (lib/picking-sheet.ts), so
+   * both floor screens show the same product with the same totals. Also the board's React key
+   * and drill-down key, so the same product ordered in kg and in crates stays two separate rows
+   * (UXO-13). */
   key: string;
   /** The name as ordered (the first line's text). */
   productName: string;
@@ -37,9 +49,11 @@ export type ProductionRow = {
   orderCount: number;
 };
 
-/** The group a line belongs to. */
-export function productionKey(item: { productName: string; unit: string }) {
-  return `${item.productName}__${item.unit}`;
+/** The group a line belongs to: its catalogue product when linked, else its text, plus the
+ * unit. The same key as a picking-sheet card (`${productKey}__${unit}`), so "طماطم" typed on
+ * one order and "Tomatoes" on another are one row once both are linked to the product. */
+export function productionKey(item: { productName: string; unit: string; stockProductId?: string | null }) {
+  return `${item.stockProductId ? `p:${item.stockProductId}` : `n:${item.productName}`}__${item.unit}`;
 }
 
 /** Quantities carry at most three decimals; rounding the sums keeps float noise
@@ -60,13 +74,13 @@ export function aggregateProduction(orders: readonly ProductionOrderInput[]): Pr
         agg = { productName: item.productName, names: null, linked: false, unit: item.unit, required: 0, prepared: 0, orders: new Set() };
         byKey.set(key, agg);
       }
-      // The first line linked to a catalogue product names the row.
+      // A linked row is named by its catalogue product (every line in it is linked to it).
       if (!agg.linked && item.stockProductId) {
         agg.linked = true;
         agg.names = item.stockProduct ?? null;
       }
       agg.required += item.requiredQuantity;
-      agg.prepared += item.preparedQuantity ?? 0;
+      agg.prepared += isRejectedPreparation(item) ? 0 : item.preparedQuantity ?? 0;
       agg.orders.add(order.id);
     }
   }
@@ -82,12 +96,12 @@ export function aggregateProduction(orders: readonly ProductionOrderInput[]): Pr
   })).sort((a, b) => b.required - a.required);
 }
 
-/** The orders a row's drill-down lists, each with its own line for that product and unit. */
+/** The lines a row's drill-down lists, with their orders: every line of that product and unit,
+ * so an order with two such lines shows both and the list adds up to the row's total. */
 export function productionLines<O extends { items: readonly I[] }, I extends ProductionItemInput>(orders: readonly O[], key: string) {
   const out: { order: O; item: I }[] = [];
   for (const order of orders) {
-    const item = order.items.find((i) => productionKey(i) === key);
-    if (item) out.push({ order, item });
+    for (const item of order.items) if (productionKey(item) === key) out.push({ order, item });
   }
   return out;
 }

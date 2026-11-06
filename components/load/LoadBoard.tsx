@@ -19,6 +19,7 @@ import { useLocale } from "@/lib/locale/useLocale";
 import { useDialogs } from "@/components/ui/Dialog";
 import { orderCustomerName } from "@/lib/locale/names";
 import { Field } from "@/components/ui/Field";
+import { deliverySlot } from "@/lib/format";
 
 const URGENCY_RANK = { late: 0, soon: 1, ok: 2, none: 3 } as const;
 
@@ -36,6 +37,8 @@ export function LoadBoard() {
   // Dispatch-all runs the orders one after another (PC-7): which one is going out now.
   const [progress, setProgress] = useState<{ current: number; total: number; order: string } | null>(null);
   const progressText = progress ? t("orders.load-board.dispatch-progress", { current: String(progress.current), total: String(progress.total), order: progress.order }) : null;
+  // The same text for the button, with the order number kept on one line (FLOOR-4).
+  const progressParts = progress ? t("orders.load-board.dispatch-progress", { current: String(progress.current), total: String(progress.total), order: "\u0001" }).split("\u0001") : null;
 
   // Fetch every non-final order so a brand-new order is visible here the instant it
   // arrives (read-only until it's actually ready to load), not just once it reaches
@@ -63,14 +66,23 @@ export function LoadBoard() {
       return ua - ub;
     });
   const readyToDispatch = orders.filter((o) => o.status === "loaded");
+  const missingCrates = readyToDispatch.filter((o) => !(Number(crateCounts[o.id]) > 0)).length;
   const canDispatch =
     vehicle.trim() &&
     driverName.trim() &&
     readyToDispatch.length > 0 &&
-    readyToDispatch.every((o) => Number(crateCounts[o.id]) > 0);
+    missingCrates === 0;
+  // Why "vehicle ready" is still grey (FLOOR-9), as the grading form says it (UXO-11).
+  const blockedBy = busy
+    ? []
+    : [
+        missingCrates > 0 ? t("orders.load-board.needs-crates", { count: String(missingCrates) }) : null,
+        !driverName.trim() ? t("orders.load-board.needs-driver") : null,
+        !vehicle.trim() ? t("orders.load-board.needs-vehicle") : null,
+      ].filter((x): x is string => !!x);
 
   async function dispatchAll() {
-    if (busy) return;
+    if (busy || !canDispatch) return;
     const ok = await dialogs.confirm({
       title: t("orders.load-board.confirm-text", {
         vehicle: vehicle.trim(),
@@ -108,7 +120,8 @@ export function LoadBoard() {
     } catch (err) {
       // The run stops at the first refusal, as before; the message now says which order
       // stopped it and how many had already left. Vehicle, driver and crates stay filled.
-      const reason = err instanceof ApiClientError ? err.message : t("orders.load-board.error");
+      // The server's version number is for the log, not for the loader (FLOOR-4).
+      const reason = err instanceof ApiClientError ? err.message.replace(/\s*\((?:نسخة الطلب|request version): \d+\)\s*$/, "") : t("orders.load-board.error");
       const msg = current
         ? t("orders.load-board.dispatch-failed", {
             order: current.orderNumber,
@@ -125,6 +138,9 @@ export function LoadBoard() {
       } else {
         toast.show(msg, "error");
       }
+      // A refusal usually means the board is behind (another tablet moved the order): fetch now
+      // instead of waiting for the next poll, so a retry sends the current versions.
+      void refetch();
     } finally {
       setBusy(false);
       setProgress(null);
@@ -161,7 +177,9 @@ export function LoadBoard() {
       {upcoming.length > 0 && (
         <div className="mt-6">
           <h2 className="text-sm font-extrabold text-united-muted mb-2">{t("orders.load-board.upcoming-header")}</h2>
-          <div className="flex flex-col gap-3 opacity-80">
+          {/* "Not ready yet" is a muted panel around full-contrast cards, not dimmed text
+              (FLOOR-7: opacity took the cards' text below 4.5:1). */}
+          <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-united-border-strong bg-united-subtle p-2 sm:p-3">
             {upcoming.map((o) => (
               <OrderCard key={o.id} order={o} />
             ))}
@@ -173,22 +191,35 @@ export function LoadBoard() {
         <div className="mt-8 card p-5">
           <h2 className="section-title mb-3 flex items-center gap-2"><Truck size={20} className="text-united-green" aria-hidden />{t("orders.load-board.vehicle-section")}</h2>
           <ul className="flex flex-col gap-2 mb-4">
-            {readyToDispatch.map((o) => (
-              <li key={o.id} className="flex items-center gap-2">
-                <CheckCircle2 size={20} className="shrink-0 text-united-green" aria-hidden />
-                <span className="font-bold flex-1 min-w-0 truncate">{orderCustomerName(o, locale === "en" ? "en" : "ar")}</span>
-                <label className="flex shrink-0 items-center gap-1 text-xs font-semibold text-united-muted">
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    value={crateCounts[o.id] ?? ""}
-                    onChange={(e) => setCrateCounts((c) => ({ ...c, [o.id]: e.target.value }))}
-                    className="w-20 tap-target border-2 border-united-field rounded-lg px-2 text-center focus:border-united-green focus:ring-2 focus:ring-united-green/25 outline-none"
-                  />
-                  {t("orders.load-board.crate-count-placeholder")}
-                </label>
-              </li>
-            ))}
+            {readyToDispatch.map((o) => {
+              const customer = orderCustomerName(o, locale === "en" ? "en" : "ar");
+              return (
+                <li key={o.id} className="flex items-center gap-2">
+                  <CheckCircle2 size={20} className="shrink-0 text-united-green" aria-hidden />
+                  {/* The order number and time tell one customer's orders apart (FLOOR-4). */}
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-bold truncate">{customer}</span>
+                    {/* Wraps rather than truncates, so the delivery time is never cut off on a phone. */}
+                    <span className="flex flex-wrap gap-x-1 text-xs text-united-muted">
+                      <span dir="ltr" className="whitespace-nowrap">{o.orderNumber}</span>
+                      <span aria-hidden>·</span>
+                      <span>{deliverySlot(o.deliveryDate, o.deliveryTime, locale === "en" ? "en" : "ar")}</span>
+                    </span>
+                  </span>
+                  <label className="flex shrink-0 items-center gap-1 text-xs font-semibold text-united-muted">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      value={crateCounts[o.id] ?? ""}
+                      onChange={(e) => setCrateCounts((c) => ({ ...c, [o.id]: e.target.value }))}
+                      aria-label={t("orders.load-board.crate-count-for", { order: o.orderNumber, customer })}
+                      className="w-20 tap-target border-2 border-united-field rounded-lg px-2 text-center focus:border-united-green focus:ring-2 focus:ring-united-green/25 outline-none"
+                    />
+                    <span aria-hidden>{t("orders.load-board.crate-count-placeholder")}</span>
+                  </label>
+                </li>
+              );
+            })}
           </ul>
           <p className="mb-3 font-bold text-united-dark">{t("orders.load-board.total-orders")}: {readyToDispatch.length}</p>
           <Field label={t("orders.load-board.driver-placeholder")} className="mb-3">
@@ -198,9 +229,34 @@ export function LoadBoard() {
             <input value={vehicle} onChange={(e) => setVehicle(e.target.value)} className="field" autoComplete="off" />
           </Field>
           {error && <p role="alert" className="text-united-danger font-bold mb-2">{error}</p>}
-          <button disabled={busy || !canDispatch} onClick={dispatchAll} className="btn-dark w-full text-xl">
-            {progressText ?? t("orders.load-board.dispatch-btn")}
+          {/* aria-disabled, not disabled, while blocked: the button stays focusable so the
+              reasons it is described by are read; dispatchAll() does nothing until they clear. */}
+          <button
+            disabled={busy}
+            aria-disabled={!busy && !canDispatch ? true : undefined}
+            onClick={dispatchAll}
+            aria-describedby={blockedBy.length > 0 ? "dispatch-blocked-hint" : undefined}
+            className={`btn-dark w-full text-xl${!busy && !canDispatch ? " opacity-45 cursor-not-allowed" : ""}`}
+          >
+            {progressParts ? (
+              <span>
+                {progressParts[0]}
+                <span dir="ltr" className="whitespace-nowrap">{progress?.order}</span>
+                {progressParts[1]}
+              </span>
+            ) : (
+              t("orders.load-board.dispatch-btn")
+            )}
           </button>
+          <div role="status">
+            {blockedBy.length > 0 && (
+              <ul id="dispatch-blocked-hint" className="mt-2 text-xs font-bold text-united-muted">
+                {blockedBy.map((m) => (
+                  <li key={m}>{m}</li>
+                ))}
+              </ul>
+            )}
+          </div>
           {/* Announced from a status region beside the button, not from the control itself. */}
           <span role="status" className="sr-only">{progressText ?? ""}</span>
         </div>

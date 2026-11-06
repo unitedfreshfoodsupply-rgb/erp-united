@@ -11,7 +11,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { useToast } from "@/components/ui/Toast";
 import { usePermissions } from "@/lib/use-session";
 import { invalidateStockData } from "@/lib/stockInvalidation";
-import { Field, Tabs, fmtMoney, fmtQty, locationTypeLabel, useLocations, type StockRow } from "./shared";
+import { Field, Qty, Tabs, fmtMoney, locationTypeLabel, useLocations, type StockRow } from "./shared";
 import { Segmented } from "@/components/ui/Segmented";
 import { MoveForms } from "./MoveForms";
 import { ProductCosting } from "./ProductCosting";
@@ -20,6 +20,10 @@ import { useLocale } from "@/lib/locale";
 import { formatNumber, unitLabel } from "@/lib/format";
 import { localName, orderCustomerName } from "@/lib/locale/names";
 import { SortHeader, useSorted } from "@/components/ui/SortableTable";
+import { LiveIndicator } from "@/components/ui/LiveIndicator";
+import { StatusPill, docTone } from "@/components/ui/StatusPill";
+import { ChevronDown } from "lucide-react";
+import type { ReactNode } from "react";
 
 /**
  * The stock controller's screen: what is where, what is free to sell, what is about
@@ -35,6 +39,14 @@ const EXCEPTION_REASON: Record<ExceptionDTO["reason"], string> = {
   unit_mismatch: "stock.exception-unit-mismatch",
   insufficient: "stock.exception-insufficient",
 };
+
+/** A failed background refresh keeps what is on screen (FLOOR-3), as the floor boards do since
+ * PM-4: the cue says the figures are not the latest while polling keeps retrying, and the error
+ * replaces a list only when there is nothing to show. */
+function RefreshCue({ q }: { q: { isError: boolean; data: unknown; dataUpdatedAt: number } }) {
+  if (!q.isError || q.data === undefined) return null;
+  return <LiveIndicator dataUpdatedAt={q.dataUpdatedAt} stale />;
+}
 
 export function InventoryView() {
   const { can, isLoading } = usePermissions();
@@ -99,10 +111,11 @@ function StockList({ onOpen }: { onOpen: (id: string) => void }) {
     return (q.data?.rows ?? []).filter((r) => (!onlyLow || r.belowReorder) && (!f || r.productName.toLowerCase().includes(f) || (r.productNameAr ?? "").includes(f)));
   }, [q.data, filter, onlyLow]);
   if (q.isLoading) return <LoadingState />;
-  if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
+  if (q.isError && !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   const showValue = rows.some((r) => r.stockValue !== null);
   return (
     <div className="flex flex-col gap-3">
+      <RefreshCue q={q} />
       <div className="flex gap-2">
         <input className="field" type="search" aria-label={t("stock.search-placeholder")} placeholder={t("stock.search-placeholder")} value={filter} onChange={(e) => setFilter(e.target.value)} />
         <button type="button" onClick={() => setOnlyLow(!onlyLow)} aria-pressed={onlyLow} className="chip chip-warn">
@@ -118,15 +131,15 @@ function StockList({ onOpen }: { onOpen: (id: string) => void }) {
               <div className="flex items-center justify-between gap-2">
                 <span className="font-extrabold text-united-dark">{localName({ name: r.productName, nameAr: r.productNameAr }, locale)}</span>
                 {r.belowMin ? (
-                  <span className="rounded-full bg-united-danger/10 text-united-danger px-2 text-xs font-extrabold">{t("stock.badge-below-min")}</span>
+                  <StatusPill tone="danger">{t("stock.badge-below-min")}</StatusPill>
                 ) : r.belowReorder ? (
-                  <span className="rounded-full bg-united-warn/10 text-united-warn px-2 text-xs font-extrabold">{t("stock.badge-reorder")}</span>
+                  <StatusPill tone="warn">{t("stock.badge-reorder")}</StatusPill>
                 ) : null}
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">
-                <Stat label={t("stock.stat.on-hand")} value={fmtQty(r.onHand)} />
-                <Stat label={t("stock.stat.reserved")} value={fmtQty(r.reserved)} />
-                <Stat label={t("stock.stat.available")} value={fmtQty(r.available)} strong />
+                <Stat label={t("stock.stat.on-hand")} value={<Qty q={r.onHand} />} />
+                <Stat label={t("stock.stat.reserved")} value={<Qty q={r.reserved} />} />
+                <Stat label={t("stock.stat.available")} value={<Qty q={r.available} />} strong />
               </div>
               <div className="flex justify-between text-xs font-bold text-united-muted">
                 <span>{unitLabel(r.unit)}</span>
@@ -140,11 +153,11 @@ function StockList({ onOpen }: { onOpen: (id: string) => void }) {
   );
 }
 
-function Stat({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+function Stat({ label, value, strong }: { label: string; value: ReactNode; strong?: boolean }) {
   return (
     <div className={`rounded-xl px-2 py-2 ${strong ? "bg-united-green/10" : "bg-united-dark/[0.03]"}`}>
       <div className="text-[11px] font-extrabold text-united-muted">{label}</div>
-      <div dir="ltr" className={`font-extrabold ${strong ? "text-united-green text-lg" : "text-united-dark"}`}>{value}</div>
+      <div className={`font-extrabold ${strong ? "text-united-green text-lg" : "text-united-dark"}`}>{value}</div>
     </div>
   );
 }
@@ -176,17 +189,18 @@ export function ProductStock({ productId }: { productId: string }) {
     refetchInterval: 20_000,
   });
   if (q.isLoading) return <LoadingState />;
-  if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
+  if (!q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   const d = q.data;
   const u = d.product.unit;
   return (
     <div className="flex flex-col gap-4">
+      <RefreshCue q={q} />
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-        <Stat label={t("stock.stat.on-hand")} value={fmtQty(d.onHand, u)} />
-        <Stat label={t("stock.stat.quarantined")} value={fmtQty(d.quarantined, u)} />
-        <Stat label={t("stock.stat.expired")} value={fmtQty(d.expired, u)} />
-        <Stat label={t("stock.stat.reserved")} value={fmtQty(d.reserved, u)} />
-        <Stat label={t("stock.stat.available")} value={fmtQty(d.available, u)} strong />
+        <Stat label={t("stock.stat.on-hand")} value={<Qty q={d.onHand} unit={u} />} />
+        <Stat label={t("stock.stat.quarantined")} value={<Qty q={d.quarantined} unit={u} />} />
+        <Stat label={t("stock.stat.expired")} value={<Qty q={d.expired} unit={u} />} />
+        <Stat label={t("stock.stat.reserved")} value={<Qty q={d.reserved} unit={u} />} />
+        <Stat label={t("stock.stat.available")} value={<Qty q={d.available} unit={u} />} strong />
       </div>
       {d.valuation && (
         <div className="card p-3 flex justify-between font-extrabold">
@@ -246,9 +260,12 @@ function BucketRow({ b, unit, today, canEditLot, productId }: { b: Bucket; unit:
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span dir="ltr" className="font-extrabold">{fmtQty(b.quantity, unit)}</span>
+          <Qty q={b.quantity} unit={unit} className="font-extrabold" />
           {canEditLot && b.lotId && (
-            <button type="button" className="text-xs font-extrabold text-united-green underline" aria-expanded={editing} onClick={() => setEditing(!editing)}>{t("stock.lot-expiry-label")}</button>
+            <button type="button" className="inline-flex min-h-11 items-center gap-0.5 text-xs font-extrabold text-united-green underline" aria-expanded={editing} onClick={() => setEditing(!editing)}>
+              {t("stock.lot-expiry-label")}
+              <ChevronDown size={14} aria-hidden className={`shrink-0 transition-transform ${editing ? "rotate-180" : ""}`} />
+            </button>
           )}
           {b.locationType === "quarantine" && <ReleaseButton productId={productId} bucket={b} />}
         </div>
@@ -294,8 +311,13 @@ function ReservationRow({ r, unit, canRelease }: { r: ProductDetail["reservation
       <div className="flex items-center justify-between text-sm">
         <span className="font-bold">{r.sourceType === "order" ? t("stock.exception-ordered") : t("stock.form-release")} · {r.createdBy}</span>
         <span className="flex items-center gap-2">
-          <span dir="ltr" className="font-extrabold">{fmtQty(r.quantity, unit)}</span>
-          {canRelease && <button type="button" className="text-xs font-extrabold text-united-danger underline" aria-expanded={open} onClick={() => setOpen(!open)}>{t("stock.form-release")}</button>}
+          <Qty q={r.quantity} unit={unit} className="font-extrabold" />
+          {canRelease && (
+            <button type="button" className="inline-flex min-h-11 items-center gap-0.5 text-xs font-extrabold text-united-danger underline" aria-expanded={open} onClick={() => setOpen(!open)}>
+              {t("stock.form-release")}
+              <ChevronDown size={14} aria-hidden className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+            </button>
+          )}
         </span>
       </div>
       {open && (
@@ -393,8 +415,8 @@ function ProductSettings({ d }: { d: ProductDetail }) {
       <h4 className="font-extrabold text-united-dark text-sm">{t("stock.packaging-heading-units", { unit: unitLabel(p.unit) })}</h4>
       <ul className="flex flex-wrap gap-2">
         {p.packagings.map((x) => (
-          <li key={x.id} className="rounded-xl bg-united-dark/5 px-3 py-2 text-sm font-extrabold" dir="ltr">
-            1 {unitLabel(x.uomCode)} = {fmtQty(x.qtyInBaseUnit, p.unit)}{x.active ? "" : ` (${t("stock.suspended")})`}
+          <li key={x.id} className="rounded-xl bg-united-dark/5 px-3 py-2 text-sm font-extrabold">
+            <Qty q={1} unit={x.uomCode} /> = <Qty q={x.qtyInBaseUnit} unit={p.unit} />{x.active ? "" : ` (${t("stock.suspended")})`}
           </li>
         ))}
       </ul>
@@ -426,9 +448,10 @@ function Expiring({ onOpen }: { onOpen: (id: string) => void }) {
     refetchInterval: 60_000,
   });
   if (q.isLoading) return <LoadingState />;
-  if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
+  if (!q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   return (
     <div className="flex flex-col gap-3">
+      <RefreshCue q={q} />
       <Segmented
         value={String(days ?? "default")}
         onChange={(v) => setDays(v === "default" ? null : Number(v))}
@@ -444,7 +467,7 @@ function Expiring({ onOpen }: { onOpen: (id: string) => void }) {
                 <span className="text-xs font-bold text-united-muted">{r.lotNumber} · {r.locationCode}{r.supplier ? ` · ${r.supplier}` : ""}</span>
               </div>
               <div className="flex flex-col items-end">
-                <span dir="ltr" className="font-extrabold">{fmtQty(r.quantity, r.product.unit)}</span>
+                <Qty q={r.quantity} unit={r.product.unit} className="font-extrabold" />
                 <span className={`text-xs font-extrabold ${r.expired ? "text-united-danger" : r.daysLeft <= 1 ? "text-united-warn" : "text-united-muted"}`}>
                   {r.expired ? `${t("stock.expired-since")} ${-r.daysLeft} ${t("stock.tab.days-days")}` : r.daysLeft === 0 ? t("stock.expiring-today") : `${t("stock.expiring-left")} ${r.daysLeft} ${t("stock.tab.days-days")}`}
                 </span>
@@ -480,7 +503,8 @@ function Exceptions() {
       <p className="text-sm font-bold text-united-muted">{t("stock.variance-explain")}</p>
       <Segmented value={status} onChange={setStatus} items={[{ key: "open", label: t("stock.variance-open") }, { key: "resolved", label: t("stock.variance-resolved") }, { key: "voided", label: t("stock.variance-voided") }]} />
       {q.isLoading && <LoadingState />}
-      {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
+      {q.isError && !q.data && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
+      <RefreshCue q={q} />
       {q.data && q.data.exceptions.length === 0 && <EmptyState icon="✅" title={t("stock.empty-variance")} />}
       <ul className="flex flex-col gap-2">
         {q.data?.exceptions.map((x) => (
@@ -499,6 +523,7 @@ function ExceptionCard({ x, canResolve }: { x: ExceptionDTO; canResolve: boolean
   const [action, setAction] = useState<"issue_now" | "close_no_movement">("issue_now");
   const [productId, setProductId] = useState("");
   const [qty, setQty] = useState("");
+  const [busy, setBusy] = useState(false);
   const needsMapping = x.reason !== "insufficient";
   return (
     <li className="card p-4 flex flex-col gap-2">
@@ -508,7 +533,7 @@ function ExceptionCard({ x, canResolve }: { x: ExceptionDTO; canResolve: boolean
       </div>
       <p className="text-sm font-bold text-united-warn">{EXCEPTION_REASON[x.reason] ? t(EXCEPTION_REASON[x.reason]) : x.reason}</p>
       <p className="text-sm font-bold">
-        {t("stock.exception-went-out")} <span dir="ltr">{fmtQty(x.requestedQty, x.unit)}</span> · {t("stock.exception-issued-from-books")} <span dir="ltr">{fmtQty(x.issuedQty, x.unit)}</span>
+        {t("stock.exception-went-out")} <Qty q={x.requestedQty} unit={x.unit} /> · {t("stock.exception-issued-from-books")} <Qty q={x.issuedQty} unit={x.unit} />
         {x.document ? ` · ${x.document.number}` : ""}
       </p>
       {x.resolution && <p className="text-sm text-united-muted font-bold">{t("stock.resolution-solution")}: {x.resolution} {x.resolvedBy ? `— ${x.resolvedBy}` : ""}</p>}
@@ -517,6 +542,9 @@ function ExceptionCard({ x, canResolve }: { x: ExceptionDTO; canResolve: boolean
           className="flex gap-2 flex-wrap"
           onSubmit={async (e) => {
             e.preventDefault();
+            // One request at a time (UXO-7), like the other inline forms here.
+            if (busy) return;
+            setBusy(true);
             try {
               const res = await apiPost<{ pending?: boolean }>(`/api/inventory/exceptions/${x.id}/resolve`, {
                 action,
@@ -528,6 +556,8 @@ function ExceptionCard({ x, canResolve }: { x: ExceptionDTO; canResolve: boolean
               toast.show(res?.pending ? t("stock.exception-close-pending") : t("stock.toast-variance-closed"), "success");
             } catch (err) {
               toast.show(err instanceof ApiClientError ? err.message : t("stock.toast-error"), "error");
+            } finally {
+              setBusy(false);
             }
           }}
         >
@@ -542,7 +572,7 @@ function ExceptionCard({ x, canResolve }: { x: ExceptionDTO; canResolve: boolean
             </>
           )}
           <Field label={t("stock.form-how-solved")}><input className="field" value={text} onChange={(e) => setText(e.target.value)} /></Field>
-          <button className="btn-primary shrink-0">{t("stock.btn-close")}</button>
+          <button className="btn-primary shrink-0" disabled={busy}>{t("stock.btn-close")}</button>
         </form>
       )}
     </li>
@@ -563,17 +593,18 @@ const DOC_TYPE_MAP_EN: Record<string, string> = {
   transfer: "Transfer", adjustment: "Adjustment", scrap: "Scrap", customer_return: "Customer Return", supplier_return: "Supplier Return", issue: "Issue", grading: "Grading", release: "Quarantine release",
 };
 
-const DOC_STATUS_MAP: Record<string, { label: string; cls: string }> = {
-  posted: { label: "متسجل", cls: "bg-united-green/10 text-united-green" },
-  pending_approval: { label: "مستني موافقة", cls: "bg-united-warn/10 text-united-warn" },
-  rejected: { label: "مرفوض", cls: "bg-united-danger/10 text-united-danger" },
-  reversed: { label: "اتلغى", cls: "bg-united-dark/5 text-united-muted" },
+// Labels only: the tone is the kit's docTone (A11Y-3).
+const DOC_STATUS_MAP: Record<string, { label: string }> = {
+  posted: { label: "متسجل" },
+  pending_approval: { label: "مستني موافقة" },
+  rejected: { label: "مرفوض" },
+  reversed: { label: "اتلغى" },
 };
-const DOC_STATUS_MAP_EN: Record<string, { label: string; cls: string }> = {
-  posted: { label: "Posted", cls: "bg-united-green/10 text-united-green" },
-  pending_approval: { label: "Pending Approval", cls: "bg-united-warn/10 text-united-warn" },
-  rejected: { label: "Rejected", cls: "bg-united-danger/10 text-united-danger" },
-  reversed: { label: "Reversed", cls: "bg-united-dark/5 text-united-muted" },
+const DOC_STATUS_MAP_EN: Record<string, { label: string }> = {
+  posted: { label: "Posted" },
+  pending_approval: { label: "Pending Approval" },
+  rejected: { label: "Rejected" },
+  reversed: { label: "Reversed" },
 };
 
 function Documents() {
@@ -605,7 +636,8 @@ function Documents() {
         ]}
       />
       {q.isLoading && <LoadingState />}
-      {q.isError && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
+      {q.isError && !q.data && <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
+      <RefreshCue q={q} />
       {q.data && q.data.documents.length === 0 && <EmptyState icon="🗂️" title={list.active ? t("list.empty-filtered") : t("stock.empty-documents")} />}
       <ul className="flex flex-col gap-2">
         {q.data?.documents.map((d) => (
@@ -625,14 +657,16 @@ function DocumentCard({ d, highlight, canReverse }: { d: DocumentDTO; highlight:
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const dtm = locale === "en" ? DOC_TYPE_MAP_EN : DOC_TYPE_MAP;
-  const st = (locale === "en" ? DOC_STATUS_MAP_EN : DOC_STATUS_MAP)[d.status] ?? { label: d.status, cls: "" };
+  const st = (locale === "en" ? DOC_STATUS_MAP_EN : DOC_STATUS_MAP)[d.status] ?? { label: d.status };
   return (
     <li className={`card p-4 flex flex-col gap-2 ${highlight ? "border-2 border-united-green" : ""}`}>
-      <button type="button" className="flex items-center justify-between gap-2 text-start" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button type="button" className="min-h-11 flex items-center justify-between gap-2 text-start" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="font-extrabold" dir="ltr">{d.number}</span>
         <span className="flex items-center gap-2">
           <span className="text-xs font-bold text-united-muted">{dtm[d.type] ?? d.type} · {d.businessDate}</span>
-          <span className={`rounded-full px-2 text-xs font-extrabold ${st.cls}`}>{st.label}</span>
+          {/* The kit's document tones (A11Y-3): pending approval is warn, reversed neutral. */}
+          <StatusPill tone={docTone(d.status)}>{st.label}</StatusPill>
+          <ChevronDown size={16} aria-hidden className={`shrink-0 text-united-muted transition-transform ${open ? "rotate-180" : ""}`} />
         </span>
       </button>
       {d.reason && <p className="text-sm font-bold text-united-muted">{systemText(d.reason, locale)} — {d.createdBy}</p>}
@@ -642,7 +676,7 @@ function DocumentCard({ d, highlight, canReverse }: { d: DocumentDTO; highlight:
             {d.movements.map((m) => (
               <li key={m.id} className="flex justify-between">
                 <span className="font-bold">{localName(m.product, locale)} · {localName(m.location, locale)}{m.lot ? ` · ${m.lot.lotNumber}` : ""}</span>
-                <span dir="ltr" className="font-extrabold">{fmtQty(m.quantity, m.product.unit)}</span>
+                <Qty q={m.quantity} unit={m.product.unit} className="font-extrabold" />
               </li>
             ))}
             {d.movements.length === 0 && <li className="text-united-muted font-bold">{t("stock.no-movement-yet")}</li>}
@@ -701,9 +735,10 @@ function Valuation() {
   const rows = q.data?.rows ?? [];
   const { sorted, sort, toggle } = useSorted(rows, VALUATION_SORT(locale), { key: "value", dir: "desc" });
   if (q.isLoading) return <LoadingState />;
-  if (q.isError || !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
+  if (!q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   return (
     <div className="flex flex-col gap-3">
+      <RefreshCue q={q} />
       <div className="card p-4 flex justify-between font-extrabold text-lg">
         <span>{t("stock.val-total-title")}</span>
         <span dir="ltr">{fmtMoney(q.data.totalValue)}</span>
@@ -726,10 +761,10 @@ function Valuation() {
               <tr key={r.productId}>
                 <td className="font-medium">{localName({ name: r.productName, nameAr: r.productNameAr }, locale)}</td>
                 <td className="whitespace-nowrap text-united-muted">{["avco", "fifo", "standard"].includes(r.costingMethod) ? t(`stock.costing.${r.costingMethod}` as "stock.costing.avco") : r.costingMethod}</td>
-                <td className="num" dir="ltr">{fmtQty(r.quantity, r.unit)}</td>
+                <td className="num"><Qty q={r.quantity} unit={r.unit} /></td>
                 <td className="num" dir="ltr">{r.averageCost == null ? "—" : formatNumber(r.averageCost, { minDp: 2, maxDp: 4 })}</td>
                 <td className="num font-semibold" dir="ltr">{fmtMoney(r.value)}</td>
-                <td className="num" dir="ltr">{Number(r.receivedWithoutCost) > 0 ? fmtQty(r.receivedWithoutCost, r.unit) : "—"}</td>
+                <td className="num">{Number(r.receivedWithoutCost) > 0 ? <Qty q={r.receivedWithoutCost} unit={r.unit} /> : "—"}</td>
               </tr>
             ))}
           </tbody>

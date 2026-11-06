@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiPost, apiPatch, ApiClientError } from "@/lib/api-client";
 import { apiFetch } from "@/lib/api-client";
@@ -191,14 +192,15 @@ function ProductCard({ product, canManage }: { product: StockProductDTO; canMana
             )}
           </div>
           <div className="flex flex-wrap gap-x-3 text-xs font-bold text-united-muted mt-0.5">
-            <span dir="ltr">{t("stock.label-unit")} {unitLabel(product.unit)}</span>
-            {product.sku && <span dir="ltr">{t("stock.label-code")} {product.sku}</span>}
+            <span>{t("stock.label-unit")} {unitLabel(product.unit)}</span>
+            {product.sku && <span>{t("stock.label-code")} <span dir="ltr">{product.sku}</span></span>}
             {product.category && <span>{product.category}</span>}
             {product._count && <span>{product._count.orderItems} {t("stock.label-order-lines")}</span>}
           </div>
         </div>
-        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="btn-secondary text-xs px-3">
+        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="btn-secondary text-xs px-3 gap-1">
           {open ? t("stock.action-hide") : t("stock.action-toggle-aliases", { n: manualAliases.length })}
+          <ChevronDown size={14} aria-hidden className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
         </button>
       </div>
 

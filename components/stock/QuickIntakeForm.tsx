@@ -2,6 +2,7 @@
 
 import { ErrorState } from "@/components/States";
 import { forwardRef, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { useToast } from "@/components/ui/Toast";
@@ -133,6 +134,27 @@ export function QuickIntakeForm({ date }: { date: string }) {
 
   const rejectedTooHigh =
     receivedKg !== "" && rejectedKg !== "" && Number(rejectedKg) > Number(receivedKg) * factor;
+  // Each field that adds to an over-deduction is flagged, not an empty one (FLOOR-10).
+  const overRejected = rejectedTooHigh || (splitTooHigh && Number(rejectedKg) > 0);
+  // Rejected above received is the cause on its own: only that field is flagged then, and it
+  // points at the one message on screen.
+  const overGradeB = !rejectedTooHigh && splitTooHigh && Number(gradeBKg) > 0;
+  const overWaste = !rejectedTooHigh && splitTooHigh && Number(wasteKg) > 0;
+  const gradeBProductMissing = Number(gradeBKg) > 0 && !gradeBProductId;
+  // Why "record" is still grey (FLOOR-9), in the words the submit refusals use.
+  const blockedBy = busy
+    ? null
+    : !(Number(receivedKg) > 0)
+      ? t("stock.enter-received-qty")
+      : rejectedTooHigh
+        ? t("stock.rejected-too-high")
+        : splitTooHigh
+          ? t("stock.split-exceeds-received")
+          : !preview
+            ? t("stock.split-quantities-positive")
+            : gradeBProductMissing
+              ? t("grading.needs-grade-b-product")
+              : null;
 
   // Only a successful empty answer means setup is missing — a failed request is an error, not "no suppliers".
   const setupIncomplete = suppliersQ.isSuccess && productsQ.isSuccess && (suppliers.length === 0 || products.length === 0);
@@ -160,6 +182,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
     const wst = wasteKg === "" ? 0 : Number(wasteKg);
     if (!Number.isFinite(gb) || gb < 0 || !Number.isFinite(wst) || wst < 0) return refuse(t("stock.split-quantities-positive"));
     if (x + gb + wst > r * factor) return refuse(t("stock.split-exceeds-received"));
+    if (gradeBProductMissing) return refuse(t("grading.needs-grade-b-product"));
 
     setBusy(true);
     try {
@@ -189,7 +212,10 @@ export function QuickIntakeForm({ date }: { date: string }) {
       });
       setSubmitKey(newClientKey());
       await invalidateStockData(qc);
-      toast.show(`${t("stock.logged")} ${intake.receiptNumber} · ${fmtKg(intake.goodKg)} ${baseUnit}${intake.lot ? ` · ${intake.lot.lotNumber}` : ""}${poLine ? ` · ${poLine.poNumber}` : ""}`, "success");
+      // Plain text, so each Latin run (receipt, quantity, lot, PO) is isolated (LRI…PDI):
+      // otherwise the quantity's digits join the receipt number and its unit lands on the far side.
+      const iso = (s: string) => `\u2066${s}\u2069`;
+      toast.show(`${t("stock.logged")} ${iso(intake.receiptNumber)} · ${iso(fmtKg(intake.goodKg))} ${unitLabel(baseUnit)}${intake.lot ? ` · ${iso(intake.lot.lotNumber)}` : ""}${poLine ? ` · ${iso(poLine.poNumber)}` : ""}`, "success");
       if (poLineId) qc.invalidateQueries({ queryKey: ["purchasing"] });
       // Keep supplier/product — the next delivery is usually from the same truck.
       setReceivedKg("");
@@ -276,7 +302,7 @@ export function QuickIntakeForm({ date }: { date: string }) {
 
       {packagings.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {[{ code: "", label: t("stock.packaging-unit", { unit: unitLabel(baseUnit) }) }, ...packagings.map((p) => ({ code: p.uomCode, label: `${t("stock.packaging-in")} ${localName(p.uom, locale)} (${Number(p.qtyInBaseUnit)} ${baseUnit})` }))].map((o) => (
+          {[{ code: "", label: t("stock.packaging-unit", { unit: unitLabel(baseUnit) }) }, ...packagings.map((p) => ({ code: p.uomCode, label: `${t("stock.packaging-in")} ${localName(p.uom, locale)} (${Number(p.qtyInBaseUnit)} ${unitLabel(baseUnit)})` }))].map((o) => (
             <button
               key={o.code}
               type="button"
@@ -303,19 +329,22 @@ export function QuickIntakeForm({ date }: { date: string }) {
           label={t("stock.rejected-sort-k")}
           value={rejectedKg}
           onChange={setRejectedKg}
-          invalid={rejectedTooHigh}
+          invalid={overRejected}
+          describedBy={rejectedTooHigh ? "intake-rejected-msg" : overRejected ? "intake-split-msg" : undefined}
         />
         <NumberField
           label={t("stock.grade-b-desc-k")}
           value={gradeBKg}
           onChange={setGradeBKg}
-          invalid={splitTooHigh}
+          invalid={overGradeB}
+          describedBy={overGradeB ? "intake-split-msg" : undefined}
         />
         <NumberField
           label={t("stock.waste-k")}
           value={wasteKg}
           onChange={setWasteKg}
-          invalid={splitTooHigh}
+          invalid={overWaste}
+          describedBy={overWaste ? "intake-split-msg" : undefined}
         />
         <div className="flex flex-col gap-1">
           <span className="text-xs font-extrabold text-united-muted">{t("stock.good-output-k")}</span>
@@ -327,22 +356,28 @@ export function QuickIntakeForm({ date }: { date: string }) {
         </div>
       </div>
 
-      {splitTooHigh && (
-        <p className="text-[11px] font-bold text-united-danger">
+      {/* Tied to the fields it is about and announced as it appears (FLOOR-10). */}
+      {rejectedTooHigh ? (
+        <p id="intake-rejected-msg" role="alert" className="text-[11px] font-bold text-united-danger">
+          {t("stock.rejected-too-high")}
+        </p>
+      ) : splitTooHigh ? (
+        <p id="intake-split-msg" role="alert" className="text-[11px] font-bold text-united-danger">
           {t("stock.split-exceeds-received")}
         </p>
-      )}
+      ) : null}
 
       {Number(gradeBKg) > 0 && (
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-extrabold text-united-muted">{t("stock.grade-b-product-hint")}</span>
+          {/* Shown only once there is grade B, so it is required here (FLOOR-15). */}
+          <span className="text-xs font-extrabold text-united-muted">{t("stock.grade-b-product-label")} {t("stock.grade-b-product-required")}</span>
           <select
             className="field"
             value={gradeBProductId}
             onChange={(e) => setGradeBProductId(e.target.value)}
-           aria-label={t("stock.grade-b-choose")} required>
+           aria-label={t("stock.grade-b-product-label")} required>
             {/* Grade B is its own product with its own price: it is never kept on the first-grade product. */}
-            <option value="" disabled>{t("stock.grade-b-choose")}</option>
+            <option value="" disabled>{t("stock.grade-b-choose-short")}</option>
             {products
               .filter((p) => p.stockTracked && p.unit === "KG" && p.id !== productId)
               .map((p) => (
@@ -381,8 +416,9 @@ export function QuickIntakeForm({ date }: { date: string }) {
         </div>
       )}
 
-      <button type="button" className="min-h-10 text-sm font-extrabold text-united-green self-start underline" onClick={() => setShowMore(!showMore)}>
+      <button type="button" aria-expanded={showMore} className="min-h-11 inline-flex items-center gap-1 text-sm font-extrabold text-united-green self-start underline" onClick={() => setShowMore(!showMore)}>
         {showMore ? t("stock.hide-details") : t("stock.more-details-btn")}
+        <ChevronDown size={16} aria-hidden className={`shrink-0 transition-transform ${showMore ? "rotate-180" : ""}`} />
       </button>
       {showMore && (
         <div className="grid grid-cols-2 gap-3">
@@ -401,9 +437,23 @@ export function QuickIntakeForm({ date }: { date: string }) {
         <input value={notes} onChange={(e) => setNotes(e.target.value)} className="field" />
       </Field>
 
-      <button type="submit" disabled={busy || !preview || (Number(gradeBKg) > 0 && !gradeBProductId)} className="btn-primary w-full text-lg">
+      {/* aria-disabled, not disabled, while blocked: the button stays focusable so the hint it
+          is described by is read; submit() refuses with the same words. Disabled only while busy. */}
+      <button
+        type="submit"
+        disabled={busy}
+        aria-disabled={!busy && (!preview || gradeBProductMissing) ? true : undefined}
+        aria-describedby={blockedBy ? "intake-blocked-hint" : undefined}
+        className={`btn-primary w-full text-lg${!busy && (!preview || gradeBProductMissing) ? " opacity-45 cursor-not-allowed" : ""}`}
+      >
         {busy ? t("stock.saving") : t("stock.record-intake")}
       </button>
+      {/* Why the button is still grey (FLOOR-9), as the grading form says it (UXO-11). */}
+      {blockedBy && (
+        <p id="intake-blocked-hint" role="status" className="-mt-2 text-[11px] font-bold text-united-muted">
+          {blockedBy}
+        </p>
+      )}
     </form>
   );
 }
@@ -465,9 +515,11 @@ const NumberField = forwardRef<
     onChange: (v: string) => void;
     integer?: boolean;
     invalid?: boolean;
+    /** The message about this field, when there is one (aria-describedby). */
+    describedBy?: string;
     autoFocusable?: boolean;
   }
->(function NumberField({ label, value, onChange, integer, invalid, autoFocusable }, ref) {
+>(function NumberField({ label, value, onChange, integer, invalid, describedBy, autoFocusable }, ref) {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-xs font-extrabold text-united-muted">{label}</span>
@@ -483,6 +535,7 @@ const NumberField = forwardRef<
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
         className={`tap-target w-full text-center text-2xl font-extrabold border-2 rounded-xl outline-none transition focus:ring-2 focus:ring-united-green/25 ${
           invalid ? "border-united-danger bg-[#FDECEA]" : "border-united-field focus:border-united-green"
         }`}

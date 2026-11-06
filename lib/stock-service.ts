@@ -1170,50 +1170,91 @@ export function startOfMonth(dateISO: string) {
   return `${dateISO.slice(0, 7)}-01`;
 }
 
+/** One supplier's receipts in one base unit: kg are added to kg, pieces to pieces (UXO-10). */
+export type SupplierUnitPerformance = {
+  unit: string;
+  intakeCount: number;
+  received: number;
+  rejected: number;
+  good: number;
+  yieldPct: number | null;
+};
+
 export type SupplierPerformance = {
   supplierId: string;
   supplierName: string;
   supplierNameAr: string | null;
   intakeCount: number;
+  /** Sums over every unit (kept for existing readers; a screen shows `byUnit`, since kg and
+   * pieces do not add up). */
   receivedKg: number;
   rejectedKg: number;
   goodKg: number;
   yieldPct: number | null;
   lastDeliveryDate: string | null;
+  /** The same figures per base unit, kg first (UXO-10). */
+  byUnit: SupplierUnitPerformance[];
 };
+
+type SupplierUnitSums = { supplierId: string; unit: string; received: Prisma.Decimal | null; good: Prisma.Decimal | null; rejected: Prisma.Decimal | null; count: number; last: string | null };
 
 /**
  * Supplier performance over a window, built only from receipts that were actually
  * recorded. No scoring, no ranking bonus, no estimated figures: a supplier with two
  * deliveries shows two deliveries, and one with none does not appear at all.
+ *
+ * The receipts are summed per supplier and base unit in one statement (UXO-10): a supplier of
+ * kg and of pieces shows a received figure and a yield per unit, never one sum across them.
  */
 export async function supplierPerformance(from: string, to: string): Promise<SupplierPerformance[]> {
   const [grouped, suppliers] = await Promise.all([
-    prisma.stockIntake.groupBy({
-      by: ["supplierId"],
-      where: { status: "posted", receivedDate: { gte: from, lte: to } },
-      _sum: { receivedQty: true, rejectedQty: true, goodQty: true },
-      _count: { _all: true },
-      _max: { receivedDate: true },
-    }),
+    prisma.$queryRaw<SupplierUnitSums[]>`
+      SELECT i."supplierId" AS "supplierId", p."unit" AS unit,
+             SUM(i."receivedQty") AS received, SUM(i."goodQty") AS good, SUM(i."rejectedQty") AS rejected,
+             COUNT(*)::int AS count, MAX(i."receivedDate") AS last
+        FROM "StockIntake" i JOIN "StockProduct" p ON p."id" = i."productId"
+       WHERE i."status" = 'posted' AND i."receivedDate" >= ${from} AND i."receivedDate" <= ${to}
+       GROUP BY i."supplierId", p."unit"`,
     prisma.supplier.findMany({ select: { id: true, name: true, nameAr: true } }),
   ]);
   const nameById = new Map(suppliers.map((s) => [s.id, s.name]));
   const nameArById = new Map(suppliers.map((s) => [s.id, s.nameAr]));
-  return grouped
-    .map((g) => {
-      const receivedKg = num(g._sum.receivedQty);
-      const goodKg = num(g._sum.goodQty);
+  const bySupplier = new Map<string, SupplierUnitSums[]>();
+  for (const g of grouped) {
+    const list = bySupplier.get(g.supplierId);
+    if (list) list.push(g);
+    else bySupplier.set(g.supplierId, [g]);
+  }
+  return [...bySupplier]
+    .map(([supplierId, rows]) => {
+      let received = D(0), good = D(0), rejected = D(0), count = 0;
+      let last: string | null = null;
+      for (const r of rows) {
+        received = received.plus(D(r.received ?? 0));
+        good = good.plus(D(r.good ?? 0));
+        rejected = rejected.plus(D(r.rejected ?? 0));
+        count += r.count;
+        if (r.last && (!last || r.last > last)) last = r.last;
+      }
+      const receivedKg = num(received);
+      const goodKg = num(good);
       return {
-        supplierId: g.supplierId,
-        supplierName: nameById.get(g.supplierId) ?? "—",
-        supplierNameAr: nameArById.get(g.supplierId) ?? null,
-        intakeCount: g._count._all,
+        supplierId,
+        supplierName: nameById.get(supplierId) ?? "—",
+        supplierNameAr: nameArById.get(supplierId) ?? null,
+        intakeCount: count,
         receivedKg,
-        rejectedKg: num(g._sum.rejectedQty),
+        rejectedKg: num(rejected),
         goodKg,
         yieldPct: yieldPct(receivedKg, goodKg),
-        lastDeliveryDate: g._max.receivedDate ?? null,
+        lastDeliveryDate: last,
+        byUnit: rows
+          .map((r) => {
+            const unitReceived = num(D(r.received ?? 0));
+            const unitGood = num(D(r.good ?? 0));
+            return { unit: r.unit, intakeCount: r.count, received: unitReceived, rejected: num(D(r.rejected ?? 0)), good: unitGood, yieldPct: yieldPct(unitReceived, unitGood) };
+          })
+          .sort(byUnitOrder),
       };
     })
     .sort((a, b) => b.receivedKg - a.receivedKg);

@@ -6,8 +6,8 @@ import type { QueryClient } from "@tanstack/react-query";
  * This deliberately does NOT await anything and is NOT how the screen updates. The
  * screen is already correct by the time this runs, because the mutation response was
  * written into the cache (see lib/orderCache.ts). This only marks the derived,
- * server-computed views — production totals, the daily report, the audit timeline —
- * as stale so they refresh on their own.
+ * server-computed views — production totals and the picking sheet, the daily report, the
+ * audit timeline — as stale so they refresh on their own.
  *
  * Awaiting a fan-out of invalidations was the single biggest source of the "every
  * click reloads the whole screen" feeling: it turned one round trip into four, with
@@ -16,7 +16,10 @@ import type { QueryClient } from "@tanstack/react-query";
 export function invalidateDerivedOrderData(qc: QueryClient, orderId?: string) {
   // refetchType "active" so only queries currently mounted go to the network; the rest
   // are simply marked stale and will refetch if and when a screen needs them.
-  void qc.invalidateQueries({ queryKey: ["production"], refetchType: "active" });
+  // Production totals: the production board computes them from its order list (PC-5), and the
+  // picking sheet has its own query. The old ["production"] key had no reader left.
+  void qc.invalidateQueries({ queryKey: ["orders", "production"], refetchType: "active" });
+  void qc.invalidateQueries({ queryKey: ["picking-sheet"], refetchType: "active" });
   void qc.invalidateQueries({ queryKey: ["report"], refetchType: "active" });
   if (orderId) void qc.invalidateQueries({ queryKey: ["audit", orderId], refetchType: "active" });
   void qc.invalidateQueries({ queryKey: ["audit", "all"], refetchType: "active" });

@@ -104,7 +104,7 @@ export function NotificationBell() {
         aria-controls={open ? panelId : undefined}
         aria-label={unread > 0 ? t("ui.notifications.count", { n: unread }) : t("ui.notifications")}
         dir={dir}
-        className="relative w-10 h-10 rounded-xl text-united-dark hover:bg-united-subtle grid place-items-center"
+        className="relative w-11 h-11 rounded-xl text-united-dark hover:bg-united-subtle grid place-items-center"
       >
         <Bell size={20} strokeWidth={1.75} aria-hidden />
         {unread > 0 && (

@@ -85,6 +85,37 @@ test("receipts and the balance are totalled per unit; the all-unit figures are u
   assert.ok(Math.abs(d.stockTotalsByUnit.reduce((s, u) => s + u.balance, 0) - d.totalStockKg) < 0.002);
 });
 
+test("supplier performance is per supplier and unit: kg and pieces are never one 'kg received' (UXO-10)", async () => {
+  // The receipts of the first test: 300 (20 waste) + 100 (10 rejected) kg today, 50 kg 3 days
+  // ago and 4 kg 6 days ago (in the month unless the month began after them), 200 + 7 pieces.
+  const from = startOfMonth(day);
+  const d = await stockDashboard(day);
+  const perf = d.supplierPerformance.find((p) => p.supplierId === supplierId);
+  assert.ok(perf, "the supplier is listed");
+  const units = new Map(perf.byUnit.map((u) => [u.unit, u]));
+  assert.deepEqual([...units.keys()], ["KG", "PIECE"], "kg first, one entry per unit");
+  // Each unit's figures are that unit's receipts only, compared with a plain aggregate.
+  for (const [unit, productId] of [["KG", kg], ["PIECE", pieces]] as const) {
+    const a = await prisma.stockIntake.aggregate({
+      where: { status: "posted", supplierId, productId, receivedDate: { gte: from, lte: day } },
+      _sum: { receivedQty: true, rejectedQty: true, goodQty: true },
+      _count: { _all: true },
+    });
+    const u = units.get(unit);
+    assert.deepEqual(
+      u && { received: u.received, rejected: u.rejected, good: u.good, intakeCount: u.intakeCount },
+      { received: Number(a._sum.receivedQty ?? 0), rejected: Number(a._sum.rejectedQty ?? 0), good: Number(a._sum.goodQty ?? 0), intakeCount: a._count._all },
+      unit
+    );
+    assert.equal(u?.yieldPct, yieldPct(u!.received, u!.good), unit);
+  }
+  assert.ok((units.get("PIECE")?.received ?? 0) >= 200);
+  // The all-unit fields stay what they were: the sums of the parts.
+  assert.equal(perf.receivedKg, perf.byUnit.reduce((s, u) => s + u.received, 0));
+  assert.equal(perf.intakeCount, perf.byUnit.reduce((s, u) => s + u.intakeCount, 0));
+  assert.equal(perf.lastDeliveryDate, day);
+});
+
 test("waste awaiting write-off and quarantined stock are on hand but not available (the inventory module's rule)", async () => {
   const d = await stockDashboard(day);
   const row = d.currentStock.find((s) => s.productId === kg);

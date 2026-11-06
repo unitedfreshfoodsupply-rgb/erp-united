@@ -16,6 +16,7 @@ import { useLocale } from "@/lib/locale";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { localName } from "@/lib/locale/names";
 import { Field } from "@/components/ui/Field";
+import { QtyUnit } from "@/components/stock/QtyUnit";
 
 export function LedgerView() {
   const { t, locale } = useLocale();
@@ -56,9 +57,7 @@ export function LedgerView() {
       {selected && (
         <div className="card p-4 flex items-center justify-between">
           <span className="font-semibold text-united-dark">{t("ledger.balance-of", { name: localName({ name: selected.productName, nameAr: selected.productNameAr }, locale) })}</span>
-          <span dir="ltr" className="text-2xl font-bold text-united-green">
-            {fmtKg(selected.balanceKg)} {unitLabel(selected.unit)}
-          </span>
+          <QtyUnit value={fmtKg(selected.balanceKg)} unit={selected.unit} className="text-2xl font-bold text-united-green" />
         </div>
       )}
 

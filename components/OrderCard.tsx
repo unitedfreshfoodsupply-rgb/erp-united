@@ -3,12 +3,13 @@ import { AlertTriangle, ArrowRight, Clock, Hourglass, OctagonAlert, PackageX, Pa
 import type { OrderDTO } from "@/lib/client-types";
 import { StatusBadge } from "./StatusBadge";
 import { orderUrgency, hasActiveProblem, isWaitingTooLong, isStalledInProgress } from "@/lib/orderPresentation";
-import { deliverySlot, qty, agoLabel, unitLabel } from "@/lib/format";
+import { deliverySlot, qty, agoLabel } from "@/lib/format";
 import { nextAction, rollUpQuantities, shortageSummary, stageOf } from "@/lib/orderSummary";
 import { SOURCE_LABEL, SOURCE_LABEL_EN } from "@/lib/auditLabels";
 import { useOperationalSettings } from "@/lib/use-operational-settings";
 import { useLocale } from "@/lib/locale";
 import { orderCustomerName } from "@/lib/locale/names";
+import { QtyUnit } from "@/components/stock/QtyUnit";
 
 /**
  * One order, as an operator needs to read it in a second: who it is for, when it is
@@ -79,7 +80,7 @@ export function OrderCard({ order }: { order: OrderDTO }) {
       </div>
       {stage !== "done" && stage !== "cancelled" && remaining > 0 && roll.singleUnit && (
         <div className="mt-1 text-xs text-united-muted">
-          {t("order.remaining")} <span dir="ltr" className="font-semibold text-united-dark">{qty(remaining)} {unitLabel(roll.singleUnit)}</span>{" "}
+          {t("order.remaining")} <QtyUnit value={qty(remaining)} unit={roll.singleUnit} className="font-semibold text-united-dark" />{" "}
           {isLoadingStage ? t("order.loading") : t("order.prep")}
         </div>
       )}
