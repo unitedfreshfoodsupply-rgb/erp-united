@@ -36,7 +36,14 @@ export function Providers({ children, locale = "ar" }: { children: React.ReactNo
             // moment it is shown again (refetchOnWindowFocus). The wall-screen boards that chime
             // (prep, load, supervisor, exceptions) keep polling even hidden: they say so on
             // their own query with refetchIntervalInBackground.
-            retry: 1,
+            // One more try for a failure that may pass (network, server fault, timeout, rate
+            // limit); none for a refusal — a permission, a missing record, a refused filter
+            // answer the same the second time, and the retry only delayed the message.
+            retry: (failures, error) => {
+              const status = (error as { status?: number } | null)?.status;
+              if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) return false;
+              return failures < 1;
+            },
           },
         },
       })

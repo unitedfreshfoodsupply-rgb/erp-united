@@ -34,3 +34,19 @@ export function replaceQuery(params: URLSearchParams) {
   const qs = params.toString();
   window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`);
 }
+
+/**
+ * The page a signed-out visitor asked for (`?next=` on /login, set by lib/session-guard.ts and the
+ * API client's 401 handler), when it is a page of this app: a same-origin path, never another site
+ * ("//host", "/\\host", "https://…") and never the sign-in steps themselves. Null otherwise.
+ */
+export function returnPath(next: string | null | undefined, origin: string): string | null {
+  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return null;
+  try {
+    const url = new URL(next, origin);
+    if (url.origin !== origin || url.pathname === "/login" || url.pathname.startsWith("/mfa")) return null;
+    return url.pathname + url.search + url.hash;
+  } catch {
+    return null;
+  }
+}

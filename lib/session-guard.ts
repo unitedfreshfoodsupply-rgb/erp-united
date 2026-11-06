@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { getAuthContext, isMfaEnrollmentPending, type AuthContext } from "@/lib/authz";
 import { homePathFor } from "@/lib/nav";
 import type { Permission } from "@/lib/permissions";
@@ -7,9 +8,15 @@ import { HOME_BY_ROLE } from "@/lib/types";
 export { HOME_BY_ROLE };
 
 /** Where a visitor without a usable session goes: the sign-in form, or — when the
- * session is held until a second factor is set up (WS6) — the enrolment page. */
+ * session is held until a second factor is set up (WS6) — the enrolment page. The sign-in
+ * form is told which page was asked for (?next=, from the path middleware.ts records), so a
+ * shared link or a notification opens that page once the visitor has signed in. */
 export async function signInPath(): Promise<string> {
-  return (await isMfaEnrollmentPending()) ? "/mfa/setup" : "/login";
+  if (await isMfaEnrollmentPending()) return "/mfa/setup";
+  const asked = headers().get("x-united-path");
+  return asked && asked !== "/" && asked.startsWith("/") && !asked.startsWith("//") && !asked.startsWith("/login")
+    ? `/login?next=${encodeURIComponent(asked)}`
+    : "/login";
 }
 
 export type PageGate =

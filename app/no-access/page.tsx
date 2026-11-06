@@ -1,4 +1,3 @@
-import { Nav } from "@/components/Nav";
 import { AccessDenied } from "@/components/AccessDenied";
 import { getAuthContext } from "@/lib/authz";
 import { redirect } from "next/navigation";
@@ -8,10 +7,6 @@ import { redirect } from "next/navigation";
 export default async function NoAccessPage() {
   const user = await getAuthContext();
   if (!user) redirect("/login");
-  return (
-    <main className="min-h-screen">
-      <Nav />
-      <AccessDenied role={user.role} homeHref="/no-access" />
-    </main>
-  );
+  // The card brings the shell (header, sign-out) with it.
+  return <AccessDenied role={user.role} homeHref="/no-access" />;
 }

@@ -18,6 +18,11 @@ export function middleware(req: NextRequest) {
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", csp);
+  // The page asked for, so a signed-out visitor can be sent back to it after signing in
+  // (lib/session-guard.ts). Always overwritten here: a client cannot supply its own.
+  const asked = req.nextUrl.clone();
+  asked.searchParams.delete("_rsc");
+  requestHeaders.set("x-united-path", asked.pathname + asked.search);
   const res = NextResponse.next({ request: { headers: requestHeaders } });
   // An attachment download carries its own, stricter policy (sandbox; default-src 'none'):
   // user-uploaded bytes must never run with the app's script policy. Leave it in charge.

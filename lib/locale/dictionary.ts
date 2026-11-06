@@ -122,6 +122,7 @@ const ui = {
   "ui.reason-label": { ar: "السبب", en: "Reason" },
   "ui.nav.main": { ar: "التنقل الرئيسي", en: "Main navigation" },
   "ui.nav.open-menu": { ar: "افتح القائمة", en: "Open menu" },
+  "ui.skip-to-content": { ar: "روح للمحتوى على طول", en: "Skip to content" },
   "alerts.new-order": { ar: "أوردر جديد: {customer} ({number})", en: "New order: {customer} ({number})" },
   "alerts.ready-for-loading": { ar: "جاهز للتحميل: {customer} ({number})", en: "Ready for loading: {customer} ({number})" },
   "alerts.needs-review": { ar: "محتاج مراجعتك: {customer} ({number})", en: "Needs your review: {customer} ({number})" },

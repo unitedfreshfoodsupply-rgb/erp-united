@@ -7,6 +7,9 @@ import { apiFetch, apiPost, ApiClientError } from "@/lib/api-client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocale } from "@/lib/locale";
 import type { Role } from "@/lib/types";
+import type { SessionUserDTO } from "@/lib/use-session";
+import { rememberShellShape, shellShapeFor } from "@/lib/hooks/shellHint";
+import { returnPath } from "@/lib/hooks/urlQuery";
 
 type LoginResponse = {
   user?: { role: Role; mustChangePassword?: boolean };
@@ -47,10 +50,26 @@ export default function LoginPage() {
     if (r.token && typeof window !== "undefined") {
       window.sessionStorage.setItem("united_token", r.token);
     }
-    await qc.invalidateQueries({ queryKey: ["session"] });
-    // "/" resolves the landing page from the user's actual permissions on the server;
-    // a role that must use two-step sign-in sets it up first.
-    router.push(r.mfa_enrollment_required ? "/mfa/setup" : "/");
+    if (r.mfa_enrollment_required) {
+      await qc.invalidateQueries({ queryKey: ["session"] });
+      // A role that must use two-step sign-in sets it up first.
+      router.push("/mfa/setup");
+      return;
+    }
+    // The session is read once here, into the cache the next page's header uses, so that page
+    // shows its shell at once; and its shape (sidebar or tabs) is remembered before the page
+    // opens, so a first sign-in on this browser, or another person's on a shared one, does not
+    // jump when the header arrives.
+    try {
+      const s = await qc.fetchQuery({ queryKey: ["session"], queryFn: () => apiFetch<{ user: SessionUserDTO | null }>("/api/auth/me"), staleTime: 0 });
+      if (s?.user) rememberShellShape(shellShapeFor(s.user.permissions));
+    } catch {
+      // The next page asks for the session itself.
+      qc.removeQueries({ queryKey: ["session"] });
+    }
+    // Back to the page that sent the visitor here; otherwise "/" resolves the landing page
+    // from the user's actual permissions on the server.
+    router.push(returnPath(new URLSearchParams(window.location.search).get("next"), window.location.origin) ?? "/");
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -108,6 +127,8 @@ export default function LoginPage() {
                 autoFocus
                 required
                 autoComplete="username"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? "login-error" : undefined}
               />
             </label>
 
@@ -120,6 +141,8 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 autoComplete="current-password"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? "login-error" : undefined}
               />
             </label>
           </>
@@ -138,6 +161,8 @@ export default function LoginPage() {
                 maxLength={useRecovery ? 16 : 7}
                 autoFocus
                 required
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? "login-error" : undefined}
               />
             </label>
             <div className="flex flex-wrap justify-between gap-2 text-sm">
@@ -158,8 +183,9 @@ export default function LoginPage() {
           </>
         )}
 
+        {/* Announced when it appears (focus stays in the field), and tied to the fields below. */}
         {error && (
-          <div className="bg-united-danger/10 text-united-danger font-bold text-sm text-center rounded-xl px-4 py-3">
+          <div id="login-error" role="alert" className="bg-united-danger/10 text-united-danger font-bold text-sm text-center rounded-xl px-4 py-3">
             {error}
           </div>
         )}
