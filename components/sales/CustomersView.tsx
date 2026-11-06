@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { systemText } from "@/lib/locale/system-text";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPatch, apiPost, ApiClientError, errorMessage } from "@/lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
@@ -54,6 +54,9 @@ export function CustomersView() {
   const [invoiceTab, setInvoiceTab] = useState<InvoiceTab | undefined>(undefined);
   const [invoiceId, setInvoiceId] = useState<string | null>(null);
   const { can } = usePermissions();
+  const dialogs = useDialogs();
+  // The new-order tab holds typed lines: leaving it asks first, as the supervisor board does (ORD-04).
+  const orderDirty = useRef(false);
   const openCustomer = (id: string) => router.push(profileHref.customer(id));
   // Deep links (reports, statements, home shortcuts): ?customer=<id> (older links) goes to the
   // customer's profile, ?invoice=<id> opens an invoice, ?tab=invoices&itab=aging a tab.
@@ -78,7 +81,13 @@ export function CustomersView() {
       <h1 className="page-title">{t("sales.title")}</h1>
       <Tabs
         value={tab}
-        onChange={(t) => { setTab(t as typeof tab); setInvoiceId(null); }}
+        onChange={async (next) => {
+          if (tab === "order" && next !== "order" && orderDirty.current
+            && !(await dialogs.confirm({ title: t("create.discard-title"), body: t("create.discard-body"), confirmLabel: t("create.discard-confirm"), cancelLabel: t("create.discard-keep"), tone: "danger" }))) return;
+          if (next !== "order") orderDirty.current = false;
+          setTab(next as typeof tab);
+          setInvoiceId(null);
+        }}
         items={[
           { key: "list", label: t("sales.tab.all") },
           { key: "unmapped", label: t("sales.tab.unmapped"), badge: unmapped.data?.names.length },
@@ -98,7 +107,7 @@ export function CustomersView() {
       ) : tab === "prices" ? (
         <PriceListsView />
       ) : tab === "order" ? (
-        <CreateOrderForm onDone={() => setTab("list")} />
+        <CreateOrderForm onDone={() => { orderDirty.current = false; setTab("list"); }} onDirtyChange={(d) => { orderDirty.current = d; }} />
       ) : tab === "unmapped" ? (
         <Unmapped names={unmapped.data?.names ?? []} loading={unmapped.isLoading} />
       ) : (
@@ -524,6 +533,8 @@ function CustomerPriceList({ c, canEdit, onSaved }: { c: CustomerDetail; canEdit
 function Exposure({ id }: { id: string }) {
   const { t } = useLocale();
   const q = useQuery({ queryKey: ["sales", "customer", id, "exposure"], queryFn: () => apiFetch<{ openOrders: string; receivable: string; exposure: string; available: string | null; unpricedLines: number }>(`/api/sales/customers/${id}/exposure`) });
+  // A failed read says so, with a retry, instead of the line silently missing (PS-3).
+  if (q.isError && !q.data) return <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />;
   if (!q.data) return null;
   const e = q.data;
   return (

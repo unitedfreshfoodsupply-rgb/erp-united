@@ -10,7 +10,11 @@ type ToastKind = "success" | "error" | "info";
 type ToastItem = { id: number; kind: ToastKind; text: string; href?: string; time: string };
 type ShowOptions = { kind?: ToastKind; href?: string };
 
-const ToastContext = createContext<{ show: (text: string, opts?: ToastKind | ShowOptions) => void } | null>(
+const ToastContext = createContext<{
+  show: (text: string, opts?: ToastKind | ShowOptions) => void;
+  /** Take back an error that no longer holds (the user fixed what it was about). */
+  clear: (text: string) => void;
+} | null>(
   null
 );
 
@@ -65,6 +69,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     });
   }, [dismiss]);
 
+  const clear = useCallback((text: string) => setToasts((all) => all.filter((x) => !(x.kind === "error" && x.text === text))), []);
+
   const render = (x: ToastItem) => {
     const Icon = KIND_ICON[x.kind];
     const body = (
@@ -97,7 +103,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <ToastContext.Provider value={{ show }}>
+    <ToastContext.Provider value={{ show, clear }}>
       {children}
       <div className="fixed bottom-20 sm:bottom-6 inset-x-0 z-50 flex flex-col items-center gap-2 pointer-events-none px-4">
         {/* Errors are announced at once, the rest politely. Both regions stay mounted, so a

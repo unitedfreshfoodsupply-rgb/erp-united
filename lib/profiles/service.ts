@@ -38,6 +38,8 @@ export type ProfileRow = {
   delivered?: string | null;
   price?: string | null;
   amount?: string | null;
+  /** A priced viewer's order with no line priced yet: its amount is not a value of 0 (ORD-08). */
+  unpriced?: boolean;
   open?: string | null;
   href: string | null;
   /** A second document the row belongs to (the invoice of a credit note, the order of an issue). */
@@ -88,6 +90,7 @@ async function customerOrders(id: string, can: Can, w: Window): Promise<Source> 
       // lines | prepared | loaded | trip | delivery (the screen spells these out)
       detail: [o.items.length, prepared, loaded, o.tripStops[0]?.trip.number ?? "", o.tripStops[0]?.status ?? ""].join("|"),
       amount: priced ? m2(valueOfLines(o.items)) : null,
+      ...(priced && o.items.length > 0 && o.items.every((i) => !i.price) ? { unpriced: true } : {}),
       href: linkFor(can, href.order(o.id)),
     });
   }
